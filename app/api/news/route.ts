@@ -1,3 +1,5 @@
+import { getChatGPTUser } from "../../chatgpt-auth";
+
 const GOOGLE_NEWS_RSS = "https://news.google.com/rss/search";
 const GDELT_DOC_API = "https://api.gdeltproject.org/api/v2/doc/doc";
 const MAX_FEED_BYTES = 1_500_000;
@@ -199,6 +201,14 @@ async function getGdeltNews(topics: string[], limit: number) {
 }
 
 export async function GET(request: Request) {
+  const user = await getChatGPTUser();
+  if (!user) {
+    return Response.json(
+      { error: "Sign in with ChatGPT to use Signal." },
+      { status: 401, headers: { "Cache-Control": "private, no-store" } },
+    );
+  }
+
   const { searchParams } = new URL(request.url);
   const topic = (searchParams.get("topic") ?? "Artificial intelligence").trim().slice(0, 80);
   const topics = searchParams.getAll("topic").map((value) => value.trim().slice(0, 80)).filter(Boolean);
@@ -226,7 +236,7 @@ export async function GET(request: Request) {
 
     return Response.json(
       { topic, ...result, fetchedAt: new Date().toISOString() },
-      { headers: { "Cache-Control": "public, max-age=120, s-maxage=300" } },
+      { headers: { "Cache-Control": "private, max-age=120" } },
     );
   } catch (error) {
     console.error("News fetch failed", error);

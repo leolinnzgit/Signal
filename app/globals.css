@@ -67,6 +67,60 @@ main {
   color: rgba(23, 24, 21, 0.65);
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: clamp(1rem, 2.5vw, 2.2rem);
+}
+
+.current-user {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding-left: clamp(1rem, 2.5vw, 2.2rem);
+  border-left: 1px solid var(--line);
+}
+
+.user-avatar {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: 1rem;
+}
+
+.user-identity {
+  display: grid;
+  gap: 0.05rem;
+  max-width: 13rem;
+}
+
+.user-identity strong,
+.user-identity small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-identity strong { font-size: 0.7rem; font-weight: 700; }
+.user-identity small { color: rgba(23, 24, 21, 0.52); font-size: 0.6rem; }
+
+.current-user a {
+  color: var(--red);
+  font-size: 0.63rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.current-user a:hover { text-decoration: underline; text-underline-offset: 0.2rem; }
+
 .pulse, .footer-dot {
   width: 7px;
   height: 7px;
@@ -531,6 +585,14 @@ footer a { color: var(--paper); text-decoration: none; }
   .site-header { min-height: 68px; }
   .live-status { font-size: 0; }
   .live-status::after { content: "Live"; font-size: 0.64rem; }
+  .header-actions { gap: 0; }
+  .header-actions .live-status { display: none; }
+  .current-user { gap: 0.45rem; padding-left: 0; border-left: 0; }
+  .user-avatar { width: 1.75rem; height: 1.75rem; }
+  .user-identity { max-width: 7rem; }
+  .user-identity strong { font-size: 0.62rem; }
+  .user-identity small { display: none; }
+  .current-user a { font-size: 0.58rem; }
   .hero { padding-top: 3.5rem; }
   .hero h1 { font-size: clamp(3.6rem, 19vw, 5.5rem); }
   .lede { margin-top: 2rem; }
