@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type Article = {
   title: string;
@@ -8,6 +8,10 @@ type Article = {
   source: string;
   publishedAt: string;
   summary: string;
+};
+
+type FollowedArticle = Article & {
+  topics: string[];
 };
 
 type FeedResponse = {
@@ -18,18 +22,19 @@ type FeedResponse = {
 };
 
 type Preferences = {
-  topic: string;
+  topics: string[];
   limit: number;
   refreshMinutes: number;
 };
 
 const DEFAULTS: Preferences = {
-  topic: "Artificial intelligence",
+  topics: ["Artificial intelligence"],
   limit: 6,
   refreshMinutes: 15,
 };
 
 const STORAGE_KEY = "signal-news-preferences";
+const ALL_TOPICS = "all";
 
 function ArrowIcon() {
   return <span aria-hidden="true" className="arrow">&#8599;</span>;
@@ -49,16 +54,25 @@ function formatAge(value: string) {
   if (diffMinutes < 60) return `${diffMinutes}m ago`;
   const hours = Math.round(diffMinutes / 60);
   if (hours < 24) return `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  return `${days}d ago`;
+  return `${Math.round(hours / 24)}d ago`;
 }
 
 function readPreferences(): Preferences {
   if (typeof window === "undefined") return DEFAULTS;
   try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}") as Partial<Preferences>;
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}") as Partial<Preferences> & { topic?: string };
+    const savedTopics = Array.isArray(saved.topics)
+      ? saved.topics.filter((topic): topic is string => typeof topic === "string" && Boolean(topic.trim()))
+      : typeof saved.topic === "string" && saved.topic.trim()
+        ? [saved.topic.trim()]
+        : DEFAULTS.topics;
+
+    const topics = savedTopics.filter(
+      (topic, index) => savedTopics.findIndex((candidate) => candidate.toLowerCase() === topic.toLowerCase()) === index,
+    );
+
     return {
-      topic: typeof saved.topic === "string" && saved.topic.trim() ? saved.topic : DEFAULTS.topic,
+      topics,
       limit: Math.min(10, Math.max(1, Number(saved.limit) || DEFAULTS.limit)),
       refreshMinutes: [0, 5, 15, 30, 60].includes(Number(saved.refreshMinutes))
         ? Number(saved.refreshMinutes)
@@ -71,45 +85,99 @@ function readPreferences(): Preferences {
 
 export default function Home() {
   const [preferences, setPreferences] = useState<Preferences>(DEFAULTS);
-  const [topicInput, setTopicInput] = useState(DEFAULTS.topic);
-  const [articles, setArticles] = useState<Article[]>([]);
-  const [fetchedAt, setFetchedAt] = useState<string>("");
+  const [topicInput, setTopicInput] = useState("");
+  const [selectedTopic, setSelectedTopic] = useState(ALL_TOPICS);
+  const [articles, setArticles] = useState<FollowedArticle[]>([]);
+  const [fetchedAt, setFetchedAt] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [ready, setReady] = useState(false);
+  const requestSequence = useRef(0);
 
   useEffect(() => {
-    const saved = readPreferences();
-    setPreferences(saved);
-    setTopicInput(saved.topic);
+    setPreferences(readPreferences());
     setReady(true);
   }, []);
 
   const loadNews = useCallback(async (next: Preferences, quiet = false) => {
+    const runId = ++requestSequence.current;
     if (!quiet) setLoading(true);
     setError("");
-    try {
-      const params = new URLSearchParams({ topic: next.topic, limit: String(next.limit) });
-      const response = await fetch(`/api/news?${params.toString()}`, { cache: "no-store" });
-      const data = (await response.json()) as FeedResponse;
-      if (!response.ok) throw new Error(data.error || "The news feed could not be reached.");
-      setArticles(data.articles);
-      setFetchedAt(data.fetchedAt);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "The news feed could not be reached.");
-    } finally {
+    setNotice("");
+
+    if (next.topics.length === 0) {
+      setArticles([]);
+      setFetchedAt("");
       setLoading(false);
+      return;
+    }
+
+    try {
+      const results = await Promise.allSettled(
+        next.topics.map(async (topic) => {
+          const params = new URLSearchParams({ topic, limit: String(next.limit) });
+          const response = await fetch(`/api/news?${params.toString()}`, { cache: "no-store" });
+          const data = (await response.json()) as FeedResponse;
+          if (!response.ok) throw new Error(data.error || `Could not refresh ${topic}.`);
+          return data;
+        }),
+      );
+
+      if (runId !== requestSequence.current) return;
+      const successful = results
+        .filter((result): result is PromiseFulfilledResult<FeedResponse> => result.status === "fulfilled")
+        .map((result) => result.value);
+
+      if (successful.length === 0) throw new Error("The news feeds could not be reached.");
+
+      const merged = new Map<string, FollowedArticle>();
+      successful.forEach((feed) => {
+        feed.articles.forEach((article) => {
+          const key = article.url || article.title;
+          const existing = merged.get(key);
+          if (existing) {
+            existing.topics = Array.from(new Set([...existing.topics, feed.topic]));
+          } else {
+            merged.set(key, { ...article, topics: [feed.topic] });
+          }
+        });
+      });
+
+      setArticles(
+        Array.from(merged.values()).sort(
+          (left, right) => new Date(right.publishedAt).getTime() - new Date(left.publishedAt).getTime(),
+        ),
+      );
+      setFetchedAt(
+        successful.map((feed) => feed.fetchedAt).sort((left, right) => right.localeCompare(left))[0] ?? "",
+      );
+
+      const failedCount = results.length - successful.length;
+      if (failedCount > 0) {
+        setNotice(`${failedCount} ${failedCount === 1 ? "topic" : "topics"} could not be refreshed this time.`);
+      }
+    } catch (caught) {
+      if (runId === requestSequence.current) {
+        setError(caught instanceof Error ? caught.message : "The news feeds could not be reached.");
+      }
+    } finally {
+      if (runId === requestSequence.current) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     if (!ready) return;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(preferences));
-    void loadNews(preferences);
-  }, [preferences.topic, preferences.limit, ready, loadNews]);
+  }, [preferences, ready]);
 
   useEffect(() => {
-    if (!ready || preferences.refreshMinutes === 0) return;
+    if (!ready) return;
+    void loadNews(preferences);
+  }, [preferences.topics, preferences.limit, ready, loadNews]);
+
+  useEffect(() => {
+    if (!ready || preferences.refreshMinutes === 0 || preferences.topics.length === 0) return;
     const interval = window.setInterval(
       () => void loadNews(preferences, true),
       preferences.refreshMinutes * 60_000,
@@ -117,18 +185,52 @@ export default function Home() {
     return () => window.clearInterval(interval);
   }, [preferences, ready, loadNews]);
 
-  const sources = useMemo(() => new Set(articles.map((article) => article.source)).size, [articles]);
+  const filteredArticles = useMemo(
+    () => selectedTopic === ALL_TOPICS
+      ? articles
+      : articles.filter((article) => article.topics.includes(selectedTopic)),
+    [articles, selectedTopic],
+  );
+
+  const topicCounts = useMemo(
+    () => Object.fromEntries(
+      preferences.topics.map((topic) => [topic, articles.filter((article) => article.topics.includes(topic)).length]),
+    ),
+    [articles, preferences.topics],
+  );
+
+  const sources = useMemo(
+    () => new Set(filteredArticles.map((article) => article.source)).size,
+    [filteredArticles],
+  );
 
   function submitTopic(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const topic = topicInput.trim();
+    const topic = topicInput.trim().replace(/\s+/g, " ");
     if (!topic) return;
-    if (topic === preferences.topic) {
-      void loadNews(preferences);
+
+    const existing = preferences.topics.find((followed) => followed.toLowerCase() === topic.toLowerCase());
+    if (existing) {
+      setSelectedTopic(existing);
+      setNotice(`You already follow ${existing}.`);
+      setTopicInput("");
       return;
     }
-    setPreferences((current) => ({ ...current, topic }));
+
+    setPreferences((current) => ({ ...current, topics: [...current.topics, topic] }));
+    setSelectedTopic(topic);
+    setTopicInput("");
   }
+
+  function removeTopic(topic: string) {
+    setPreferences((current) => ({
+      ...current,
+      topics: current.topics.filter((followed) => followed !== topic),
+    }));
+    if (selectedTopic === topic) setSelectedTopic(ALL_TOPICS);
+  }
+
+  const feedTitle = selectedTopic === ALL_TOPICS ? "All followed topics" : selectedTopic;
 
   return (
     <main>
@@ -145,34 +247,54 @@ export default function Home() {
 
       <section className="hero" id="top">
         <div className="hero-copy">
-          <p className="eyebrow">Your interest, continuously monitored</p>
+          <p className="eyebrow">Your interests, continuously monitored</p>
           <h1>Stay current on<br /><em>what matters.</em></h1>
           <p className="lede">
-            A focused stream of recent reporting, gathered around the subject you choose.
+            One focused briefing for every subject you care about. Add topics as your interests expand.
           </p>
         </div>
 
-        <form className="control-panel" onSubmit={submitTopic}>
-          <div className="field topic-field">
-            <label htmlFor="topic">I want to follow</label>
-            <div className="topic-input-wrap">
-              <input
-                id="topic"
-                maxLength={80}
-                value={topicInput}
-                onChange={(event) => setTopicInput(event.target.value)}
-                placeholder="e.g. renewable energy"
-                autoComplete="off"
-              />
-              <button type="submit" aria-label="Update topic">
-                Follow <span aria-hidden="true">&#8594;</span>
-              </button>
+        <div className="control-panel">
+          <form onSubmit={submitTopic}>
+            <div className="field topic-field">
+              <label htmlFor="topic">Add a topic to follow</label>
+              <div className="topic-input-wrap">
+                <input
+                  id="topic"
+                  maxLength={80}
+                  value={topicInput}
+                  onChange={(event) => setTopicInput(event.target.value)}
+                  placeholder="e.g. renewable energy"
+                  autoComplete="off"
+                />
+                <button type="submit" aria-label="Add topic">
+                  Add <span aria-hidden="true">&#43;</span>
+                </button>
+              </div>
             </div>
+          </form>
+
+          <div className="followed-topics">
+            <p className="panel-label">Following {preferences.topics.length}</p>
+            {preferences.topics.length > 0 ? (
+              <ul>
+                {preferences.topics.map((topic) => (
+                  <li key={topic}>
+                    <span>{topic}</span>
+                    <button type="button" onClick={() => removeTopic(topic)} aria-label={`Stop following ${topic}`}>
+                      &#215;
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="no-topics">Add your first topic to start the briefing.</p>
+            )}
           </div>
 
           <div className="settings-row">
             <div className="field compact-field">
-              <label htmlFor="story-limit">Stories</label>
+              <label htmlFor="story-limit">Stories per topic</label>
               <select
                 id="story-limit"
                 value={preferences.limit}
@@ -188,11 +310,10 @@ export default function Home() {
               <select
                 id="refresh-rate"
                 value={preferences.refreshMinutes}
-                onChange={(event) => {
-                  const refreshMinutes = Number(event.target.value);
-                  setPreferences((current) => ({ ...current, refreshMinutes }));
-                  localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...preferences, refreshMinutes }));
-                }}
+                onChange={(event) => setPreferences((current) => ({
+                  ...current,
+                  refreshMinutes: Number(event.target.value),
+                }))}
               >
                 <option value={0}>Manual</option>
                 <option value={5}>Every 5 min</option>
@@ -202,27 +323,61 @@ export default function Home() {
               </select>
             </div>
           </div>
-          <p className="settings-note">Your settings are saved on this device.</p>
-        </form>
+          <p className="settings-note">Your followed topics and settings are saved on this device.</p>
+        </div>
       </section>
 
       <section className="feed" aria-labelledby="feed-title">
         <div className="feed-heading">
           <div>
             <p className="eyebrow">Latest signal</p>
-            <h2 id="feed-title">{preferences.topic}</h2>
+            <h2 id="feed-title">{feedTitle}</h2>
           </div>
           <div className="feed-actions">
             <div className="feed-meta" aria-live="polite">
-              {fetchedAt ? `${articles.length} stories · ${sources} sources · updated ${formatAge(fetchedAt)}` : "Gathering recent coverage"}
+              {fetchedAt
+                ? `${filteredArticles.length} stories · ${sources} sources · updated ${formatAge(fetchedAt)}`
+                : preferences.topics.length > 0 ? "Gathering recent coverage" : "No topics followed yet"}
             </div>
-            <button className="refresh-button" onClick={() => void loadNews(preferences)} disabled={loading}>
+            <button className="refresh-button" onClick={() => void loadNews(preferences)} disabled={loading || preferences.topics.length === 0}>
               <RefreshIcon spinning={loading} /> Refresh
             </button>
           </div>
         </div>
 
-        {error ? (
+        {preferences.topics.length > 0 && (
+          <nav className="topic-filters" aria-label="Filter stories by followed topic">
+            <button
+              type="button"
+              className={selectedTopic === ALL_TOPICS ? "active" : ""}
+              aria-pressed={selectedTopic === ALL_TOPICS}
+              onClick={() => setSelectedTopic(ALL_TOPICS)}
+            >
+              All <span>{articles.length}</span>
+            </button>
+            {preferences.topics.map((topic) => (
+              <button
+                type="button"
+                key={topic}
+                className={selectedTopic === topic ? "active" : ""}
+                aria-pressed={selectedTopic === topic}
+                onClick={() => setSelectedTopic(topic)}
+              >
+                {topic} <span>{topicCounts[topic] ?? 0}</span>
+              </button>
+            ))}
+          </nav>
+        )}
+
+        {notice && <p className="feed-notice" role="status">{notice}</p>}
+
+        {preferences.topics.length === 0 ? (
+          <div className="message-card">
+            <p className="message-kicker">Your briefing is empty</p>
+            <h3>Add a topic to begin.</h3>
+            <p>Your followed topics will appear here as filters, with everything combined under All.</p>
+          </div>
+        ) : error ? (
           <div className="message-card" role="alert">
             <p className="message-kicker">The signal dropped</p>
             <h3>We couldn&apos;t gather the latest stories.</h3>
@@ -233,7 +388,7 @@ export default function Home() {
           <div className="loading-list" aria-label="Loading recent stories">
             {Array.from({ length: 4 }, (_, index) => <div className="loading-row" key={index} />)}
           </div>
-        ) : articles.length === 0 ? (
+        ) : filteredArticles.length === 0 ? (
           <div className="message-card">
             <p className="message-kicker">No coverage found</p>
             <h3>Try a broader topic.</h3>
@@ -241,12 +396,13 @@ export default function Home() {
           </div>
         ) : (
           <ol className="story-list">
-            {articles.map((article, index) => (
-              <li key={`${article.url}-${index}`}>
+            {filteredArticles.map((article, index) => (
+              <li key={article.url || `${article.title}-${index}`}>
                 <a href={article.url} target="_blank" rel="noreferrer" className="story-link">
                   <span className="story-number">{String(index + 1).padStart(2, "0")}</span>
                   <article>
                     <div className="story-meta">
+                      <span className="story-topic">{article.topics.join(" + ")}</span>
                       <span>{article.source}</span>
                       <span>{formatAge(article.publishedAt)}</span>
                     </div>

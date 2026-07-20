@@ -184,6 +184,54 @@ main {
 .topic-input-wrap:focus-within { border-color: #f08b76; }
 .compact-field select:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid #e86552; outline-offset: 3px; }
 
+.followed-topics {
+  padding: 1.4rem 0 0;
+}
+
+.panel-label {
+  margin: 0 0 0.7rem;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: rgba(244, 240, 231, 0.58);
+}
+
+.followed-topics ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.followed-topics li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.5rem 0.45rem 0.5rem 0.75rem;
+  border: 1px solid rgba(244, 240, 231, 0.22);
+  background: #262723;
+  color: var(--paper);
+  font-size: 0.75rem;
+}
+
+.followed-topics li button {
+  display: grid;
+  width: 1.35rem;
+  height: 1.35rem;
+  place-items: center;
+  border: 0;
+  background: rgba(244, 240, 231, 0.08);
+  color: rgba(244, 240, 231, 0.65);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.followed-topics li button:hover { background: var(--red); color: white; }
+.no-topics { margin: 0; color: rgba(244, 240, 231, 0.48); font-size: 0.76rem; }
+
 .settings-note {
   margin: 1.2rem 0 0;
   font-size: 0.67rem;
@@ -217,6 +265,51 @@ main {
 
 .feed-actions { display: flex; align-items: center; gap: 1.4rem; flex-shrink: 0; }
 .feed-meta { max-width: 15rem; text-align: right; font-size: 0.7rem; line-height: 1.5; color: rgba(23, 24, 21, 0.58); }
+
+.topic-filters {
+  display: flex;
+  gap: 0.55rem;
+  overflow-x: auto;
+  padding: 1.2rem 0;
+  border-bottom: 1px solid var(--line);
+  scrollbar-width: thin;
+}
+
+.topic-filters button {
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: rgba(23, 24, 21, 0.68);
+  padding: 0.62rem 0.8rem;
+  cursor: pointer;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.topic-filters button span {
+  margin-left: 0.35rem;
+  color: var(--red);
+  font-variant-numeric: tabular-nums;
+}
+
+.topic-filters button:hover,
+.topic-filters button.active {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.topic-filters button.active span { color: #f08b76; }
+
+.feed-notice {
+  margin: 1.2rem 0 0;
+  padding: 0.7rem 0.9rem;
+  border-left: 3px solid var(--red);
+  background: rgba(200, 63, 50, 0.07);
+  color: rgba(23, 24, 21, 0.7);
+  font-size: 0.75rem;
+}
 
 .refresh-button {
   border: 1px solid var(--ink);
@@ -258,6 +351,7 @@ main {
 .story-meta { display: flex; align-items: center; gap: 0.7rem; margin-bottom: 0.75rem; }
 .story-meta span { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.13em; font-weight: 700; color: var(--sage); }
 .story-meta span + span::before { content: ""; display: inline-block; width: 3px; height: 3px; margin-right: 0.7rem; border-radius: 50%; background: var(--sage); vertical-align: middle; }
+.story-meta .story-topic { color: var(--red); }
 
 .story-link h3 {
   max-width: 950px;
@@ -320,10 +414,13 @@ footer a { color: var(--paper); text-decoration: none; }
   .topic-input-wrap { grid-template-columns: 1fr; }
   .topic-input-wrap button { justify-self: start; padding-left: 0; }
   .settings-row { grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+  .compact-field label { min-height: 2.1em; }
   .feed-actions { align-items: start; flex-direction: column; gap: 0.8rem; }
+  .topic-filters { margin-right: -1.25rem; padding-right: 1.25rem; }
   .story-link { grid-template-columns: 2rem minmax(0, 1fr); gap: 0.7rem; }
   .story-link .arrow { display: none; }
   .story-link p { display: none; }
+  .story-meta { flex-wrap: wrap; row-gap: 0.3rem; }
   footer { flex-direction: column; }
 }
 
