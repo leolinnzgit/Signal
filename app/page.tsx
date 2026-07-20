@@ -9,7 +9,7 @@ export default async function Home() {
   return (
     <NewsDashboard
       user={user}
-      signOutPath={chatGPTSignOutPath("/")}
+      signOutPath={user.isLocalPreview ? null : chatGPTSignOutPath("/")}
     />
   );
 }

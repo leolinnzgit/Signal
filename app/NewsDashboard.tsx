@@ -115,8 +115,9 @@ type NewsDashboardProps = {
     displayName: string;
     email: string;
     fullName: string | null;
+    isLocalPreview: boolean;
   };
-  signOutPath: string;
+  signOutPath: string | null;
 };
 
 export default function NewsDashboard({ user, signOutPath }: NewsDashboardProps) {
@@ -352,7 +353,7 @@ export default function NewsDashboard({ user, signOutPath }: NewsDashboardProps)
               <strong>{user.displayName}</strong>
               {user.fullName && <small>{user.email}</small>}
             </span>
-            <a href={signOutPath}>Sign out</a>
+            {signOutPath ? <a href={signOutPath}>Sign out</a> : <span className="preview-session">Preview</span>}
           </div>
         </div>
       </header>

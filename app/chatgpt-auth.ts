@@ -5,6 +5,7 @@ export type ChatGPTUser = {
   displayName: string;
   email: string;
   fullName: string | null;
+  isLocalPreview: boolean;
 };
 
 const USER_EMAIL_HEADER = "oai-authenticated-user-email";
@@ -19,7 +20,19 @@ const CALLBACK_PATH = "/callback";
 export async function getChatGPTUser(): Promise<ChatGPTUser | null> {
   const requestHeaders = await headers();
   const email = requestHeaders.get(USER_EMAIL_HEADER);
-  if (!email) return null;
+  if (!email) {
+    const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host") ?? "";
+    const isLocalHost = /^(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(host);
+    if (process.env.NODE_ENV !== "production" && isLocalHost) {
+      return {
+        displayName: "Local preview",
+        email: "preview@localhost",
+        fullName: "Local preview",
+        isLocalPreview: true,
+      };
+    }
+    return null;
+  }
 
   const encodedFullName = requestHeaders.get(USER_FULL_NAME_HEADER);
   const fullName =
@@ -32,6 +45,7 @@ export async function getChatGPTUser(): Promise<ChatGPTUser | null> {
     displayName: fullName ?? email,
     email,
     fullName,
+    isLocalPreview: false,
   };
 }
 
