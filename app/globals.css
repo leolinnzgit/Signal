@@ -136,7 +136,7 @@ main {
   padding: 2rem;
   background:
     radial-gradient(circle at 18% 12%, rgba(194, 58, 45, 0.12), transparent 28rem),
-    var(--cream);
+    var(--paper);
 }
 
 .preview-auth-card {
@@ -182,7 +182,7 @@ main {
   padding: 0.8rem 1.15rem;
   border-radius: 999px;
   background: var(--ink);
-  color: var(--cream);
+  color: var(--paper);
   font-size: 0.76rem;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -190,6 +190,13 @@ main {
 }
 
 .preview-auth-action:hover { background: var(--red); }
+
+.preview-auth-note {
+  display: block;
+  margin-top: 0.85rem;
+  color: var(--sage);
+  font-size: 0.68rem;
+}
 
 .pulse, .footer-dot {
   width: 7px;

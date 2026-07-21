@@ -39,11 +39,14 @@ function LocalPreviewSignedOut() {
         <p className="preview-auth-eyebrow">Local development</p>
         <h1 id="preview-auth-title">You’re signed out.</h1>
         <p>
-          Hosted authentication is provided by Sites. This local screen lets you
-          test the signed-out state without impersonating the production identity
-          provider.
+          ChatGPT sign-in is provided by Sites on the hosted URL and cannot run
+          on localhost. You can re-enter this development build with its local
+          preview identity.
         </p>
-        <Link className="preview-auth-action" href="/">Enter local preview</Link>
+        <Link className="preview-auth-action" href="/">Sign in to local preview</Link>
+        <small className="preview-auth-note">
+          This local preview does not use your ChatGPT account.
+        </small>
       </section>
     </main>
   );
