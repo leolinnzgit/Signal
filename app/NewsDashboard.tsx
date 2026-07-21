@@ -24,20 +24,33 @@ type FeedResponse = {
   error?: string;
 };
 
-type SourcePreferences = {
+type NewsRequest = {
+  topics: string[];
+  provider: "google" | "gdelt" | "rss";
+  feed?: string;
+  sourceKey: string;
+  sourceLabel: string;
+};
+
+export type SourcePreferences = {
   google: boolean;
   gdelt: boolean;
   rssFeeds: string[];
 };
 
-type Preferences = {
+export type NewsPreferences = {
   topics: string[];
   limit: number;
   refreshMinutes: number;
   sources: SourcePreferences;
 };
 
-const DEFAULTS: Preferences = {
+export type PreferencesStore = {
+  load: () => Promise<{ exists: boolean; preferences: NewsPreferences }>;
+  save: (preferences: NewsPreferences) => Promise<NewsPreferences>;
+};
+
+const DEFAULTS: NewsPreferences = {
   topics: ["Artificial intelligence"],
   limit: 6,
   refreshMinutes: 15,
@@ -45,6 +58,8 @@ const DEFAULTS: Preferences = {
 };
 
 const STORAGE_KEY = "signal-news-preferences";
+const PENDING_STORAGE_KEY = "signal-news-preferences-pending";
+const CONTROLS_STORAGE_KEY = "signal-briefing-controls-expanded";
 const ALL_TOPICS = "all";
 const ALL_PROVIDERS = "all";
 
@@ -77,36 +92,85 @@ function articleKey(article: Article) {
   return article.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() || article.url;
 }
 
-function readPreferences(): Preferences {
-  if (typeof window === "undefined") return DEFAULTS;
-  try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}") as Partial<Preferences> & { topic?: string };
-    const savedTopics = Array.isArray(saved.topics)
-      ? saved.topics.filter((topic): topic is string => typeof topic === "string" && Boolean(topic.trim()))
-      : typeof saved.topic === "string" && saved.topic.trim()
-        ? [saved.topic.trim()]
-        : DEFAULTS.topics;
-    const topics = savedTopics.filter(
-      (topic, index) => savedTopics.findIndex((candidate) => candidate.toLowerCase() === topic.toLowerCase()) === index,
-    );
-    const rssFeeds = Array.isArray(saved.sources?.rssFeeds)
-      ? saved.sources.rssFeeds.filter((feed): feed is string => typeof feed === "string" && feed.startsWith("https://"))
-      : [];
+function providerPriority(provider: string) {
+  if (provider.startsWith("RSS / ")) return 0;
+  if (provider === "GDELT") return 1;
+  return 2;
+}
 
+function selectBalancedArticles(candidates: FollowedArticle[], limit: number) {
+  const providers = Array.from(new Set(candidates.flatMap((article) => article.providers)))
+    .sort((left, right) => providerPriority(left) - providerPriority(right));
+  const selected = new Set<string>();
+
+  // Give every available source a turn before taking another story from it.
+  // Direct publisher feeds go first so aggregators cannot crowd them out.
+  let addedInRound = true;
+  while (selected.size < limit && addedInRound) {
+    addedInRound = false;
+    for (const provider of providers) {
+      const next = candidates.find(
+        (article) => article.providers.includes(provider) && !selected.has(articleKey(article)),
+      );
+      if (!next) continue;
+      selected.add(articleKey(next));
+      addedInRound = true;
+      if (selected.size === limit) break;
+    }
+  }
+
+  for (const article of candidates) {
+    if (selected.size === limit) break;
+    selected.add(articleKey(article));
+  }
+  return candidates.filter((article) => selected.has(articleKey(article)));
+}
+
+function summarizeSources(labels: string[]) {
+  if (labels.length <= 3) return labels.join(", ");
+  return `${labels.slice(0, 3).join(", ")} and ${labels.length - 3} more`;
+}
+
+function normalizePreferences(saved: Partial<NewsPreferences> & { topic?: string }): NewsPreferences {
+  const savedTopics = Array.isArray(saved.topics)
+    ? saved.topics
+      .filter((topic): topic is string => typeof topic === "string" && Boolean(topic.trim()))
+      .map((topic) => topic.trim().replace(/\s+/g, " ").slice(0, 80))
+    : typeof saved.topic === "string" && saved.topic.trim()
+      ? [saved.topic.trim()]
+      : DEFAULTS.topics;
+  const topics = savedTopics
+    .filter((topic, index) => savedTopics.findIndex((candidate) => candidate.toLowerCase() === topic.toLowerCase()) === index)
+    .slice(0, 20);
+  const rssFeeds = Array.isArray(saved.sources?.rssFeeds)
+    ? saved.sources.rssFeeds.filter((feed): feed is string => typeof feed === "string" && feed.startsWith("https://"))
+    : [];
+
+  return {
+    topics,
+    limit: Math.min(10, Math.max(1, Number(saved.limit) || DEFAULTS.limit)),
+    refreshMinutes: [0, 5, 15, 30, 60].includes(Number(saved.refreshMinutes))
+      ? Number(saved.refreshMinutes)
+      : DEFAULTS.refreshMinutes,
+    sources: {
+      google: typeof saved.sources?.google === "boolean" ? saved.sources.google : true,
+      gdelt: typeof saved.sources?.gdelt === "boolean" ? saved.sources.gdelt : true,
+      rssFeeds: Array.from(new Set(rssFeeds)).slice(0, 20),
+    },
+  };
+}
+
+function readStoredPreferences(key: string) {
+  if (typeof window === "undefined") return { exists: false, preferences: DEFAULTS };
+  const raw = localStorage.getItem(key);
+  if (raw === null) return { exists: false, preferences: DEFAULTS };
+  try {
     return {
-      topics,
-      limit: Math.min(10, Math.max(1, Number(saved.limit) || DEFAULTS.limit)),
-      refreshMinutes: [0, 5, 15, 30, 60].includes(Number(saved.refreshMinutes))
-        ? Number(saved.refreshMinutes)
-        : DEFAULTS.refreshMinutes,
-      sources: {
-        google: typeof saved.sources?.google === "boolean" ? saved.sources.google : true,
-        gdelt: typeof saved.sources?.gdelt === "boolean" ? saved.sources.gdelt : true,
-        rssFeeds: Array.from(new Set(rssFeeds)),
-      },
+      exists: true,
+      preferences: normalizePreferences(JSON.parse(raw) as Partial<NewsPreferences> & { topic?: string }),
     };
   } catch {
-    return DEFAULTS;
+    return { exists: true, preferences: DEFAULTS };
   }
 }
 
@@ -120,10 +184,11 @@ type NewsDashboardProps = {
   signOutPath?: string | null;
   onSignOut?: () => void;
   onManageAccount?: () => void;
+  preferencesStore?: PreferencesStore;
 };
 
-export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAccount }: NewsDashboardProps) {
-  const [preferences, setPreferences] = useState<Preferences>(DEFAULTS);
+export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAccount, preferencesStore }: NewsDashboardProps) {
+  const [preferences, setPreferences] = useState<NewsPreferences>(DEFAULTS);
   const [topicInput, setTopicInput] = useState("");
   const [rssInput, setRssInput] = useState("");
   const [selectedTopic, setSelectedTopic] = useState(ALL_TOPICS);
@@ -134,28 +199,98 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [ready, setReady] = useState(false);
+  const [controlsExpanded, setControlsExpanded] = useState(false);
+  const [storageStatus, setStorageStatus] = useState<"loading" | "saving" | "saved" | "error" | "local">(
+    preferencesStore ? "loading" : "local",
+  );
   const requestSequence = useRef(0);
+  const lastSavedPreferences = useRef("");
+  const latestPreferences = useRef(preferences);
+  const saveQueue = useRef<Promise<void>>(Promise.resolve());
 
   const enabledSourceCount = Number(preferences.sources.google)
     + Number(preferences.sources.gdelt)
     + preferences.sources.rssFeeds.length;
 
   useEffect(() => {
-    setPreferences(readPreferences());
-    setReady(true);
+    let cancelled = false;
+
+    async function hydratePreferences() {
+      const local = readStoredPreferences(STORAGE_KEY);
+      if (!preferencesStore) {
+        if (!cancelled) {
+          setPreferences(local.preferences);
+          lastSavedPreferences.current = JSON.stringify(local.preferences);
+          setReady(true);
+        }
+        return;
+      }
+
+      const pending = readStoredPreferences(PENDING_STORAGE_KEY);
+      try {
+        const remote = await preferencesStore.load();
+        let next = normalizePreferences(remote.preferences);
+        if (pending.exists) {
+          next = normalizePreferences(await preferencesStore.save(pending.preferences));
+        } else if (!remote.exists && local.exists) {
+          next = normalizePreferences(await preferencesStore.save(local.preferences));
+        }
+        if (cancelled) return;
+        localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem(PENDING_STORAGE_KEY);
+        setPreferences(next);
+        lastSavedPreferences.current = JSON.stringify(next);
+        setStorageStatus("saved");
+      } catch {
+        if (cancelled) return;
+        const fallback = pending.exists ? pending.preferences : local.preferences;
+        setPreferences(fallback);
+        lastSavedPreferences.current = JSON.stringify(fallback);
+        setStorageStatus("error");
+      } finally {
+        if (!cancelled) setReady(true);
+      }
+    }
+
+    void hydratePreferences();
+    return () => { cancelled = true; };
+  }, [preferencesStore]);
+
+  useEffect(() => {
+    latestPreferences.current = preferences;
+  }, [preferences]);
+
+  useEffect(() => {
+    setControlsExpanded(localStorage.getItem(CONTROLS_STORAGE_KEY) === "true");
   }, []);
 
-  const loadNews = useCallback(async (next: Preferences, quiet = false) => {
+  const loadNews = useCallback(async (next: NewsPreferences, quiet = false) => {
     const runId = ++requestSequence.current;
     if (!quiet) setLoading(true);
     setError("");
     setNotice("");
 
-    const requests: Array<{ topics: string[]; provider: string; feed?: string }> = next.topics.flatMap((topic) => [
-      ...(next.sources.google ? [{ topic, provider: "google" }] : []),
-      ...next.sources.rssFeeds.map((feed) => ({ topic, provider: "rss", feed })),
-    ]).map((request) => ({ ...request, topics: [request.topic] }));
-    if (next.sources.gdelt) requests.push({ topics: next.topics, provider: "gdelt" });
+    const requests: NewsRequest[] = next.topics.flatMap((topic) => [
+      ...(next.sources.google ? [{
+        topics: [topic],
+        provider: "google" as const,
+        sourceKey: "google",
+        sourceLabel: "Google News",
+      }] : []),
+      ...next.sources.rssFeeds.map((feed) => ({
+        topics: [topic],
+        provider: "rss" as const,
+        feed,
+        sourceKey: `rss:${feed}`,
+        sourceLabel: feedName(feed),
+      })),
+    ]);
+    if (next.sources.gdelt) requests.push({
+      topics: next.topics,
+      provider: "gdelt",
+      sourceKey: "gdelt",
+      sourceLabel: "GDELT",
+    });
 
     if (next.topics.length === 0 || requests.length === 0) {
       setArticles([]);
@@ -178,13 +313,13 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
       );
 
       if (runId !== requestSequence.current) return;
-      const successful = results
-        .filter((result): result is PromiseFulfilledResult<FeedResponse> => result.status === "fulfilled")
-        .map((result) => result.value);
+      const successful = results.flatMap((result, index) => result.status === "fulfilled"
+        ? [{ feed: result.value, request: requests[index] }]
+        : []);
       if (successful.length === 0) throw new Error("The selected news sources could not be reached.");
 
       const merged = new Map<string, FollowedArticle>();
-      successful.forEach((feed) => {
+      successful.forEach(({ feed }) => {
         feed.articles.forEach((article) => {
           const key = articleKey(article);
           const matchedTopics = article.matchedTopics?.length ? article.matchedTopics : [feed.topic];
@@ -203,18 +338,39 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
       );
       const included = new Set<string>();
       next.topics.forEach((topic) => {
-        sorted
-          .filter((article) => article.topics.includes(topic))
-          .slice(0, next.limit)
-          .forEach((article) => included.add(articleKey(article)));
+        selectBalancedArticles(
+          sorted.filter((article) => article.topics.includes(topic)),
+          next.limit,
+        ).forEach((article) => included.add(articleKey(article)));
       });
       setArticles(sorted.filter((article) => included.has(articleKey(article))));
-      setFetchedAt(successful.map((feed) => feed.fetchedAt).sort((left, right) => right.localeCompare(left))[0] ?? "");
+      setFetchedAt(successful.map(({ feed }) => feed.fetchedAt).sort((left, right) => right.localeCompare(left))[0] ?? "");
 
-      const failedCount = results.length - successful.length;
-      if (failedCount > 0) {
-        setNotice(`${failedCount} ${failedCount === 1 ? "feed request" : "feed requests"} could not be refreshed this time.`);
-      }
+      const sourceOutcomes = new Map<string, { label: string; successes: number; articles: number }>();
+      requests.forEach((request, index) => {
+        const current = sourceOutcomes.get(request.sourceKey) ?? {
+          label: request.sourceLabel,
+          successes: 0,
+          articles: 0,
+        };
+        const result = results[index];
+        if (result.status === "fulfilled") {
+          current.successes += 1;
+          current.articles += result.value.articles.length;
+        }
+        sourceOutcomes.set(request.sourceKey, current);
+      });
+      const failedSources = Array.from(sourceOutcomes.values())
+        .filter((source) => source.successes === 0)
+        .map((source) => source.label);
+      const emptySources = Array.from(sourceOutcomes.values())
+        .filter((source) => source.successes > 0 && source.articles === 0)
+        .map((source) => source.label);
+      const notices = [
+        failedSources.length > 0 ? `Could not refresh ${summarizeSources(failedSources)}.` : "",
+        emptySources.length > 0 ? `No followed-topic matches from ${summarizeSources(emptySources)}.` : "",
+      ].filter(Boolean);
+      if (notices.length > 0) setNotice(notices.join(" "));
     } catch (caught) {
       if (runId === requestSequence.current) {
         setError(caught instanceof Error ? caught.message : "The news sources could not be reached.");
@@ -226,8 +382,42 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
 
   useEffect(() => {
     if (!ready) return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(preferences));
-  }, [preferences, ready]);
+    const serialized = JSON.stringify(preferences);
+    if (serialized === lastSavedPreferences.current) return;
+
+    if (!preferencesStore) {
+      localStorage.setItem(STORAGE_KEY, serialized);
+      lastSavedPreferences.current = serialized;
+      setStorageStatus("local");
+      return;
+    }
+
+    // Keep an immediate browser backup until the ordered SQLite save completes.
+    localStorage.setItem(PENDING_STORAGE_KEY, serialized);
+    setStorageStatus("saving");
+    const requested = preferences;
+    const timeout = window.setTimeout(() => {
+      saveQueue.current = saveQueue.current.then(async () => {
+        try {
+          const saved = normalizePreferences(await preferencesStore.save(requested));
+          const savedSerialized = JSON.stringify(saved);
+          lastSavedPreferences.current = savedSerialized;
+          if (localStorage.getItem(PENDING_STORAGE_KEY) === serialized) {
+            localStorage.removeItem(PENDING_STORAGE_KEY);
+          }
+          localStorage.removeItem(STORAGE_KEY);
+          if (JSON.stringify(latestPreferences.current) === serialized) {
+            if (savedSerialized !== serialized) setPreferences(saved);
+            setStorageStatus("saved");
+          }
+        } catch {
+          localStorage.setItem(PENDING_STORAGE_KEY, serialized);
+          if (JSON.stringify(latestPreferences.current) === serialized) setStorageStatus("error");
+        }
+      });
+    }, 400);
+    return () => window.clearTimeout(timeout);
+  }, [preferences, ready, preferencesStore]);
 
   useEffect(() => {
     if (!ready) return;
@@ -294,6 +484,10 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     event.preventDefault();
     const topic = topicInput.trim().replace(/\s+/g, " ");
     if (!topic) return;
+    if (preferences.topics.length >= 20) {
+      setNotice("You can follow up to 20 topics.");
+      return;
+    }
     const existing = preferences.topics.find((followed) => followed.toLowerCase() === topic.toLowerCase());
     if (existing) {
       setSelectedTopic(existing);
@@ -319,6 +513,8 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
       const value = url.toString();
       if (preferences.sources.rssFeeds.includes(value)) {
         setNotice(`You already use ${feedName(value)}.`);
+      } else if (preferences.sources.rssFeeds.length >= 20) {
+        setNotice("You can add up to 20 publisher feeds.");
       } else {
         setPreferences((current) => ({
           ...current,
@@ -336,6 +532,14 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
       ...current,
       sources: { ...current.sources, rssFeeds: current.sources.rssFeeds.filter((item) => item !== feed) },
     }));
+  }
+
+  function toggleControls() {
+    setControlsExpanded((current) => {
+      const next = !current;
+      localStorage.setItem(CONTROLS_STORAGE_KEY, String(next));
+      return next;
+    });
   }
 
   const feedTitle = selectedTopic === ALL_TOPICS ? "All followed topics" : selectedTopic;
@@ -372,10 +576,28 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           <p className="lede">One focused briefing across multiple news networks and the publishers you trust.</p>
         </div>
 
-        <div className="control-panel">
+        <div className={controlsExpanded ? "control-panel expanded" : "control-panel"}>
+          <div className="control-panel-header">
+            <div className="control-panel-heading">
+              <h2>Add a topic to follow</h2>
+              <p>{preferences.topics.length} followed <span aria-hidden="true">/</span> {enabledSourceCount} sources</p>
+            </div>
+            <button
+              type="button"
+              className="control-panel-toggle"
+              aria-expanded={controlsExpanded}
+              aria-controls="briefing-controls"
+              onClick={toggleControls}
+            >
+              {controlsExpanded ? "Hide" : "Manage"}
+              <span className="control-panel-chevron" aria-hidden="true">&#8595;</span>
+            </button>
+          </div>
+
+          <div id="briefing-controls" className="control-panel-body" hidden={!controlsExpanded}>
           <form onSubmit={submitTopic}>
             <div className="field topic-field">
-              <label htmlFor="topic">Add a topic to follow</label>
+              <label htmlFor="topic">Topic</label>
               <div className="topic-input-wrap">
                 <input id="topic" maxLength={80} value={topicInput} onChange={(event) => setTopicInput(event.target.value)} placeholder="e.g. renewable energy" autoComplete="off" />
                 <button type="submit" aria-label="Add topic">Add <span aria-hidden="true">&#43;</span></button>
@@ -438,7 +660,18 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               </select>
             </div>
           </div>
-          <p className="settings-note">Your topics, sources and settings are saved on this device.</p>
+          <p className="settings-note" aria-live="polite">
+            {!preferencesStore
+              ? "Your topics, sources and settings are saved on this device."
+              : storageStatus === "loading"
+                ? "Loading your saved account settings..."
+                : storageStatus === "saving"
+                  ? "Saving settings to your account..."
+                  : storageStatus === "error"
+                    ? "Could not sync settings. Changes are backed up in this browser and will retry next time."
+                    : "Your topics, sources and settings are saved to your account."}
+          </p>
+          </div>
         </div>
       </section>
 

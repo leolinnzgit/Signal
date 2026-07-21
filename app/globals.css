@@ -420,6 +420,27 @@ main {
   font-size: 1.5rem;
 }
 .account-email { margin: 1.2rem 0 0; color: var(--sage); font-size: 0.8rem; }
+.email-delivery {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.75rem;
+  align-items: start;
+  margin-top: 1.5rem;
+  border: 1px solid var(--line);
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.34);
+}
+.email-delivery strong { display: block; font-size: 0.8rem; }
+.email-delivery p { margin: 0.3rem 0 0; color: var(--sage); font-size: 0.72rem; line-height: 1.45; }
+.delivery-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  margin-top: 0.3rem;
+  border-radius: 50%;
+  background: var(--red);
+  box-shadow: 0 0 0 4px rgba(200, 63, 50, 0.12);
+}
+.delivery-dot.connected { background: #27864a; box-shadow: 0 0 0 4px rgba(39, 134, 74, 0.12); }
 .account-signout {
   width: 100%;
   margin-top: 2rem;
@@ -489,9 +510,74 @@ main {
 .control-panel {
   background: var(--ink);
   color: var(--paper);
-  padding: clamp(1.6rem, 3vw, 2.6rem);
   box-shadow: 18px 18px 0 rgba(200, 63, 50, 0.18);
 }
+
+.control-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+  min-height: 6rem;
+  padding: 1.25rem clamp(1.6rem, 3vw, 2.6rem);
+}
+
+.control-panel-heading { min-width: 0; }
+
+.control-panel-heading h2 {
+  margin: 0;
+  color: var(--paper);
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: clamp(1.15rem, 1.7vw, 1.5rem);
+  font-weight: 500;
+  letter-spacing: -0.015em;
+}
+
+.control-panel-heading p {
+  margin: 0.4rem 0 0;
+  color: rgba(244, 240, 231, 0.5);
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.control-panel-heading p span { margin: 0 0.35rem; color: var(--red); }
+
+.control-panel-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex: 0 0 auto;
+  border: 1px solid rgba(244, 240, 231, 0.24);
+  background: rgba(244, 240, 231, 0.05);
+  color: #f08b76;
+  padding: 0.65rem 0.75rem;
+  cursor: pointer;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.control-panel-toggle:hover { border-color: #f08b76; background: rgba(240, 139, 118, 0.08); }
+
+.control-panel-chevron {
+  display: inline-block;
+  font-size: 0.9rem;
+  line-height: 1;
+  transition: transform 180ms ease;
+}
+
+.control-panel.expanded .control-panel-chevron { transform: rotate(180deg); }
+
+.control-panel-body {
+  padding: 0 clamp(1.6rem, 3vw, 2.6rem) clamp(1.6rem, 3vw, 2.6rem);
+  border-top: 1px solid rgba(244, 240, 231, 0.14);
+  padding-top: clamp(1.6rem, 3vw, 2.2rem);
+}
+
+.control-panel-body[hidden] { display: none; }
 
 .field label {
   display: block;
@@ -914,7 +1000,10 @@ footer a { color: var(--paper); text-decoration: none; }
   .hero { padding-top: 3.5rem; }
   .hero h1 { font-size: clamp(3.6rem, 19vw, 5.5rem); }
   .lede { margin-top: 2rem; }
-  .control-panel { padding: 1.4rem; box-shadow: 9px 9px 0 rgba(200, 63, 50, 0.18); }
+  .control-panel { box-shadow: 9px 9px 0 rgba(200, 63, 50, 0.18); }
+  .control-panel-header { min-height: 5.25rem; padding: 1rem 1.15rem; }
+  .control-panel-body { padding: 1.4rem; }
+  .control-panel-toggle { padding: 0.58rem 0.65rem; }
   .topic-input-wrap { grid-template-columns: 1fr; }
   .topic-input-wrap button { justify-self: start; padding-left: 0; }
   .source-toggles { grid-template-columns: 1fr; }
