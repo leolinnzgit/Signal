@@ -1,0 +1,355 @@
+import { FormEvent, useEffect, useState } from "react";
+import NewsDashboard from "../app/NewsDashboard";
+
+type SessionUser = {
+  email: string;
+  displayName: string;
+};
+
+type AuthView = "login" | "register" | "forgot" | "reset" | "resend";
+
+let csrfToken = "";
+
+async function getCsrfToken(force = false) {
+  if (csrfToken && !force) return csrfToken;
+  const response = await fetch("/api/auth/csrf", { credentials: "same-origin", cache: "no-store" });
+  if (!response.ok) throw new Error("Could not start a secure session. Refresh and try again.");
+  const data = await response.json() as { token: string };
+  csrfToken = data.token;
+  return csrfToken;
+}
+
+async function postJson<T>(path: string, body?: unknown): Promise<T> {
+  const token = await getCsrfToken();
+  const response = await fetch(path, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      "X-XSRF-TOKEN": token,
+    },
+    body: JSON.stringify(body ?? {}),
+  });
+  const data = await response.json().catch(() => ({})) as { error?: string; detail?: string };
+  if (!response.ok) throw new Error(data.error || data.detail || "The request could not be completed.");
+  return data as T;
+}
+
+export default function AuthApp() {
+  const query = new URLSearchParams(window.location.search);
+  const initialAuth = query.get("auth");
+  const [user, setUser] = useState<SessionUser | null>(null);
+  const [checkingSession, setCheckingSession] = useState(true);
+  const [view, setView] = useState<AuthView>(initialAuth === "reset" ? "reset" : "login");
+  const [notice, setNotice] = useState(() => {
+    if (initialAuth === "confirmed") return "Your email is confirmed. You can sign in now.";
+    if (initialAuth === "confirmation-failed") return "That confirmation link is invalid or expired.";
+    return "";
+  });
+  const [accountOpen, setAccountOpen] = useState(false);
+
+  useEffect(() => {
+    void fetch("/api/auth/me", { credentials: "same-origin", cache: "no-store" })
+      .then(async (response) => {
+        if (response.ok) setUser(await response.json() as SessionUser);
+      })
+      .finally(() => setCheckingSession(false));
+  }, []);
+
+  async function signOut() {
+    try {
+      await postJson<void>("/api/auth/logout");
+    } finally {
+      csrfToken = "";
+      setUser(null);
+      setAccountOpen(false);
+      setNotice("You’re signed out.");
+      setView("login");
+      window.history.replaceState({}, "", "/");
+    }
+  }
+
+  if (checkingSession) return <AuthLoading />;
+
+  if (user && initialAuth !== "reset") {
+    return (
+      <>
+        <NewsDashboard
+          user={{ displayName: user.displayName, email: user.email, fullName: null, isLocalPreview: false }}
+          onSignOut={() => void signOut()}
+          onManageAccount={() => setAccountOpen(true)}
+        />
+        {accountOpen && (
+          <AccountPanel
+            email={user.email}
+            onClose={() => setAccountOpen(false)}
+            onSignedOut={() => void signOut()}
+          />
+        )}
+      </>
+    );
+  }
+
+  return (
+    <AuthScreen
+      view={view}
+      notice={notice}
+      resetEmail={query.get("email") ?? ""}
+      resetCode={query.get("code") ?? ""}
+      onViewChange={(next) => { setView(next); setNotice(""); }}
+      onNotice={setNotice}
+      onSignedIn={(nextUser) => {
+        csrfToken = "";
+        setUser(nextUser);
+        setNotice("");
+        window.history.replaceState({}, "", "/");
+      }}
+    />
+  );
+}
+
+function AuthLoading() {
+  return (
+    <main className="auth-shell auth-loading" aria-label="Checking your session">
+      <span className="brand"><span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>SIGNAL</span>
+      <span className="auth-spinner" aria-hidden="true" />
+    </main>
+  );
+}
+
+type AuthScreenProps = {
+  view: AuthView;
+  notice: string;
+  resetEmail: string;
+  resetCode: string;
+  onViewChange: (view: AuthView) => void;
+  onNotice: (message: string) => void;
+  onSignedIn: (user: SessionUser) => void;
+};
+
+function AuthScreen(props: AuthScreenProps) {
+  return (
+    <main className="auth-shell">
+      <section className="auth-intro">
+        <a className="brand" href="/" aria-label="Signal home">
+          <span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>
+          SIGNAL
+        </a>
+        <div>
+          <p className="eyebrow">Your interests, continuously monitored</p>
+          <h1>Stay current on<br /><em>what matters.</em></h1>
+          <p>Build one private briefing from the topics and publishers you trust.</p>
+        </div>
+        <p className="auth-security-note"><span className="pulse" />Secure email account access</p>
+      </section>
+      <section className="auth-card" aria-live="polite">
+        {props.notice && <p className="auth-notice" role="status">{props.notice}</p>}
+        {props.view === "login" && <LoginForm {...props} />}
+        {props.view === "register" && <RegisterForm {...props} />}
+        {props.view === "forgot" && <EmailActionForm {...props} mode="forgot" />}
+        {props.view === "resend" && <EmailActionForm {...props} mode="resend" />}
+        {props.view === "reset" && <ResetPasswordForm {...props} />}
+      </section>
+    </main>
+  );
+}
+
+function LoginForm({ onSignedIn, onViewChange, onNotice }: AuthScreenProps) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true); setError(""); onNotice("");
+    try {
+      const user = await postJson<SessionUser>("/api/auth/login", { email, password, rememberMe });
+      onSignedIn(user);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not sign in.");
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <form className="auth-form" onSubmit={submit}>
+      <AuthHeading kicker="Welcome back" title="Sign in to Signal" />
+      <AuthError message={error} />
+      <AuthInput label="Email address" type="email" value={email} onChange={setEmail} autoComplete="email" />
+      <AuthInput label="Password" type="password" value={password} onChange={setPassword} autoComplete="current-password" />
+      <label className="auth-checkbox"><input type="checkbox" checked={rememberMe} onChange={(event) => setRememberMe(event.target.checked)} />Keep me signed in</label>
+      <button className="auth-submit" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
+      <div className="auth-links">
+        <button type="button" onClick={() => onViewChange("forgot")}>Forgot password?</button>
+        <button type="button" onClick={() => onViewChange("resend")}>Resend confirmation</button>
+      </div>
+      <p className="auth-switch">New to Signal? <button type="button" onClick={() => onViewChange("register")}>Create an account</button></p>
+    </form>
+  );
+}
+
+function RegisterForm({ onViewChange, onNotice }: AuthScreenProps) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (password !== confirmPassword) { setError("The passwords do not match."); return; }
+    setBusy(true); setError("");
+    try {
+      const result = await postJson<{ message: string }>("/api/auth/register", { email, password });
+      onNotice(result.message); onViewChange("login");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not create the account.");
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <form className="auth-form" onSubmit={submit}>
+      <AuthHeading kicker="Start your briefing" title="Create an account" />
+      <AuthError message={error} />
+      <AuthInput label="Email address" type="email" value={email} onChange={setEmail} autoComplete="email" />
+      <AuthInput label="Password" type="password" value={password} onChange={setPassword} autoComplete="new-password" minLength={12} />
+      <AuthInput label="Confirm password" type="password" value={confirmPassword} onChange={setConfirmPassword} autoComplete="new-password" minLength={12} />
+      <p className="password-hint">Use at least 12 characters with uppercase, lowercase, a number and a symbol.</p>
+      <button className="auth-submit" disabled={busy}>{busy ? "Creating account…" : "Create account"}</button>
+      <p className="auth-switch">Already registered? <button type="button" onClick={() => onViewChange("login")}>Sign in</button></p>
+    </form>
+  );
+}
+
+function EmailActionForm(props: AuthScreenProps & { mode: "forgot" | "resend" }) {
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const isReset = props.mode === "forgot";
+
+  async function submit(event: FormEvent) {
+    event.preventDefault(); setBusy(true); setError("");
+    try {
+      const result = await postJson<{ message: string }>(
+        isReset ? "/api/auth/forgot-password" : "/api/auth/resend-confirmation",
+        { email },
+      );
+      props.onNotice(result.message); props.onViewChange("login");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not send the email.");
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <form className="auth-form" onSubmit={submit}>
+      <AuthHeading kicker="Account recovery" title={isReset ? "Reset your password" : "Confirm your email"} />
+      <p className="auth-explainer">{isReset ? "We’ll email a secure password-reset link if the account exists." : "We’ll send a fresh confirmation link if the account is waiting for one."}</p>
+      <AuthError message={error} />
+      <AuthInput label="Email address" type="email" value={email} onChange={setEmail} autoComplete="email" />
+      <button className="auth-submit" disabled={busy}>{busy ? "Sending…" : "Send email"}</button>
+      <p className="auth-switch"><button type="button" onClick={() => props.onViewChange("login")}>Back to sign in</button></p>
+    </form>
+  );
+}
+
+function ResetPasswordForm(props: AuthScreenProps) {
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!props.resetEmail || !props.resetCode) { setError("This password-reset link is incomplete."); return; }
+    if (password !== confirmPassword) { setError("The passwords do not match."); return; }
+    setBusy(true); setError("");
+    try {
+      const result = await postJson<{ message: string }>("/api/auth/reset-password", {
+        email: props.resetEmail, code: props.resetCode, newPassword: password,
+      });
+      props.onNotice(result.message); props.onViewChange("login"); window.history.replaceState({}, "", "/");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not reset the password.");
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <form className="auth-form" onSubmit={submit}>
+      <AuthHeading kicker="Secure account recovery" title="Choose a new password" />
+      <AuthError message={error} />
+      <AuthInput label="New password" type="password" value={password} onChange={setPassword} autoComplete="new-password" minLength={12} />
+      <AuthInput label="Confirm new password" type="password" value={confirmPassword} onChange={setConfirmPassword} autoComplete="new-password" minLength={12} />
+      <p className="password-hint">Use at least 12 characters with uppercase, lowercase, a number and a symbol.</p>
+      <button className="auth-submit" disabled={busy}>{busy ? "Resetting…" : "Reset password"}</button>
+    </form>
+  );
+}
+
+function AccountPanel({ email, onClose, onSignedOut }: { email: string; onClose: () => void; onSignedOut: () => void }) {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (newPassword !== confirmPassword) { setError("The new passwords do not match."); return; }
+    setBusy(true); setError(""); setMessage("");
+    try {
+      const result = await postJson<{ message: string }>("/api/auth/change-password", { currentPassword, newPassword });
+      setMessage(result.message); setCurrentPassword(""); setNewPassword(""); setConfirmPassword("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not change the password.");
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="account-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="account-panel" role="dialog" aria-modal="true" aria-labelledby="account-title">
+        <button className="account-close" type="button" onClick={onClose} aria-label="Close account settings">×</button>
+        <p className="eyebrow">Account settings</p>
+        <h2 id="account-title">Your Signal account</h2>
+        <p className="account-email">Signed in as <strong>{email}</strong></p>
+        <form className="auth-form compact" onSubmit={submit}>
+          <h3>Change password</h3>
+          {message && <p className="auth-notice" role="status">{message}</p>}
+          <AuthError message={error} />
+          <AuthInput label="Current password" type="password" value={currentPassword} onChange={setCurrentPassword} autoComplete="current-password" />
+          <AuthInput label="New password" type="password" value={newPassword} onChange={setNewPassword} autoComplete="new-password" minLength={12} />
+          <AuthInput label="Confirm new password" type="password" value={confirmPassword} onChange={setConfirmPassword} autoComplete="new-password" minLength={12} />
+          <button className="auth-submit" disabled={busy}>{busy ? "Saving…" : "Change password"}</button>
+        </form>
+        <button className="account-signout" type="button" onClick={onSignedOut}>Sign out of Signal</button>
+      </section>
+    </div>
+  );
+}
+
+function AuthHeading({ kicker, title }: { kicker: string; title: string }) {
+  return <header className="auth-heading"><p>{kicker}</p><h2>{title}</h2></header>;
+}
+
+function AuthError({ message }: { message: string }) {
+  return message ? <p className="auth-error" role="alert">{message}</p> : null;
+}
+
+type AuthInputProps = {
+  label: string;
+  type: "email" | "password";
+  value: string;
+  onChange: (value: string) => void;
+  autoComplete: string;
+  minLength?: number;
+};
+
+function AuthInput({ label, type, value, onChange, autoComplete, minLength }: AuthInputProps) {
+  return (
+    <label className="auth-field">
+      <span>{label}</span>
+      <input type={type} value={value} onChange={(event) => onChange(event.target.value)} autoComplete={autoComplete} minLength={minLength} maxLength={type === "email" ? 254 : 128} required />
+    </label>
+  );
+}

@@ -121,6 +121,20 @@ main {
 
 .current-user a:hover { text-decoration: underline; text-underline-offset: 0.2rem; }
 
+.current-user > button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--red);
+  cursor: pointer;
+  font-size: 0.63rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.current-user > button:hover { text-decoration: underline; text-underline-offset: 0.2rem; }
+
 .preview-session {
   color: var(--sage);
   font-size: 0.58rem;
@@ -196,6 +210,233 @@ main {
   margin-top: 0.85rem;
   color: var(--sage);
   font-size: 0.68rem;
+}
+
+.auth-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(24rem, 0.85fr);
+  background: var(--paper);
+}
+
+.auth-intro {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: clamp(2rem, 5vw, 5rem);
+  border-right: 1px solid var(--line);
+  background:
+    radial-gradient(circle at 84% 18%, rgba(200, 63, 50, 0.15), transparent 22rem),
+    linear-gradient(rgba(23, 24, 21, 0.03) 1px, transparent 1px);
+  background-size: auto, 100% 4rem;
+}
+
+.auth-intro > div { margin: 4rem 0; }
+
+.auth-intro h1 {
+  max-width: 48rem;
+  margin: 1.4rem 0 2rem;
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: clamp(4rem, 8vw, 8rem);
+  font-weight: 400;
+  letter-spacing: -0.065em;
+  line-height: 0.84;
+}
+
+.auth-intro h1 em { color: var(--red); font-weight: 400; }
+
+.auth-intro > div > p:last-child {
+  max-width: 34rem;
+  color: var(--sage);
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: 1.2rem;
+  line-height: 1.55;
+}
+
+.auth-security-note {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: var(--sage);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.auth-card {
+  align-self: center;
+  width: min(100%, 34rem);
+  margin: 0 auto;
+  padding: clamp(2rem, 6vw, 5rem);
+}
+
+.auth-heading { margin-bottom: 2.2rem; }
+.auth-heading p {
+  margin: 0 0 0.65rem;
+  color: var(--red);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+.auth-heading h2,
+.account-panel h2 {
+  margin: 0;
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: clamp(2.35rem, 5vw, 4rem);
+  font-weight: 400;
+  letter-spacing: -0.045em;
+  line-height: 0.98;
+}
+
+.auth-form { display: grid; gap: 1.15rem; }
+.auth-form.compact { margin-top: 2rem; }
+.auth-form.compact h3 {
+  margin: 0 0 0.35rem;
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: 1.6rem;
+  font-weight: 400;
+}
+
+.auth-field { display: grid; gap: 0.45rem; }
+.auth-field > span {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.auth-field input {
+  width: 100%;
+  min-height: 3.35rem;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  padding: 0.8rem 0.95rem;
+  background: rgba(255, 255, 255, 0.42);
+  color: var(--ink);
+  outline: none;
+}
+.auth-field input:focus { border-color: var(--red); box-shadow: 0 0 0 3px rgba(200, 63, 50, 0.12); }
+
+.auth-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: var(--sage);
+  font-size: 0.75rem;
+}
+.auth-checkbox input { accent-color: var(--red); }
+
+.auth-submit {
+  min-height: 3.35rem;
+  border: 0;
+  padding: 0.85rem 1.2rem;
+  background: var(--ink);
+  color: var(--paper);
+  cursor: pointer;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.auth-submit:hover:not(:disabled) { background: var(--red); }
+.auth-submit:disabled { cursor: wait; opacity: 0.58; }
+
+.auth-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.auth-links button,
+.auth-switch button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--red);
+  cursor: pointer;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 0.2rem;
+}
+.auth-links button { font-size: 0.7rem; }
+.auth-switch { margin: 0.5rem 0 0; color: var(--sage); font-size: 0.8rem; text-align: center; }
+.password-hint,
+.auth-explainer { margin: -0.25rem 0 0; color: var(--sage); font-size: 0.75rem; line-height: 1.5; }
+
+.auth-error,
+.auth-notice {
+  margin: 0;
+  border-left: 3px solid var(--red);
+  padding: 0.75rem 0.9rem;
+  background: rgba(200, 63, 50, 0.08);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+.auth-notice { border-color: var(--sage); background: rgba(101, 115, 100, 0.1); }
+
+.auth-loading {
+  grid-template-columns: 1fr;
+  place-items: center;
+  align-content: center;
+  gap: 2rem;
+}
+.auth-spinner {
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 2px solid var(--line);
+  border-top-color: var(--red);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.account-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  justify-items: end;
+  background: rgba(23, 24, 21, 0.48);
+  backdrop-filter: blur(3px);
+}
+.account-panel {
+  position: relative;
+  width: min(100%, 32rem);
+  height: 100%;
+  overflow-y: auto;
+  padding: clamp(2rem, 5vw, 4rem);
+  background: var(--paper);
+  box-shadow: -1.5rem 0 4rem rgba(23, 24, 21, 0.16);
+}
+.account-close {
+  position: absolute;
+  top: 1.25rem;
+  right: 1.25rem;
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  font-size: 1.5rem;
+}
+.account-email { margin: 1.2rem 0 0; color: var(--sage); font-size: 0.8rem; }
+.account-signout {
+  width: 100%;
+  margin-top: 2rem;
+  border: 1px solid var(--red);
+  padding: 0.8rem;
+  background: transparent;
+  color: var(--red);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+@media (max-width: 900px) {
+  .auth-shell { grid-template-columns: 1fr; }
+  .auth-intro { min-height: auto; padding-bottom: 3rem; }
+  .auth-intro > div { margin: 5rem 0 3rem; }
+  .auth-intro h1 { font-size: clamp(3.7rem, 16vw, 6rem); }
+  .auth-card { padding-top: 4rem; padding-bottom: 5rem; }
 }
 
 .pulse, .footer-dot {

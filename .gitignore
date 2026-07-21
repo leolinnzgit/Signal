@@ -41,3 +41,10 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+/iis-publish/
+/Signal.Server/bin/
+/Signal.Server/obj/
+/Signal.Server/App_Data/*
+!/Signal.Server/App_Data/.gitkeep
+!/Signal.Server/App_Data/README.txt
+/Signal.Server/wwwroot/

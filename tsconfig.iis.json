@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "incremental": false,
+    "plugins": [],
+    "types": ["node", "vite/client", "react", "react-dom"]
+  },
+  "include": [
+    "iis-client/**/*.ts",
+    "iis-client/**/*.tsx",
+    "app/NewsDashboard.tsx",
+    "vite.iis.config.ts"
+  ],
+  "exclude": ["node_modules"]
+}

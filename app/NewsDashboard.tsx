@@ -117,10 +117,12 @@ type NewsDashboardProps = {
     fullName: string | null;
     isLocalPreview: boolean;
   };
-  signOutPath: string | null;
+  signOutPath?: string | null;
+  onSignOut?: () => void;
+  onManageAccount?: () => void;
 };
 
-export default function NewsDashboard({ user, signOutPath }: NewsDashboardProps) {
+export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAccount }: NewsDashboardProps) {
   const [preferences, setPreferences] = useState<Preferences>(DEFAULTS);
   const [topicInput, setTopicInput] = useState("");
   const [rssInput, setRssInput] = useState("");
@@ -353,7 +355,12 @@ export default function NewsDashboard({ user, signOutPath }: NewsDashboardProps)
               <strong>{user.displayName}</strong>
               {user.fullName && <small>{user.email}</small>}
             </span>
-            {signOutPath ? <a href={signOutPath}>Sign out</a> : <span className="preview-session">Preview</span>}
+            {onManageAccount && <button type="button" onClick={onManageAccount}>Account</button>}
+            {onSignOut
+              ? <button type="button" onClick={onSignOut}>Sign out</button>
+              : signOutPath
+                ? <a href={signOutPath}>Sign out</a>
+                : <span className="preview-session">Preview</span>}
           </div>
         </div>
       </header>

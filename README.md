@@ -1,98 +1,86 @@
-# vinext-starter
+# Signal
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+Signal is an authenticated personal news monitor. The IIS build uses ASP.NET
+Core Identity for email/password accounts and a React client for the news
+dashboard.
 
-## Prerequisites
+## Account features
 
-- Node.js `>=22.13.0`
+- email registration with confirmation
+- secure Identity password hashing and session cookies
+- login lockout after repeated failures
+- forgotten-password email and reset links
+- authenticated password changes
+- CSRF-protected account actions
+- authenticated Google News, GDELT, and custom RSS/Atom feeds
 
-## Quick Start
+## Requirements
 
-```bash
+- Node.js 22.13 or newer
+- .NET 10 SDK for development
+- IIS with the .NET 10 Hosting Bundle for deployment
+- a Gmail account with two-step verification and an app password
+
+## Local development
+
+Build the React client and start the ASP.NET Core server:
+
+```powershell
 npm install
-npm run dev
-npm run build
+npm run iis:client:build
+dotnet run --project Signal.Server/Signal.Server.csproj --launch-profile http
 ```
 
-This starter does not use `wrangler.jsonc`.
+Open `http://127.0.0.1:5168`.
 
-## Included Shape
+Development account emails are written to
+`Signal.Server/App_Data/maildrop` instead of being sent. Open the newest HTML
+file to test confirmation and password-reset links.
 
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
+For client hot reload, run `npm run iis:client:dev` in a second terminal while
+the ASP.NET server is running, then open `http://127.0.0.1:3000`.
 
-## Workspace Auth Headers
+## Gmail SMTP configuration
 
-OpenAI workspace sites can read the current user's email from
-`oai-authenticated-user-email`.
+Never commit the Gmail password or app password. Configure these environment
+variables on the IIS server:
 
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
+```text
+Smtp__Mode=Smtp
+Smtp__Host=smtp.gmail.com
+Smtp__Port=587
+Smtp__EnableSsl=true
+Smtp__Username=your-address@gmail.com
+Smtp__AppPassword=your-16-character-app-password
+Smtp__FromAddress=your-address@gmail.com
+Smtp__FromName=Signal
 ```
 
-## Optional Dispatch-Owned ChatGPT Sign-In
+Use a Gmail app password, not the normal Gmail account password. Recycle the
+application pool after changing environment variables.
 
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
+## Build for IIS
 
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
+```powershell
+npm run iis:build
+```
 
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
+The deployable application is produced in `iis-publish`.
 
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
+1. Install the current .NET 10 Hosting Bundle on the IIS server.
+2. Copy the contents of `iis-publish` into the IIS site's physical directory.
+3. Use an application pool configured with **No Managed Code**.
+4. Grant the application-pool identity **Modify** permission on the
+   `App_Data` directory so SQLite and data-protection keys can be written.
+5. Configure the Gmail environment variables above.
+6. Add an HTTPS binding and redirect HTTP to HTTPS before allowing real users.
+7. Recycle the application pool.
 
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
+The SQLite account database is created at `App_Data/signal.db`. Back up that
+file regularly and before deploying schema changes.
 
-## Useful Commands
+## Original Sites build
 
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
-
-## Learn More
-
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+The prior OpenAI Sites/Vinext implementation remains in `app/` and can still be
+built with `npm run build`. The IIS entry point is `iis-client/`, and the IIS
+server is `Signal.Server/`.

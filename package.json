@@ -11,6 +11,11 @@
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
     "test": "npm run build && node --test tests/rendered-html.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
+    "iis:client:dev": "vite --config vite.iis.config.ts",
+    "iis:client:build": "vite build --config vite.iis.config.ts",
+    "iis:typecheck": "tsc --project tsconfig.iis.json",
+    "iis:server": "dotnet run --project Signal.Server/Signal.Server.csproj --launch-profile http",
+    "iis:build": "npm run iis:client:build && dotnet publish Signal.Server/Signal.Server.csproj -c Release -o iis-publish",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
