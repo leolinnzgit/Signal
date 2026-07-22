@@ -24,6 +24,18 @@ type FeedResponse = {
   error?: string;
 };
 
+type GoogleTrendTerm = {
+  keyword: string;
+  traffic: string;
+};
+
+type GoogleTrendsResponse = {
+  geo: string;
+  fetchedAt: string;
+  terms: GoogleTrendTerm[];
+  error?: string;
+};
+
 type NewsRequest = {
   topics: string[];
   provider: "google" | "gdelt" | "rss";
@@ -42,7 +54,14 @@ export type NewsPreferences = {
   topics: string[];
   limit: number;
   refreshMinutes: number;
+  emailSummaryEnabled: boolean;
   sources: SourcePreferences;
+};
+
+export type NewsSummary = {
+  refreshedAt: string;
+  topics: string[];
+  articles: FollowedArticle[];
 };
 
 export type PreferencesStore = {
@@ -54,12 +73,14 @@ const DEFAULTS: NewsPreferences = {
   topics: ["Artificial intelligence"],
   limit: 6,
   refreshMinutes: 15,
+  emailSummaryEnabled: false,
   sources: { google: true, gdelt: true, rssFeeds: [] },
 };
 
 const STORAGE_KEY = "signal-news-preferences";
 const PENDING_STORAGE_KEY = "signal-news-preferences-pending";
 const CONTROLS_STORAGE_KEY = "signal-briefing-controls-expanded";
+const CONTROLS_HIDDEN_STORAGE_KEY = "signal-briefing-controls-hidden";
 const ALL_TOPICS = "all";
 const ALL_PROVIDERS = "all";
 
@@ -149,9 +170,10 @@ function normalizePreferences(saved: Partial<NewsPreferences> & { topic?: string
   return {
     topics,
     limit: Math.min(10, Math.max(1, Number(saved.limit) || DEFAULTS.limit)),
-    refreshMinutes: [0, 5, 15, 30, 60].includes(Number(saved.refreshMinutes))
+    refreshMinutes: [0, 5, 15, 30, 60, 120, 180, 240, 300, 360, 420, 480].includes(Number(saved.refreshMinutes))
       ? Number(saved.refreshMinutes)
       : DEFAULTS.refreshMinutes,
+    emailSummaryEnabled: saved.emailSummaryEnabled === true,
     sources: {
       google: typeof saved.sources?.google === "boolean" ? saved.sources.google : true,
       gdelt: typeof saved.sources?.gdelt === "boolean" ? saved.sources.gdelt : true,
@@ -185,9 +207,10 @@ type NewsDashboardProps = {
   onSignOut?: () => void;
   onManageAccount?: () => void;
   preferencesStore?: PreferencesStore;
+  summarySender?: (summary: NewsSummary) => Promise<string>;
 };
 
-export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAccount, preferencesStore }: NewsDashboardProps) {
+export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAccount, preferencesStore, summarySender }: NewsDashboardProps) {
   const [preferences, setPreferences] = useState<NewsPreferences>(DEFAULTS);
   const [topicInput, setTopicInput] = useState("");
   const [rssInput, setRssInput] = useState("");
@@ -198,8 +221,15 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [trendsOpen, setTrendsOpen] = useState(false);
+  const [trendingTerms, setTrendingTerms] = useState<GoogleTrendTerm[]>([]);
+  const [trendsFetchedAt, setTrendsFetchedAt] = useState("");
+  const [trendsLoading, setTrendsLoading] = useState(false);
+  const [trendsError, setTrendsError] = useState("");
   const [ready, setReady] = useState(false);
+  const [heroCompact, setHeroCompact] = useState(false);
   const [controlsExpanded, setControlsExpanded] = useState(false);
+  const [controlsHidden, setControlsHidden] = useState(false);
   const [storageStatus, setStorageStatus] = useState<"loading" | "saving" | "saved" | "error" | "local">(
     preferencesStore ? "loading" : "local",
   );
@@ -262,11 +292,21 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
 
   useEffect(() => {
     setControlsExpanded(localStorage.getItem(CONTROLS_STORAGE_KEY) === "true");
+    setControlsHidden(localStorage.getItem(CONTROLS_HIDDEN_STORAGE_KEY) === "true");
   }, []);
 
-  const loadNews = useCallback(async (next: NewsPreferences, quiet = false) => {
+  useEffect(() => {
+    if (!ready || loading || heroCompact) return;
+    const timeout = window.setTimeout(() => setHeroCompact(true), 300);
+    return () => window.clearTimeout(timeout);
+  }, [ready, loading, heroCompact]);
+
+  const loadNews = useCallback(async (
+    next: NewsPreferences,
+    options: { quiet?: boolean; emailSummary?: boolean } = {},
+  ) => {
     const runId = ++requestSequence.current;
-    if (!quiet) setLoading(true);
+    if (!options.quiet) setLoading(true);
     setError("");
     setNotice("");
 
@@ -343,8 +383,10 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           next.limit,
         ).forEach((article) => included.add(articleKey(article)));
       });
-      setArticles(sorted.filter((article) => included.has(articleKey(article))));
-      setFetchedAt(successful.map(({ feed }) => feed.fetchedAt).sort((left, right) => right.localeCompare(left))[0] ?? "");
+      const refreshedArticles = sorted.filter((article) => included.has(articleKey(article)));
+      const refreshedAt = successful.map(({ feed }) => feed.fetchedAt).sort((left, right) => right.localeCompare(left))[0] ?? "";
+      setArticles(refreshedArticles);
+      setFetchedAt(refreshedAt);
 
       const sourceOutcomes = new Map<string, { label: string; successes: number; articles: number }>();
       requests.forEach((request, index) => {
@@ -370,13 +412,41 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         failedSources.length > 0 ? `Could not refresh ${summarizeSources(failedSources)}.` : "",
         emptySources.length > 0 ? `No followed-topic matches from ${summarizeSources(emptySources)}.` : "",
       ].filter(Boolean);
-      if (notices.length > 0) setNotice(notices.join(" "));
+      if (options.emailSummary && next.emailSummaryEnabled && summarySender) {
+        try {
+          notices.push(await summarySender({ refreshedAt, topics: next.topics, articles: refreshedArticles }));
+        } catch (caught) {
+          notices.push(caught instanceof Error
+            ? caught.message
+            : "The briefing refreshed, but its email summary could not be delivered.");
+        }
+      }
+      if (runId === requestSequence.current && notices.length > 0) setNotice(notices.join(" "));
     } catch (caught) {
       if (runId === requestSequence.current) {
         setError(caught instanceof Error ? caught.message : "The news sources could not be reached.");
       }
     } finally {
       if (runId === requestSequence.current) setLoading(false);
+    }
+  }, [summarySender]);
+
+  const loadTrendingTerms = useCallback(async () => {
+    setTrendsLoading(true);
+    setTrendsError("");
+    try {
+      const response = await fetch("/api/trends", {
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+      const data = await response.json().catch(() => ({})) as GoogleTrendsResponse;
+      if (!response.ok) throw new Error(data.error || "Could not load Google Trends.");
+      setTrendingTerms(data.terms);
+      setTrendsFetchedAt(data.fetchedAt);
+    } catch (caught) {
+      setTrendsError(caught instanceof Error ? caught.message : "Could not load Google Trends.");
+    } finally {
+      setTrendsLoading(false);
     }
   }, []);
 
@@ -427,7 +497,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   useEffect(() => {
     if (!ready || preferences.refreshMinutes === 0 || preferences.topics.length === 0 || enabledSourceCount === 0) return;
     const interval = window.setInterval(
-      () => void loadNews(preferences, true),
+      () => void loadNews(preferences, { quiet: true, emailSummary: true }),
       preferences.refreshMinutes * 60_000,
     );
     return () => window.clearInterval(interval);
@@ -480,23 +550,28 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     }
   }, [availableProviders, selectedProvider]);
 
-  function submitTopic(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const topic = topicInput.trim().replace(/\s+/g, " ");
-    if (!topic) return;
+  function addTopic(value: string) {
+    const topic = value.trim().replace(/\s+/g, " ").slice(0, 80);
+    if (!topic) return false;
     if (preferences.topics.length >= 20) {
       setNotice("You can follow up to 20 topics.");
-      return;
+      return false;
     }
     const existing = preferences.topics.find((followed) => followed.toLowerCase() === topic.toLowerCase());
     if (existing) {
       setSelectedTopic(existing);
       setNotice(`You already follow ${existing}.`);
-      setTopicInput("");
-      return;
+      return false;
     }
     setPreferences((current) => ({ ...current, topics: [...current.topics, topic] }));
     setSelectedTopic(topic);
+    setNotice(`Now following ${topic}.`);
+    return true;
+  }
+
+  function submitTopic(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    addTopic(topicInput);
     setTopicInput("");
   }
 
@@ -542,10 +617,20 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     });
   }
 
+  function hideControls() {
+    localStorage.setItem(CONTROLS_HIDDEN_STORAGE_KEY, "true");
+    setControlsHidden(true);
+  }
+
+  function showControls() {
+    localStorage.setItem(CONTROLS_HIDDEN_STORAGE_KEY, "false");
+    setControlsHidden(false);
+  }
+
   const feedTitle = selectedTopic === ALL_TOPICS ? "All followed topics" : selectedTopic;
 
   return (
-    <main>
+    <main className="signal-dashboard">
       <header className="site-header">
         <a className="brand" href="#top" aria-label="Signal home">
           <span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>
@@ -569,29 +654,48 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         </div>
       </header>
 
-      <section className="hero" id="top">
+      {controlsHidden && (
+        <button className="control-panel-reveal" type="button" onClick={showControls}>
+          Topics <span aria-hidden="true">&#43;</span>
+        </button>
+      )}
+
+      <section className={`hero${controlsHidden ? " controls-hidden" : ""}${heroCompact ? " compact" : ""}`} id="top">
         <div className="hero-copy">
           <p className="eyebrow">Your interests, continuously monitored</p>
-          <h1>Stay current on<br /><em>what matters.</em></h1>
+          <h1>Stay current on<br />{" "}<em>what matters.</em></h1>
           <p className="lede">One focused briefing across multiple news networks and the publishers you trust.</p>
         </div>
+      </section>
 
-        <div className={controlsExpanded ? "control-panel expanded" : "control-panel"}>
+      <div className={controlsHidden ? "content-layout controls-hidden" : "content-layout"}>
+
+        {!controlsHidden && <div className={controlsExpanded ? "control-panel expanded" : "control-panel"}>
           <div className="control-panel-header">
             <div className="control-panel-heading">
               <h2>Add a topic to follow</h2>
               <p>{preferences.topics.length} followed <span aria-hidden="true">/</span> {enabledSourceCount} sources</p>
             </div>
-            <button
-              type="button"
-              className="control-panel-toggle"
-              aria-expanded={controlsExpanded}
-              aria-controls="briefing-controls"
-              onClick={toggleControls}
-            >
-              {controlsExpanded ? "Hide" : "Manage"}
-              <span className="control-panel-chevron" aria-hidden="true">&#8595;</span>
-            </button>
+            <div className="control-panel-actions">
+              <button
+                type="button"
+                className="control-panel-toggle"
+                aria-expanded={controlsExpanded}
+                aria-controls="briefing-controls"
+                onClick={toggleControls}
+              >
+                {controlsExpanded ? "Collapse" : "Manage"}
+                <span className="control-panel-chevron" aria-hidden="true">&#8595;</span>
+              </button>
+              <button
+                type="button"
+                className="control-panel-dismiss"
+                onClick={hideControls}
+                aria-label="Hide topic controls on the right side"
+              >
+                &#215;
+              </button>
+            </div>
           </div>
 
           <div id="briefing-controls" className="control-panel-body" hidden={!controlsExpanded}>
@@ -604,6 +708,57 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               </div>
             </div>
           </form>
+
+          {preferencesStore && (
+            <div className={trendsOpen ? "trends-picker open" : "trends-picker"}>
+              <button
+                type="button"
+                className="trends-picker-toggle"
+                aria-expanded={trendsOpen}
+                aria-controls="google-trending-terms"
+                onClick={() => {
+                  const next = !trendsOpen;
+                  setTrendsOpen(next);
+                  if (next && trendingTerms.length === 0 && !trendsLoading) void loadTrendingTerms();
+                }}
+              >
+                <span><strong>Trending now</strong><small>Latest Google searches in New Zealand</small></span>
+                <span className="trends-picker-action">{trendsOpen ? "Hide" : "Browse"}</span>
+              </button>
+              {trendsOpen && (
+                <div className="trends-picker-content" id="google-trending-terms">
+                  <div className="trends-picker-meta">
+                    <span>{trendsFetchedAt ? `Updated ${formatAge(trendsFetchedAt)}` : "Google Trends"}</span>
+                    <button type="button" onClick={() => void loadTrendingTerms()} disabled={trendsLoading}>Refresh</button>
+                  </div>
+                  {trendsLoading && trendingTerms.length === 0 ? (
+                    <p className="trends-message">Loading current searches...</p>
+                  ) : trendsError ? (
+                    <p className="trends-message error">{trendsError}</p>
+                  ) : (
+                    <div className="trend-terms" aria-label="Current Google trending searches">
+                      {trendingTerms.map((term) => {
+                        const followed = preferences.topics.some((topic) => topic.toLowerCase() === term.keyword.toLowerCase());
+                        return (
+                          <button
+                            type="button"
+                            key={term.keyword}
+                            disabled={followed}
+                            onClick={() => addTopic(term.keyword)}
+                            aria-label={`${followed ? "Already following" : "Follow"} ${term.keyword}${term.traffic ? `, ${term.traffic} searches` : ""}`}
+                          >
+                            <span>{term.keyword}</span>
+                            {term.traffic && <small>{term.traffic}</small>}
+                            <b aria-hidden="true">{followed ? "✓" : "+"}</b>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="followed-topics">
             <p className="panel-label">Following {preferences.topics.length}</p>
@@ -656,10 +811,26 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
             <div className="field compact-field">
               <label htmlFor="refresh-rate">Refresh</label>
               <select id="refresh-rate" value={preferences.refreshMinutes} onChange={(event) => setPreferences((current) => ({ ...current, refreshMinutes: Number(event.target.value) }))}>
-                <option value={0}>Manual</option><option value={5}>Every 5 min</option><option value={15}>Every 15 min</option><option value={30}>Every 30 min</option><option value={60}>Every hour</option>
+                <option value={0}>Manual</option><option value={5}>Every 5 min</option><option value={15}>Every 15 min</option><option value={30}>Every 30 min</option><option value={60}>Every hour</option><option value={120}>Every 2 hours</option><option value={180}>Every 3 hours</option><option value={240}>Every 4 hours</option><option value={300}>Every 5 hours</option><option value={360}>Every 6 hours</option><option value={420}>Every 7 hours</option><option value={480}>Every 8 hours</option>
               </select>
             </div>
           </div>
+          {preferencesStore && summarySender && (
+            <label className="email-summary-toggle">
+              <input
+                type="checkbox"
+                checked={preferences.emailSummaryEnabled}
+                onChange={(event) => setPreferences((current) => ({
+                  ...current,
+                  emailSummaryEnabled: event.target.checked,
+                }))}
+              />
+              <span>
+                <strong>Email refreshed briefing</strong>
+                <small>Send a polished summary to {user.email} after scheduled and manual refreshes.</small>
+              </span>
+            </label>
+          )}
           <p className="settings-note" aria-live="polite">
             {!preferencesStore
               ? "Your topics, sources and settings are saved on this device."
@@ -672,8 +843,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                     : "Your topics, sources and settings are saved to your account."}
           </p>
           </div>
-        </div>
-      </section>
+        </div>}
 
       <section className="feed" aria-labelledby="feed-title">
         <div className="feed-heading">
@@ -682,7 +852,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
             <div className="feed-meta" aria-live="polite">
               {fetchedAt ? `${filteredArticles.length} stories / ${publisherCount} publishers / updated ${formatAge(fetchedAt)}` : preferences.topics.length > 0 && enabledSourceCount > 0 ? "Gathering recent coverage" : "Add a topic and source to begin"}
             </div>
-            <button className="refresh-button" onClick={() => void loadNews(preferences)} disabled={loading || preferences.topics.length === 0 || enabledSourceCount === 0}><RefreshIcon spinning={loading} /> Refresh</button>
+            <button className="refresh-button" onClick={() => void loadNews(preferences, { emailSummary: true })} disabled={loading || preferences.topics.length === 0 || enabledSourceCount === 0}><RefreshIcon spinning={loading} /> Refresh</button>
           </div>
         </div>
 
@@ -714,7 +884,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         ) : enabledSourceCount === 0 ? (
           <div className="message-card"><p className="message-kicker">No sources selected</p><h3>Choose where Signal should look.</h3><p>Turn on Google News or GDELT, or add a publisher RSS feed.</p></div>
         ) : error ? (
-          <div className="message-card" role="alert"><p className="message-kicker">The signal dropped</p><h3>We couldn&apos;t gather the latest stories.</h3><p>{error}</p><button onClick={() => void loadNews(preferences)}>Try again</button></div>
+          <div className="message-card" role="alert"><p className="message-kicker">The signal dropped</p><h3>We couldn&apos;t gather the latest stories.</h3><p>{error}</p><button onClick={() => void loadNews(preferences, { emailSummary: true })}>Try again</button></div>
         ) : loading && articles.length === 0 ? (
           <div className="loading-list" aria-label="Loading recent stories">{Array.from({ length: 4 }, (_, index) => <div className="loading-row" key={index} />)}</div>
         ) : filteredArticles.length === 0 ? (
@@ -736,6 +906,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           </ol>
         )}
       </section>
+      </div>
 
       <footer><p><span className="footer-dot" /> SIGNAL gathers public reporting and sends you to the original publisher.</p><a href="#top">Back to top &#8593;</a></footer>
     </main>

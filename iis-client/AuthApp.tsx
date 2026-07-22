@@ -1,9 +1,15 @@
 import { FormEvent, useEffect, useState } from "react";
-import NewsDashboard from "../app/NewsDashboard";
+import NewsDashboard, { type NewsPreferences, type NewsSummary, type PreferencesStore } from "../app/NewsDashboard";
 
 type SessionUser = {
   email: string;
   displayName: string;
+};
+
+type EmailDeliveryStatus = {
+  mode: "gmailOAuth" | "localFile" | "smtp";
+  connected: boolean;
+  email: string | null;
 };
 
 type AuthView = "login" | "register" | "forgot" | "reset" | "resend";
@@ -33,6 +39,32 @@ async function postJson<T>(path: string, body?: unknown): Promise<T> {
   const data = await response.json().catch(() => ({})) as { error?: string; detail?: string };
   if (!response.ok) throw new Error(data.error || data.detail || "The request could not be completed.");
   return data as T;
+}
+
+const sqlitePreferencesStore: PreferencesStore = {
+  async load() {
+    const response = await fetch("/api/preferences", {
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+    const data = await response.json().catch(() => ({})) as {
+      error?: string;
+      detail?: string;
+      exists: boolean;
+      preferences: NewsPreferences;
+    };
+    if (!response.ok) throw new Error(data.error || data.detail || "Could not load your saved settings.");
+    return { exists: data.exists, preferences: data.preferences };
+  },
+  async save(preferences) {
+    const data = await postJson<{ preferences: NewsPreferences }>("/api/preferences", preferences);
+    return data.preferences;
+  },
+};
+
+async function sendNewsSummary(summary: NewsSummary) {
+  const data = await postJson<{ message: string }>("/api/news-summary", summary);
+  return data.message;
 }
 
 export default function AuthApp() {
@@ -78,6 +110,8 @@ export default function AuthApp() {
           user={{ displayName: user.displayName, email: user.email, fullName: null, isLocalPreview: false }}
           onSignOut={() => void signOut()}
           onManageAccount={() => setAccountOpen(true)}
+          preferencesStore={sqlitePreferencesStore}
+          summarySender={sendNewsSummary}
         />
         {accountOpen && (
           <AccountPanel
@@ -293,6 +327,14 @@ function AccountPanel({ email, onClose, onSignedOut }: { email: string; onClose:
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [delivery, setDelivery] = useState<EmailDeliveryStatus | null>(null);
+
+  useEffect(() => {
+    void fetch("/api/email/status", { credentials: "same-origin", cache: "no-store" })
+      .then(async (response) => {
+        if (response.ok) setDelivery(await response.json() as EmailDeliveryStatus);
+      });
+  }, []);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -313,6 +355,15 @@ function AccountPanel({ email, onClose, onSignedOut }: { email: string; onClose:
         <p className="eyebrow">Account settings</p>
         <h2 id="account-title">Your Signal account</h2>
         <p className="account-email">Signed in as <strong>{email}</strong></p>
+        <div className="email-delivery" aria-live="polite">
+          <span className={delivery?.connected ? "delivery-dot connected" : "delivery-dot"} aria-hidden="true" />
+          <div>
+            <strong>{delivery?.connected ? "Gmail API connected" : "Local email delivery"}</strong>
+            <p>{delivery?.connected && delivery.email
+              ? `Account emails are sent securely through ${delivery.email}.`
+              : "Account emails are currently written to Signal's local mail-drop."}</p>
+          </div>
+        </div>
         <form className="auth-form compact" onSubmit={submit}>
           <h3>Change password</h3>
           {message && <p className="auth-notice" role="status">{message}</p>}

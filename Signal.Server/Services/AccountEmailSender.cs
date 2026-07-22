@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Mail;
+using System.Text;
 using System.Text.Encodings.Web;
 using Microsoft.Extensions.Options;
 
@@ -7,6 +8,7 @@ namespace Signal.Server.Services;
 
 public sealed class AccountEmailSender(
     IOptions<SmtpOptions> options,
+    GmailApiEmailSender gmail,
     IWebHostEnvironment environment,
     ILogger<AccountEmailSender> logger) : IAccountEmailSender
 {
@@ -30,6 +32,17 @@ public sealed class AccountEmailSender(
             resetUrl,
             cancellationToken);
 
+    public Task SendNewsSummaryAsync(
+        string email,
+        NewsSummaryDigest digest,
+        CancellationToken cancellationToken)
+    {
+        var subject = digest.Articles.Count == 1
+            ? "Your Signal briefing - 1 story"
+            : $"Your Signal briefing - {digest.Articles.Count} stories";
+        return SendHtmlAsync(email, subject, BuildNewsSummaryBody(digest), cancellationToken);
+    }
+
     private async Task SendAsync(
         string email,
         string subject,
@@ -52,6 +65,75 @@ public sealed class AccountEmailSender(
             </body></html>
             """;
 
+        await SendHtmlAsync(email, subject, body, cancellationToken);
+    }
+
+    private static string BuildNewsSummaryBody(NewsSummaryDigest digest)
+    {
+        var encoder = HtmlEncoder.Default;
+        var refreshedAt = encoder.Encode(digest.RefreshedAt.ToLocalTime().ToString("dddd d MMMM, h:mm tt"));
+        var topicMarkup = string.Join("", digest.Topics.Select(topic =>
+            $"<span style=\"display:inline-block;margin:0 6px 8px 0;padding:7px 10px;border:1px solid #d9d2c4;border-radius:999px;color:#657364;font-size:12px\">{encoder.Encode(topic)}</span>"));
+        var articleMarkup = new StringBuilder();
+
+        foreach (var article in digest.Articles)
+        {
+            var safeUrl = encoder.Encode(article.Url);
+            var safeTitle = encoder.Encode(article.Title);
+            var safeSource = encoder.Encode(article.Source);
+            var safeSummary = encoder.Encode(article.Summary);
+            var publishedAt = encoder.Encode(article.PublishedAt.ToLocalTime().ToString("d MMM, h:mm tt"));
+            var context = string.Join(" / ", article.Topics.Concat(article.Providers).Distinct(StringComparer.OrdinalIgnoreCase));
+            articleMarkup.Append($$"""
+                <tr><td style="padding:0 0 14px">
+                  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #ded7ca;background:#fffdf8">
+                    <tr><td style="padding:22px 22px 20px">
+                      <p style="margin:0 0 9px;color:#c83f32;font-size:11px;font-weight:700;letter-spacing:.11em;text-transform:uppercase">{{safeSource}} &middot; {{publishedAt}}</p>
+                      <h2 style="margin:0 0 10px;font-family:Georgia,serif;font-size:23px;font-weight:400;line-height:1.25"><a href="{{safeUrl}}" style="color:#171815;text-decoration:none">{{safeTitle}}</a></h2>
+                      {{(string.IsNullOrWhiteSpace(safeSummary) ? "" : $"<p style=\"margin:0 0 13px;color:#4f514b;font-size:14px;line-height:1.55\">{safeSummary}</p>")}}
+                      <p style="margin:0;color:#77796f;font-size:11px;line-height:1.4">{{encoder.Encode(context)}}</p>
+                    </td></tr>
+                  </table>
+                </td></tr>
+                """);
+        }
+
+        return $$"""
+            <!doctype html>
+            <html lang="en"><body style="margin:0;background:#f4f0e7;color:#171815;font-family:Arial,sans-serif">
+              <div style="display:none;max-height:0;overflow:hidden">Fresh reporting on {{digest.Topics.Count}} followed {{(digest.Topics.Count == 1 ? "topic" : "topics")}}.</div>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f4f0e7">
+                <tr><td align="center" style="padding:38px 18px">
+                  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:680px">
+                    <tr><td style="padding:0 0 24px;border-bottom:2px solid #171815">
+                      <p style="margin:0 0 20px;color:#c83f32;font-size:12px;font-weight:700;letter-spacing:.24em">SIGNAL</p>
+                      <h1 style="margin:0 0 12px;font-family:Georgia,serif;font-size:42px;font-weight:400;line-height:1.05">Your refreshed briefing.</h1>
+                      <p style="margin:0;color:#657364;font-size:14px;line-height:1.6">{{digest.Articles.Count}} {{(digest.Articles.Count == 1 ? "story" : "stories")}} gathered {{refreshedAt}}</p>
+                    </td></tr>
+                    <tr><td style="padding:22px 0 16px">{{topicMarkup}}</td></tr>
+                    {{articleMarkup}}
+                    <tr><td style="padding:20px 0 8px;border-top:1px solid #d9d2c4;color:#77796f;font-size:12px;line-height:1.6">
+                      You receive this briefing because email summaries are enabled in your Signal refresh settings. Turn them off there at any time.
+                    </td></tr>
+                  </table>
+                </td></tr>
+              </table>
+            </body></html>
+            """;
+    }
+
+    private async Task SendHtmlAsync(
+        string email,
+        string subject,
+        string body,
+        CancellationToken cancellationToken)
+    {
+        if (gmail.IsConfigured)
+        {
+            await gmail.SendAsync(email, subject, body, cancellationToken);
+            return;
+        }
+
         if (_options.Mode.Equals("File", StringComparison.OrdinalIgnoreCase))
         {
             var mailDirectory = Path.Combine(environment.ContentRootPath, "App_Data", "maildrop");
@@ -71,7 +153,7 @@ public sealed class AccountEmailSender(
             || string.IsNullOrWhiteSpace(fromAddress))
         {
             throw new InvalidOperationException(
-                "Gmail SMTP is not configured. Set Smtp__Username, Smtp__AppPassword and Smtp__FromAddress.");
+                "SMTP is not configured. Set Smtp__Username, Smtp__AppPassword and Smtp__FromAddress.");
         }
 
         using var mail = new MailMessage

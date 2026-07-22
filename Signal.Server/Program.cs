@@ -110,7 +110,14 @@ builder.Services.AddRateLimiter(options =>
 });
 builder.Services.AddMemoryCache();
 builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection(SmtpOptions.SectionName));
+builder.Services.AddSingleton<GmailOAuthStore>();
+builder.Services.AddSingleton<GmailApiEmailSender>();
 builder.Services.AddScoped<IAccountEmailSender, AccountEmailSender>();
+builder.Services.AddHttpClient(nameof(GmailApiEmailSender), client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(30);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("Signal-News-Monitor/2.0");
+});
 builder.Services.AddHttpClient<NewsService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(20);
@@ -119,6 +126,12 @@ builder.Services.AddHttpClient<NewsService>(client =>
 {
     AllowAutoRedirect = false,
     AutomaticDecompression = System.Net.DecompressionMethods.All,
+});
+builder.Services.AddHttpClient<GoogleTrendsService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(15);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("Signal-News-Monitor/2.0");
+    client.DefaultRequestHeaders.Accept.ParseAdd("application/rss+xml, application/xml;q=0.9");
 });
 
 var app = builder.Build();
@@ -148,6 +161,39 @@ await using (var scope = app.Services.CreateAsyncScope())
 {
     var database = scope.ServiceProvider.GetRequiredService<SignalDbContext>();
     await database.Database.EnsureCreatedAsync();
+    // EnsureCreated does not add new tables to an existing Identity database.
+    await database.Database.ExecuteSqlRawAsync("""
+        CREATE TABLE IF NOT EXISTS "UserNewsPreferences" (
+            "UserId" TEXT NOT NULL CONSTRAINT "PK_UserNewsPreferences" PRIMARY KEY,
+            "TopicsJson" TEXT NOT NULL,
+            "StoryLimit" INTEGER NOT NULL,
+            "RefreshMinutes" INTEGER NOT NULL,
+            "EmailSummaryEnabled" INTEGER NOT NULL DEFAULT 0,
+            "GoogleEnabled" INTEGER NOT NULL,
+            "GdeltEnabled" INTEGER NOT NULL,
+            "RssFeedsJson" TEXT NOT NULL,
+            "UpdatedAtUtc" TEXT NOT NULL,
+            CONSTRAINT "FK_UserNewsPreferences_AspNetUsers_UserId"
+                FOREIGN KEY ("UserId") REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE
+        );
+        """);
+
+    await database.Database.OpenConnectionAsync();
+    try
+    {
+        await using var columnCheck = database.Database.GetDbConnection().CreateCommand();
+        columnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('UserNewsPreferences') WHERE name = 'EmailSummaryEnabled';";
+        var emailSummaryColumnExists = Convert.ToInt32(await columnCheck.ExecuteScalarAsync()) > 0;
+        if (!emailSummaryColumnExists)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"UserNewsPreferences\" ADD COLUMN \"EmailSummaryEnabled\" INTEGER NOT NULL DEFAULT 0;");
+        }
+    }
+    finally
+    {
+        await database.Database.CloseConnectionAsync();
+    }
 }
 
 await app.RunAsync();

@@ -69,7 +69,7 @@ public sealed class AuthController(
             return Problem(
                 statusCode: StatusCodes.Status503ServiceUnavailable,
                 title: "Email delivery is unavailable",
-                detail: "The account was not created. Check the Gmail SMTP configuration and try again.");
+                detail: "The account was not created. Check the email-delivery configuration and try again.");
         }
 
         return Ok(new
@@ -97,7 +97,7 @@ public sealed class AuthController(
                 return Problem(
                     statusCode: StatusCodes.Status503ServiceUnavailable,
                     title: "Email delivery is unavailable",
-                    detail: "Check the Gmail SMTP configuration and try again.");
+                    detail: "Check the email-delivery configuration and try again.");
             }
         }
 

@@ -19,7 +19,7 @@ dashboard.
 - Node.js 22.13 or newer
 - .NET 10 SDK for development
 - IIS with the .NET 10 Hosting Bundle for deployment
-- a Gmail account with two-step verification and an app password
+- a Google OAuth desktop client with the Gmail API enabled
 
 ## Local development
 
@@ -40,10 +40,36 @@ file to test confirmation and password-reset links.
 For client hot reload, run `npm run iis:client:dev` in a second terminal while
 the ASP.NET server is running, then open `http://127.0.0.1:3000`.
 
-## Gmail SMTP configuration
+## Gmail API OAuth configuration
 
-Never commit the Gmail password or app password. Configure these environment
-variables on the IIS server:
+Signal can send account confirmation and password-reset messages through the
+Gmail API. This works without a Gmail password or app password and is the
+preferred option for accounts enrolled in Google Advanced Protection.
+
+Build the local setup utility:
+
+```powershell
+npm run gmail:setup:build
+```
+
+The setup utility needs a Google OAuth client JSON file of type **Desktop app**.
+It opens Google's authorization page, requests Gmail send-only permission, sends
+a test message, and stores the client and refresh token in
+`C:\inetpub\Signal\App_Data\gmail-oauth.dat`. The file is encrypted with the
+same machine-protected ASP.NET Core Data Protection keys used by Signal.
+
+For this workstation, double-click `Configure Signal Gmail.cmd` to reuse the
+configured OAuth client and connect the local IIS deployment.
+
+Signal automatically prefers Gmail OAuth when the encrypted connection exists.
+If it does not exist, email remains in local file mode under
+`App_Data\maildrop`.
+
+## Legacy SMTP configuration
+
+SMTP remains available for providers that support username/password or API-key
+authentication. Never commit those credentials. Configure these IIS application
+pool environment variables:
 
 ```text
 Smtp__Mode=Smtp
@@ -56,8 +82,7 @@ Smtp__FromAddress=your-address@gmail.com
 Smtp__FromName=Signal
 ```
 
-Use a Gmail app password, not the normal Gmail account password. Recycle the
-application pool after changing environment variables.
+Recycle the application pool after changing environment variables.
 
 ## Build for IIS
 
@@ -72,7 +97,7 @@ The deployable application is produced in `iis-publish`.
 3. Use an application pool configured with **No Managed Code**.
 4. Grant the application-pool identity **Modify** permission on the
    `App_Data` directory so SQLite and data-protection keys can be written.
-5. Configure the Gmail environment variables above.
+5. Run the Gmail OAuth setup utility, or configure another SMTP provider.
 6. Add an HTTPS binding and redirect HTTP to HTTPS before allowing real users.
 7. Recycle the application pool.
 
