@@ -44,6 +44,8 @@ next-env.d.ts
 /iis-publish/
 /Signal.Server/bin/
 /Signal.Server/obj/
+/Signal.Server.TopicMatcher.Tests/bin/
+/Signal.Server.TopicMatcher.Tests/obj/
 /Signal.Server/App_Data/*
 !/Signal.Server/App_Data/.gitkeep
 !/Signal.Server/App_Data/README.txt

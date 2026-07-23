@@ -2,6 +2,8 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { suggestNewsSources } from "./source-suggestions";
+
 type Article = {
   title: string;
   url: string;
@@ -81,8 +83,11 @@ const STORAGE_KEY = "signal-news-preferences";
 const PENDING_STORAGE_KEY = "signal-news-preferences-pending";
 const CONTROLS_STORAGE_KEY = "signal-briefing-controls-expanded";
 const CONTROLS_HIDDEN_STORAGE_KEY = "signal-briefing-controls-hidden";
+const THEME_STORAGE_KEY = "signal-color-theme";
 const ALL_TOPICS = "all";
 const ALL_PROVIDERS = "all";
+
+type ColorTheme = "light" | "dark";
 
 function ArrowIcon() {
   return <span aria-hidden="true" className="arrow">&#8599;</span>;
@@ -230,6 +235,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [heroCompact, setHeroCompact] = useState(false);
   const [controlsExpanded, setControlsExpanded] = useState(false);
   const [controlsHidden, setControlsHidden] = useState(false);
+  const [theme, setTheme] = useState<ColorTheme | null>(null);
   const [storageStatus, setStorageStatus] = useState<"loading" | "saving" | "saved" | "error" | "local">(
     preferencesStore ? "loading" : "local",
   );
@@ -293,6 +299,29 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   useEffect(() => {
     setControlsExpanded(localStorage.getItem(CONTROLS_STORAGE_KEY) === "true");
     setControlsHidden(localStorage.getItem(CONTROLS_HIDDEN_STORAGE_KEY) === "true");
+  }, []);
+
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const saved = localStorage.getItem(THEME_STORAGE_KEY);
+    const initialTheme: ColorTheme = saved === "light" || saved === "dark"
+      ? saved
+      : media.matches ? "dark" : "light";
+
+    document.documentElement.dataset.theme = initialTheme;
+    document.documentElement.style.colorScheme = initialTheme;
+    setTheme(initialTheme);
+
+    const followSystemTheme = (event: MediaQueryListEvent) => {
+      const currentSaved = localStorage.getItem(THEME_STORAGE_KEY);
+      if (currentSaved === "light" || currentSaved === "dark") return;
+      const nextTheme: ColorTheme = event.matches ? "dark" : "light";
+      document.documentElement.dataset.theme = nextTheme;
+      document.documentElement.style.colorScheme = nextTheme;
+      setTheme(nextTheme);
+    };
+    media.addEventListener("change", followSystemTheme);
+    return () => media.removeEventListener("change", followSystemTheme);
   }, []);
 
   useEffect(() => {
@@ -544,6 +573,15 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     [filteredArticles],
   );
 
+  const suggestedSources = useMemo(
+    () => suggestNewsSources(
+      preferences.topics,
+      articles.map((article) => article.source),
+      preferences.sources.rssFeeds,
+    ),
+    [articles, preferences.sources.rssFeeds, preferences.topics],
+  );
+
   useEffect(() => {
     if (selectedProvider !== ALL_PROVIDERS && !availableProviders.includes(selectedProvider)) {
       setSelectedProvider(ALL_PROVIDERS);
@@ -580,10 +618,9 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     if (selectedTopic === topic) setSelectedTopic(ALL_TOPICS);
   }
 
-  function submitRssFeed(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  function addRssFeed(feed: string, displayName = feedName(feed)) {
     try {
-      const url = new URL(rssInput.trim());
+      const url = new URL(feed.trim());
       if (url.protocol !== "https:" || url.username || url.password) throw new Error();
       const value = url.toString();
       if (preferences.sources.rssFeeds.includes(value)) {
@@ -595,11 +632,17 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           ...current,
           sources: { ...current.sources, rssFeeds: [...current.sources.rssFeeds, value] },
         }));
+        setNotice(`${displayName} added to your news sources.`);
       }
-      setRssInput("");
     } catch {
       setNotice("Enter a complete public HTTPS RSS or Atom feed URL.");
     }
+  }
+
+  function submitRssFeed(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    addRssFeed(rssInput);
+    setRssInput("");
   }
 
   function removeRssFeed(feed: string) {
@@ -627,6 +670,15 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     setControlsHidden(false);
   }
 
+  function toggleTheme() {
+    const currentTheme = theme ?? (document.documentElement.dataset.theme === "dark" ? "dark" : "light");
+    const nextTheme: ColorTheme = currentTheme === "dark" ? "light" : "dark";
+    localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+    document.documentElement.dataset.theme = nextTheme;
+    document.documentElement.style.colorScheme = nextTheme;
+    setTheme(nextTheme);
+  }
+
   const feedTitle = selectedTopic === ALL_TOPICS ? "All followed topics" : selectedTopic;
 
   return (
@@ -638,6 +690,16 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         </a>
         <div className="header-actions">
           <div className="live-status"><span className="pulse" aria-hidden="true" />Live web briefing</div>
+          <button
+            type="button"
+            className="theme-toggle"
+            onClick={toggleTheme}
+            aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+            title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+          >
+            <span className="theme-toggle-icon" aria-hidden="true">{theme === "dark" ? "\u263E" : "\u2600"}</span>
+            <span className="theme-toggle-label">{theme === "dark" ? "Dark" : theme === "light" ? "Light" : "Theme"}</span>
+          </button>
           <div className="current-user">
             <span className="user-avatar" aria-hidden="true">{user.displayName.charAt(0).toUpperCase()}</span>
             <span className="user-identity">
@@ -783,6 +845,28 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                 <span><strong>GDELT</strong><small>Global news monitoring</small></span>
               </label>
             </div>
+
+            {suggestedSources.length > 0 && (
+              <div className="source-suggestions">
+                <div className="source-suggestions-heading">
+                  <strong>Suggested publishers</strong>
+                  <span>Based on topics you follow</span>
+                </div>
+                <div className="source-suggestion-list">
+                  {suggestedSources.map((source) => (
+                    <button
+                      type="button"
+                      key={source.feed}
+                      onClick={() => addRssFeed(source.feed, source.name)}
+                      aria-label={`Add ${source.name} to news sources`}
+                    >
+                      <span><strong>{source.name}</strong><small>{source.description}</small></span>
+                      <b aria-hidden="true">+</b>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <form className="rss-form" onSubmit={submitRssFeed}>
               <label htmlFor="rss-feed">Add a publisher RSS or Atom feed</label>

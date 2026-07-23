@@ -1,4 +1,5 @@
 import { getChatGPTUser } from "../../chatgpt-auth";
+import { topicMatchesText } from "./topic-matching";
 
 const GOOGLE_NEWS_RSS = "https://news.google.com/rss/search";
 const GDELT_DOC_API = "https://api.gdeltproject.org/api/v2/doc/doc";
@@ -58,9 +59,9 @@ function toIsoDate(value: string) {
   return Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString();
 }
 
-function parseGoogleFeed(xml: string, limit: number): ParsedArticle[] {
+function parseGoogleFeed(xml: string, topic: string, limit: number): ParsedArticle[] {
   const items = xml.match(/<item>[\s\S]*?<\/item>/gi) ?? [];
-  return items.slice(0, limit).map((item) => {
+  return items.map((item) => {
     const rawTitle = stripHtml(tag(item, "title"));
     const source = stripHtml(tag(item, "source")) || rawTitle.split(" - ").at(-1) || "News source";
     const suffix = ` - ${source}`;
@@ -71,15 +72,11 @@ function parseGoogleFeed(xml: string, limit: number): ParsedArticle[] {
       publishedAt: toIsoDate(tag(item, "pubDate")),
       summary: "",
     };
-  });
+  }).filter((article) => topicMatches(article, topic)).slice(0, limit);
 }
 
 function topicMatches(article: ParsedArticle, topic: string) {
-  const searchable = `${article.title} ${article.summary}`.toLowerCase();
-  const phrase = topic.toLowerCase();
-  if (searchable.includes(phrase)) return true;
-  const usefulWords = phrase.split(/\W+/).filter((word) => word.length > 2);
-  return usefulWords.length === 0 || usefulWords.some((word) => searchable.includes(word));
+  return topicMatchesText(`${article.title} ${article.summary}`, topic);
 }
 
 function parsePublisherFeed(xml: string, feedUrl: string, topic: string, limit: number) {
@@ -163,7 +160,7 @@ async function getGoogleNews(topic: string, limit: number) {
     cf: { cacheTtl: 300, cacheEverything: true },
   } as RequestInit);
   if (!response.ok) throw new Error(`Google News returned ${response.status}.`);
-  return { articles: parseGoogleFeed(await response.text(), limit), provider: "Google News" };
+  return { articles: parseGoogleFeed(await response.text(), topic, limit), provider: "Google News" };
 }
 
 async function getGdeltNews(topics: string[], limit: number) {

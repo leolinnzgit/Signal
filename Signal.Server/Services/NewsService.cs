@@ -30,7 +30,7 @@ public sealed class NewsService(HttpClient httpClient)
         using var response = await httpClient.GetAsync($"{GoogleNewsRss}?{query}", cancellationToken);
         response.EnsureSuccessStatusCode();
         var xml = await response.Content.ReadAsStringAsync(cancellationToken);
-        var articles = ParseGoogleFeed(xml).Take(limit).ToArray();
+        var articles = ParseGoogleFeed(xml, topic).Take(limit).ToArray();
         return new NewsResult(topic, "Google News", DateTimeOffset.UtcNow, articles);
     }
 
@@ -69,7 +69,7 @@ public sealed class NewsService(HttpClient httpClient)
                     GetJsonString(entry, "domain").Trim().Replace("www.", "", StringComparison.OrdinalIgnoreCase),
                     ParseDate(GetJsonString(entry, "seendate")),
                     "");
-                var matchedTopics = topics.Where(topic => TopicMatches(article, topic)).ToArray();
+                var matchedTopics = topics.Where(topic => TopicMatcher.Matches(article, topic)).ToArray();
                 if (matchedTopics.Length > 0) articles.Add(article with { MatchedTopics = matchedTopics });
             }
         }
@@ -123,7 +123,7 @@ public sealed class NewsService(HttpClient httpClient)
         throw new InvalidOperationException("Publisher feed redirected too many times.");
     }
 
-    private static IEnumerable<NewsArticle> ParseGoogleFeed(string xml)
+    private static IEnumerable<NewsArticle> ParseGoogleFeed(string xml, string topic)
     {
         var document = XDocument.Parse(xml, LoadOptions.None);
         foreach (var item in document.Descendants().Where(element => element.Name.LocalName == "item"))
@@ -137,7 +137,8 @@ public sealed class NewsService(HttpClient httpClient)
                 : rawTitle;
             var url = Value(item, "link");
             if (string.IsNullOrWhiteSpace(title) || !IsPublicArticleUrl(url)) continue;
-            yield return new NewsArticle(title, url!, source, ParseDate(Value(item, "pubDate")), "");
+            var article = new NewsArticle(title, url!, source, ParseDate(Value(item, "pubDate")), "");
+            if (TopicMatcher.Matches(article, topic)) yield return article;
         }
     }
 
@@ -173,7 +174,7 @@ public sealed class NewsService(HttpClient httpClient)
                 source,
                 ParseDate(Value(entry, "pubDate") ?? Value(entry, "published") ?? Value(entry, "updated")),
                 summary);
-            if (TopicMatches(article, topic)) yield return article;
+            if (TopicMatcher.Matches(article, topic)) yield return article;
         }
     }
 
@@ -254,14 +255,6 @@ public sealed class NewsService(HttpClient httpClient)
         element.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String
             ? value.GetString() ?? ""
             : "";
-
-    private static bool TopicMatches(NewsArticle article, string topic)
-    {
-        var searchable = $"{article.Title} {article.Summary}";
-        if (searchable.Contains(topic, StringComparison.OrdinalIgnoreCase)) return true;
-        var usefulWords = Regex.Split(topic, @"\W+").Where(word => word.Length > 2).ToArray();
-        return usefulWords.Length == 0 || usefulWords.Any(word => searchable.Contains(word, StringComparison.OrdinalIgnoreCase));
-    }
 
     private static string StripHtml(string? value) =>
         Regex.Replace(WebUtility.HtmlDecode(value ?? ""), "<[^>]*>", " ")
