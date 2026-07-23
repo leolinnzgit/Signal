@@ -89,6 +89,26 @@ public sealed class NewsService(HttpClient httpClient)
         return new NewsResult(topic, $"RSS / {providerName}", DateTimeOffset.UtcNow, articles);
     }
 
+    public async Task<string> ResolvePublisherFeedUrlAsync(
+        string feedUrl,
+        CancellationToken cancellationToken)
+    {
+        var (xml, finalUrl) = await FetchPublisherFeedAsync(feedUrl, cancellationToken);
+        try
+        {
+            var document = XDocument.Parse(xml, LoadOptions.None);
+            if (document.Root?.Name.LocalName is not ("rss" or "feed" or "RDF"))
+                throw new ArgumentException("The address did not return an RSS or Atom feed.");
+        }
+        catch (System.Xml.XmlException)
+        {
+            throw new ArgumentException("The address did not return a valid RSS or Atom feed.");
+        }
+
+        return FeedUrlCanonicalizer.NormalizeForStorage(finalUrl.AbsoluteUri)
+            ?? throw new ArgumentException("Publisher feeds must use a public HTTPS domain.");
+    }
+
     private async Task<(string Xml, Uri FinalUrl)> FetchPublisherFeedAsync(
         string feedUrl,
         CancellationToken cancellationToken)
@@ -150,7 +170,7 @@ public sealed class NewsService(HttpClient httpClient)
         var fallbackSource = string.IsNullOrWhiteSpace(feedTitle)
             ? feedUrl.Host.Replace("www.", "", StringComparison.OrdinalIgnoreCase)
             : feedTitle;
-        var entries = document.Descendants().Where(element => element.Name.LocalName is "item" or "entry").Take(100);
+        var entries = document.Descendants().Where(element => element.Name.LocalName is "item" or "entry").Take(500);
 
         foreach (var entry in entries)
         {

@@ -169,6 +169,7 @@ await using (var scope = app.Services.CreateAsyncScope())
             "StoryLimit" INTEGER NOT NULL,
             "RefreshMinutes" INTEGER NOT NULL,
             "EmailSummaryEnabled" INTEGER NOT NULL DEFAULT 0,
+            "ArticleRetentionDays" INTEGER NOT NULL DEFAULT 30,
             "GoogleEnabled" INTEGER NOT NULL,
             "GdeltEnabled" INTEGER NOT NULL,
             "RssFeedsJson" TEXT NOT NULL,
@@ -177,6 +178,29 @@ await using (var scope = app.Services.CreateAsyncScope())
                 FOREIGN KEY ("UserId") REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE
         );
         """);
+    await database.Database.ExecuteSqlRawAsync("""
+        CREATE TABLE IF NOT EXISTS "StoredNewsArticles" (
+            "Id" INTEGER NOT NULL CONSTRAINT "PK_StoredNewsArticles" PRIMARY KEY AUTOINCREMENT,
+            "UserId" TEXT NOT NULL,
+            "Url" TEXT NOT NULL,
+            "Title" TEXT NOT NULL,
+            "Source" TEXT NOT NULL,
+            "PublishedAtUtc" TEXT NOT NULL,
+            "Summary" TEXT NOT NULL,
+            "TopicsJson" TEXT NOT NULL,
+            "ProvidersJson" TEXT NOT NULL,
+            "FirstSeenAtUtc" TEXT NOT NULL,
+            "LastSeenAtUtc" TEXT NOT NULL,
+            "IsBookmarked" INTEGER NOT NULL DEFAULT 0,
+            "BookmarkedAtUtc" TEXT NULL,
+            CONSTRAINT "FK_StoredNewsArticles_AspNetUsers_UserId"
+                FOREIGN KEY ("UserId") REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE
+        );
+        """);
+    await database.Database.ExecuteSqlRawAsync(
+        "CREATE UNIQUE INDEX IF NOT EXISTS \"IX_StoredNewsArticles_UserId_Url\" ON \"StoredNewsArticles\" (\"UserId\", \"Url\");");
+    await database.Database.ExecuteSqlRawAsync(
+        "CREATE INDEX IF NOT EXISTS \"IX_StoredNewsArticles_UserId_IsBookmarked_LastSeenAtUtc\" ON \"StoredNewsArticles\" (\"UserId\", \"IsBookmarked\", \"LastSeenAtUtc\");");
 
     await database.Database.OpenConnectionAsync();
     try
@@ -188,6 +212,14 @@ await using (var scope = app.Services.CreateAsyncScope())
         {
             await database.Database.ExecuteSqlRawAsync(
                 "ALTER TABLE \"UserNewsPreferences\" ADD COLUMN \"EmailSummaryEnabled\" INTEGER NOT NULL DEFAULT 0;");
+        }
+
+        columnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('UserNewsPreferences') WHERE name = 'ArticleRetentionDays';";
+        var retentionColumnExists = Convert.ToInt32(await columnCheck.ExecuteScalarAsync()) > 0;
+        if (!retentionColumnExists)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"UserNewsPreferences\" ADD COLUMN \"ArticleRetentionDays\" INTEGER NOT NULL DEFAULT 30;");
         }
     }
     finally

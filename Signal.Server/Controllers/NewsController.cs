@@ -12,7 +12,7 @@ public sealed class NewsController(NewsService newsService, ILogger<NewsControll
     [HttpGet]
     public async Task<IActionResult> Get(
         [FromQuery(Name = "topic")] string[] requestedTopics,
-        [FromQuery] int limit = 6,
+        [FromQuery] int limit = 20,
         [FromQuery] string provider = "google",
         [FromQuery] string? feed = null,
         CancellationToken cancellationToken = default)
@@ -25,7 +25,7 @@ public sealed class NewsController(NewsService newsService, ILogger<NewsControll
             .Take(20)
             .ToArray();
         if (topics.Length == 0) topics = ["Artificial intelligence"];
-        limit = Math.Clamp(limit, 1, 10);
+        limit = Math.Clamp(limit, 20, 500);
         provider = provider.Trim().ToLowerInvariant();
 
         try

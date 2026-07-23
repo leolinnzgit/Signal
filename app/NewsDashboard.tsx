@@ -13,9 +13,17 @@ type Article = {
   matchedTopics?: string[];
 };
 
-type FollowedArticle = Article & {
+export type FollowedArticle = Article & {
   topics: string[];
   providers: string[];
+  isBookmarked?: boolean;
+};
+
+export type StoredArticle = FollowedArticle & {
+  firstSeenAt: string;
+  lastSeenAt: string;
+  isBookmarked: boolean;
+  bookmarkedAt: string | null;
 };
 
 type FeedResponse = {
@@ -29,6 +37,7 @@ type FeedResponse = {
 type GoogleTrendTerm = {
   keyword: string;
   traffic: string;
+  region: string;
 };
 
 type GoogleTrendsResponse = {
@@ -57,6 +66,7 @@ export type NewsPreferences = {
   limit: number;
   refreshMinutes: number;
   emailSummaryEnabled: boolean;
+  articleRetentionDays: number;
   sources: SourcePreferences;
 };
 
@@ -69,15 +79,27 @@ export type NewsSummary = {
 export type PreferencesStore = {
   load: () => Promise<{ exists: boolean; preferences: NewsPreferences }>;
   save: (preferences: NewsPreferences) => Promise<NewsPreferences>;
+  resolveFeed?: (
+    feed: string,
+    existingFeeds: string[],
+  ) => Promise<{ feed: string; added: boolean; duplicateOf: string | null; feeds: string[] }>;
+};
+
+export type ArticleStore = {
+  load: () => Promise<StoredArticle[]>;
+  sync: (articles: FollowedArticle[]) => Promise<StoredArticle[]>;
+  setBookmark: (url: string, bookmarked: boolean) => Promise<void>;
 };
 
 const DEFAULTS: NewsPreferences = {
   topics: ["Artificial intelligence"],
-  limit: 6,
+  limit: 20,
   refreshMinutes: 15,
   emailSummaryEnabled: false,
+  articleRetentionDays: 30,
   sources: { google: true, gdelt: true, rssFeeds: [] },
 };
+const STORY_LIMIT_OPTIONS = Array.from({ length: 25 }, (_, index) => (index + 1) * 20);
 
 const STORAGE_KEY = "signal-news-preferences";
 const PENDING_STORAGE_KEY = "signal-news-preferences-pending";
@@ -111,6 +133,24 @@ function feedName(value: string) {
     return new URL(value).hostname.replace(/^www\./, "");
   } catch {
     return value;
+  }
+}
+
+function canonicalFeedKey(value: string) {
+  try {
+    const url = new URL(value.trim());
+    if (url.protocol !== "https:" || url.username || url.password) return null;
+    url.hash = "";
+    for (const name of Array.from(url.searchParams.keys())) {
+      if (/^utm_/i.test(name) || /^(fbclid|gclid|dclid|msclkid|mc_cid|mc_eid|_hsenc|_hsmi)$/i.test(name)) {
+        url.searchParams.delete(name);
+      }
+    }
+    url.searchParams.sort();
+    if (url.pathname.length > 1) url.pathname = url.pathname.replace(/\/+$/, "");
+    return url.toString();
+  } catch {
+    return null;
   }
 }
 
@@ -171,18 +211,25 @@ function normalizePreferences(saved: Partial<NewsPreferences> & { topic?: string
   const rssFeeds = Array.isArray(saved.sources?.rssFeeds)
     ? saved.sources.rssFeeds.filter((feed): feed is string => typeof feed === "string" && feed.startsWith("https://"))
     : [];
+  const feedKeys = new Set<string>();
 
   return {
     topics,
-    limit: Math.min(10, Math.max(1, Number(saved.limit) || DEFAULTS.limit)),
+    limit: Math.min(500, Math.max(20, Math.round((Number(saved.limit) || DEFAULTS.limit) / 20) * 20)),
     refreshMinutes: [0, 5, 15, 30, 60, 120, 180, 240, 300, 360, 420, 480].includes(Number(saved.refreshMinutes))
       ? Number(saved.refreshMinutes)
       : DEFAULTS.refreshMinutes,
     emailSummaryEnabled: saved.emailSummaryEnabled === true,
+    articleRetentionDays: [1, 7, 14, 30, 90, 180, 365].includes(Number(saved.articleRetentionDays))
+      ? Number(saved.articleRetentionDays)
+      : DEFAULTS.articleRetentionDays,
     sources: {
       google: typeof saved.sources?.google === "boolean" ? saved.sources.google : true,
       gdelt: typeof saved.sources?.gdelt === "boolean" ? saved.sources.gdelt : true,
-      rssFeeds: Array.from(new Set(rssFeeds)).slice(0, 20),
+      rssFeeds: rssFeeds.filter((feed) => {
+        const key = canonicalFeedKey(feed);
+        return key !== null && !feedKeys.has(key) && Boolean(feedKeys.add(key));
+      }).slice(0, 20),
     },
   };
 }
@@ -212,16 +259,20 @@ type NewsDashboardProps = {
   onSignOut?: () => void;
   onManageAccount?: () => void;
   preferencesStore?: PreferencesStore;
+  articleStore?: ArticleStore;
   summarySender?: (summary: NewsSummary) => Promise<string>;
 };
 
-export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAccount, preferencesStore, summarySender }: NewsDashboardProps) {
+export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAccount, preferencesStore, articleStore, summarySender }: NewsDashboardProps) {
   const [preferences, setPreferences] = useState<NewsPreferences>(DEFAULTS);
   const [topicInput, setTopicInput] = useState("");
   const [rssInput, setRssInput] = useState("");
   const [selectedTopic, setSelectedTopic] = useState(ALL_TOPICS);
   const [selectedProvider, setSelectedProvider] = useState(ALL_PROVIDERS);
   const [articles, setArticles] = useState<FollowedArticle[]>([]);
+  const [historyArticles, setHistoryArticles] = useState<StoredArticle[]>([]);
+  const [feedView, setFeedView] = useState<"latest" | "history" | "bookmarks">("latest");
+  const [bookmarkingUrls, setBookmarkingUrls] = useState<Set<string>>(() => new Set());
   const [fetchedAt, setFetchedAt] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -236,6 +287,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [controlsExpanded, setControlsExpanded] = useState(false);
   const [controlsHidden, setControlsHidden] = useState(false);
   const [theme, setTheme] = useState<ColorTheme | null>(null);
+  const [rssResolving, setRssResolving] = useState(false);
   const [storageStatus, setStorageStatus] = useState<"loading" | "saving" | "saved" | "error" | "local">(
     preferencesStore ? "loading" : "local",
   );
@@ -295,6 +347,19 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   useEffect(() => {
     latestPreferences.current = preferences;
   }, [preferences]);
+
+  useEffect(() => {
+    if (!articleStore) return;
+    let cancelled = false;
+    void articleStore.load()
+      .then((stored) => {
+        if (!cancelled) setHistoryArticles(stored);
+      })
+      .catch(() => {
+        if (!cancelled) setNotice("Your latest briefing is available, but saved article history could not be loaded.");
+      });
+    return () => { cancelled = true; };
+  }, [articleStore]);
 
   useEffect(() => {
     setControlsExpanded(localStorage.getItem(CONTROLS_STORAGE_KEY) === "true");
@@ -417,6 +482,21 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
       setArticles(refreshedArticles);
       setFetchedAt(refreshedAt);
 
+      let historyNotice = "";
+      if (articleStore) {
+        try {
+          const stored = await articleStore.sync(refreshedArticles);
+          const bookmarkedUrls = new Set(stored.filter((article) => article.isBookmarked).map((article) => article.url));
+          setHistoryArticles(stored);
+          setArticles(refreshedArticles.map((article) => ({
+            ...article,
+            isBookmarked: bookmarkedUrls.has(article.url),
+          })));
+        } catch {
+          historyNotice = "Stories refreshed, but article history could not be saved.";
+        }
+      }
+
       const sourceOutcomes = new Map<string, { label: string; successes: number; articles: number }>();
       requests.forEach((request, index) => {
         const current = sourceOutcomes.get(request.sourceKey) ?? {
@@ -440,6 +520,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
       const notices = [
         failedSources.length > 0 ? `Could not refresh ${summarizeSources(failedSources)}.` : "",
         emptySources.length > 0 ? `No followed-topic matches from ${summarizeSources(emptySources)}.` : "",
+        historyNotice,
       ].filter(Boolean);
       if (options.emailSummary && next.emailSummaryEnabled && summarySender) {
         try {
@@ -458,7 +539,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     } finally {
       if (runId === requestSequence.current) setLoading(false);
     }
-  }, [summarySender]);
+  }, [articleStore, summarySender]);
 
   const loadTrendingTerms = useCallback(async () => {
     setTrendsLoading(true);
@@ -532,11 +613,20 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     return () => window.clearInterval(interval);
   }, [preferences, ready, enabledSourceCount, loadNews]);
 
+  const viewedArticles = useMemo(
+    () => feedView === "latest"
+      ? articles
+      : feedView === "bookmarks"
+        ? historyArticles.filter((article) => article.isBookmarked)
+        : historyArticles,
+    [articles, feedView, historyArticles],
+  );
+
   const topicFilteredArticles = useMemo(
     () => selectedTopic === ALL_TOPICS
-      ? articles
-      : articles.filter((article) => article.topics.includes(selectedTopic)),
-    [articles, selectedTopic],
+      ? viewedArticles
+      : viewedArticles.filter((article) => article.topics.includes(selectedTopic)),
+    [selectedTopic, viewedArticles],
   );
 
   const filteredArticles = useMemo(
@@ -548,9 +638,9 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
 
   const topicCounts = useMemo(
     () => Object.fromEntries(
-      preferences.topics.map((topic) => [topic, articles.filter((article) => article.topics.includes(topic)).length]),
+      preferences.topics.map((topic) => [topic, viewedArticles.filter((article) => article.topics.includes(topic)).length]),
     ),
-    [articles, preferences.topics],
+    [preferences.topics, viewedArticles],
   );
 
   const availableProviders = useMemo(
@@ -618,31 +708,56 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     if (selectedTopic === topic) setSelectedTopic(ALL_TOPICS);
   }
 
-  function addRssFeed(feed: string, displayName = feedName(feed)) {
+  async function addRssFeed(feed: string, displayName = feedName(feed)) {
     try {
       const url = new URL(feed.trim());
       if (url.protocol !== "https:" || url.username || url.password) throw new Error();
       const value = url.toString();
-      if (preferences.sources.rssFeeds.includes(value)) {
+      const key = canonicalFeedKey(value);
+      const existing = preferences.sources.rssFeeds.find((item) => canonicalFeedKey(item) === key);
+      if (existing) {
         setNotice(`You already use ${feedName(value)}.`);
-      } else if (preferences.sources.rssFeeds.length >= 20) {
+        return false;
+      }
+      if (preferences.sources.rssFeeds.length >= 20) {
         setNotice("You can add up to 20 publisher feeds.");
+        return false;
+      }
+
+      setRssResolving(true);
+      if (preferencesStore?.resolveFeed) {
+        const result = await preferencesStore.resolveFeed(value, preferences.sources.rssFeeds);
+        setPreferences((current) => ({
+          ...current,
+          sources: { ...current.sources, rssFeeds: result.feeds },
+        }));
+        if (!result.added) {
+          setNotice(`You already use ${feedName(result.duplicateOf ?? result.feed)}.`);
+          return false;
+        }
       } else {
         setPreferences((current) => ({
           ...current,
           sources: { ...current.sources, rssFeeds: [...current.sources.rssFeeds, value] },
         }));
-        setNotice(`${displayName} added to your news sources.`);
       }
-    } catch {
-      setNotice("Enter a complete public HTTPS RSS or Atom feed URL.");
+      setNotice(`${displayName} added to your news sources.`);
+      return true;
+    } catch (caught) {
+      setNotice(caught instanceof Error && caught.message
+        ? caught.message
+        : "Enter a complete public HTTPS RSS or Atom feed URL.");
+      return false;
+    } finally {
+      setRssResolving(false);
     }
   }
 
   function submitRssFeed(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    addRssFeed(rssInput);
-    setRssInput("");
+    void addRssFeed(rssInput).then((added) => {
+      if (added) setRssInput("");
+    });
   }
 
   function removeRssFeed(feed: string) {
@@ -679,7 +794,43 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     setTheme(nextTheme);
   }
 
-  const feedTitle = selectedTopic === ALL_TOPICS ? "All followed topics" : selectedTopic;
+  function changeFeedView(next: "latest" | "history" | "bookmarks") {
+    setFeedView(next);
+    setSelectedTopic(ALL_TOPICS);
+    setSelectedProvider(ALL_PROVIDERS);
+  }
+
+  async function toggleBookmark(article: FollowedArticle) {
+    if (!articleStore || bookmarkingUrls.has(article.url)) return;
+    const bookmarked = !article.isBookmarked;
+    setBookmarkingUrls((current) => new Set(current).add(article.url));
+    try {
+      await articleStore.setBookmark(article.url, bookmarked);
+      setArticles((current) => current.map((item) => item.url === article.url
+        ? { ...item, isBookmarked: bookmarked }
+        : item));
+      setHistoryArticles((current) => current.map((item) => item.url === article.url
+        ? { ...item, isBookmarked: bookmarked, bookmarkedAt: bookmarked ? new Date().toISOString() : null }
+        : item));
+      setNotice(bookmarked
+        ? "Story bookmarked. It will be kept until you remove the bookmark."
+        : "Bookmark removed. The normal history cleanup setting now applies.");
+    } catch (caught) {
+      setNotice(caught instanceof Error ? caught.message : "That bookmark could not be updated.");
+    } finally {
+      setBookmarkingUrls((current) => {
+        const next = new Set(current);
+        next.delete(article.url);
+        return next;
+      });
+    }
+  }
+
+  const feedTitle = feedView === "bookmarks"
+    ? "Bookmarked stories"
+    : feedView === "history"
+      ? "Article history"
+      : selectedTopic === ALL_TOPICS ? "All followed topics" : selectedTopic;
 
   return (
     <main className="signal-dashboard">
@@ -784,7 +935,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                   if (next && trendingTerms.length === 0 && !trendsLoading) void loadTrendingTerms();
                 }}
               >
-                <span><strong>Trending now</strong><small>Latest Google searches in New Zealand</small></span>
+                <span><strong>Trending now</strong><small>Up to 5 per English + Mandarin-speaking region</small></span>
                 <span className="trends-picker-action">{trendsOpen ? "Hide" : "Browse"}</span>
               </button>
               {trendsOpen && (
@@ -807,10 +958,10 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                             key={term.keyword}
                             disabled={followed}
                             onClick={() => addTopic(term.keyword)}
-                            aria-label={`${followed ? "Already following" : "Follow"} ${term.keyword}${term.traffic ? `, ${term.traffic} searches` : ""}`}
+                            aria-label={`${followed ? "Already following" : "Follow"} ${term.keyword}${term.region ? ` from ${term.region}` : ""}${term.traffic ? `, ${term.traffic} searches` : ""}`}
                           >
                             <span>{term.keyword}</span>
-                            {term.traffic && <small>{term.traffic}</small>}
+                            <small>{[term.region, term.traffic].filter(Boolean).join(" · ")}</small>
                             <b aria-hidden="true">{followed ? "✓" : "+"}</b>
                           </button>
                         );
@@ -857,7 +1008,8 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                     <button
                       type="button"
                       key={source.feed}
-                      onClick={() => addRssFeed(source.feed, source.name)}
+                      onClick={() => void addRssFeed(source.feed, source.name)}
+                      disabled={rssResolving}
                       aria-label={`Add ${source.name} to news sources`}
                     >
                       <span><strong>{source.name}</strong><small>{source.description}</small></span>
@@ -871,10 +1023,11 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
             <form className="rss-form" onSubmit={submitRssFeed}>
               <label htmlFor="rss-feed">Add a publisher RSS or Atom feed</label>
               <div className="rss-input-wrap">
-                <input id="rss-feed" type="url" inputMode="url" value={rssInput} onChange={(event) => setRssInput(event.target.value)} placeholder="https://publisher.com/feed.xml" />
-                <button type="submit">Add feed</button>
+                 <input id="rss-feed" type="url" inputMode="url" value={rssInput} onChange={(event) => setRssInput(event.target.value)} placeholder="https://publisher.com/feed.xml" disabled={rssResolving} />
+                 <button type="submit" disabled={rssResolving}>{rssResolving ? "Checking..." : "Add feed"}</button>
               </div>
             </form>
+            {rssResolving && <p className="rss-status" role="status">Checking the publisher feed… This usually takes a few seconds.</p>}
 
             {preferences.sources.rssFeeds.length > 0 && (
               <ul className="rss-feeds">
@@ -889,7 +1042,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
             <div className="field compact-field">
               <label htmlFor="story-limit">Stories per topic</label>
               <select id="story-limit" value={preferences.limit} onChange={(event) => setPreferences((current) => ({ ...current, limit: Number(event.target.value) }))}>
-                {Array.from({ length: 10 }, (_, index) => index + 1).map((value) => <option key={value} value={value}>{value}</option>)}
+                {STORY_LIMIT_OPTIONS.map((value) => <option key={value} value={value}>{value}</option>)}
               </select>
             </div>
             <div className="field compact-field">
@@ -899,6 +1052,28 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               </select>
             </div>
           </div>
+          {articleStore && (
+            <div className="history-retention-setting">
+              <label htmlFor="article-retention">Delete unbookmarked stories after</label>
+              <select
+                id="article-retention"
+                value={preferences.articleRetentionDays}
+                onChange={(event) => setPreferences((current) => ({
+                  ...current,
+                  articleRetentionDays: Number(event.target.value),
+                }))}
+              >
+                <option value={1}>1 day</option>
+                <option value={7}>1 week</option>
+                <option value={14}>2 weeks</option>
+                <option value={30}>1 month</option>
+                <option value={90}>3 months</option>
+                <option value={180}>6 months</option>
+                <option value={365}>1 year</option>
+              </select>
+              <small>Bookmarks are excluded from cleanup and stay saved until you remove them.</small>
+            </div>
+          )}
           {preferencesStore && summarySender && (
             <label className="email-summary-toggle">
               <input
@@ -934,17 +1109,29 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           <div><p className="eyebrow">Latest signal</p><h2 id="feed-title">{feedTitle}</h2></div>
           <div className="feed-actions">
             <div className="feed-meta" aria-live="polite">
-              {fetchedAt ? `${filteredArticles.length} stories / ${publisherCount} publishers / updated ${formatAge(fetchedAt)}` : preferences.topics.length > 0 && enabledSourceCount > 0 ? "Gathering recent coverage" : "Add a topic and source to begin"}
+              {feedView === "latest"
+                ? fetchedAt ? `${filteredArticles.length} stories / ${publisherCount} publishers / updated ${formatAge(fetchedAt)}` : preferences.topics.length > 0 && enabledSourceCount > 0 ? "Gathering recent coverage" : "Add a topic and source to begin"
+                : feedView === "bookmarks"
+                  ? `${filteredArticles.length} bookmarked / kept until removed`
+                  : `${filteredArticles.length} stored / ${publisherCount} publishers`}
             </div>
             <button className="refresh-button" onClick={() => void loadNews(preferences, { emailSummary: true })} disabled={loading || preferences.topics.length === 0 || enabledSourceCount === 0}><RefreshIcon spinning={loading} /> Refresh</button>
           </div>
         </div>
 
+        {articleStore && (
+          <nav className="history-tabs" aria-label="Choose latest, history, or bookmarked stories">
+            <button type="button" className={feedView === "latest" ? "active" : ""} aria-pressed={feedView === "latest"} onClick={() => changeFeedView("latest")}>Latest <span>{articles.length}</span></button>
+            <button type="button" className={feedView === "history" ? "active" : ""} aria-pressed={feedView === "history"} onClick={() => changeFeedView("history")}>History <span>{historyArticles.length}</span></button>
+            <button type="button" className={feedView === "bookmarks" ? "active" : ""} aria-pressed={feedView === "bookmarks"} onClick={() => changeFeedView("bookmarks")}>Bookmarks <span>{historyArticles.filter((article) => article.isBookmarked).length}</span></button>
+          </nav>
+        )}
+
         {preferences.topics.length > 0 && (
           <div className="filter-stack">
             <nav className="topic-filters" aria-label="Filter stories by followed topic">
               <span className="filter-label">Topics</span>
-              <button type="button" className={selectedTopic === ALL_TOPICS ? "active" : ""} aria-pressed={selectedTopic === ALL_TOPICS} onClick={() => setSelectedTopic(ALL_TOPICS)}>All <span>{articles.length}</span></button>
+              <button type="button" className={selectedTopic === ALL_TOPICS ? "active" : ""} aria-pressed={selectedTopic === ALL_TOPICS} onClick={() => setSelectedTopic(ALL_TOPICS)}>All <span>{viewedArticles.length}</span></button>
               {preferences.topics.map((topic) => (
                 <button type="button" key={topic} className={selectedTopic === topic ? "active" : ""} aria-pressed={selectedTopic === topic} onClick={() => setSelectedTopic(topic)}>{topic} <span>{topicCounts[topic] ?? 0}</span></button>
               ))}
@@ -963,13 +1150,15 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
 
         {notice && <p className="feed-notice" role="status">{notice}</p>}
 
-        {preferences.topics.length === 0 ? (
+        {feedView !== "latest" && filteredArticles.length === 0 ? (
+          <div className="message-card"><p className="message-kicker">Nothing saved here yet</p><h3>{feedView === "bookmarks" ? "Bookmark a story to keep it." : "Refresh your briefing to build history."}</h3><p>{feedView === "bookmarks" ? "Use the bookmark button beside any story. Bookmarks are never removed by automatic cleanup." : "Signal stores refreshed stories in your account and removes old unbookmarked items using your cleanup setting."}</p></div>
+        ) : preferences.topics.length === 0 && feedView === "latest" ? (
           <div className="message-card"><p className="message-kicker">Your briefing is empty</p><h3>Add a topic to begin.</h3><p>Your followed topics will appear here as filters, with everything combined under All.</p></div>
-        ) : enabledSourceCount === 0 ? (
+        ) : enabledSourceCount === 0 && feedView === "latest" ? (
           <div className="message-card"><p className="message-kicker">No sources selected</p><h3>Choose where Signal should look.</h3><p>Turn on Google News or GDELT, or add a publisher RSS feed.</p></div>
-        ) : error ? (
+        ) : error && feedView === "latest" ? (
           <div className="message-card" role="alert"><p className="message-kicker">The signal dropped</p><h3>We couldn&apos;t gather the latest stories.</h3><p>{error}</p><button onClick={() => void loadNews(preferences, { emailSummary: true })}>Try again</button></div>
-        ) : loading && articles.length === 0 ? (
+        ) : loading && articles.length === 0 && feedView === "latest" ? (
           <div className="loading-list" aria-label="Loading recent stories">{Array.from({ length: 4 }, (_, index) => <div className="loading-row" key={index} />)}</div>
         ) : filteredArticles.length === 0 ? (
           <div className="message-card"><p className="message-kicker">No coverage found</p><h3>Try a broader filter.</h3><p>Choose All sources or use a more general topic to widen the signal.</p></div>
@@ -985,6 +1174,19 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                   </article>
                   <ArrowIcon />
                 </a>
+                {articleStore && (
+                  <button
+                    type="button"
+                    className={article.isBookmarked ? "bookmark-button active" : "bookmark-button"}
+                    onClick={() => void toggleBookmark(article)}
+                    disabled={bookmarkingUrls.has(article.url)}
+                    aria-pressed={article.isBookmarked === true}
+                    aria-label={article.isBookmarked ? `Remove bookmark from ${article.title}` : `Bookmark ${article.title}`}
+                    title={article.isBookmarked ? "Remove bookmark" : "Keep forever"}
+                  >
+                    <span aria-hidden="true">{article.isBookmarked ? "\u2605" : "\u2606"}</span>
+                  </button>
+                )}
               </li>
             ))}
           </ol>

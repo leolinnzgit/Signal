@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import NewsDashboard, { type NewsPreferences, type NewsSummary, type PreferencesStore } from "../app/NewsDashboard";
+import NewsDashboard, { type ArticleStore, type NewsPreferences, type NewsSummary, type PreferencesStore, type StoredArticle } from "../app/NewsDashboard";
 
 type SessionUser = {
   email: string;
@@ -60,6 +60,37 @@ const sqlitePreferencesStore: PreferencesStore = {
     const data = await postJson<{ preferences: NewsPreferences }>("/api/preferences", preferences);
     return data.preferences;
   },
+  async resolveFeed(feed, existingFeeds) {
+    return postJson<{
+      feed: string;
+      added: boolean;
+      duplicateOf: string | null;
+      feeds: string[];
+    }>("/api/preferences/rss-feed", { feed, existingFeeds });
+  },
+};
+
+const sqliteArticleStore: ArticleStore = {
+  async load() {
+    const response = await fetch("/api/articles", {
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+    const data = await response.json().catch(() => ({})) as {
+      error?: string;
+      detail?: string;
+      articles?: StoredArticle[];
+    };
+    if (!response.ok) throw new Error(data.error || data.detail || "Could not load article history.");
+    return data.articles ?? [];
+  },
+  async sync(articles) {
+    const data = await postJson<{ articles: StoredArticle[] }>("/api/articles/sync", { articles: articles.slice(0, 500) });
+    return data.articles;
+  },
+  async setBookmark(url, bookmarked) {
+    await postJson("/api/articles/bookmark", { url, bookmarked });
+  },
 };
 
 async function sendNewsSummary(summary: NewsSummary) {
@@ -111,6 +142,7 @@ export default function AuthApp() {
           onSignOut={() => void signOut()}
           onManageAccount={() => setAccountOpen(true)}
           preferencesStore={sqlitePreferencesStore}
+          articleStore={sqliteArticleStore}
           summarySender={sendNewsSummary}
         />
         {accountOpen && (

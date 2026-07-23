@@ -145,7 +145,27 @@ function containsTerm(text: string, term: string) {
 }
 
 function feedKey(feed: string) {
-  return feed.trim().replace(/\/+$/, "").toLocaleLowerCase("en-NZ");
+  const value = feed.trim().replace(/\/+$/, "").toLocaleLowerCase("en-NZ");
+  try {
+    const url = new URL(value);
+    const hostname = url.hostname.replace(/^www\./, "");
+    let pathname = url.pathname.replace(/\/+$/, "");
+
+    // Guardian section feeds redirect to a regional edition (for example,
+    // /technology/rss -> /uk/technology/rss). Treat those URLs as the same
+    // feed so an added suggestion does not continue to show its add button.
+    if (hostname === "theguardian.com") {
+      pathname = pathname.replace(/^\/(?:uk|us|au|international)(?=\/)/, "");
+    }
+
+    return `${hostname}${pathname}${url.search}`;
+  } catch {
+    return value;
+  }
+}
+
+function publisherKey(source: NewsSourceSuggestion) {
+  return normalize(source.publisherAliases[0] ?? source.name);
 }
 
 export function suggestNewsSources(
@@ -157,9 +177,15 @@ export function suggestNewsSources(
   const topicText = normalize(topics.join(" "));
   const publisherText = normalize(currentPublishers.join(" "));
   const added = new Set(addedFeeds.map(feedKey));
+  const addedPublishers = new Set(
+    SOURCE_SUGGESTIONS
+      .filter((source) => added.has(feedKey(source.feed)))
+      .map(publisherKey),
+  );
+  const suggestedPublishers = new Set<string>();
 
   return SOURCE_SUGGESTIONS
-    .filter((source) => !added.has(feedKey(source.feed)))
+    .filter((source) => !added.has(feedKey(source.feed)) && !addedPublishers.has(publisherKey(source)))
     .map((source) => {
       const topicMatches = source.topicTerms.filter((term) => containsTerm(topicText, term)).length;
       const publisherMatch = source.publisherAliases.some((alias) => containsTerm(publisherText, alias));
@@ -169,7 +195,12 @@ export function suggestNewsSources(
       };
     })
     .sort((left, right) => right.score - left.score || left.source.fallbackRank - right.source.fallbackRank)
+    .filter(({ source }) => {
+      const key = publisherKey(source);
+      if (suggestedPublishers.has(key)) return false;
+      suggestedPublishers.add(key);
+      return true;
+    })
     .slice(0, Math.max(0, limit))
     .map(({ source }) => source);
 }
-

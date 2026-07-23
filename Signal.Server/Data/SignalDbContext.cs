@@ -9,6 +9,8 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
 {
     public DbSet<UserNewsPreferences> UserNewsPreferences => Set<UserNewsPreferences>();
 
+    public DbSet<StoredNewsArticle> StoredNewsArticles => Set<StoredNewsArticle>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
@@ -23,6 +25,25 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
             preferences.HasOne(item => item.User)
                 .WithOne()
                 .HasForeignKey<UserNewsPreferences>(item => item.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<StoredNewsArticle>(article =>
+        {
+            article.ToTable("StoredNewsArticles");
+            article.HasKey(item => item.Id);
+            article.Property(item => item.UserId).HasMaxLength(450);
+            article.Property(item => item.Url).HasMaxLength(2048).IsRequired();
+            article.Property(item => item.Title).HasMaxLength(500).IsRequired();
+            article.Property(item => item.Source).HasMaxLength(256).IsRequired();
+            article.Property(item => item.Summary).HasMaxLength(4000).IsRequired();
+            article.Property(item => item.TopicsJson).IsRequired();
+            article.Property(item => item.ProvidersJson).IsRequired();
+            article.HasIndex(item => new { item.UserId, item.Url }).IsUnique();
+            article.HasIndex(item => new { item.UserId, item.IsBookmarked, item.LastSeenAtUtc });
+            article.HasOne(item => item.User)
+                .WithMany()
+                .HasForeignKey(item => item.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
     }

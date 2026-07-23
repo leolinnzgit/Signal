@@ -19,7 +19,32 @@ test("already-added feeds are not suggested", () => {
     4,
   );
   assert.equal(suggestions.some((source) => source.name === "RNZ Environment"), false);
+  assert.equal(suggestions.some((source) => source.name.startsWith("RNZ ")), false);
   assert.equal(suggestions[0].name, "The Guardian Environment");
+});
+
+test("redirected Guardian edition feeds are recognized as already added", () => {
+  const suggestions = suggestNewsSources(
+    ["Artificial intelligence"],
+    [],
+    ["https://www.theguardian.com/uk/technology/rss"],
+    10,
+  );
+  assert.equal(
+    suggestions.some((source) => source.name.startsWith("The Guardian ")),
+    false,
+  );
+});
+
+test("suggestions contain only one feed from each publisher", () => {
+  const suggestions = suggestNewsSources(
+    ["Artificial intelligence", "Climate change", "Business"],
+    [],
+    [],
+    10,
+  );
+  const publisherGroups = suggestions.map((source) => source.publisherAliases[0]);
+  assert.equal(new Set(publisherGroups).size, publisherGroups.length);
 });
 
 test("general fallback suggestions include local and international coverage", () => {

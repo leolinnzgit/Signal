@@ -11,11 +11,13 @@ public sealed class UserNewsPreferences
 
     public string TopicsJson { get; set; } = "[]";
 
-    public int StoryLimit { get; set; } = 6;
+    public int StoryLimit { get; set; } = 20;
 
     public int RefreshMinutes { get; set; } = 15;
 
     public bool EmailSummaryEnabled { get; set; }
+
+    public int ArticleRetentionDays { get; set; } = 30;
 
     public bool GoogleEnabled { get; set; } = true;
 
