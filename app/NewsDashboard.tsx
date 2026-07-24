@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { suggestNewsSources } from "./source-suggestions";
 
@@ -61,9 +61,12 @@ export type SourcePreferences = {
   rssFeeds: string[];
 };
 
+export type StoryTitleSize = "small" | "medium" | "large";
+
 export type NewsPreferences = {
   topics: string[];
   limit: number;
+  storyTitleSize: StoryTitleSize;
   refreshMinutes: number;
   emailSummaryEnabled: boolean;
   articleRetentionDays: number;
@@ -85,15 +88,60 @@ export type PreferencesStore = {
   ) => Promise<{ feed: string; added: boolean; duplicateOf: string | null; feeds: string[] }>;
 };
 
+export type ArticleHistoryPage = {
+  articles: StoredArticle[];
+  historyTotal: number;
+  bookmarkTotal: number;
+  matchingTotal: number;
+  filterTotal: number;
+  hasMore: boolean;
+  bookmarkedUrls: string[];
+  topicFacets: ArticleHistoryFacet[];
+  providerFacets: ArticleHistoryFacet[];
+};
+
+export type ArticleHistoryFacet = { value: string; count: number };
+
+export type TopicRefreshStatus = {
+  topic: string;
+  lastAttemptedAt: string | null;
+  lastSuccessfulAt: string | null;
+  nextRefreshAt: string | null;
+  lastError: string;
+};
+
+export type TopicBriefing = {
+  articles: FollowedArticle[];
+  topics: TopicRefreshStatus[];
+  refreshedAt: string | null;
+  historyTotal: number;
+  bookmarkTotal: number;
+};
+
+export type ArticleHistoryQuery = {
+  offset?: number;
+  limit?: number;
+  search?: string;
+  bookmarksOnly?: boolean;
+  topic?: string;
+  provider?: string;
+};
+
 export type ArticleStore = {
-  load: () => Promise<StoredArticle[]>;
-  sync: (articles: FollowedArticle[]) => Promise<StoredArticle[]>;
+  load: (query?: ArticleHistoryQuery) => Promise<ArticleHistoryPage>;
+  sync: (articles: FollowedArticle[]) => Promise<ArticleHistoryPage>;
   setBookmark: (url: string, bookmarked: boolean) => Promise<void>;
+};
+
+export type TopicRefreshStore = {
+  load: (topic?: string) => Promise<TopicBriefing>;
+  refresh: (topic?: string) => Promise<TopicBriefing>;
 };
 
 const DEFAULTS: NewsPreferences = {
   topics: ["Artificial intelligence"],
   limit: 20,
+  storyTitleSize: "large",
   refreshMinutes: 15,
   emailSummaryEnabled: false,
   articleRetentionDays: 30,
@@ -108,6 +156,9 @@ const CONTROLS_HIDDEN_STORAGE_KEY = "signal-briefing-controls-hidden";
 const THEME_STORAGE_KEY = "signal-color-theme";
 const ALL_TOPICS = "all";
 const ALL_PROVIDERS = "all";
+const HISTORY_PAGE_SIZE = 50;
+const VISIBLE_TOPIC_FILTERS = 6;
+const VISIBLE_SOURCE_FILTERS = 4;
 
 type ColorTheme = "light" | "dark";
 
@@ -126,6 +177,54 @@ function formatAge(value: string) {
   const hours = Math.round(diffMinutes / 60);
   if (hours < 24) return `${hours}h ago`;
   return `${Math.round(hours / 24)}d ago`;
+}
+
+function formatUntil(value: string) {
+  const difference = new Date(value).getTime() - Date.now();
+  if (difference <= 0) return "due now";
+  const minutes = Math.max(1, Math.ceil(difference / 60000));
+  if (minutes < 60) return `in ${minutes}m`;
+  const hours = Math.round(minutes / 60);
+  return hours < 24 ? `in ${hours}h` : `in ${Math.round(hours / 24)}d`;
+}
+
+function topicRefreshLabel(status: TopicRefreshStatus | undefined, refreshMinutes: number) {
+  if (!status) return refreshMinutes === 0 ? "Manual refresh only" : "Waiting for first refresh";
+  if (!status.lastSuccessfulAt) {
+    if (status.lastError) {
+      return status.nextRefreshAt
+        ? `Refresh failed · retry ${formatUntil(status.nextRefreshAt)}`
+        : "Refresh failed · manual retry";
+    }
+    return status.nextRefreshAt ? `First refresh ${formatUntil(status.nextRefreshAt)}` : "Manual refresh only";
+  }
+
+  const lastAttemptedAt = status.lastAttemptedAt ? new Date(status.lastAttemptedAt).getTime() : 0;
+  const lastSuccessfulAt = new Date(status.lastSuccessfulAt).getTime();
+  const latestAttemptFailed = Boolean(status.lastError) && lastAttemptedAt > lastSuccessfulAt;
+  if (latestAttemptFailed) {
+    const retry = status.nextRefreshAt
+      ? ` · retry ${formatUntil(status.nextRefreshAt)}`
+      : " · manual retry";
+    return `Updated ${formatAge(status.lastSuccessfulAt)} · refresh failed${retry}`;
+  }
+
+  const next = status.nextRefreshAt ? ` · next ${formatUntil(status.nextRefreshAt)}` : " · manual";
+  return `Updated ${formatAge(status.lastSuccessfulAt)}${next}${status.lastError ? " · some sources failed" : ""}`;
+}
+
+function trendTrafficValue(value: string) {
+  const match = value.toUpperCase().replace(/,/g, "").match(/([\d.]+)\s*([KMB])?/);
+  if (!match) return 0;
+  const multiplier = match[2] === "B" ? 1_000_000_000 : match[2] === "M" ? 1_000_000 : match[2] === "K" ? 1_000 : 1;
+  return Number(match[1]) * multiplier;
+}
+
+function trendBubbleSize(value: string, minimum: number, maximum: number) {
+  const traffic = trendTrafficValue(value);
+  if (traffic <= 0 || maximum <= minimum) return 5.6;
+  const normalized = (Math.log10(traffic) - Math.log10(minimum)) / (Math.log10(maximum) - Math.log10(minimum));
+  return 5.4 + (Math.max(0, Math.min(1, normalized)) * 4.6);
 }
 
 function feedName(value: string) {
@@ -216,6 +315,9 @@ function normalizePreferences(saved: Partial<NewsPreferences> & { topic?: string
   return {
     topics,
     limit: Math.min(500, Math.max(20, Math.round((Number(saved.limit) || DEFAULTS.limit) / 20) * 20)),
+    storyTitleSize: saved.storyTitleSize === "small" || saved.storyTitleSize === "medium" || saved.storyTitleSize === "large"
+      ? saved.storyTitleSize
+      : DEFAULTS.storyTitleSize,
     refreshMinutes: [0, 5, 15, 30, 60, 120, 180, 240, 300, 360, 420, 480].includes(Number(saved.refreshMinutes))
       ? Number(saved.refreshMinutes)
       : DEFAULTS.refreshMinutes,
@@ -261,16 +363,32 @@ type NewsDashboardProps = {
   preferencesStore?: PreferencesStore;
   articleStore?: ArticleStore;
   summarySender?: (summary: NewsSummary) => Promise<string>;
+  refreshStore?: TopicRefreshStore;
 };
 
-export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAccount, preferencesStore, articleStore, summarySender }: NewsDashboardProps) {
+export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAccount, preferencesStore, articleStore, summarySender, refreshStore }: NewsDashboardProps) {
   const [preferences, setPreferences] = useState<NewsPreferences>(DEFAULTS);
   const [topicInput, setTopicInput] = useState("");
   const [rssInput, setRssInput] = useState("");
   const [selectedTopic, setSelectedTopic] = useState(ALL_TOPICS);
   const [selectedProvider, setSelectedProvider] = useState(ALL_PROVIDERS);
+  const [topicPickerOpen, setTopicPickerOpen] = useState(false);
+  const [topicPickerQuery, setTopicPickerQuery] = useState("");
+  const [sourcePickerOpen, setSourcePickerOpen] = useState(false);
+  const [sourcePickerQuery, setSourcePickerQuery] = useState("");
   const [articles, setArticles] = useState<FollowedArticle[]>([]);
   const [historyArticles, setHistoryArticles] = useState<StoredArticle[]>([]);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [bookmarkTotal, setBookmarkTotal] = useState(0);
+  const [historyMatchingTotal, setHistoryMatchingTotal] = useState(0);
+  const [historyFilterTotal, setHistoryFilterTotal] = useState(0);
+  const [historyTopicFacets, setHistoryTopicFacets] = useState<ArticleHistoryFacet[]>([]);
+  const [historyProviderFacets, setHistoryProviderFacets] = useState<ArticleHistoryFacet[]>([]);
+  const [historyHasMore, setHistoryHasMore] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
+  const [historySearchInput, setHistorySearchInput] = useState("");
+  const [historySearch, setHistorySearch] = useState("");
   const [feedView, setFeedView] = useState<"latest" | "history" | "bookmarks">("latest");
   const [bookmarkingUrls, setBookmarkingUrls] = useState<Set<string>>(() => new Set());
   const [fetchedAt, setFetchedAt] = useState("");
@@ -282,16 +400,21 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [trendsFetchedAt, setTrendsFetchedAt] = useState("");
   const [trendsLoading, setTrendsLoading] = useState(false);
   const [trendsError, setTrendsError] = useState("");
+  const [trendsView, setTrendsView] = useState<"bubbles" | "list">("bubbles");
+  const [topicRefreshStates, setTopicRefreshStates] = useState<TopicRefreshStatus[]>([]);
   const [ready, setReady] = useState(false);
   const [heroCompact, setHeroCompact] = useState(false);
   const [controlsExpanded, setControlsExpanded] = useState(false);
   const [controlsHidden, setControlsHidden] = useState(false);
+  const [backToTopVisible, setBackToTopVisible] = useState(false);
   const [theme, setTheme] = useState<ColorTheme | null>(null);
-  const [rssResolving, setRssResolving] = useState(false);
+  const [rssResolvingFeed, setRssResolvingFeed] = useState<string | null>(null);
+  const [rssMessage, setRssMessage] = useState("");
   const [storageStatus, setStorageStatus] = useState<"loading" | "saving" | "saved" | "error" | "local">(
     preferencesStore ? "loading" : "local",
   );
   const requestSequence = useRef(0);
+  const historyRequestSequence = useRef(0);
   const lastSavedPreferences = useRef("");
   const latestPreferences = useRef(preferences);
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
@@ -299,6 +422,27 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const enabledSourceCount = Number(preferences.sources.google)
     + Number(preferences.sources.gdelt)
     + preferences.sources.rssFeeds.length;
+  const rssResolving = rssResolvingFeed !== null;
+
+  const trendTrafficRange = useMemo(() => {
+    const values = trendingTerms.map((term) => trendTrafficValue(term.traffic)).filter((value) => value > 0);
+    return {
+      minimum: values.length > 0 ? Math.min(...values) : 0,
+      maximum: values.length > 0 ? Math.max(...values) : 0,
+    };
+  }, [trendingTerms]);
+
+  const displayedTrendingTerms = useMemo(
+    () => trendsView === "bubbles"
+      ? [...trendingTerms].sort((left, right) => trendTrafficValue(right.traffic) - trendTrafficValue(left.traffic))
+      : trendingTerms,
+    [trendingTerms, trendsView],
+  );
+
+  const topicRefreshByKey = useMemo(
+    () => new Map(topicRefreshStates.map((state) => [state.topic.toLowerCase(), state])),
+    [topicRefreshStates],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -322,6 +466,8 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           next = normalizePreferences(await preferencesStore.save(pending.preferences));
         } else if (!remote.exists && local.exists) {
           next = normalizePreferences(await preferencesStore.save(local.preferences));
+        } else if (!remote.exists) {
+          next = normalizePreferences(await preferencesStore.save(DEFAULTS));
         }
         if (cancelled) return;
         localStorage.removeItem(STORAGE_KEY);
@@ -348,18 +494,53 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     latestPreferences.current = preferences;
   }, [preferences]);
 
+  const loadHistoryPage = useCallback(async (
+    view: "history" | "bookmarks",
+    search: string,
+    offset = 0,
+    topic = ALL_TOPICS,
+    provider = ALL_PROVIDERS,
+  ) => {
+    if (!articleStore) return;
+    const runId = ++historyRequestSequence.current;
+    setHistoryLoading(true);
+    setHistoryError("");
+    if (offset === 0) setHistoryArticles([]);
+    try {
+      const page = await articleStore.load({
+        offset,
+        limit: HISTORY_PAGE_SIZE,
+        search,
+        bookmarksOnly: view === "bookmarks",
+        topic: topic === ALL_TOPICS ? undefined : topic,
+        provider: provider === ALL_PROVIDERS ? undefined : provider,
+      });
+      if (runId !== historyRequestSequence.current) return;
+      setHistoryArticles((current) => {
+        if (offset === 0) return page.articles;
+        const existing = new Set(current.map((article) => article.url));
+        return [...current, ...page.articles.filter((article) => !existing.has(article.url))];
+      });
+      setHistoryTotal(page.historyTotal);
+      setBookmarkTotal(page.bookmarkTotal);
+      setHistoryMatchingTotal(page.matchingTotal);
+      setHistoryFilterTotal(page.filterTotal);
+      setHistoryTopicFacets(page.topicFacets);
+      setHistoryProviderFacets(page.providerFacets);
+      setHistoryHasMore(page.hasMore);
+    } catch (caught) {
+      if (runId === historyRequestSequence.current) {
+        setHistoryError(caught instanceof Error ? caught.message : "Could not load article history.");
+      }
+    } finally {
+      if (runId === historyRequestSequence.current) setHistoryLoading(false);
+    }
+  }, [articleStore]);
+
   useEffect(() => {
     if (!articleStore) return;
-    let cancelled = false;
-    void articleStore.load()
-      .then((stored) => {
-        if (!cancelled) setHistoryArticles(stored);
-      })
-      .catch(() => {
-        if (!cancelled) setNotice("Your latest briefing is available, but saved article history could not be loaded.");
-      });
-    return () => { cancelled = true; };
-  }, [articleStore]);
+    void loadHistoryPage("history", "", 0);
+  }, [articleStore, loadHistoryPage]);
 
   useEffect(() => {
     setControlsExpanded(localStorage.getItem(CONTROLS_STORAGE_KEY) === "true");
@@ -397,12 +578,39 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
 
   const loadNews = useCallback(async (
     next: NewsPreferences,
-    options: { quiet?: boolean; emailSummary?: boolean } = {},
+    options: { quiet?: boolean; emailSummary?: boolean; forceRefresh?: boolean; topic?: string } = {},
   ) => {
     const runId = ++requestSequence.current;
     if (!options.quiet) setLoading(true);
     setError("");
     setNotice("");
+
+    if (refreshStore) {
+      try {
+        const briefing = options.forceRefresh
+          ? await refreshStore.refresh()
+          : await refreshStore.load(options.topic);
+        if (runId !== requestSequence.current) return;
+        setArticles(briefing.articles);
+        setTopicRefreshStates(briefing.topics);
+        setFetchedAt(briefing.refreshedAt ?? "");
+        setHistoryTotal(briefing.historyTotal);
+        setBookmarkTotal(briefing.bookmarkTotal);
+        if (options.forceRefresh) {
+          const partialCount = briefing.topics.filter((state) => state.lastError).length;
+          setNotice(partialCount > 0
+            ? `Topics refreshed. ${partialCount} ${partialCount === 1 ? "topic has" : "topics have"} a partial source error.`
+            : "All topics refreshed and their individual schedules were reset.");
+        }
+      } catch (caught) {
+        if (runId === requestSequence.current) {
+          setError(caught instanceof Error ? caught.message : "The briefing could not be refreshed.");
+        }
+      } finally {
+        if (runId === requestSequence.current) setLoading(false);
+      }
+      return;
+    }
 
     const requests: NewsRequest[] = next.topics.flatMap((topic) => [
       ...(next.sources.google ? [{
@@ -485,9 +693,10 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
       let historyNotice = "";
       if (articleStore) {
         try {
-          const stored = await articleStore.sync(refreshedArticles);
-          const bookmarkedUrls = new Set(stored.filter((article) => article.isBookmarked).map((article) => article.url));
-          setHistoryArticles(stored);
+          const historyPage = await articleStore.sync(refreshedArticles);
+          const bookmarkedUrls = new Set(historyPage.bookmarkedUrls);
+          setHistoryTotal(historyPage.historyTotal);
+          setBookmarkTotal(historyPage.bookmarkTotal);
           setArticles(refreshedArticles.map((article) => ({
             ...article,
             isBookmarked: bookmarkedUrls.has(article.url),
@@ -539,7 +748,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     } finally {
       if (runId === requestSequence.current) setLoading(false);
     }
-  }, [articleStore, summarySender]);
+  }, [articleStore, refreshStore, summarySender]);
 
   const loadTrendingTerms = useCallback(async () => {
     setTrendsLoading(true);
@@ -605,20 +814,26 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   }, [preferences.topics, preferences.limit, preferences.sources, ready, loadNews]);
 
   useEffect(() => {
-    if (!ready || preferences.refreshMinutes === 0 || preferences.topics.length === 0 || enabledSourceCount === 0) return;
+    if (!ready || preferences.topics.length === 0 || enabledSourceCount === 0) return;
+    if (refreshStore) {
+      const interval = window.setInterval(
+        () => void loadNews(preferences, { quiet: true }),
+        30_000,
+      );
+      return () => window.clearInterval(interval);
+    }
+    if (preferences.refreshMinutes === 0) return;
     const interval = window.setInterval(
       () => void loadNews(preferences, { quiet: true, emailSummary: true }),
       preferences.refreshMinutes * 60_000,
     );
     return () => window.clearInterval(interval);
-  }, [preferences, ready, enabledSourceCount, loadNews]);
+  }, [preferences, ready, enabledSourceCount, loadNews, refreshStore]);
 
   const viewedArticles = useMemo(
     () => feedView === "latest"
       ? articles
-      : feedView === "bookmarks"
-        ? historyArticles.filter((article) => article.isBookmarked)
-        : historyArticles,
+      : historyArticles,
     [articles, feedView, historyArticles],
   );
 
@@ -637,26 +852,62 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   );
 
   const topicCounts = useMemo(
-    () => Object.fromEntries(
-      preferences.topics.map((topic) => [topic, viewedArticles.filter((article) => article.topics.includes(topic)).length]),
-    ),
-    [preferences.topics, viewedArticles],
+    () => feedView === "latest"
+      ? Object.fromEntries(
+        preferences.topics.map((topic) => [topic, viewedArticles.filter((article) => article.topics.includes(topic)).length]),
+      )
+      : Object.fromEntries(historyTopicFacets.map((facet) => [facet.value, facet.count])),
+    [feedView, historyTopicFacets, preferences.topics, viewedArticles],
   );
 
+  const visibleTopicFilters = useMemo(() => {
+    const selected = selectedTopic === ALL_TOPICS ? [] : [selectedTopic];
+    return [
+      ...selected,
+      ...preferences.topics.filter((topic) => topic !== selectedTopic),
+    ].slice(0, VISIBLE_TOPIC_FILTERS);
+  }, [preferences.topics, selectedTopic]);
+
+  const pickerTopics = useMemo(() => {
+    const query = topicPickerQuery.trim().toLowerCase();
+    return query
+      ? preferences.topics.filter((topic) => topic.toLowerCase().includes(query))
+      : preferences.topics;
+  }, [preferences.topics, topicPickerQuery]);
+
   const availableProviders = useMemo(
-    () => Array.from(new Set(topicFilteredArticles.flatMap((article) => article.providers))).sort(),
-    [topicFilteredArticles],
+    () => feedView === "latest"
+      ? Array.from(new Set(topicFilteredArticles.flatMap((article) => article.providers))).sort()
+      : historyProviderFacets.map((facet) => facet.value),
+    [feedView, historyProviderFacets, topicFilteredArticles],
   );
 
   const providerCounts = useMemo(
-    () => Object.fromEntries(
-      availableProviders.map((provider) => [
-        provider,
-        topicFilteredArticles.filter((article) => article.providers.includes(provider)).length,
-      ]),
-    ),
-    [availableProviders, topicFilteredArticles],
+    () => feedView === "latest"
+      ? Object.fromEntries(
+        availableProviders.map((provider) => [
+          provider,
+          topicFilteredArticles.filter((article) => article.providers.includes(provider)).length,
+        ]),
+      )
+      : Object.fromEntries(historyProviderFacets.map((facet) => [facet.value, facet.count])),
+    [availableProviders, feedView, historyProviderFacets, topicFilteredArticles],
   );
+
+  const visibleSourceFilters = useMemo(() => {
+    const selected = selectedProvider === ALL_PROVIDERS ? [] : [selectedProvider];
+    return [
+      ...selected,
+      ...availableProviders.filter((provider) => provider !== selectedProvider),
+    ].slice(0, VISIBLE_SOURCE_FILTERS);
+  }, [availableProviders, selectedProvider]);
+
+  const pickerProviders = useMemo(() => {
+    const query = sourcePickerQuery.trim().toLowerCase();
+    return query
+      ? availableProviders.filter((provider) => provider.toLowerCase().includes(query))
+      : availableProviders;
+  }, [availableProviders, sourcePickerQuery]);
 
   const publisherCount = useMemo(
     () => new Set(filteredArticles.map((article) => article.source)).size,
@@ -677,6 +928,16 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
       setSelectedProvider(ALL_PROVIDERS);
     }
   }, [availableProviders, selectedProvider]);
+
+  useEffect(() => {
+    const updateBackToTopVisibility = () => {
+      setBackToTopVisible(window.scrollY > 80);
+    };
+
+    updateBackToTopVisibility();
+    window.addEventListener("scroll", updateBackToTopVisibility, { passive: true });
+    return () => window.removeEventListener("scroll", updateBackToTopVisibility);
+  }, []);
 
   function addTopic(value: string) {
     const topic = value.trim().replace(/\s+/g, " ").slice(0, 80);
@@ -710,21 +971,27 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
 
   async function addRssFeed(feed: string, displayName = feedName(feed)) {
     try {
+      setRssMessage("");
       const url = new URL(feed.trim());
       if (url.protocol !== "https:" || url.username || url.password) throw new Error();
       const value = url.toString();
       const key = canonicalFeedKey(value);
       const existing = preferences.sources.rssFeeds.find((item) => canonicalFeedKey(item) === key);
       if (existing) {
-        setNotice(`You already use ${feedName(value)}.`);
+        const message = `You already use ${feedName(value)}.`;
+        setRssMessage(message);
+        setNotice(message);
         return false;
       }
       if (preferences.sources.rssFeeds.length >= 20) {
-        setNotice("You can add up to 20 publisher feeds.");
+        const message = "You can add up to 20 publisher feeds.";
+        setRssMessage(message);
+        setNotice(message);
         return false;
       }
 
-      setRssResolving(true);
+      setRssResolvingFeed(value);
+      setRssMessage(`Checking ${displayName}…`);
       if (preferencesStore?.resolveFeed) {
         const result = await preferencesStore.resolveFeed(value, preferences.sources.rssFeeds);
         setPreferences((current) => ({
@@ -732,7 +999,9 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           sources: { ...current.sources, rssFeeds: result.feeds },
         }));
         if (!result.added) {
-          setNotice(`You already use ${feedName(result.duplicateOf ?? result.feed)}.`);
+          const message = `You already use ${feedName(result.duplicateOf ?? result.feed)}.`;
+          setRssMessage(message);
+          setNotice(message);
           return false;
         }
       } else {
@@ -741,15 +1010,19 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           sources: { ...current.sources, rssFeeds: [...current.sources.rssFeeds, value] },
         }));
       }
-      setNotice(`${displayName} added to your news sources.`);
+      const message = `${displayName} added to your news sources.`;
+      setRssMessage(message);
+      setNotice(message);
       return true;
     } catch (caught) {
-      setNotice(caught instanceof Error && caught.message
+      const message = caught instanceof Error && caught.message
         ? caught.message
-        : "Enter a complete public HTTPS RSS or Atom feed URL.");
+        : "Enter a complete public HTTPS RSS or Atom feed URL.";
+      setRssMessage(message);
+      setNotice(message);
       return false;
     } finally {
-      setRssResolving(false);
+      setRssResolvingFeed(null);
     }
   }
 
@@ -798,6 +1071,70 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     setFeedView(next);
     setSelectedTopic(ALL_TOPICS);
     setSelectedProvider(ALL_PROVIDERS);
+    setTopicPickerOpen(false);
+    setTopicPickerQuery("");
+    setSourcePickerOpen(false);
+    setSourcePickerQuery("");
+    setHistorySearchInput("");
+    setHistorySearch("");
+    setHistoryError("");
+    if (next !== "latest") void loadHistoryPage(next, "", 0);
+  }
+
+  function selectTopicFilter(topic: string) {
+    setSelectedTopic(topic);
+    setTopicPickerOpen(false);
+    setTopicPickerQuery("");
+    setSourcePickerOpen(false);
+    setSourcePickerQuery("");
+    if (feedView === "latest") {
+      setSelectedProvider(ALL_PROVIDERS);
+      if (refreshStore) {
+        void loadNews(preferences, {
+          quiet: true,
+          topic: topic === ALL_TOPICS ? undefined : topic,
+        });
+      }
+    } else {
+      void loadHistoryPage(feedView, historySearch, 0, topic, selectedProvider);
+    }
+  }
+
+  function selectProviderFilter(provider: string) {
+    setSelectedProvider(provider);
+    setSourcePickerOpen(false);
+    setSourcePickerQuery("");
+    if (feedView !== "latest") {
+      void loadHistoryPage(feedView, historySearch, 0, selectedTopic, provider);
+    }
+  }
+
+  function submitHistorySearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (feedView === "latest") return;
+    const search = historySearchInput.trim().replace(/\s+/g, " ").slice(0, 100);
+    setHistorySearch(search);
+    void loadHistoryPage(feedView, search, 0, selectedTopic, selectedProvider);
+  }
+
+  function clearHistorySearch() {
+    if (feedView === "latest") return;
+    setHistorySearchInput("");
+    setHistorySearch("");
+    void loadHistoryPage(feedView, "", 0, selectedTopic, selectedProvider);
+  }
+
+  function clearHistoryFiltersAndSearch() {
+    if (feedView === "latest") return;
+    setSelectedTopic(ALL_TOPICS);
+    setSelectedProvider(ALL_PROVIDERS);
+    setTopicPickerOpen(false);
+    setTopicPickerQuery("");
+    setSourcePickerOpen(false);
+    setSourcePickerQuery("");
+    setHistorySearchInput("");
+    setHistorySearch("");
+    void loadHistoryPage(feedView, "", 0);
   }
 
   async function toggleBookmark(article: FollowedArticle) {
@@ -812,6 +1149,11 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
       setHistoryArticles((current) => current.map((item) => item.url === article.url
         ? { ...item, isBookmarked: bookmarked, bookmarkedAt: bookmarked ? new Date().toISOString() : null }
         : item));
+      setBookmarkTotal((current) => Math.max(0, current + (bookmarked ? 1 : -1)));
+      if (feedView === "bookmarks") {
+        setHistoryArticles((current) => current.filter((item) => item.url !== article.url || bookmarked));
+        setHistoryMatchingTotal((current) => Math.max(0, current + (bookmarked ? 1 : -1)));
+      }
       setNotice(bookmarked
         ? "Story bookmarked. It will be kept until you remove the bookmark."
         : "Bookmark removed. The normal history cleanup setting now applies.");
@@ -833,7 +1175,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
       : selectedTopic === ALL_TOPICS ? "All followed topics" : selectedTopic;
 
   return (
-    <main className="signal-dashboard">
+    <main className="signal-dashboard" id="top">
       <header className="site-header">
         <a className="brand" href="#top" aria-label="Signal home">
           <span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>
@@ -944,21 +1286,50 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                     <span>{trendsFetchedAt ? `Updated ${formatAge(trendsFetchedAt)}` : "Google Trends"}</span>
                     <button type="button" onClick={() => void loadTrendingTerms()} disabled={trendsLoading}>Refresh</button>
                   </div>
+                  <div className="trends-view-controls">
+                    {trendsView === "bubbles" ? (
+                      <span className="trend-size-key">
+                        <span className="trend-size-dots" aria-hidden="true"><i /><i /></span>
+                        Circle size = search traffic
+                      </span>
+                    ) : <span />}
+                    <div role="group" aria-label="Choose Google Trends view">
+                      <button
+                        type="button"
+                        className={trendsView === "bubbles" ? "active" : ""}
+                        aria-pressed={trendsView === "bubbles"}
+                        onClick={() => setTrendsView("bubbles")}
+                      >
+                        Bubbles
+                      </button>
+                      <button
+                        type="button"
+                        className={trendsView === "list" ? "active" : ""}
+                        aria-pressed={trendsView === "list"}
+                        onClick={() => setTrendsView("list")}
+                      >
+                        List
+                      </button>
+                    </div>
+                  </div>
                   {trendsLoading && trendingTerms.length === 0 ? (
                     <p className="trends-message">Loading current searches...</p>
                   ) : trendsError ? (
                     <p className="trends-message error">{trendsError}</p>
                   ) : (
-                    <div className="trend-terms" aria-label="Current Google trending searches">
-                      {trendingTerms.map((term) => {
+                    <div className={`trend-terms ${trendsView}`} aria-label="Current Google trending searches">
+                      {displayedTrendingTerms.map((term) => {
                         const followed = preferences.topics.some((topic) => topic.toLowerCase() === term.keyword.toLowerCase());
                         return (
                           <button
                             type="button"
-                            key={term.keyword}
+                            key={`${term.region}:${term.keyword}`}
                             disabled={followed}
                             onClick={() => addTopic(term.keyword)}
                             aria-label={`${followed ? "Already following" : "Follow"} ${term.keyword}${term.region ? ` from ${term.region}` : ""}${term.traffic ? `, ${term.traffic} searches` : ""}`}
+                            style={trendsView === "bubbles"
+                              ? ({ "--trend-size": `${trendBubbleSize(term.traffic, trendTrafficRange.minimum, trendTrafficRange.maximum)}rem` } as CSSProperties)
+                              : undefined}
                           >
                             <span>{term.keyword}</span>
                             <small>{[term.region, term.traffic].filter(Boolean).join(" · ")}</small>
@@ -978,7 +1349,20 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
             {preferences.topics.length > 0 ? (
               <ul>
                 {preferences.topics.map((topic) => (
-                  <li key={topic}><span>{topic}</span><button type="button" onClick={() => removeTopic(topic)} aria-label={`Stop following ${topic}`}>&#215;</button></li>
+                  <li key={topic}>
+                    <span className="followed-topic-copy">
+                      <strong>{topic}</strong>
+                      {refreshStore && (
+                        <small
+                          className={topicRefreshByKey.get(topic.toLowerCase())?.lastError ? "warning" : ""}
+                          title={topicRefreshByKey.get(topic.toLowerCase())?.lastError || undefined}
+                        >
+                          {topicRefreshLabel(topicRefreshByKey.get(topic.toLowerCase()), preferences.refreshMinutes)}
+                        </small>
+                      )}
+                    </span>
+                    <button type="button" onClick={() => removeTopic(topic)} aria-label={`Stop following ${topic}`}>&#215;</button>
+                  </li>
                 ))}
               </ul>
             ) : <p className="no-topics">Add your first topic to start the briefing.</p>}
@@ -1012,13 +1396,18 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                       disabled={rssResolving}
                       aria-label={`Add ${source.name} to news sources`}
                     >
-                      <span><strong>{source.name}</strong><small>{source.description}</small></span>
-                      <b aria-hidden="true">+</b>
+                      <span>
+                        <strong>{source.name}</strong>
+                        <small>{rssResolvingFeed === source.feed ? `Checking ${source.name}…` : source.description}</small>
+                      </span>
+                      <b aria-hidden="true">{rssResolvingFeed === source.feed ? "…" : "+"}</b>
                     </button>
                   ))}
                 </div>
               </div>
             )}
+
+            {rssMessage && <p className="rss-feedback" role="status">{rssMessage}</p>}
 
             <form className="rss-form" onSubmit={submitRssFeed}>
               <label htmlFor="rss-feed">Add a publisher RSS or Atom feed</label>
@@ -1027,8 +1416,6 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                  <button type="submit" disabled={rssResolving}>{rssResolving ? "Checking..." : "Add feed"}</button>
               </div>
             </form>
-            {rssResolving && <p className="rss-status" role="status">Checking the publisher feed… This usually takes a few seconds.</p>}
-
             {preferences.sources.rssFeeds.length > 0 && (
               <ul className="rss-feeds">
                 {preferences.sources.rssFeeds.map((feed) => (
@@ -1050,6 +1437,23 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               <select id="refresh-rate" value={preferences.refreshMinutes} onChange={(event) => setPreferences((current) => ({ ...current, refreshMinutes: Number(event.target.value) }))}>
                 <option value={0}>Manual</option><option value={5}>Every 5 min</option><option value={15}>Every 15 min</option><option value={30}>Every 30 min</option><option value={60}>Every hour</option><option value={120}>Every 2 hours</option><option value={180}>Every 3 hours</option><option value={240}>Every 4 hours</option><option value={300}>Every 5 hours</option><option value={360}>Every 6 hours</option><option value={420}>Every 7 hours</option><option value={480}>Every 8 hours</option>
               </select>
+              {refreshStore && <small className="refresh-setting-note">Each topic keeps its own saved schedule, even while Signal is closed.</small>}
+            </div>
+          </div>
+          <div className="title-size-setting">
+            <span>News title size</span>
+            <div role="group" aria-label="Choose news title font size">
+              {(["small", "medium", "large"] as StoryTitleSize[]).map((size) => (
+                <button
+                  type="button"
+                  key={size}
+                  className={preferences.storyTitleSize === size ? "active" : ""}
+                  aria-pressed={preferences.storyTitleSize === size}
+                  onClick={() => setPreferences((current) => ({ ...current, storyTitleSize: size }))}
+                >
+                  {size}
+                </button>
+              ))}
             </div>
           </div>
           {articleStore && (
@@ -1104,54 +1508,174 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           </div>
         </div>}
 
-      <section className="feed" aria-labelledby="feed-title">
+      <section className={`feed story-title-${preferences.storyTitleSize}`} aria-labelledby="feed-title">
         <div className="feed-heading">
           <div><p className="eyebrow">Latest signal</p><h2 id="feed-title">{feedTitle}</h2></div>
           <div className="feed-actions">
             <div className="feed-meta" aria-live="polite">
               {feedView === "latest"
                 ? fetchedAt ? `${filteredArticles.length} stories / ${publisherCount} publishers / updated ${formatAge(fetchedAt)}` : preferences.topics.length > 0 && enabledSourceCount > 0 ? "Gathering recent coverage" : "Add a topic and source to begin"
-                : feedView === "bookmarks"
-                  ? `${filteredArticles.length} bookmarked / kept until removed`
-                  : `${filteredArticles.length} stored / ${publisherCount} publishers`}
+                : historyLoading && historyArticles.length === 0
+                  ? historySearch || selectedTopic !== ALL_TOPICS || selectedProvider !== ALL_PROVIDERS ? "Filtering saved stories" : "Loading saved stories"
+                  : historySearch || selectedTopic !== ALL_TOPICS || selectedProvider !== ALL_PROVIDERS
+                    ? `${filteredArticles.length} loaded / ${historyMatchingTotal} matching`
+                    : feedView === "bookmarks"
+                      ? `${filteredArticles.length} loaded / ${bookmarkTotal} bookmarked`
+                      : `${filteredArticles.length} loaded / ${historyTotal} stored`}
             </div>
-            <button className="refresh-button" onClick={() => void loadNews(preferences, { emailSummary: true })} disabled={loading || preferences.topics.length === 0 || enabledSourceCount === 0}><RefreshIcon spinning={loading} /> Refresh</button>
+            <button className="refresh-button" onClick={() => void loadNews(preferences, { emailSummary: true, forceRefresh: true })} disabled={loading || preferences.topics.length === 0 || enabledSourceCount === 0}><RefreshIcon spinning={loading} /> Refresh</button>
           </div>
         </div>
 
         {articleStore && (
           <nav className="history-tabs" aria-label="Choose latest, history, or bookmarked stories">
             <button type="button" className={feedView === "latest" ? "active" : ""} aria-pressed={feedView === "latest"} onClick={() => changeFeedView("latest")}>Latest <span>{articles.length}</span></button>
-            <button type="button" className={feedView === "history" ? "active" : ""} aria-pressed={feedView === "history"} onClick={() => changeFeedView("history")}>History <span>{historyArticles.length}</span></button>
-            <button type="button" className={feedView === "bookmarks" ? "active" : ""} aria-pressed={feedView === "bookmarks"} onClick={() => changeFeedView("bookmarks")}>Bookmarks <span>{historyArticles.filter((article) => article.isBookmarked).length}</span></button>
+            <button type="button" className={feedView === "history" ? "active" : ""} aria-pressed={feedView === "history"} onClick={() => changeFeedView("history")}>History <span>{historyTotal}</span></button>
+            <button type="button" className={feedView === "bookmarks" ? "active" : ""} aria-pressed={feedView === "bookmarks"} onClick={() => changeFeedView("bookmarks")}>Bookmarks <span>{bookmarkTotal}</span></button>
           </nav>
+        )}
+
+        {articleStore && feedView !== "latest" && (
+          <form className="history-search" role="search" onSubmit={submitHistorySearch}>
+            <label htmlFor="history-search">Search {feedView === "bookmarks" ? "bookmarks" : "history"}</label>
+            <div>
+              <input
+                id="history-search"
+                type="search"
+                value={historySearchInput}
+                onChange={(event) => setHistorySearchInput(event.target.value)}
+                placeholder="Titles, summaries, publishers or topics"
+                maxLength={100}
+              />
+              {historySearch && <button type="button" className="history-search-clear" onClick={clearHistorySearch}>Clear</button>}
+              <button type="submit" disabled={historyLoading}>Search</button>
+            </div>
+          </form>
         )}
 
         {preferences.topics.length > 0 && (
           <div className="filter-stack">
             <nav className="topic-filters" aria-label="Filter stories by followed topic">
               <span className="filter-label">Topics</span>
-              <button type="button" className={selectedTopic === ALL_TOPICS ? "active" : ""} aria-pressed={selectedTopic === ALL_TOPICS} onClick={() => setSelectedTopic(ALL_TOPICS)}>All <span>{viewedArticles.length}</span></button>
-              {preferences.topics.map((topic) => (
-                <button type="button" key={topic} className={selectedTopic === topic ? "active" : ""} aria-pressed={selectedTopic === topic} onClick={() => setSelectedTopic(topic)}>{topic} <span>{topicCounts[topic] ?? 0}</span></button>
+              <button type="button" className={selectedTopic === ALL_TOPICS ? "active" : ""} aria-pressed={selectedTopic === ALL_TOPICS} onClick={() => selectTopicFilter(ALL_TOPICS)}>All <span>{feedView === "latest" ? viewedArticles.length : historyFilterTotal}</span></button>
+              {visibleTopicFilters.map((topic) => (
+                <button type="button" key={topic} className={selectedTopic === topic ? "active" : ""} aria-pressed={selectedTopic === topic} onClick={() => selectTopicFilter(topic)}>{topic} <span>{topicCounts[topic] ?? 0}</span></button>
               ))}
+              {preferences.topics.length > VISIBLE_TOPIC_FILTERS && (
+                <button
+                  type="button"
+                  className={topicPickerOpen ? "topic-more active" : "topic-more"}
+                  aria-expanded={topicPickerOpen}
+                  aria-controls="topic-filter-picker"
+                  onClick={() => {
+                    setSourcePickerOpen(false);
+                    setSourcePickerQuery("");
+                    setTopicPickerOpen((current) => !current);
+                  }}
+                >
+                  More topics <span>{preferences.topics.length - visibleTopicFilters.length}</span>
+                </button>
+              )}
             </nav>
+            {topicPickerOpen && (
+              <div className="topic-filter-picker" id="topic-filter-picker">
+                <div className="topic-filter-picker-heading">
+                  <div><strong>Choose a topic</strong><span>{preferences.topics.length} followed</span></div>
+                  <button type="button" onClick={() => setTopicPickerOpen(false)} aria-label="Close topic picker">&#215;</button>
+                </div>
+                <input
+                  type="search"
+                  value={topicPickerQuery}
+                  onChange={(event) => setTopicPickerQuery(event.target.value)}
+                  placeholder="Find a followed topic"
+                  aria-label="Find a followed topic"
+                />
+                <div className="topic-filter-picker-grid">
+                  {pickerTopics.map((topic) => (
+                    <button
+                      type="button"
+                      key={topic}
+                      className={selectedTopic === topic ? "active" : ""}
+                      aria-pressed={selectedTopic === topic}
+                      onClick={() => selectTopicFilter(topic)}
+                    >
+                      <span>{topic}</span><b>{topicCounts[topic] ?? 0}</b>
+                    </button>
+                  ))}
+                  {pickerTopics.length === 0 && <p>No followed topics match that search.</p>}
+                </div>
+              </div>
+            )}
             {availableProviders.length > 0 && (
-              <nav className="source-filters" aria-label="Filter stories by news source">
-                <span className="filter-label">Sources</span>
-                <button type="button" className={selectedProvider === ALL_PROVIDERS ? "active" : ""} aria-pressed={selectedProvider === ALL_PROVIDERS} onClick={() => setSelectedProvider(ALL_PROVIDERS)}>All sources <span>{topicFilteredArticles.length}</span></button>
-                {availableProviders.map((provider) => (
-                  <button type="button" key={provider} className={selectedProvider === provider ? "active" : ""} aria-pressed={selectedProvider === provider} onClick={() => setSelectedProvider(provider)}>{provider} <span>{providerCounts[provider] ?? 0}</span></button>
-                ))}
-              </nav>
+              <>
+                <nav className="source-filters" aria-label="Filter stories by news source">
+                  <span className="filter-label">Sources</span>
+                  <button type="button" className={selectedProvider === ALL_PROVIDERS ? "active" : ""} aria-pressed={selectedProvider === ALL_PROVIDERS} onClick={() => selectProviderFilter(ALL_PROVIDERS)}>All sources <span>{feedView === "latest" ? topicFilteredArticles.length : historyFilterTotal}</span></button>
+                  {visibleSourceFilters.map((provider) => (
+                    <button type="button" key={provider} className={selectedProvider === provider ? "active" : ""} aria-pressed={selectedProvider === provider} onClick={() => selectProviderFilter(provider)}>{provider} <span>{providerCounts[provider] ?? 0}</span></button>
+                  ))}
+                  {availableProviders.length > VISIBLE_SOURCE_FILTERS && (
+                    <button
+                      type="button"
+                      className={sourcePickerOpen ? "source-more active" : "source-more"}
+                      aria-expanded={sourcePickerOpen}
+                      aria-controls="source-filter-picker"
+                      onClick={() => {
+                        setTopicPickerOpen(false);
+                        setTopicPickerQuery("");
+                        setSourcePickerOpen((current) => !current);
+                      }}
+                    >
+                      More sources <span>{availableProviders.length - visibleSourceFilters.length}</span>
+                    </button>
+                  )}
+                </nav>
+                {sourcePickerOpen && (
+                  <div className="topic-filter-picker source-filter-picker" id="source-filter-picker">
+                    <div className="topic-filter-picker-heading">
+                      <div><strong>Choose a source</strong><span>{availableProviders.length} available</span></div>
+                      <button type="button" onClick={() => setSourcePickerOpen(false)} aria-label="Close source picker">&#215;</button>
+                    </div>
+                    <input
+                      type="search"
+                      value={sourcePickerQuery}
+                      onChange={(event) => setSourcePickerQuery(event.target.value)}
+                      placeholder="Find a news source"
+                      aria-label="Find a news source"
+                    />
+                    <div className="topic-filter-picker-grid">
+                      {pickerProviders.map((provider) => (
+                        <button
+                          type="button"
+                          key={provider}
+                          className={selectedProvider === provider ? "active" : ""}
+                          aria-pressed={selectedProvider === provider}
+                          onClick={() => selectProviderFilter(provider)}
+                        >
+                          <span>{provider}</span><b>{providerCounts[provider] ?? 0}</b>
+                        </button>
+                      ))}
+                      {pickerProviders.length === 0 && <p>No sources match that search.</p>}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
 
         {notice && <p className="feed-notice" role="status">{notice}</p>}
 
-        {feedView !== "latest" && filteredArticles.length === 0 ? (
-          <div className="message-card"><p className="message-kicker">Nothing saved here yet</p><h3>{feedView === "bookmarks" ? "Bookmark a story to keep it." : "Refresh your briefing to build history."}</h3><p>{feedView === "bookmarks" ? "Use the bookmark button beside any story. Bookmarks are never removed by automatic cleanup." : "Signal stores refreshed stories in your account and removes old unbookmarked items using your cleanup setting."}</p></div>
+        {feedView !== "latest" && historyError ? (
+          <div className="message-card" role="alert"><p className="message-kicker">History unavailable</p><h3>We couldn&apos;t load your saved stories.</h3><p>{historyError}</p><button onClick={() => void loadHistoryPage(feedView, historySearch, 0, selectedTopic, selectedProvider)}>Try again</button></div>
+        ) : feedView !== "latest" && historyLoading && historyArticles.length === 0 ? (
+          <div className="loading-list" aria-label="Loading saved stories">{Array.from({ length: 4 }, (_, index) => <div className="loading-row" key={index} />)}</div>
+        ) : feedView !== "latest" && filteredArticles.length === 0 ? (
+          historySearch || selectedTopic !== ALL_TOPICS || selectedProvider !== ALL_PROVIDERS ? (
+            <div className="message-card"><p className="message-kicker">No matches</p><h3>Try broader filters.</h3><p>No saved stories match the current search and filters. Search checks titles, summaries, publishers and topics.</p><button onClick={clearHistoryFiltersAndSearch}>Clear search and filters</button></div>
+          ) : (
+            <div className="message-card"><p className="message-kicker">Nothing saved here yet</p><h3>{feedView === "bookmarks" ? "Bookmark a story to keep it." : "Refresh your briefing to build history."}</h3><p>{feedView === "bookmarks" ? "Use the bookmark button beside any story. Bookmarks are never removed by automatic cleanup." : "Signal stores refreshed stories in your account and removes old unbookmarked items using your cleanup setting."}</p></div>
+          )
         ) : preferences.topics.length === 0 && feedView === "latest" ? (
           <div className="message-card"><p className="message-kicker">Your briefing is empty</p><h3>Add a topic to begin.</h3><p>Your followed topics will appear here as filters, with everything combined under All.</p></div>
         ) : enabledSourceCount === 0 && feedView === "latest" ? (
@@ -1163,9 +1687,10 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         ) : filteredArticles.length === 0 ? (
           <div className="message-card"><p className="message-kicker">No coverage found</p><h3>Try a broader filter.</h3><p>Choose All sources or use a more general topic to widen the signal.</p></div>
         ) : (
-          <ol className="story-list">
-            {filteredArticles.map((article, index) => (
-              <li key={articleKey(article)}>
+          <>
+            <ol className="story-list">
+              {filteredArticles.map((article, index) => (
+                <li key={articleKey(article)}>
                 <a href={article.url} target="_blank" rel="noreferrer" className="story-link">
                   <span className="story-number">{String(index + 1).padStart(2, "0")}</span>
                   <article>
@@ -1187,14 +1712,37 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                     <span aria-hidden="true">{article.isBookmarked ? "\u2605" : "\u2606"}</span>
                   </button>
                 )}
-              </li>
-            ))}
-          </ol>
+                </li>
+              ))}
+            </ol>
+            {feedView !== "latest" && historyHasMore && (
+              <div className="history-load-more">
+                <button
+                  type="button"
+                  disabled={historyLoading}
+                  onClick={() => void loadHistoryPage(feedView, historySearch, historyArticles.length, selectedTopic, selectedProvider)}
+                >
+                  {historyLoading ? "Loading…" : `Load ${Math.min(HISTORY_PAGE_SIZE, historyMatchingTotal - historyArticles.length)} more`}
+                </button>
+                <span>{historyArticles.length} of {historyMatchingTotal} loaded</span>
+              </div>
+            )}
+          </>
         )}
       </section>
       </div>
 
-      <footer><p><span className="footer-dot" /> SIGNAL gathers public reporting and sends you to the original publisher.</p><a href="#top">Back to top &#8593;</a></footer>
+      {backToTopVisible && (
+        <a
+          className="floating-back-to-top"
+          href="#top"
+          aria-label="Back to top"
+          title="Back to top"
+        >
+          <span aria-hidden="true">&#8593;</span>
+        </a>
+      )}
+      <footer><p><span className="footer-dot" /> SIGNAL gathers public reporting and sends you to the original publisher.</p></footer>
     </main>
   );
 }

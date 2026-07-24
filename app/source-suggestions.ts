@@ -27,7 +27,7 @@ const SOURCE_SUGGESTIONS: NewsSourceSuggestion[] = [
   {
     name: "The Guardian World",
     description: "Global news and analysis",
-    feed: "https://www.theguardian.com/world/rss",
+    feed: "https://www.theguardian.com/uk/world/rss",
     topicTerms: ["world", "international", "geopolitics", "war", "diplomacy", "human rights"],
     publisherAliases: ["guardian", "the guardian"],
     fallbackRank: 2,
@@ -51,7 +51,7 @@ const SOURCE_SUGGESTIONS: NewsSourceSuggestion[] = [
   {
     name: "The Guardian Technology",
     description: "Technology companies, products and policy",
-    feed: "https://www.theguardian.com/technology/rss",
+    feed: "https://www.theguardian.com/uk/technology/rss",
     topicTerms: ["technology", "artificial intelligence", "ai", "software", "cybersecurity", "internet", "apple", "google", "microsoft", "tesla"],
     publisherAliases: ["guardian", "the guardian"],
     fallbackRank: 5,
@@ -67,7 +67,7 @@ const SOURCE_SUGGESTIONS: NewsSourceSuggestion[] = [
   {
     name: "The Guardian Environment",
     description: "Global climate and environmental reporting",
-    feed: "https://www.theguardian.com/environment/rss",
+    feed: "https://www.theguardian.com/uk/environment/rss",
     topicTerms: ["climate", "environment", "conservation", "renewable energy", "pollution", "weather", "biodiversity"],
     publisherAliases: ["guardian", "the guardian"],
     fallbackRank: 7,
@@ -83,7 +83,7 @@ const SOURCE_SUGGESTIONS: NewsSourceSuggestion[] = [
   {
     name: "The Guardian Business",
     description: "International business and financial news",
-    feed: "https://www.theguardian.com/business/rss",
+    feed: "https://www.theguardian.com/uk/business/rss",
     topicTerms: ["business", "economy", "finance", "markets", "company", "companies", "banking", "investment"],
     publisherAliases: ["guardian", "the guardian"],
     fallbackRank: 9,
@@ -107,7 +107,7 @@ const SOURCE_SUGGESTIONS: NewsSourceSuggestion[] = [
   {
     name: "The Guardian Science",
     description: "Research, discoveries and health science",
-    feed: "https://www.theguardian.com/science/rss",
+    feed: "https://www.theguardian.com/uk/science/rss",
     topicTerms: ["science", "research", "health", "medicine", "biology", "physics", "chemistry", "space"],
     publisherAliases: ["guardian", "the guardian"],
     fallbackRank: 12,
@@ -123,7 +123,7 @@ const SOURCE_SUGGESTIONS: NewsSourceSuggestion[] = [
   {
     name: "The Guardian Sport",
     description: "International sport and analysis",
-    feed: "https://www.theguardian.com/sport/rss",
+    feed: "https://www.theguardian.com/uk/sport/rss",
     topicTerms: ["sport", "rugby", "cricket", "football", "soccer", "tennis", "olympics", "formula 1"],
     publisherAliases: ["guardian", "the guardian"],
     fallbackRank: 14,

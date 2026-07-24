@@ -52,6 +52,15 @@ public sealed class PreferencesController(
         var rssFeeds = NormalizeRssFeeds(request.Sources.RssFeeds);
         var preferences = await database.UserNewsPreferences
             .SingleOrDefaultAsync(item => item.UserId == userId, cancellationToken);
+        var topicsJson = JsonSerializer.Serialize(topics);
+        var rssFeedsJson = JsonSerializer.Serialize(rssFeeds);
+        var storyLimit = NormalizeStoryLimit(request.Limit);
+        var forceRefresh = preferences is null
+            || preferences.StoryLimit != storyLimit
+            || preferences.GoogleEnabled != request.Sources.Google
+            || preferences.GdeltEnabled != request.Sources.Gdelt
+            || !string.Equals(preferences.RssFeedsJson, rssFeedsJson, StringComparison.Ordinal);
+        var intervalChanged = preferences is null || preferences.RefreshMinutes != request.RefreshMinutes;
 
         if (preferences is null)
         {
@@ -59,16 +68,24 @@ public sealed class PreferencesController(
             database.UserNewsPreferences.Add(preferences);
         }
 
-        preferences.TopicsJson = JsonSerializer.Serialize(topics);
-        preferences.StoryLimit = NormalizeStoryLimit(request.Limit);
+        preferences.TopicsJson = topicsJson;
+        preferences.StoryLimit = storyLimit;
+        preferences.StoryTitleSize = NormalizeStoryTitleSize(request.StoryTitleSize);
         preferences.RefreshMinutes = request.RefreshMinutes;
         preferences.EmailSummaryEnabled = request.EmailSummaryEnabled;
         preferences.ArticleRetentionDays = NormalizeRetentionDays(request.ArticleRetentionDays);
         preferences.GoogleEnabled = request.Sources.Google;
         preferences.GdeltEnabled = request.Sources.Gdelt;
-        preferences.RssFeedsJson = JsonSerializer.Serialize(rssFeeds);
+        preferences.RssFeedsJson = rssFeedsJson;
         preferences.UpdatedAtUtc = DateTimeOffset.UtcNow;
 
+        await SyncTopicRefreshStatesAsync(
+            userId,
+            topics,
+            request.RefreshMinutes,
+            forceRefresh,
+            intervalChanged,
+            cancellationToken);
         await database.SaveChangesAsync(cancellationToken);
         var retentionCutoff = DateTime.UtcNow.AddDays(-preferences.ArticleRetentionDays);
         var expiredArticles = await database.StoredNewsArticles
@@ -161,6 +178,7 @@ public sealed class PreferencesController(
     private static NewsPreferencesResponse ToResponse(UserNewsPreferences preferences) => new(
         DeserializeList(preferences.TopicsJson),
         NormalizeStoryLimit(preferences.StoryLimit),
+        NormalizeStoryTitleSize(preferences.StoryTitleSize),
         AllowedRefreshMinutes.Contains(preferences.RefreshMinutes) ? preferences.RefreshMinutes : 15,
         preferences.EmailSummaryEnabled,
         NormalizeRetentionDays(preferences.ArticleRetentionDays),
@@ -172,6 +190,10 @@ public sealed class PreferencesController(
     internal static int NormalizeRetentionDays(int value) => AllowedRetentionDays.Contains(value) ? value : 30;
     internal static int NormalizeStoryLimit(int value) =>
         Math.Clamp((int)Math.Round(value / 20d, MidpointRounding.AwayFromZero) * 20, 20, 500);
+    internal static string NormalizeStoryTitleSize(string? value) =>
+        value?.ToLowerInvariant() is "small" or "medium" or "large"
+            ? value.ToLowerInvariant()
+            : "large";
 
     private static string[] DeserializeList(string json)
     {
@@ -184,6 +206,56 @@ public sealed class PreferencesController(
             return [];
         }
     }
+
+    private async Task SyncTopicRefreshStatesAsync(
+        string userId,
+        IReadOnlyList<string> topics,
+        int refreshMinutes,
+        bool forceRefresh,
+        bool intervalChanged,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTime.UtcNow;
+        var states = await database.TopicRefreshStates
+            .Where(item => item.UserId == userId)
+            .ToListAsync(cancellationToken);
+        var topicKeys = topics
+            .Select(TopicRefreshService.NormalizeTopicKey)
+            .ToHashSet(StringComparer.Ordinal);
+
+        database.TopicRefreshStates.RemoveRange(states.Where(state => !topicKeys.Contains(state.TopicKey)));
+        var byKey = states.ToDictionary(state => state.TopicKey, StringComparer.Ordinal);
+        foreach (var topic in topics)
+        {
+            var key = TopicRefreshService.NormalizeTopicKey(topic);
+            if (!byKey.TryGetValue(key, out var state))
+            {
+                database.TopicRefreshStates.Add(new TopicRefreshState
+                {
+                    UserId = userId,
+                    TopicKey = key,
+                    Topic = topic,
+                    NextRefreshAtUtc = refreshMinutes == 0 ? null : now,
+                });
+                continue;
+            }
+
+            state.Topic = topic;
+            if (refreshMinutes == 0)
+            {
+                state.NextRefreshAtUtc = null;
+            }
+            else if (forceRefresh)
+            {
+                state.NextRefreshAtUtc = now;
+            }
+            else if (intervalChanged)
+            {
+                var intervalDueAt = state.LastSuccessfulAtUtc?.AddMinutes(refreshMinutes) ?? now;
+                state.NextRefreshAtUtc = intervalDueAt > now ? intervalDueAt : now;
+            }
+        }
+    }
 }
 
 public sealed record PreferencesEnvelope(bool Exists, NewsPreferencesResponse Preferences);
@@ -191,6 +263,7 @@ public sealed record PreferencesEnvelope(bool Exists, NewsPreferencesResponse Pr
 public sealed record NewsPreferencesResponse(
     string[] Topics,
     int Limit,
+    string StoryTitleSize,
     int RefreshMinutes,
     bool EmailSummaryEnabled,
     int ArticleRetentionDays,
@@ -199,6 +272,7 @@ public sealed record NewsPreferencesResponse(
     public static NewsPreferencesResponse Default { get; } = new(
         ["Artificial intelligence"],
         20,
+        "large",
         15,
         false,
         30,
@@ -210,6 +284,7 @@ public sealed record NewsSourcesResponse(bool Google, bool Gdelt, string[] RssFe
 public sealed record NewsPreferencesRequest(
     [Required] string[] Topics,
     [Range(20, 500)] int Limit,
+    string? StoryTitleSize,
     int RefreshMinutes,
     bool EmailSummaryEnabled,
     int ArticleRetentionDays,

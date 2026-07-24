@@ -1,0 +1,41 @@
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+using Signal.Server.Models;
+using Signal.Server.Services;
+
+namespace Signal.Server.Controllers;
+
+[ApiController]
+[Authorize]
+[EnableRateLimiting("account")]
+[Route("api/topic-refresh")]
+[ResponseCache(Location = ResponseCacheLocation.None, NoStore = true)]
+public sealed class TopicRefreshController(
+    TopicRefreshService refreshService,
+    UserManager<ApplicationUser> userManager) : ControllerBase
+{
+    [HttpGet]
+    public async Task<IActionResult> Get(
+        [FromQuery] string? topic,
+        CancellationToken cancellationToken)
+    {
+        var userId = userManager.GetUserId(User);
+        if (userId is null) return Unauthorized();
+        return Ok(await refreshService.LoadBriefingAsync(userId, cancellationToken, topic));
+    }
+
+    [HttpPost]
+    public async Task<IActionResult> Refresh(
+        TopicRefreshRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = userManager.GetUserId(User);
+        if (userId is null) return Unauthorized();
+        var topics = string.IsNullOrWhiteSpace(request.Topic) ? null : new[] { request.Topic };
+        return Ok(await refreshService.RefreshAsync(userId, topics, true, cancellationToken));
+    }
+}
+
+public sealed record TopicRefreshRequest(string? Topic);

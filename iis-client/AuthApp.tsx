@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import NewsDashboard, { type ArticleStore, type NewsPreferences, type NewsSummary, type PreferencesStore, type StoredArticle } from "../app/NewsDashboard";
+import NewsDashboard, { type ArticleHistoryPage, type ArticleStore, type NewsPreferences, type NewsSummary, type PreferencesStore, type TopicBriefing, type TopicRefreshStore } from "../app/NewsDashboard";
 
 type SessionUser = {
   email: string;
@@ -71,25 +71,51 @@ const sqlitePreferencesStore: PreferencesStore = {
 };
 
 const sqliteArticleStore: ArticleStore = {
-  async load() {
-    const response = await fetch("/api/articles", {
+  async load(query = {}) {
+    const params = new URLSearchParams({
+      offset: String(query.offset ?? 0),
+      limit: String(query.limit ?? 50),
+    });
+    if (query.search) params.set("search", query.search);
+    if (query.bookmarksOnly) params.set("bookmarksOnly", "true");
+    if (query.topic) params.set("topic", query.topic);
+    if (query.provider) params.set("provider", query.provider);
+    const response = await fetch(`/api/articles?${params.toString()}`, {
       credentials: "same-origin",
       cache: "no-store",
     });
-    const data = await response.json().catch(() => ({})) as {
+    const data = await response.json().catch(() => ({})) as Partial<ArticleHistoryPage> & {
       error?: string;
       detail?: string;
-      articles?: StoredArticle[];
     };
     if (!response.ok) throw new Error(data.error || data.detail || "Could not load article history.");
-    return data.articles ?? [];
+    return data as ArticleHistoryPage;
   },
   async sync(articles) {
-    const data = await postJson<{ articles: StoredArticle[] }>("/api/articles/sync", { articles: articles.slice(0, 500) });
-    return data.articles;
+    return postJson<ArticleHistoryPage>("/api/articles/sync", { articles: articles.slice(0, 500) });
   },
   async setBookmark(url, bookmarked) {
     await postJson("/api/articles/bookmark", { url, bookmarked });
+  },
+};
+
+const sqliteTopicRefreshStore: TopicRefreshStore = {
+  async load(topic) {
+    const params = new URLSearchParams();
+    if (topic) params.set("topic", topic);
+    const response = await fetch(`/api/topic-refresh${params.size > 0 ? `?${params.toString()}` : ""}`, {
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+    const data = await response.json().catch(() => ({})) as TopicBriefing & {
+      error?: string;
+      detail?: string;
+    };
+    if (!response.ok) throw new Error(data.error || data.detail || "Could not load the current briefing.");
+    return data;
+  },
+  async refresh(topic) {
+    return postJson<TopicBriefing>("/api/topic-refresh", { topic: topic ?? null });
   },
 };
 
@@ -110,6 +136,42 @@ export default function AuthApp() {
     return "";
   });
   const [accountOpen, setAccountOpen] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    let currentVersion = "";
+
+    async function checkVersion() {
+      try {
+        const response = await fetch("/api/app-version", {
+          credentials: "same-origin",
+          cache: "no-store",
+        });
+        if (!response.ok || cancelled) return;
+        const data = await response.json() as { version?: string };
+        if (!data.version) return;
+        if (!currentVersion) {
+          currentVersion = data.version;
+        } else if (data.version !== currentVersion) {
+          window.location.reload();
+        }
+      } catch {
+        // A temporary network gap should not interrupt the active briefing.
+      }
+    }
+
+    void checkVersion();
+    const interval = window.setInterval(() => void checkVersion(), 60_000);
+    const checkWhenVisible = () => {
+      if (document.visibilityState === "visible") void checkVersion();
+    };
+    document.addEventListener("visibilitychange", checkWhenVisible);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", checkWhenVisible);
+    };
+  }, []);
 
   useEffect(() => {
     void fetch("/api/auth/me", { credentials: "same-origin", cache: "no-store" })
@@ -144,6 +206,7 @@ export default function AuthApp() {
           preferencesStore={sqlitePreferencesStore}
           articleStore={sqliteArticleStore}
           summarySender={sendNewsSummary}
+          refreshStore={sqliteTopicRefreshStore}
         />
         {accountOpen && (
           <AccountPanel

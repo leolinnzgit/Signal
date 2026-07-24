@@ -9,6 +9,10 @@ test("technology topics prioritize specialist technology feeds", () => {
     suggestions.slice(0, 3).map((source) => source.name),
     ["Ars Technica", "RNZ Media & Technology", "The Guardian Technology"],
   );
+  assert.equal(
+    suggestions.find((source) => source.name === "The Guardian Technology")?.feed,
+    "https://www.theguardian.com/uk/technology/rss",
+  );
 });
 
 test("already-added feeds are not suggested", () => {

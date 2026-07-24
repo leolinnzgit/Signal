@@ -38,6 +38,15 @@ public static class FeedUrlCanonicalizer
         if (normalized is null) return null;
 
         var builder = new UriBuilder(normalized);
+        if (string.Equals(builder.Host, "www.theguardian.com", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(builder.Host, "theguardian.com", StringComparison.OrdinalIgnoreCase))
+        {
+            builder.Path = System.Text.RegularExpressions.Regex.Replace(
+                builder.Path,
+                "^/(?:uk|us|au|international)(?=/)",
+                "",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        }
         if (builder.Path.Length > 1) builder.Path = builder.Path.TrimEnd('/');
         builder.Query = FilterQuery(builder.Query, sort: true);
         return builder.Uri.AbsoluteUri;

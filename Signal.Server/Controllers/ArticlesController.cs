@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Signal.Server.Data;
 using Signal.Server.Models;
+using Signal.Server.Services;
 
 namespace Signal.Server.Controllers;
 
@@ -18,16 +19,34 @@ public sealed class ArticlesController(
     UserManager<ApplicationUser> userManager) : ControllerBase
 {
     private const int DefaultRetentionDays = 30;
-    private const int MaximumHistoryItems = 500;
+    private const int MaximumSyncItems = 500;
+    private const int DefaultPageSize = 50;
+    private const int MaximumPageSize = 100;
 
     [HttpGet]
-    public async Task<IActionResult> Get(CancellationToken cancellationToken)
+    public async Task<IActionResult> Get(
+        [FromQuery] int offset = 0,
+        [FromQuery] int limit = DefaultPageSize,
+        [FromQuery] string? search = null,
+        [FromQuery] bool bookmarksOnly = false,
+        [FromQuery] string? topic = null,
+        [FromQuery] string? provider = null,
+        CancellationToken cancellationToken = default)
     {
         var userId = userManager.GetUserId(User);
         if (userId is null) return Unauthorized();
 
         await PurgeExpiredAsync(userId, cancellationToken);
-        return Ok(new ArticleHistoryResponse(await LoadHistoryAsync(userId, cancellationToken)));
+        return Ok(await LoadHistoryAsync(
+            userId,
+            ArticleHistorySearch.Normalize(search),
+            bookmarksOnly,
+            NormalizeText(topic ?? "", 80),
+            NormalizeText(provider ?? "", 256),
+            Math.Max(0, offset),
+            Math.Clamp(limit, 1, MaximumPageSize),
+            [],
+            cancellationToken));
     }
 
     [HttpPost("sync")]
@@ -42,7 +61,7 @@ public sealed class ArticlesController(
             .Cast<NormalizedArticle>()
             .GroupBy(item => item.Url, StringComparer.OrdinalIgnoreCase)
             .Select(group => group.First())
-            .Take(MaximumHistoryItems)
+            .Take(MaximumSyncItems)
             .ToArray();
         var urls = normalized.Select(item => item.Url).ToArray();
         var existing = urls.Length == 0
@@ -78,7 +97,23 @@ public sealed class ArticlesController(
 
         await database.SaveChangesAsync(cancellationToken);
         await PurgeExpiredAsync(userId, cancellationToken);
-        return Ok(new ArticleHistoryResponse(await LoadHistoryAsync(userId, cancellationToken)));
+        var bookmarkedUrls = urls.Length == 0
+            ? []
+            : await database.StoredNewsArticles
+                .AsNoTracking()
+                .Where(item => item.UserId == userId && item.IsBookmarked && urls.Contains(item.Url))
+                .Select(item => item.Url)
+                .ToArrayAsync(cancellationToken);
+        return Ok(await LoadHistoryAsync(
+            userId,
+            "",
+            false,
+            "",
+            "",
+            0,
+            DefaultPageSize,
+            bookmarkedUrls,
+            cancellationToken));
     }
 
     [HttpPost("bookmark")]
@@ -101,16 +136,51 @@ public sealed class ArticlesController(
         return Ok(new BookmarkResponse(article.Url, article.IsBookmarked, article.BookmarkedAtUtc));
     }
 
-    private async Task<ArticleHistoryItem[]> LoadHistoryAsync(string userId, CancellationToken cancellationToken)
+    private async Task<ArticleHistoryResponse> LoadHistoryAsync(
+        string userId,
+        string search,
+        bool bookmarksOnly,
+        string topic,
+        string provider,
+        int offset,
+        int limit,
+        string[] bookmarkedUrls,
+        CancellationToken cancellationToken)
     {
-        var articles = await database.StoredNewsArticles
+        var userArticles = database.StoredNewsArticles
             .AsNoTracking()
-            .Where(item => item.UserId == userId)
-            .OrderByDescending(item => item.IsBookmarked)
-            .ThenByDescending(item => item.LastSeenAtUtc)
-            .Take(MaximumHistoryItems)
+            .Where(item => item.UserId == userId);
+        var historyTotal = await userArticles.CountAsync(cancellationToken);
+        var bookmarkTotal = await userArticles.CountAsync(item => item.IsBookmarked, cancellationToken);
+
+        IQueryable<StoredNewsArticle> matching = userArticles;
+        if (bookmarksOnly) matching = matching.Where(item => item.IsBookmarked);
+        matching = ArticleHistorySearch.Apply(matching, search);
+
+        var facetRows = await matching
+            .Select(item => new { item.TopicsJson, item.ProvidersJson })
             .ToArrayAsync(cancellationToken);
-        return articles.Select(ToResponse).ToArray();
+        var topicFacets = BuildFacets(facetRows.Select(item => item.TopicsJson));
+        var providerFacets = BuildFacets(facetRows.Select(item => item.ProvidersJson));
+
+        matching = ArticleHistorySearch.ApplyFilters(matching, topic, provider);
+
+        var matchingTotal = await matching.CountAsync(cancellationToken);
+        var articles = await matching
+            .OrderByDescending(item => item.LastSeenAtUtc)
+            .Skip(offset)
+            .Take(limit)
+            .ToArrayAsync(cancellationToken);
+        return new ArticleHistoryResponse(
+            articles.Select(ToResponse).ToArray(),
+            historyTotal,
+            bookmarkTotal,
+            matchingTotal,
+            facetRows.Length,
+            offset + articles.Length < matchingTotal,
+            bookmarkedUrls,
+            topicFacets,
+            providerFacets);
     }
 
     private async Task PurgeExpiredAsync(string userId, CancellationToken cancellationToken)
@@ -180,6 +250,14 @@ public sealed class ArticlesController(
         catch (JsonException) { return []; }
     }
 
+    private static ArticleHistoryFacet[] BuildFacets(IEnumerable<string> values) => values
+        .SelectMany(DeserializeList)
+        .GroupBy(value => value, StringComparer.OrdinalIgnoreCase)
+        .Select(group => new ArticleHistoryFacet(group.Key, group.Count()))
+        .OrderByDescending(facet => facet.Count)
+        .ThenBy(facet => facet.Value, StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+
     private static ArticleHistoryItem ToResponse(StoredNewsArticle article) => new(
         article.Title,
         article.Url,
@@ -218,7 +296,18 @@ public sealed record BookmarkRequest([Required] string Url, bool Bookmarked);
 
 public sealed record BookmarkResponse(string Url, bool Bookmarked, DateTime? BookmarkedAt);
 
-public sealed record ArticleHistoryResponse(ArticleHistoryItem[] Articles);
+public sealed record ArticleHistoryResponse(
+    ArticleHistoryItem[] Articles,
+    int HistoryTotal,
+    int BookmarkTotal,
+    int MatchingTotal,
+    int FilterTotal,
+    bool HasMore,
+    string[] BookmarkedUrls,
+    ArticleHistoryFacet[] TopicFacets,
+    ArticleHistoryFacet[] ProviderFacets);
+
+public sealed record ArticleHistoryFacet(string Value, int Count);
 
 public sealed record ArticleHistoryItem(
     string Title,

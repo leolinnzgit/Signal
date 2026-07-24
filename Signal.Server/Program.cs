@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text.Json;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
@@ -133,12 +134,24 @@ builder.Services.AddHttpClient<GoogleTrendsService>(client =>
     client.DefaultRequestHeaders.UserAgent.ParseAdd("Signal-News-Monitor/2.0");
     client.DefaultRequestHeaders.Accept.ParseAdd("application/rss+xml, application/xml;q=0.9");
 });
+builder.Services.AddScoped<TopicRefreshService>();
+builder.Services.AddHostedService<TopicRefreshBackgroundService>();
 
 var app = builder.Build();
 
 app.UseForwardedHeaders(new ForwardedHeadersOptions
 {
     ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
+});
+app.Use(async (context, next) =>
+{
+    context.Response.OnStarting(() =>
+    {
+        if (context.Request.Path == "/" || context.Request.Path == "/index.html")
+            context.Response.Headers.CacheControl = "no-store, no-cache, must-revalidate";
+        return Task.CompletedTask;
+    });
+    await next();
 });
 
 if (!app.Environment.IsDevelopment())
@@ -167,6 +180,7 @@ await using (var scope = app.Services.CreateAsyncScope())
             "UserId" TEXT NOT NULL CONSTRAINT "PK_UserNewsPreferences" PRIMARY KEY,
             "TopicsJson" TEXT NOT NULL,
             "StoryLimit" INTEGER NOT NULL,
+            "StoryTitleSize" TEXT NOT NULL DEFAULT 'large',
             "RefreshMinutes" INTEGER NOT NULL,
             "EmailSummaryEnabled" INTEGER NOT NULL DEFAULT 0,
             "ArticleRetentionDays" INTEGER NOT NULL DEFAULT 30,
@@ -201,6 +215,51 @@ await using (var scope = app.Services.CreateAsyncScope())
         "CREATE UNIQUE INDEX IF NOT EXISTS \"IX_StoredNewsArticles_UserId_Url\" ON \"StoredNewsArticles\" (\"UserId\", \"Url\");");
     await database.Database.ExecuteSqlRawAsync(
         "CREATE INDEX IF NOT EXISTS \"IX_StoredNewsArticles_UserId_IsBookmarked_LastSeenAtUtc\" ON \"StoredNewsArticles\" (\"UserId\", \"IsBookmarked\", \"LastSeenAtUtc\");");
+    await database.Database.ExecuteSqlRawAsync("""
+        CREATE TABLE IF NOT EXISTS "TopicRefreshStates" (
+            "UserId" TEXT NOT NULL,
+            "TopicKey" TEXT NOT NULL,
+            "Topic" TEXT NOT NULL,
+            "LastAttemptedAtUtc" TEXT NULL,
+            "LastSuccessfulAtUtc" TEXT NULL,
+            "NextRefreshAtUtc" TEXT NULL,
+            "LastError" TEXT NOT NULL DEFAULT '',
+            CONSTRAINT "PK_TopicRefreshStates" PRIMARY KEY ("UserId", "TopicKey"),
+            CONSTRAINT "FK_TopicRefreshStates_AspNetUsers_UserId"
+                FOREIGN KEY ("UserId") REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE
+        );
+        """);
+    await database.Database.ExecuteSqlRawAsync(
+        "CREATE INDEX IF NOT EXISTS \"IX_TopicRefreshStates_NextRefreshAtUtc\" ON \"TopicRefreshStates\" (\"NextRefreshAtUtc\");");
+
+    var existingPreferences = await database.UserNewsPreferences.AsNoTracking().ToArrayAsync();
+    var existingStateKeys = await database.TopicRefreshStates
+        .AsNoTracking()
+        .Select(item => new { item.UserId, item.TopicKey })
+        .ToArrayAsync();
+    var knownStates = existingStateKeys
+        .Select(item => $"{item.UserId}\n{item.TopicKey}")
+        .ToHashSet(StringComparer.Ordinal);
+    var scheduleCreatedAt = DateTime.UtcNow;
+    foreach (var preferences in existingPreferences)
+    {
+        string[] topics;
+        try { topics = JsonSerializer.Deserialize<string[]>(preferences.TopicsJson) ?? []; }
+        catch (JsonException) { topics = []; }
+        foreach (var topic in topics)
+        {
+            var key = TopicRefreshService.NormalizeTopicKey(topic);
+            if (!knownStates.Add($"{preferences.UserId}\n{key}")) continue;
+            database.TopicRefreshStates.Add(new TopicRefreshState
+            {
+                UserId = preferences.UserId,
+                TopicKey = key,
+                Topic = topic,
+                NextRefreshAtUtc = preferences.RefreshMinutes == 0 ? null : scheduleCreatedAt,
+            });
+        }
+    }
+    await database.SaveChangesAsync();
 
     await database.Database.OpenConnectionAsync();
     try
@@ -220,6 +279,14 @@ await using (var scope = app.Services.CreateAsyncScope())
         {
             await database.Database.ExecuteSqlRawAsync(
                 "ALTER TABLE \"UserNewsPreferences\" ADD COLUMN \"ArticleRetentionDays\" INTEGER NOT NULL DEFAULT 30;");
+        }
+
+        columnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('UserNewsPreferences') WHERE name = 'StoryTitleSize';";
+        var storyTitleSizeColumnExists = Convert.ToInt32(await columnCheck.ExecuteScalarAsync()) > 0;
+        if (!storyTitleSizeColumnExists)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"UserNewsPreferences\" ADD COLUMN \"StoryTitleSize\" TEXT NOT NULL DEFAULT 'large';");
         }
     }
     finally

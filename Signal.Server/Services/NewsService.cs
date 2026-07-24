@@ -81,12 +81,22 @@ public sealed class NewsService(HttpClient httpClient)
         string feedUrl,
         string topic,
         int limit,
+        CancellationToken cancellationToken) =>
+        await GetPublisherFeedAsync(feedUrl, [topic], limit, cancellationToken);
+
+    public async Task<NewsResult> GetPublisherFeedAsync(
+        string feedUrl,
+        IReadOnlyList<string> topics,
+        int limit,
         CancellationToken cancellationToken)
     {
+        if (topics.Count == 0) throw new ArgumentException("Choose at least one topic.");
         var (xml, finalUrl) = await FetchPublisherFeedAsync(feedUrl, cancellationToken);
-        var articles = ParsePublisherFeed(xml, finalUrl, topic).Take(limit).ToArray();
+        var articles = ParsePublisherFeed(xml, finalUrl, topics)
+            .Take(Math.Min(500, limit * topics.Count))
+            .ToArray();
         var providerName = articles.FirstOrDefault()?.Source ?? finalUrl.Host.Replace("www.", "", StringComparison.OrdinalIgnoreCase);
-        return new NewsResult(topic, $"RSS / {providerName}", DateTimeOffset.UtcNow, articles);
+        return new NewsResult(topics[0], $"RSS / {providerName}", DateTimeOffset.UtcNow, articles);
     }
 
     public async Task<string> ResolvePublisherFeedUrlAsync(
@@ -162,7 +172,10 @@ public sealed class NewsService(HttpClient httpClient)
         }
     }
 
-    private static IEnumerable<NewsArticle> ParsePublisherFeed(string xml, Uri feedUrl, string topic)
+    private static IEnumerable<NewsArticle> ParsePublisherFeed(
+        string xml,
+        Uri feedUrl,
+        IReadOnlyList<string> topics)
     {
         var document = XDocument.Parse(xml, LoadOptions.None);
         var channel = document.Descendants().FirstOrDefault(element => element.Name.LocalName == "channel");
@@ -194,7 +207,8 @@ public sealed class NewsService(HttpClient httpClient)
                 source,
                 ParseDate(Value(entry, "pubDate") ?? Value(entry, "published") ?? Value(entry, "updated")),
                 summary);
-            if (TopicMatcher.Matches(article, topic)) yield return article;
+            var matchedTopics = topics.Where(topic => TopicMatcher.Matches(article, topic)).ToArray();
+            if (matchedTopics.Length > 0) yield return article with { MatchedTopics = matchedTopics };
         }
     }
 

@@ -13,6 +13,8 @@ public sealed class UserNewsPreferences
 
     public int StoryLimit { get; set; } = 20;
 
+    public string StoryTitleSize { get; set; } = "large";
+
     public int RefreshMinutes { get; set; } = 15;
 
     public bool EmailSummaryEnabled { get; set; }
