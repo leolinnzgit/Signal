@@ -264,6 +264,36 @@ function articleKey(article: Article) {
   return article.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() || article.url;
 }
 
+function mergeTopicBriefingArticles(
+  current: FollowedArticle[],
+  incoming: FollowedArticle[],
+  topic: string,
+) {
+  const topicKey = topic.toLowerCase();
+  const byUrl = new Map<string, FollowedArticle>();
+
+  current.forEach((article) => {
+    const remainingTopics = article.topics.filter((candidate) => candidate.toLowerCase() !== topicKey);
+    if (remainingTopics.length > 0) byUrl.set(article.url, { ...article, topics: remainingTopics });
+  });
+
+  incoming.forEach((article) => {
+    const existing = byUrl.get(article.url);
+    byUrl.set(article.url, existing
+      ? {
+          ...article,
+          topics: Array.from(new Set([...existing.topics, ...article.topics])),
+          providers: Array.from(new Set([...existing.providers, ...article.providers])),
+          isBookmarked: article.isBookmarked ?? existing.isBookmarked,
+        }
+      : article);
+  });
+
+  return Array.from(byUrl.values()).sort(
+    (left, right) => timestampValue(right.publishedAt) - timestampValue(left.publishedAt),
+  );
+}
+
 function providerPriority(provider: string) {
   if (provider.startsWith("RSS / ")) return 0;
   if (provider === "GDELT") return 1;
@@ -608,7 +638,9 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           ? await refreshStore.refresh()
           : await refreshStore.load(options.topic);
         if (runId !== requestSequence.current) return;
-        setArticles(briefing.articles);
+        setArticles((current) => options.topic
+          ? mergeTopicBriefingArticles(current, briefing.articles, options.topic)
+          : briefing.articles);
         setTopicRefreshStates(briefing.topics);
         setFetchedAt(briefing.refreshedAt ?? "");
         setHistoryTotal(briefing.historyTotal);
@@ -1721,7 +1753,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           <>
             <ol className="story-list">
               {filteredArticles.map((article, index) => (
-                <li key={articleKey(article)}>
+                <li key={article.url}>
                 <a href={article.url} target="_blank" rel="noreferrer" className="story-link">
                   <span className="story-number">{String(index + 1).padStart(2, "0")}</span>
                   <article>
