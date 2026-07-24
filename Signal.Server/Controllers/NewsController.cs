@@ -22,7 +22,6 @@ public sealed class NewsController(NewsService newsService, ILogger<NewsControll
             .Where(topic => topic.Length > 0)
             .Select(topic => topic[..Math.Min(topic.Length, 80)])
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(20)
             .ToArray();
         if (topics.Length == 0) topics = ["Artificial intelligence"];
         limit = Math.Clamp(limit, 20, 500);

@@ -235,13 +235,11 @@ public sealed class ArticlesController(
         .Select(value => NormalizeText(value, 80))
         .Where(value => value.Length > 0)
         .Distinct(StringComparer.OrdinalIgnoreCase)
-        .Take(20)
         .ToArray();
 
     private static string[] MergeLists(string json, IEnumerable<string> additions) => DeserializeList(json)
         .Concat(additions)
         .Distinct(StringComparer.OrdinalIgnoreCase)
-        .Take(20)
         .ToArray();
 
     private static string[] DeserializeList(string json)

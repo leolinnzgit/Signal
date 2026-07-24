@@ -160,7 +160,6 @@ public sealed class PreferencesController(
         .Select(value => string.Join(' ', value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)))
         .Select(value => value[..Math.Min(value.Length, 80)])
         .Distinct(StringComparer.OrdinalIgnoreCase)
-        .Take(20)
         .ToArray();
 
     private static string[] NormalizeRssFeeds(IEnumerable<string> values)

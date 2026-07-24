@@ -159,6 +159,7 @@ const ALL_PROVIDERS = "all";
 const HISTORY_PAGE_SIZE = 50;
 const VISIBLE_TOPIC_FILTERS = 6;
 const VISIBLE_SOURCE_FILTERS = 4;
+const TOPICS_PER_PROVIDER_BATCH = 8;
 
 type ColorTheme = "light" | "dark";
 
@@ -302,6 +303,16 @@ function summarizeSources(labels: string[]) {
   return `${labels.slice(0, 3).join(", ")} and ${labels.length - 3} more`;
 }
 
+function topicBatches(topics: string[]) {
+  return Array.from(
+    { length: Math.ceil(topics.length / TOPICS_PER_PROVIDER_BATCH) },
+    (_, index) => topics.slice(
+      index * TOPICS_PER_PROVIDER_BATCH,
+      (index + 1) * TOPICS_PER_PROVIDER_BATCH,
+    ),
+  );
+}
+
 function normalizePreferences(saved: Partial<NewsPreferences> & { topic?: string }): NewsPreferences {
   const savedTopics = Array.isArray(saved.topics)
     ? saved.topics
@@ -311,8 +322,7 @@ function normalizePreferences(saved: Partial<NewsPreferences> & { topic?: string
       ? [saved.topic.trim()]
       : DEFAULTS.topics;
   const topics = savedTopics
-    .filter((topic, index) => savedTopics.findIndex((candidate) => candidate.toLowerCase() === topic.toLowerCase()) === index)
-    .slice(0, 20);
+    .filter((topic, index) => savedTopics.findIndex((candidate) => candidate.toLowerCase() === topic.toLowerCase()) === index);
   const rssFeeds = Array.isArray(saved.sources?.rssFeeds)
     ? saved.sources.rssFeeds.filter((feed): feed is string => typeof feed === "string" && feed.startsWith("https://"))
     : [];
@@ -377,6 +387,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [topicInput, setTopicInput] = useState("");
   const [rssInput, setRssInput] = useState("");
   const [selectedTopic, setSelectedTopic] = useState(ALL_TOPICS);
+  const [recentTopicFilters, setRecentTopicFilters] = useState<string[]>([]);
   const [selectedProvider, setSelectedProvider] = useState(ALL_PROVIDERS);
   const [topicPickerOpen, setTopicPickerOpen] = useState(false);
   const [topicPickerQuery, setTopicPickerQuery] = useState("");
@@ -633,12 +644,14 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         sourceLabel: feedName(feed),
       })),
     ]);
-    if (next.sources.gdelt) requests.push({
-      topics: next.topics,
-      provider: "gdelt",
-      sourceKey: "gdelt",
-      sourceLabel: "GDELT",
-    });
+    if (next.sources.gdelt) {
+      requests.push(...topicBatches(next.topics).map((topics) => ({
+        topics,
+        provider: "gdelt" as const,
+        sourceKey: "gdelt",
+        sourceLabel: "GDELT",
+      })));
+    }
 
     if (next.topics.length === 0 || requests.length === 0) {
       setArticles([]);
@@ -867,12 +880,16 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   );
 
   const visibleTopicFilters = useMemo(() => {
-    const selected = selectedTopic === ALL_TOPICS ? [] : [selectedTopic];
-    return [
-      ...selected,
-      ...preferences.topics.filter((topic) => topic !== selectedTopic),
-    ].slice(0, VISIBLE_TOPIC_FILTERS);
-  }, [preferences.topics, selectedTopic]);
+    const topicsByKey = new Map(preferences.topics.map((topic) => [topic.toLowerCase(), topic]));
+    const stacked = recentTopicFilters
+      .map((topic) => topicsByKey.get(topic.toLowerCase()))
+      .filter((topic): topic is string => Boolean(topic));
+    const initial = preferences.topics.slice(0, VISIBLE_TOPIC_FILTERS);
+    return [...stacked, ...initial].filter(
+      (topic, index, topics) =>
+        topics.findIndex((candidate) => candidate.toLowerCase() === topic.toLowerCase()) === index,
+    );
+  }, [preferences.topics, recentTopicFilters]);
 
   const pickerTopics = useMemo(() => {
     const query = topicPickerQuery.trim().toLowerCase();
@@ -948,18 +965,16 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   function addTopic(value: string) {
     const topic = value.trim().replace(/\s+/g, " ").slice(0, 80);
     if (!topic) return false;
-    if (preferences.topics.length >= 20) {
-      setNotice("You can follow up to 20 topics.");
-      return false;
-    }
     const existing = preferences.topics.find((followed) => followed.toLowerCase() === topic.toLowerCase());
     if (existing) {
       setSelectedTopic(existing);
+      promoteTopicFilter(existing);
       setNotice(`You already follow ${existing}.`);
       return false;
     }
     setPreferences((current) => ({ ...current, topics: [...current.topics, topic] }));
     setSelectedTopic(topic);
+    promoteTopicFilter(topic);
     setNotice(`Now following ${topic}.`);
     return true;
   }
@@ -972,7 +987,16 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
 
   function removeTopic(topic: string) {
     setPreferences((current) => ({ ...current, topics: current.topics.filter((followed) => followed !== topic) }));
+    setRecentTopicFilters((current) => current.filter((followed) => followed.toLowerCase() !== topic.toLowerCase()));
     if (selectedTopic === topic) setSelectedTopic(ALL_TOPICS);
+  }
+
+  function promoteTopicFilter(topic: string) {
+    if (topic === ALL_TOPICS) return;
+    setRecentTopicFilters((current) => [
+      topic,
+      ...current.filter((followed) => followed.toLowerCase() !== topic.toLowerCase()),
+    ]);
   }
 
   async function addRssFeed(feed: string, displayName = feedName(feed)) {
@@ -1089,6 +1113,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
 
   function selectTopicFilter(topic: string) {
     setSelectedTopic(topic);
+    promoteTopicFilter(topic);
     setTopicPickerOpen(false);
     setTopicPickerQuery("");
     setSourcePickerOpen(false);
@@ -1567,7 +1592,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               {visibleTopicFilters.map((topic) => (
                 <button type="button" key={topic} className={selectedTopic === topic ? "active" : ""} aria-pressed={selectedTopic === topic} onClick={() => selectTopicFilter(topic)}>{topic} <span>{topicCounts[topic] ?? 0}</span></button>
               ))}
-              {preferences.topics.length > VISIBLE_TOPIC_FILTERS && (
+              {preferences.topics.length > visibleTopicFilters.length && (
                 <button
                   type="button"
                   className={topicPickerOpen ? "topic-more active" : "topic-more"}

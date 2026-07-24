@@ -13,6 +13,7 @@ public sealed class TopicRefreshService(
     ILogger<TopicRefreshService> logger)
 {
     private const int ProviderConcurrency = 8;
+    private const int TopicsPerProviderBatch = 8;
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> UserLocks = new(StringComparer.Ordinal);
 
     public static string NormalizeTopicKey(string topic) =>
@@ -140,10 +141,14 @@ public sealed class TopicRefreshService(
         }
         if (preferences.GdeltEnabled)
         {
-            work.Add(new FetchWork(
-                topics,
-                "GDELT",
-                token => newsService.GetGdeltNewsAsync(topics, preferences.StoryLimit, token)));
+            work.AddRange(topics.Chunk(TopicsPerProviderBatch).Select(batch =>
+            {
+                var batchTopics = batch.ToArray();
+                return new FetchWork(
+                    batchTopics,
+                    "GDELT",
+                    token => newsService.GetGdeltNewsAsync(batchTopics, preferences.StoryLimit, token));
+            }));
         }
         foreach (var feed in DeserializeList(preferences.RssFeedsJson))
         {
@@ -503,7 +508,6 @@ public sealed class TopicRefreshService(
     private static string[] MergeLists(string json, IEnumerable<string> additions) => DeserializeList(json)
         .Concat(additions)
         .Distinct(StringComparer.OrdinalIgnoreCase)
-        .Take(20)
         .ToArray();
 
     private static string[] DeserializeList(string json)
