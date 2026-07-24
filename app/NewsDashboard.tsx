@@ -423,6 +423,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [topicPickerQuery, setTopicPickerQuery] = useState("");
   const [sourcePickerOpen, setSourcePickerOpen] = useState(false);
   const [sourcePickerQuery, setSourcePickerQuery] = useState("");
+  const [sourcesExpanded, setSourcesExpanded] = useState(false);
   const [articles, setArticles] = useState<FollowedArticle[]>([]);
   const [historyArticles, setHistoryArticles] = useState<StoredArticle[]>([]);
   const [historyTotal, setHistoryTotal] = useState(0);
@@ -923,6 +924,15 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     );
   }, [preferences.topics, recentTopicFilters]);
 
+  const nextTopic = useMemo(() => {
+    if (preferences.topics.length === 0) return "";
+    if (selectedTopic === ALL_TOPICS) return preferences.topics[0];
+    const currentIndex = preferences.topics.findIndex(
+      (topic) => topic.toLowerCase() === selectedTopic.toLowerCase(),
+    );
+    return preferences.topics[(currentIndex + 1) % preferences.topics.length];
+  }, [preferences.topics, selectedTopic]);
+
   const pickerTopics = useMemo(() => {
     const query = topicPickerQuery.trim().toLowerCase();
     return query
@@ -1137,6 +1147,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     setTopicPickerQuery("");
     setSourcePickerOpen(false);
     setSourcePickerQuery("");
+    setSourcesExpanded(false);
     setHistorySearchInput("");
     setHistorySearch("");
     setHistoryError("");
@@ -1621,6 +1632,14 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
             <nav className="topic-filters" aria-label="Filter stories by followed topic">
               <span className="filter-label">Topics</span>
               <button type="button" className={selectedTopic === ALL_TOPICS ? "active" : ""} aria-pressed={selectedTopic === ALL_TOPICS} onClick={() => selectTopicFilter(ALL_TOPICS)}>All <span>{feedView === "latest" ? viewedArticles.length : historyFilterTotal}</span></button>
+              <button
+                type="button"
+                className="topic-next"
+                onClick={() => selectTopicFilter(nextTopic)}
+                title={`Go to ${nextTopic}`}
+              >
+                Next: <strong>{nextTopic}</strong> <span aria-hidden="true">&#8594;</span>
+              </button>
               {visibleTopicFilters.map((topic) => (
                 <button type="button" key={topic} className={selectedTopic === topic ? "active" : ""} aria-pressed={selectedTopic === topic} onClick={() => selectTopicFilter(topic)}>{topic} <span>{topicCounts[topic] ?? 0}</span></button>
               ))}
@@ -1670,59 +1689,82 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               </div>
             )}
             {availableProviders.length > 0 && (
-              <>
-                <nav className="source-filters" aria-label="Filter stories by news source">
+              <div className="source-filter-section">
+                <button
+                  type="button"
+                  className="source-filters-toggle"
+                  aria-expanded={sourcesExpanded}
+                  aria-controls="source-filter-content"
+                  onClick={() => {
+                    if (sourcesExpanded) {
+                      setSourcePickerOpen(false);
+                      setSourcePickerQuery("");
+                    }
+                    setSourcesExpanded((current) => !current);
+                  }}
+                >
                   <span className="filter-label">Sources</span>
-                  <button type="button" className={selectedProvider === ALL_PROVIDERS ? "active" : ""} aria-pressed={selectedProvider === ALL_PROVIDERS} onClick={() => selectProviderFilter(ALL_PROVIDERS)}>All sources <span>{feedView === "latest" ? topicFilteredArticles.length : historyFilterTotal}</span></button>
-                  {visibleSourceFilters.map((provider) => (
-                    <button type="button" key={provider} className={selectedProvider === provider ? "active" : ""} aria-pressed={selectedProvider === provider} onClick={() => selectProviderFilter(provider)}>{provider} <span>{providerCounts[provider] ?? 0}</span></button>
-                  ))}
-                  {availableProviders.length > VISIBLE_SOURCE_FILTERS && (
-                    <button
-                      type="button"
-                      className={sourcePickerOpen ? "source-more active" : "source-more"}
-                      aria-expanded={sourcePickerOpen}
-                      aria-controls="source-filter-picker"
-                      onClick={() => {
-                        setTopicPickerOpen(false);
-                        setTopicPickerQuery("");
-                        setSourcePickerOpen((current) => !current);
-                      }}
-                    >
-                      More sources <span>{availableProviders.length - visibleSourceFilters.length}</span>
-                    </button>
-                  )}
-                </nav>
-                {sourcePickerOpen && (
-                  <div className="topic-filter-picker source-filter-picker" id="source-filter-picker">
-                    <div className="topic-filter-picker-heading">
-                      <div><strong>Choose a source</strong><span>{availableProviders.length} available</span></div>
-                      <button type="button" onClick={() => setSourcePickerOpen(false)} aria-label="Close source picker">&#215;</button>
-                    </div>
-                    <input
-                      type="search"
-                      value={sourcePickerQuery}
-                      onChange={(event) => setSourcePickerQuery(event.target.value)}
-                      placeholder="Find a news source"
-                      aria-label="Find a news source"
-                    />
-                    <div className="topic-filter-picker-grid">
-                      {pickerProviders.map((provider) => (
+                  <span className="source-filter-summary">
+                    <span>{selectedProvider === ALL_PROVIDERS ? "All sources" : selectedProvider}</span>
+                    <b>{filteredArticles.length} {filteredArticles.length === 1 ? "story" : "stories"}</b>
+                  </span>
+                  <span className="source-filter-toggle-action">{sourcesExpanded ? "Hide" : "Change"} <b aria-hidden="true">{sourcesExpanded ? "\u2212" : "+"}</b></span>
+                </button>
+                {sourcesExpanded && (
+                  <div id="source-filter-content">
+                    <nav className="source-filters" aria-label="Filter stories by news source">
+                      <button type="button" className={selectedProvider === ALL_PROVIDERS ? "active" : ""} aria-pressed={selectedProvider === ALL_PROVIDERS} onClick={() => selectProviderFilter(ALL_PROVIDERS)}>All sources <span>{feedView === "latest" ? topicFilteredArticles.length : historyFilterTotal}</span></button>
+                      {visibleSourceFilters.map((provider) => (
+                        <button type="button" key={provider} className={selectedProvider === provider ? "active" : ""} aria-pressed={selectedProvider === provider} onClick={() => selectProviderFilter(provider)}>{provider} <span>{providerCounts[provider] ?? 0}</span></button>
+                      ))}
+                      {availableProviders.length > VISIBLE_SOURCE_FILTERS && (
                         <button
                           type="button"
-                          key={provider}
-                          className={selectedProvider === provider ? "active" : ""}
-                          aria-pressed={selectedProvider === provider}
-                          onClick={() => selectProviderFilter(provider)}
+                          className={sourcePickerOpen ? "source-more active" : "source-more"}
+                          aria-expanded={sourcePickerOpen}
+                          aria-controls="source-filter-picker"
+                          onClick={() => {
+                            setTopicPickerOpen(false);
+                            setTopicPickerQuery("");
+                            setSourcePickerOpen((current) => !current);
+                          }}
                         >
-                          <span>{provider}</span><b>{providerCounts[provider] ?? 0}</b>
+                          More sources <span>{availableProviders.length - visibleSourceFilters.length}</span>
                         </button>
-                      ))}
-                      {pickerProviders.length === 0 && <p>No sources match that search.</p>}
-                    </div>
+                      )}
+                    </nav>
+                    {sourcePickerOpen && (
+                      <div className="topic-filter-picker source-filter-picker" id="source-filter-picker">
+                        <div className="topic-filter-picker-heading">
+                          <div><strong>Choose a source</strong><span>{availableProviders.length} available</span></div>
+                          <button type="button" onClick={() => setSourcePickerOpen(false)} aria-label="Close source picker">&#215;</button>
+                        </div>
+                        <input
+                          type="search"
+                          value={sourcePickerQuery}
+                          onChange={(event) => setSourcePickerQuery(event.target.value)}
+                          placeholder="Find a news source"
+                          aria-label="Find a news source"
+                        />
+                        <div className="topic-filter-picker-grid">
+                          {pickerProviders.map((provider) => (
+                            <button
+                              type="button"
+                              key={provider}
+                              className={selectedProvider === provider ? "active" : ""}
+                              aria-pressed={selectedProvider === provider}
+                              onClick={() => selectProviderFilter(provider)}
+                            >
+                              <span>{provider}</span><b>{providerCounts[provider] ?? 0}</b>
+                            </button>
+                          ))}
+                          {pickerProviders.length === 0 && <p>No sources match that search.</p>}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
-              </>
+              </div>
             )}
           </div>
         )}

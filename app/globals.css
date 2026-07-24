@@ -1394,7 +1394,87 @@ main {
   border-style: dashed;
 }
 
+.topic-filters .topic-next {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+.topic-filters .topic-next strong {
+  display: inline-block;
+  max-width: 10rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
+
+.topic-filters .topic-next:hover {
+  border-color: var(--red);
+  background: var(--red);
+  color: white;
+}
+
 .source-filters .source-more { border-style: dashed; }
+
+.source-filters-toggle {
+  display: grid;
+  grid-template-columns: 4.2rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--page-text);
+  padding: 0.9rem 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.source-filter-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 0.65rem;
+  min-width: 0;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.source-filter-summary > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-filter-summary b {
+  color: var(--red);
+  flex: 0 0 auto;
+  font-size: 0.62rem;
+}
+
+.source-filter-toggle-action {
+  color: var(--text-muted);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.source-filter-toggle-action b {
+  display: inline-grid;
+  width: 1.5rem;
+  height: 1.5rem;
+  margin-left: 0.35rem;
+  place-items: center;
+  border: 1px solid var(--line);
+  color: var(--red);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.source-filters-toggle:hover .source-filter-toggle-action {
+  color: var(--red);
+}
 
 .topic-filter-picker {
   margin: 0.8rem 0 1rem;
