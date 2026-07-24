@@ -162,6 +162,12 @@ const VISIBLE_SOURCE_FILTERS = 4;
 
 type ColorTheme = "light" | "dark";
 
+function timestampValue(value: string) {
+  const normalized = value.trim().replace(" ", "T");
+  const hasTimeZone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalized);
+  return new Date(hasTimeZone ? normalized : `${normalized}Z`).getTime();
+}
+
 function ArrowIcon() {
   return <span aria-hidden="true" className="arrow">&#8599;</span>;
 }
@@ -171,7 +177,7 @@ function RefreshIcon({ spinning = false }: { spinning?: boolean }) {
 }
 
 function formatAge(value: string) {
-  const then = new Date(value).getTime();
+  const then = timestampValue(value);
   const diffMinutes = Math.max(1, Math.round((Date.now() - then) / 60000));
   if (diffMinutes < 60) return `${diffMinutes}m ago`;
   const hours = Math.round(diffMinutes / 60);
@@ -180,7 +186,7 @@ function formatAge(value: string) {
 }
 
 function formatUntil(value: string) {
-  const difference = new Date(value).getTime() - Date.now();
+  const difference = timestampValue(value) - Date.now();
   if (difference <= 0) return "due now";
   const minutes = Math.max(1, Math.ceil(difference / 60000));
   if (minutes < 60) return `in ${minutes}m`;
@@ -199,8 +205,8 @@ function topicRefreshLabel(status: TopicRefreshStatus | undefined, refreshMinute
     return status.nextRefreshAt ? `First refresh ${formatUntil(status.nextRefreshAt)}` : "Manual refresh only";
   }
 
-  const lastAttemptedAt = status.lastAttemptedAt ? new Date(status.lastAttemptedAt).getTime() : 0;
-  const lastSuccessfulAt = new Date(status.lastSuccessfulAt).getTime();
+  const lastAttemptedAt = status.lastAttemptedAt ? timestampValue(status.lastAttemptedAt) : 0;
+  const lastSuccessfulAt = timestampValue(status.lastSuccessfulAt);
   const latestAttemptFailed = Boolean(status.lastError) && lastAttemptedAt > lastSuccessfulAt;
   if (latestAttemptFailed) {
     const retry = status.nextRefreshAt

@@ -404,18 +404,33 @@ public sealed class TopicRefreshService(
 
     private async Task<TopicRefreshStatus[]> LoadStatesAsync(
         string userId,
-        CancellationToken cancellationToken) =>
-        await database.TopicRefreshStates
+        CancellationToken cancellationToken)
+    {
+        var states = await database.TopicRefreshStates
             .AsNoTracking()
             .Where(item => item.UserId == userId)
             .OrderBy(item => item.Topic)
-            .Select(item => new TopicRefreshStatus(
+            .Select(item => new
+            {
                 item.Topic,
                 item.LastAttemptedAtUtc,
                 item.LastSuccessfulAtUtc,
                 item.NextRefreshAtUtc,
-                item.LastError))
+                item.LastError,
+            })
             .ToArrayAsync(cancellationToken);
+        return states.Select(item => new TopicRefreshStatus(
+            item.Topic,
+            AsUtc(item.LastAttemptedAtUtc),
+            AsUtc(item.LastSuccessfulAtUtc),
+            AsUtc(item.NextRefreshAtUtc),
+            item.LastError)).ToArray();
+    }
+
+    private static DateTimeOffset? AsUtc(DateTime? value) =>
+        value is null
+            ? null
+            : new DateTimeOffset(DateTime.SpecifyKind(value.Value, DateTimeKind.Utc));
 
     private async Task PurgeExpiredAsync(
         string userId,
@@ -538,7 +553,7 @@ public sealed class TopicRefreshService(
 public sealed record TopicBriefingResponse(
     TopicBriefingArticle[] Articles,
     TopicRefreshStatus[] Topics,
-    DateTime? RefreshedAt,
+    DateTimeOffset? RefreshedAt,
     int HistoryTotal,
     int BookmarkTotal);
 
@@ -554,7 +569,7 @@ public sealed record TopicBriefingArticle(
 
 public sealed record TopicRefreshStatus(
     string Topic,
-    DateTime? LastAttemptedAt,
-    DateTime? LastSuccessfulAt,
-    DateTime? NextRefreshAt,
+    DateTimeOffset? LastAttemptedAt,
+    DateTimeOffset? LastSuccessfulAt,
+    DateTimeOffset? NextRefreshAt,
     string LastError);
