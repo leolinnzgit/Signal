@@ -455,6 +455,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [controlsExpanded, setControlsExpanded] = useState(false);
   const [controlsHidden, setControlsHidden] = useState(false);
   const [backToTopVisible, setBackToTopVisible] = useState(false);
+  const [readerArticle, setReaderArticle] = useState<FollowedArticle | null>(null);
   const [theme, setTheme] = useState<ColorTheme | null>(null);
   const [rssResolvingFeed, setRssResolvingFeed] = useState<string | null>(null);
   const [rssMessage, setRssMessage] = useState("");
@@ -463,6 +464,8 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   );
   const requestSequence = useRef(0);
   const historyRequestSequence = useRef(0);
+  const readerCloseButton = useRef<HTMLButtonElement>(null);
+  const readerTrigger = useRef<HTMLAnchorElement | null>(null);
   const lastSavedPreferences = useRef("");
   const latestPreferences = useRef(preferences);
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
@@ -1004,6 +1007,22 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     return () => window.removeEventListener("scroll", updateBackToTopVisibility);
   }, []);
 
+  useEffect(() => {
+    if (!readerArticle) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const focusFrame = window.requestAnimationFrame(() => readerCloseButton.current?.focus());
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeArticleReader();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      window.removeEventListener("keydown", closeOnEscape);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [readerArticle]);
+
   function addTopic(value: string) {
     const topic = value.trim().replace(/\s+/g, " ").slice(0, 80);
     if (!topic) return false;
@@ -1209,6 +1228,16 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     setHistorySearchInput("");
     setHistorySearch("");
     void loadHistoryPage(feedView, "", 0);
+  }
+
+  function openArticleReader(article: FollowedArticle, trigger: HTMLAnchorElement) {
+    readerTrigger.current = trigger;
+    setReaderArticle(article);
+  }
+
+  function closeArticleReader() {
+    setReaderArticle(null);
+    window.requestAnimationFrame(() => readerTrigger.current?.focus());
   }
 
   async function toggleBookmark(article: FollowedArticle) {
@@ -1796,7 +1825,14 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
             <ol className="story-list">
               {filteredArticles.map((article, index) => (
                 <li key={article.url}>
-                <a href={article.url} target="_blank" rel="noreferrer" className="story-link">
+                <a
+                  href={article.url}
+                  className="story-link"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    openArticleReader(article, event.currentTarget);
+                  }}
+                >
                   <span className="story-number">{String(index + 1).padStart(2, "0")}</span>
                   <article>
                     <div className="story-meta"><span className="story-topic">{article.topics.join(" + ")}</span><span className="story-provider">{article.providers.join(" + ")}</span><span>{article.source}</span><span>{formatAge(article.publishedAt)}</span></div>
@@ -1836,6 +1872,57 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         )}
       </section>
       </div>
+
+      {readerArticle && (
+        <div
+          className="article-reader-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeArticleReader();
+          }}
+        >
+          <section
+            className="article-reader"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="article-reader-title"
+          >
+            <header className="article-reader-header">
+              <div className="article-reader-toolbar">
+                <span className="article-reader-kicker"><span className="pulse" /> Signal reader</span>
+                <div className="article-reader-actions">
+                  <a href={readerArticle.url} target="_blank" rel="noreferrer">
+                    Open original <span aria-hidden="true">&#8599;</span>
+                  </a>
+                  <button
+                    ref={readerCloseButton}
+                    type="button"
+                    onClick={closeArticleReader}
+                    aria-label="Close article reader"
+                  >
+                    &#215;
+                  </button>
+                </div>
+              </div>
+              <div className="article-reader-meta">
+                <span>{readerArticle.source}</span>
+                <span>{formatAge(readerArticle.publishedAt)}</span>
+              </div>
+              <h2 id="article-reader-title">{readerArticle.title}</h2>
+              <p>Reading from the publisher inside Signal. If the page is blocked, use Open original.</p>
+            </header>
+            <div className="article-reader-frame-shell">
+              <iframe
+                className="article-reader-frame"
+                src={readerArticle.url}
+                title={`${readerArticle.title} from ${readerArticle.source}`}
+                loading="eager"
+                referrerPolicy="strict-origin-when-cross-origin"
+                sandbox="allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts"
+              />
+            </div>
+          </section>
+        </div>
+      )}
 
       {backToTopVisible && (
         <a

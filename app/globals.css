@@ -1761,6 +1761,140 @@ main {
   transform: translateY(-2px);
 }
 
+.article-reader-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: clamp(0.75rem, 2vw, 1.5rem);
+  background: rgba(10, 11, 9, 0.82);
+  backdrop-filter: blur(8px);
+  overscroll-behavior: contain;
+}
+
+.article-reader {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(96vw, 90rem);
+  height: min(94vh, 72rem);
+  height: min(94dvh, 72rem);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: var(--content-background);
+  color: var(--page-text);
+  box-shadow: 0 2rem 6rem rgba(0, 0, 0, 0.42);
+}
+
+.article-reader-header {
+  border-bottom: 1px solid var(--line);
+  padding: clamp(1rem, 2.2vw, 1.75rem) clamp(1rem, 2.8vw, 2.4rem);
+}
+
+.article-reader-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.article-reader-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: var(--red);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.article-reader-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.article-reader-actions a {
+  border: 1px solid var(--page-text);
+  color: var(--page-text);
+  padding: 0.62rem 0.78rem;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-decoration: none;
+}
+
+.article-reader-actions a:hover {
+  border-color: var(--red);
+  background: var(--red);
+  color: white;
+}
+
+.article-reader-actions button {
+  display: grid;
+  width: 2.35rem;
+  height: 2.35rem;
+  place-items: center;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--page-text);
+  cursor: pointer;
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.article-reader-actions button:hover {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+.article-reader-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 1rem;
+  color: var(--red);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.article-reader-meta span + span::before {
+  content: "/";
+  margin-right: 0.55rem;
+  color: var(--text-faint);
+}
+
+.article-reader h2 {
+  max-width: 70rem;
+  margin: 0.45rem 0 0;
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: clamp(1.45rem, 2.5vw, 2.5rem);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.02;
+}
+
+.article-reader-header > p {
+  margin: 0.55rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.66rem;
+}
+
+.article-reader-frame-shell {
+  min-height: 0;
+  background: white;
+}
+
+.article-reader-frame {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: white;
+}
+
 .loading-list { padding-top: 1rem; }
 .loading-row { height: 8.6rem; border-bottom: 1px solid var(--line); position: relative; overflow: hidden; }
 .loading-row::after { content: ""; position: absolute; inset: 1.8rem 0; width: 65%; background: linear-gradient(90deg, var(--paper-deep), var(--shimmer-middle), var(--paper-deep)); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
@@ -1860,6 +1994,12 @@ footer a { color: var(--paper); text-decoration: none; }
   .story-link .arrow { display: none; }
   .story-link p { display: none; }
   .story-meta { flex-wrap: wrap; row-gap: 0.3rem; }
+  .article-reader-backdrop { padding: 0; }
+  .article-reader { width: 100vw; height: 100vh; height: 100dvh; border: 0; }
+  .article-reader-header { padding: 0.85rem 1rem; }
+  .article-reader-actions a { padding: 0.55rem 0.65rem; }
+  .article-reader h2 { font-size: 1.3rem; }
+  .article-reader-header > p { display: none; }
   .floating-back-to-top { left: 1rem; bottom: 1rem; width: 2.75rem; height: 2.75rem; }
   footer { flex-direction: column; }
 }
