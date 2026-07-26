@@ -1617,6 +1617,14 @@ main {
   font-size: 0.75rem;
 }
 
+.refresh-button,
+.unfollow-topic-button {
+  display: inline-flex;
+  min-height: 3rem;
+  align-items: center;
+  justify-content: center;
+}
+
 .refresh-button {
   border: 1px solid var(--page-text);
   background: transparent;
@@ -1631,10 +1639,8 @@ main {
 
 .refresh-button:hover { background: var(--page-text); color: var(--page-background); }
 .refresh-button:disabled { opacity: 0.55; cursor: wait; }
-.refresh-icon { display: inline-block; margin-right: 0.25rem; font-size: 1rem; }
+.refresh-icon { display: inline-block; margin-right: 0.25rem; font-size: 1rem; line-height: 1; }
 .unfollow-topic-button {
-  display: inline-flex;
-  align-items: center;
   gap: 0.35rem;
   max-width: 17rem;
   border: 1px solid var(--red);
@@ -1652,7 +1658,7 @@ main {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.unfollow-topic-button > span { font-size: 1rem; line-height: 0; }
+.unfollow-topic-button > span { font-size: 1rem; line-height: 1; }
 .unfollow-topic-button:hover { background: var(--red); color: white; }
 .spinning { animation: spin 0.75s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
