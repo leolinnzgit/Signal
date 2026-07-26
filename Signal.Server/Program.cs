@@ -111,6 +111,7 @@ builder.Services.AddRateLimiter(options =>
 });
 builder.Services.AddMemoryCache();
 builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection(SmtpOptions.SectionName));
+builder.Services.Configure<MarketDataOptions>(builder.Configuration.GetSection(MarketDataOptions.SectionName));
 builder.Services.AddSingleton<GmailOAuthStore>();
 builder.Services.AddSingleton<GmailApiEmailSender>();
 builder.Services.AddScoped<IAccountEmailSender, AccountEmailSender>();
@@ -133,6 +134,13 @@ builder.Services.AddHttpClient<GoogleTrendsService>(client =>
     client.Timeout = TimeSpan.FromSeconds(15);
     client.DefaultRequestHeaders.UserAgent.ParseAdd("Signal-News-Monitor/2.0");
     client.DefaultRequestHeaders.Accept.ParseAdd("application/rss+xml, application/xml;q=0.9");
+});
+builder.Services.AddHttpClient<MarketDataService>(client =>
+{
+    client.BaseAddress = new Uri("https://api.twelvedata.com/");
+    client.Timeout = TimeSpan.FromSeconds(15);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("Signal-News-Monitor/2.0");
+    client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
 });
 builder.Services.AddScoped<TopicRefreshService>();
 builder.Services.AddHostedService<TopicRefreshBackgroundService>();

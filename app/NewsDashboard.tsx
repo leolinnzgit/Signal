@@ -71,6 +71,20 @@ type OpenMeteoResponse = {
 
 type WeatherStatus = "locating" | "ready" | "denied" | "error" | "unsupported";
 
+type MarketQuote = {
+  topic: string;
+  symbol: string;
+  name: string;
+  exchange: string;
+  currency: string;
+  price: number;
+  change: number;
+  percentChange: number;
+  quoteTime: string;
+  isMarketOpen: boolean | null;
+  provider: string;
+};
+
 type NewsRequest = {
   topics: string[];
   provider: "google" | "gdelt" | "rss";
@@ -447,6 +461,18 @@ function timezonePlace(timezone: string) {
   return segment ? segment.replaceAll("_", " ") : "Current location";
 }
 
+function formatMarketPrice(price: number, currency: string) {
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: currency ? "currency" : "decimal",
+      currency: currency || undefined,
+      maximumFractionDigits: 2,
+    }).format(price);
+  } catch {
+    return `${currency ? `${currency} ` : ""}${price.toFixed(2)}`;
+  }
+}
+
 type NewsDashboardProps = {
   user: {
     displayName: string;
@@ -507,6 +533,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [localWeather, setLocalWeather] = useState<LocalWeather | null>(null);
   const [weatherStatus, setWeatherStatus] = useState<WeatherStatus>("locating");
   const [weatherRetryKey, setWeatherRetryKey] = useState(0);
+  const [marketQuote, setMarketQuote] = useState<MarketQuote | null>(null);
   const [controlsExpanded, setControlsExpanded] = useState(false);
   const [controlsHidden, setControlsHidden] = useState(false);
   const [backToTopVisible, setBackToTopVisible] = useState(false);
@@ -757,6 +784,43 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
       if (weatherRefresh !== undefined) window.clearInterval(weatherRefresh);
     };
   }, [weatherRetryKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (selectedTopic === ALL_TOPICS) {
+      setMarketQuote(null);
+      return;
+    }
+
+    const loadMarketQuote = async () => {
+      try {
+        const params = new URLSearchParams({ topic: selectedTopic });
+        const response = await fetch(`/api/market?${params.toString()}`, {
+          credentials: "same-origin",
+          cache: "no-store",
+        });
+        if (!response.ok) {
+          if (!cancelled) setMarketQuote(null);
+          return;
+        }
+        const data = await response.json() as {
+          matched: boolean;
+          quote?: MarketQuote;
+        };
+        if (!cancelled) setMarketQuote(data.matched && data.quote ? data.quote : null);
+      } catch {
+        if (!cancelled) setMarketQuote(null);
+      }
+    };
+
+    setMarketQuote(null);
+    void loadMarketQuote();
+    const refresh = window.setInterval(() => void loadMarketQuote(), 5 * 60 * 1_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(refresh);
+    };
+  }, [selectedTopic]);
 
   const loadNews = useCallback(async (
     next: NewsPreferences,
@@ -1838,6 +1902,40 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
             </div>
           </div>
         </div>
+
+        {marketQuote && marketQuote.topic.toLowerCase() === selectedTopic.toLowerCase() && (
+          <section className="market-snapshot" aria-label={`Market price for ${marketQuote.name}`}>
+            <div className="market-match">
+              <span className="market-pulse" aria-hidden="true" />
+              <div>
+                <small>Market match</small>
+                <strong>{marketQuote.symbol}</strong>
+              </div>
+            </div>
+            <div className="market-company">
+              <strong>{marketQuote.name}</strong>
+              <span>{[marketQuote.exchange, marketQuote.currency].filter(Boolean).join(" / ")}</span>
+            </div>
+            <div className="market-price">
+              <strong>{formatMarketPrice(marketQuote.price, marketQuote.currency)}</strong>
+              <span className={marketQuote.change > 0 ? "positive" : marketQuote.change < 0 ? "negative" : "unchanged"}>
+                {marketQuote.change > 0 ? "+" : ""}
+                {marketQuote.change.toFixed(2)}
+                <b aria-hidden="true"> / </b>
+                {marketQuote.percentChange > 0 ? "+" : ""}
+                {marketQuote.percentChange.toFixed(2)}%
+              </span>
+            </div>
+            <p>
+              {marketQuote.isMarketOpen === null
+                ? "Latest available quote"
+                : marketQuote.isMarketOpen ? "Market open" : "Market closed"}
+              {marketQuote.quoteTime && <><span aria-hidden="true"> · </span>Quote {marketQuote.quoteTime}</>}
+              <span aria-hidden="true"> · </span>{marketQuote.provider}
+              <span aria-hidden="true"> · </span>For information only
+            </p>
+          </section>
+        )}
 
         {articleStore && (
           <nav className="history-tabs" aria-label="Choose latest, history, or bookmarked stories">
