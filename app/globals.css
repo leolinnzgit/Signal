@@ -548,8 +548,14 @@ main {
 }
 
 .hero.compact {
+  position: sticky;
+  z-index: 24;
+  top: 0;
   padding-top: 1.15rem;
   padding-bottom: 1.3rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--page-background);
+  box-shadow: 0 0.5rem 1.5rem color-mix(in srgb, var(--shadow) 55%, transparent);
 }
 
 .hero.compact .eyebrow {
@@ -734,8 +740,8 @@ main {
   grid-column: 2;
   grid-row: 1;
   position: sticky;
-  top: 5.5rem;
-  max-height: calc(100vh - 7rem);
+  top: 8.5rem;
+  max-height: calc(100vh - 10rem);
   margin: clamp(3.5rem, 7vw, 7rem) clamp(1.25rem, 4vw, 5rem) clamp(3.5rem, 7vw, 7rem) 0;
   overflow: auto;
   background: var(--ink);
@@ -2165,6 +2171,8 @@ footer a { color: var(--paper); text-decoration: none; }
 
 @media (max-width: 900px) {
   .hero { grid-template-columns: minmax(0, 1fr); gap: 1.5rem; }
+  .hero.compact { gap: 0; padding-top: 0.85rem; padding-bottom: 0.85rem; }
+  .hero.compact .hero-copy { display: none; }
   .hero-context {
     width: 100%;
     min-width: 0;
@@ -2175,6 +2183,7 @@ footer a { color: var(--paper); text-decoration: none; }
     border-top: 1px solid var(--line);
     border-left: 0;
   }
+  .hero.compact .hero-context { padding-top: 0; border-top: 0; }
   .hero-clock { text-align: left; }
   .content-layout { grid-template-columns: minmax(0, 1fr); }
   .content-layout .control-panel {
@@ -2217,8 +2226,13 @@ footer a { color: var(--paper); text-decoration: none; }
   .hero.compact h1 br { display: block; }
   .hero.compact .lede { margin-top: 0.45rem; font-size: 0.82rem; }
   .hero-context { flex-wrap: wrap; gap: 0.9rem 1.4rem; }
+  .hero.compact .hero-context { flex-wrap: nowrap; }
   .hero-time { font-size: 1.55rem; }
   .weather-reading small { max-width: min(19rem, 70vw); }
+  .hero.compact .weather-reading small { display: none; }
+  .hero.compact .weather-message small,
+  .hero.compact .weather-message button { display: none; }
+  .hero.compact .weather-message > span:not(.weather-glyph):not(.weather-locating) { min-width: 0; }
   .control-panel { box-shadow: 9px 9px 0 rgba(200, 63, 50, 0.18); }
   .control-panel-header { min-height: 5.25rem; padding: 1rem 1.15rem; }
   .control-panel-body { padding: 1.4rem; }
