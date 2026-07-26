@@ -47,6 +47,30 @@ type GoogleTrendsResponse = {
   error?: string;
 };
 
+type LocalWeather = {
+  temperature: number;
+  apparentTemperature: number;
+  humidity: number;
+  weatherCode: number;
+  windSpeed: number;
+  isDay: boolean;
+  timezone: string;
+};
+
+type OpenMeteoResponse = {
+  timezone?: string;
+  current?: {
+    temperature_2m?: number;
+    apparent_temperature?: number;
+    relative_humidity_2m?: number;
+    weather_code?: number;
+    wind_speed_10m?: number;
+    is_day?: number;
+  };
+};
+
+type WeatherStatus = "locating" | "ready" | "denied" | "error" | "unsupported";
+
 type NewsRequest = {
   topics: string[];
   provider: "google" | "gdelt" | "rss";
@@ -396,6 +420,33 @@ function readStoredPreferences(key: string) {
   }
 }
 
+function describeWeather(code: number) {
+  if (code === 0) return "Clear";
+  if (code <= 3) return "Partly cloudy";
+  if (code === 45 || code === 48) return "Foggy";
+  if (code >= 51 && code <= 57) return "Drizzle";
+  if (code >= 61 && code <= 67) return "Rain";
+  if (code >= 71 && code <= 77) return "Snow";
+  if (code >= 80 && code <= 82) return "Rain showers";
+  if (code >= 85 && code <= 86) return "Snow showers";
+  if (code >= 95) return "Thunderstorms";
+  return "Local weather";
+}
+
+function weatherGlyph(code: number, isDay: boolean) {
+  if (code === 0) return isDay ? "\u2600" : "\u263E";
+  if (code <= 3) return "\u26C5";
+  if (code === 45 || code === 48) return "\u224B";
+  if ((code >= 71 && code <= 77) || (code >= 85 && code <= 86)) return "\u2744";
+  if (code >= 95) return "\u26A1";
+  return "\u2614";
+}
+
+function timezonePlace(timezone: string) {
+  const segment = timezone.split("/").at(-1);
+  return segment ? segment.replaceAll("_", " ") : "Current location";
+}
+
 type NewsDashboardProps = {
   user: {
     displayName: string;
@@ -452,6 +503,10 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [topicRefreshStates, setTopicRefreshStates] = useState<TopicRefreshStatus[]>([]);
   const [ready, setReady] = useState(false);
   const [heroCompact, setHeroCompact] = useState(false);
+  const [currentTime, setCurrentTime] = useState<Date | null>(null);
+  const [localWeather, setLocalWeather] = useState<LocalWeather | null>(null);
+  const [weatherStatus, setWeatherStatus] = useState<WeatherStatus>("locating");
+  const [weatherRetryKey, setWeatherRetryKey] = useState(0);
   const [controlsExpanded, setControlsExpanded] = useState(false);
   const [controlsHidden, setControlsHidden] = useState(false);
   const [backToTopVisible, setBackToTopVisible] = useState(false);
@@ -626,6 +681,82 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     const timeout = window.setTimeout(() => setHeroCompact(true), 300);
     return () => window.clearTimeout(timeout);
   }, [ready, loading, heroCompact]);
+
+  useEffect(() => {
+    setCurrentTime(new Date());
+    const clock = window.setInterval(() => setCurrentTime(new Date()), 30_000);
+    return () => window.clearInterval(clock);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let weatherRefresh: number | undefined;
+
+    if (!("geolocation" in navigator)) {
+      setWeatherStatus("unsupported");
+      return;
+    }
+
+    setWeatherStatus("locating");
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        const fetchWeather = async () => {
+          try {
+            const params = new URLSearchParams({
+              latitude: coords.latitude.toFixed(4),
+              longitude: coords.longitude.toFixed(4),
+              current: "temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,is_day",
+              temperature_unit: "celsius",
+              wind_speed_unit: "kmh",
+              timezone: "auto",
+              forecast_days: "1",
+            });
+            const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params.toString()}`, {
+              cache: "no-store",
+            });
+            if (!response.ok) throw new Error("Weather unavailable");
+            const data = (await response.json()) as OpenMeteoResponse;
+            const current = data.current;
+            if (
+              !current
+              || typeof current.temperature_2m !== "number"
+              || typeof current.apparent_temperature !== "number"
+              || typeof current.relative_humidity_2m !== "number"
+              || typeof current.weather_code !== "number"
+              || typeof current.wind_speed_10m !== "number"
+            ) {
+              throw new Error("Weather unavailable");
+            }
+            if (cancelled) return;
+            setLocalWeather({
+              temperature: current.temperature_2m,
+              apparentTemperature: current.apparent_temperature,
+              humidity: current.relative_humidity_2m,
+              weatherCode: current.weather_code,
+              windSpeed: current.wind_speed_10m,
+              isDay: current.is_day !== 0,
+              timezone: data.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+            });
+            setWeatherStatus("ready");
+          } catch {
+            if (!cancelled) setWeatherStatus("error");
+          }
+        };
+
+        void fetchWeather();
+        weatherRefresh = window.setInterval(() => void fetchWeather(), 30 * 60 * 1_000);
+      },
+      (locationError) => {
+        if (!cancelled) setWeatherStatus(locationError.code === locationError.PERMISSION_DENIED ? "denied" : "error");
+      },
+      { enableHighAccuracy: false, maximumAge: 15 * 60 * 1_000, timeout: 12_000 },
+    );
+
+    return () => {
+      cancelled = true;
+      if (weatherRefresh !== undefined) window.clearInterval(weatherRefresh);
+    };
+  }, [weatherRetryKey]);
 
   const loadNews = useCallback(async (
     next: NewsPreferences,
@@ -1283,6 +1414,18 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     : feedView === "history"
       ? "Article history"
       : selectedTopic === ALL_TOPICS ? "All followed topics" : selectedTopic;
+  const clockTimeZone = localWeather?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const currentTimeLabel = currentTime
+    ? currentTime.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", timeZone: clockTimeZone })
+    : "--:--";
+  const currentDateLabel = currentTime
+    ? currentTime.toLocaleDateString(undefined, {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      timeZone: clockTimeZone,
+    })
+    : "Local date";
 
   return (
     <main className="signal-dashboard" id="top">
@@ -1331,6 +1474,52 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           <h1>Stay current on<br />{" "}<em>what matters.</em></h1>
           <p className="lede">One focused briefing across multiple news networks and the publishers you trust.</p>
         </div>
+        <aside className="hero-context" aria-label="Local date, time, and weather" aria-live="polite">
+          <div className="hero-clock">
+            <time className="hero-time" dateTime={currentTime?.toISOString()}>{currentTimeLabel}</time>
+            <span className="hero-date">{currentDateLabel}</span>
+          </div>
+          {weatherStatus === "ready" && localWeather ? (
+            <div className="local-weather">
+              <span className="weather-glyph" aria-hidden="true">
+                {weatherGlyph(localWeather.weatherCode, localWeather.isDay)}
+              </span>
+              <div className="weather-reading">
+                <div>
+                  <strong>{Math.round(localWeather.temperature)}°C</strong>
+                  <span>{describeWeather(localWeather.weatherCode)}</span>
+                </div>
+                <small>
+                  {timezonePlace(localWeather.timezone)}
+                  <span aria-hidden="true"> · </span>
+                  Feels {Math.round(localWeather.apparentTemperature)}°
+                  <span aria-hidden="true"> · </span>
+                  Humidity {Math.round(localWeather.humidity)}%
+                  <span aria-hidden="true"> · </span>
+                  Wind {Math.round(localWeather.windSpeed)} km/h
+                </small>
+              </div>
+            </div>
+          ) : weatherStatus === "locating" ? (
+            <div className="weather-message">
+              <span className="weather-locating" aria-hidden="true" />
+              <span><strong>Finding local weather</strong><small>Allow location access when prompted</small></span>
+            </div>
+          ) : (
+            <div className="weather-message">
+              <span className="weather-glyph" aria-hidden="true">{"\u2316"}</span>
+              <span>
+                <strong>{weatherStatus === "denied" ? "Local weather is off" : "Weather unavailable"}</strong>
+                <small>{weatherStatus === "denied" ? "Location access is needed" : "Your clock is still live"}</small>
+              </span>
+              {weatherStatus !== "unsupported" && (
+                <button type="button" onClick={() => setWeatherRetryKey((value) => value + 1)}>
+                  Try again
+                </button>
+              )}
+            </div>
+          )}
+        </aside>
       </section>
 
       <div className={controlsHidden ? "content-layout controls-hidden" : "content-layout"}>
