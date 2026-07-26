@@ -1052,6 +1052,13 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     if (selectedTopic === topic) setSelectedTopic(ALL_TOPICS);
   }
 
+  function unfollowSelectedTopic() {
+    if (selectedTopic === ALL_TOPICS) return;
+    const topic = selectedTopic;
+    removeTopic(topic);
+    setNotice(`Unfollowed ${topic}. Its saved history remains available.`);
+  }
+
   function promoteTopicFilter(topic: string) {
     if (topic === ALL_TOPICS) return;
     setRecentTopicFilters((current) => [
@@ -1626,7 +1633,20 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                       ? `${filteredArticles.length} loaded / ${bookmarkTotal} bookmarked`
                       : `${filteredArticles.length} loaded / ${historyTotal} stored`}
             </div>
-            <button className="refresh-button" onClick={() => void loadNews(preferences, { emailSummary: true, forceRefresh: true })} disabled={loading || preferences.topics.length === 0 || enabledSourceCount === 0}><RefreshIcon spinning={loading} /> Refresh</button>
+            <div className="feed-action-buttons">
+              {selectedTopic !== ALL_TOPICS && (
+                <button
+                  type="button"
+                  className="unfollow-topic-button"
+                  onClick={unfollowSelectedTopic}
+                  title={`Unfollow ${selectedTopic}`}
+                  aria-label={`Unfollow ${selectedTopic}`}
+                >
+                  <span aria-hidden="true">&#8722;</span> Unfollow <strong>{selectedTopic}</strong>
+                </button>
+              )}
+              <button className="refresh-button" onClick={() => void loadNews(preferences, { emailSummary: true, forceRefresh: true })} disabled={loading || preferences.topics.length === 0 || enabledSourceCount === 0}><RefreshIcon spinning={loading} /> Refresh</button>
+            </div>
           </div>
         </div>
 

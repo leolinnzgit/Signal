@@ -1283,6 +1283,7 @@ main {
 
 .feed-actions { display: flex; align-items: center; gap: 1.4rem; flex-shrink: 0; }
 .feed-meta { max-width: 15rem; text-align: right; font-size: 0.7rem; line-height: 1.5; color: var(--text-muted); }
+.feed-action-buttons { display: flex; align-items: center; gap: 0.55rem; }
 
 .filter-stack { position: relative; border-bottom: 1px solid var(--line); }
 
@@ -1631,6 +1632,28 @@ main {
 .refresh-button:hover { background: var(--page-text); color: var(--page-background); }
 .refresh-button:disabled { opacity: 0.55; cursor: wait; }
 .refresh-icon { display: inline-block; margin-right: 0.25rem; font-size: 1rem; }
+.unfollow-topic-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 17rem;
+  border: 1px solid var(--red);
+  background: transparent;
+  color: var(--red);
+  padding: 0.7rem 0.9rem;
+  cursor: pointer;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.unfollow-topic-button strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.unfollow-topic-button > span { font-size: 1rem; line-height: 0; }
+.unfollow-topic-button:hover { background: var(--red); color: white; }
 .spinning { animation: spin 0.75s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -1978,6 +2001,8 @@ footer a { color: var(--paper); text-decoration: none; }
   .settings-row { grid-template-columns: 1fr 1fr; gap: 0.75rem; }
   .compact-field label { min-height: 2.1em; }
   .feed-actions { align-items: start; flex-direction: column; gap: 0.8rem; }
+  .feed-action-buttons { width: 100%; flex-wrap: wrap; }
+  .unfollow-topic-button { max-width: min(100%, 17rem); }
   .history-tabs { overflow-x: auto; }
   .history-search { grid-template-columns: 1fr; gap: 0.55rem; }
   .history-search > div { justify-self: stretch; width: 100%; }
