@@ -209,7 +209,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const topic = (searchParams.get("topic") ?? "Artificial intelligence").trim().slice(0, 80);
   const topics = searchParams.getAll("topic").map((value) => value.trim().slice(0, 80)).filter(Boolean);
-  const limit = Math.min(500, Math.max(20, Number(searchParams.get("limit")) || 20));
+  const limit = Math.min(500, Math.max(10, Number(searchParams.get("limit")) || 20));
   const provider = (searchParams.get("provider") ?? "google") as ProviderKey;
 
   if (!topic) return Response.json({ error: "Choose a topic to follow." }, { status: 400 });

@@ -188,7 +188,9 @@ public sealed class PreferencesController(
 
     internal static int NormalizeRetentionDays(int value) => AllowedRetentionDays.Contains(value) ? value : 30;
     internal static int NormalizeStoryLimit(int value) =>
-        Math.Clamp((int)Math.Round(value / 20d, MidpointRounding.AwayFromZero) * 20, 20, 500);
+        value == 10
+            ? 10
+            : Math.Clamp((int)Math.Round(value / 20d, MidpointRounding.AwayFromZero) * 20, 20, 500);
     internal static string NormalizeStoryTitleSize(string? value) =>
         value?.ToLowerInvariant() is "small" or "medium" or "large"
             ? value.ToLowerInvariant()

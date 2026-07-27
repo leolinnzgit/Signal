@@ -185,7 +185,7 @@ const DEFAULTS: NewsPreferences = {
   articleRetentionDays: 30,
   sources: { google: true, gdelt: true, rssFeeds: [] },
 };
-const STORY_LIMIT_OPTIONS = Array.from({ length: 25 }, (_, index) => (index + 1) * 20);
+const STORY_LIMIT_OPTIONS = [10, ...Array.from({ length: 25 }, (_, index) => (index + 1) * 20)];
 
 const STORAGE_KEY = "signal-news-preferences";
 const PENDING_STORAGE_KEY = "signal-news-preferences-pending";
@@ -398,7 +398,9 @@ function normalizePreferences(saved: Partial<NewsPreferences> & { topic?: string
 
   return {
     topics,
-    limit: Math.min(500, Math.max(20, Math.round((Number(saved.limit) || DEFAULTS.limit) / 20) * 20)),
+    limit: Number(saved.limit) === 10
+      ? 10
+      : Math.min(500, Math.max(20, Math.round((Number(saved.limit) || DEFAULTS.limit) / 20) * 20)),
     storyTitleSize: saved.storyTitleSize === "small" || saved.storyTitleSize === "medium" || saved.storyTitleSize === "large"
       ? saved.storyTitleSize
       : DEFAULTS.storyTitleSize,

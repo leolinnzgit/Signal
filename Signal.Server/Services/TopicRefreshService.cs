@@ -225,7 +225,7 @@ public sealed class TopicRefreshService(
         {
             foreach (var article in SelectBalanced(
                 sorted.Where(article => article.Topics.Contains(topic)).ToArray(),
-                Math.Clamp(storyLimit, 20, 500)))
+                Math.Clamp(storyLimit, 10, 500)))
             {
                 included.Add(article.Url);
             }
@@ -388,7 +388,7 @@ public sealed class TopicRefreshService(
         {
             foreach (var candidate in candidates
                 .Where(candidate => candidate.Topics.Contains(topic, StringComparer.OrdinalIgnoreCase))
-                .Take(Math.Clamp(preferences.StoryLimit, 20, 500)))
+                .Take(Math.Clamp(preferences.StoryLimit, 10, 500)))
             {
                 included.Add(candidate.Item.Id);
             }
