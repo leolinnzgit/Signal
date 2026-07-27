@@ -104,6 +104,12 @@ type MarketQuote = {
   provider: string;
 };
 
+type MarketNotice = {
+  topic: string;
+  status: "private";
+  message: string;
+};
+
 type NewsRequest = {
   topics: string[];
   provider: "google" | "gdelt" | "rss";
@@ -555,6 +561,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [weatherStatus, setWeatherStatus] = useState<WeatherStatus>("locating");
   const [weatherRetryKey, setWeatherRetryKey] = useState(0);
   const [marketQuote, setMarketQuote] = useState<MarketQuote | null>(null);
+  const [marketNotice, setMarketNotice] = useState<MarketNotice | null>(null);
   const [controlsExpanded, setControlsExpanded] = useState(false);
   const [controlsHidden, setControlsHidden] = useState(false);
   const [backToTopVisible, setBackToTopVisible] = useState(false);
@@ -814,6 +821,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     let cancelled = false;
     if (selectedTopic === ALL_TOPICS) {
       setMarketQuote(null);
+      setMarketNotice(null);
       return;
     }
 
@@ -825,20 +833,37 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           cache: "no-store",
         });
         if (!response.ok) {
-          if (!cancelled) setMarketQuote(null);
+          if (!cancelled) {
+            setMarketQuote(null);
+            setMarketNotice(null);
+          }
           return;
         }
         const data = await response.json() as {
           matched: boolean;
           quote?: MarketQuote;
+          topic?: string;
+          status?: string;
+          message?: string;
         };
-        if (!cancelled) setMarketQuote(data.matched && data.quote ? data.quote : null);
+        if (!cancelled) {
+          setMarketQuote(data.matched && data.quote ? data.quote : null);
+          setMarketNotice(
+            !data.matched && data.status === "private" && data.message
+              ? { topic: data.topic || selectedTopic, status: "private", message: data.message }
+              : null,
+          );
+        }
       } catch {
-        if (!cancelled) setMarketQuote(null);
+        if (!cancelled) {
+          setMarketQuote(null);
+          setMarketNotice(null);
+        }
       }
     };
 
     setMarketQuote(null);
+    setMarketNotice(null);
     void loadMarketQuote();
     const refresh = window.setInterval(() => void loadMarketQuote(), 5 * 60 * 1_000);
     return () => {
@@ -2031,6 +2056,22 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
             </p>
           </section>
         )}
+        {marketNotice && marketNotice.topic.toLowerCase() === selectedTopic.toLowerCase() && (
+          <section className="market-snapshot market-snapshot-private" aria-label={`Market status for ${selectedTopic}`}>
+            <div className="market-match">
+              <span className="market-private-mark" aria-hidden="true">P</span>
+              <div>
+                <small>Market status</small>
+                <strong>Private</strong>
+              </div>
+            </div>
+            <div className="market-company">
+              <strong>{selectedTopic}</strong>
+              <span>No public ticker</span>
+            </div>
+            <p>{marketNotice.message}<span aria-hidden="true"> · </span>For information only</p>
+          </section>
+        )}
 
         {articleStore && (
           <nav className="history-tabs" aria-label="Choose latest, history, or bookmarked stories">
@@ -2061,11 +2102,28 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         {preferences.topics.length > 0 && (
           <div className="filter-stack" ref={filterStackElement}>
             <div className="filter-sticky-heading">
-              <div>
+              <div className="filter-sticky-title">
                 <span>{feedView === "latest" ? "Current topic" : feedView}</span>
                 <strong>{selectedTopic === ALL_TOPICS ? feedTitle : selectedTopic}</strong>
               </div>
-              <small>{filteredArticles.length} {filteredArticles.length === 1 ? "story" : "stories"}</small>
+              <div className="filter-sticky-summary">
+                {marketQuote && marketQuote.topic.toLowerCase() === selectedTopic.toLowerCase() && (
+                  <span className="filter-sticky-market" aria-label={`${marketQuote.symbol} ${formatMarketPrice(marketQuote.price, marketQuote.currency)}, ${marketQuote.percentChange >= 0 ? "up" : "down"} ${Math.abs(marketQuote.percentChange).toFixed(2)} percent`}>
+                    <b>{marketQuote.symbol}</b>
+                    <strong>{formatMarketPrice(marketQuote.price, marketQuote.currency)}</strong>
+                    <em className={marketQuote.percentChange > 0 ? "positive" : marketQuote.percentChange < 0 ? "negative" : "unchanged"}>
+                      {marketQuote.percentChange > 0 ? "+" : ""}{marketQuote.percentChange.toFixed(2)}%
+                    </em>
+                  </span>
+                )}
+                {marketNotice && marketNotice.topic.toLowerCase() === selectedTopic.toLowerCase() && (
+                  <span className="filter-sticky-market private" title={marketNotice.message}>
+                    <b>Private company</b>
+                    <strong>No public ticker</strong>
+                  </span>
+                )}
+                <small>{filteredArticles.length} {filteredArticles.length === 1 ? "story" : "stories"}</small>
+              </div>
             </div>
             <nav className="topic-filters" aria-label="Filter stories by followed topic">
               <span className="filter-label">Topics</span>

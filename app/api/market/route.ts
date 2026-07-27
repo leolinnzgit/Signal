@@ -47,9 +47,15 @@ const KNOWN_SYMBOLS = new Map<string, string>([
   ["oracle", "ORCL"],
   ["palantir", "PLTR"],
   ["salesforce", "CRM"],
+  ["starbucks", "SBUX"],
   ["taiwan semiconductor", "TSM"],
   ["tesla", "TSLA"],
   ["tsmc", "TSM"],
+]);
+
+const NON_PUBLIC_COMPANIES = new Map<string, string>([
+  ["spacex", "SpaceX is privately held and does not have a public stock ticker."],
+  ["space x", "SpaceX is privately held and does not have a public stock ticker."],
 ]);
 
 const SUPPORTED_TYPES = new Set([
@@ -150,6 +156,14 @@ export async function GET(request: Request) {
   const topic = normalizeTopic(new URL(request.url).searchParams.get("topic") ?? "");
   if (!topic) return Response.json({ error: "Choose a topic." }, { status: 400 });
 
+  const nonPublicMessage = NON_PUBLIC_COMPANIES.get(topic.toLowerCase());
+  if (nonPublicMessage) {
+    return Response.json(
+      { matched: false, topic, status: "private", message: nonPublicMessage },
+      { headers: { "Cache-Control": "private, max-age=3600" } },
+    );
+  }
+
   const apiKey = process.env.TWELVE_DATA_API_KEY?.trim();
   if (!apiKey) {
     return Response.json({ error: "Market pricing is not configured." }, { status: 503 });
@@ -159,7 +173,12 @@ export async function GET(request: Request) {
     const match = await findMatch(topic, apiKey);
     if (!match) {
       return Response.json(
-        { matched: false, topic },
+        {
+          matched: false,
+          topic,
+          status: "not-found",
+          message: "No confident public stock match was found.",
+        },
         { headers: { "Cache-Control": "private, max-age=300" } },
       );
     }

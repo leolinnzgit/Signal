@@ -59,9 +59,17 @@ public sealed class MarketDataService(
             ["Oracle"] = "ORCL",
             ["Palantir"] = "PLTR",
             ["Salesforce"] = "CRM",
+            ["Starbucks"] = "SBUX",
             ["Taiwan Semiconductor"] = "TSM",
             ["Tesla"] = "TSLA",
             ["TSMC"] = "TSM",
+        };
+
+    private static readonly IReadOnlyDictionary<string, string> NonPublicCompanies =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["SpaceX"] = "SpaceX is privately held and does not have a public stock ticker.",
+            ["Space X"] = "SpaceX is privately held and does not have a public stock ticker.",
         };
 
     private static readonly HashSet<string> SupportedInstrumentTypes =
@@ -79,6 +87,7 @@ public sealed class MarketDataService(
     {
         var topic = NormalizeDisplayText(requestedTopic, 80);
         if (topic.Length == 0) throw new ArgumentException("Choose a topic.");
+        if (NonPublicCompanies.ContainsKey(topic)) return null;
         if (string.IsNullOrWhiteSpace(options.Value.ApiKey)) throw new MarketDataNotConfiguredException();
 
         var match = await FindMatchAsync(topic, cancellationToken);
@@ -91,6 +100,12 @@ public sealed class MarketDataService(
         var quote = await RequestQuoteAsync(topic, match, cancellationToken);
         cache.Set(quoteCacheKey, quote, TimeSpan.FromMinutes(2));
         return quote;
+    }
+
+    public static string? GetNonPublicCompanyMessage(string requestedTopic)
+    {
+        var topic = NormalizeDisplayText(requestedTopic, 80);
+        return NonPublicCompanies.TryGetValue(topic, out var message) ? message : null;
     }
 
     private async Task<StockMatch?> FindMatchAsync(string topic, CancellationToken cancellationToken)

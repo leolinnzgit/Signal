@@ -19,7 +19,12 @@ public sealed class MarketController(
         {
             var quote = await marketData.GetForTopicAsync(topic, cancellationToken);
             Response.Headers.CacheControl = "private, max-age=60";
-            return Ok(quote is null ? new { matched = false, topic } : new { matched = true, quote });
+            if (quote is not null) return Ok(new { matched = true, quote });
+
+            var nonPublicMessage = MarketDataService.GetNonPublicCompanyMessage(topic);
+            return Ok(nonPublicMessage is null
+                ? new { matched = false, topic, status = "not-found", message = "No confident public stock match was found." }
+                : new { matched = false, topic, status = "private", message = nonPublicMessage });
         }
         catch (ArgumentException exception)
         {
