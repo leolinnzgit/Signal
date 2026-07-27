@@ -29,8 +29,7 @@ type ExtractedReaderArticle = {
 
 type ReaderContent =
   | { status: "idle" | "loading" }
-  | { status: "ready"; article: ExtractedReaderArticle }
-  | { status: "fallback"; reason: string };
+  | { status: "ready"; article: ExtractedReaderArticle };
 
 type ArticleReaderResponse = {
   available: boolean;
@@ -1654,18 +1653,22 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           setReaderContent({ status: "ready", article: data.article });
           return;
         }
-        setReaderContent({
-          status: "fallback",
-          reason: data.reason || "The publisher did not make this story available to Signal Reader.",
-        });
+        openOriginalAfterReaderFailure(article.url, requestId);
       })
       .catch(() => {
         if (requestId !== readerRequestSequence.current) return;
-        setReaderContent({
-          status: "fallback",
-          reason: "The publisher blocked extraction or the article is temporarily unavailable.",
-        });
+        openOriginalAfterReaderFailure(article.url, requestId);
       });
+  }
+
+  function openOriginalAfterReaderFailure(url: string, requestId: number) {
+    if (requestId !== readerRequestSequence.current) return;
+    const opened = window.open(url, "_blank");
+    if (opened) opened.opener = null;
+    readerRequestSequence.current += 1;
+    setReaderArticle(null);
+    setReaderContent({ status: "idle" });
+    if (!opened) window.location.assign(url);
   }
 
   function closeArticleReader() {
@@ -2548,9 +2551,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               <p>
                 {readerContent.status === "loading"
                   ? "Preparing a clean reading view…"
-                  : readerContent.status === "ready"
-                    ? "Reader view prepared from the publisher’s public article."
-                    : "This story needs to be opened on the publisher’s site."}
+                  : "Reader view prepared from the publisher’s public article."}
               </p>
             </header>
             <div className="article-reader-body">
@@ -2559,16 +2560,6 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                   <span className="article-reader-loader" aria-hidden="true" />
                   <strong>Preparing article</strong>
                   <p>Signal is checking whether the publisher provides a readable version.</p>
-                </div>
-              )}
-              {readerContent.status === "fallback" && (
-                <div className="article-reader-state article-reader-fallback" role="status">
-                  <span className="article-reader-fallback-icon" aria-hidden="true">&#8599;</span>
-                  <strong>Continue on the publisher’s site</strong>
-                  <p>{readerContent.reason}</p>
-                  <a href={readerOriginalUrl} target="_blank" rel="noreferrer">
-                    Open original <span aria-hidden="true">&#8599;</span>
-                  </a>
                 </div>
               )}
               {readerContent.status === "ready" && (
