@@ -205,6 +205,7 @@ await using (var scope = app.Services.CreateAsyncScope())
             "GoogleEnabled" INTEGER NOT NULL,
             "GdeltEnabled" INTEGER NOT NULL,
             "RssFeedsJson" TEXT NOT NULL,
+            "TickerOverridesJson" TEXT NOT NULL DEFAULT '{{}}',
             "UpdatedAtUtc" TEXT NOT NULL,
             CONSTRAINT "FK_UserNewsPreferences_AspNetUsers_UserId"
                 FOREIGN KEY ("UserId") REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE
@@ -249,6 +250,23 @@ await using (var scope = app.Services.CreateAsyncScope())
         """);
     await database.Database.ExecuteSqlRawAsync(
         "CREATE INDEX IF NOT EXISTS \"IX_TopicRefreshStates_NextRefreshAtUtc\" ON \"TopicRefreshStates\" (\"NextRefreshAtUtc\");");
+
+    await database.Database.OpenConnectionAsync();
+    try
+    {
+        await using var tickerColumnCheck = database.Database.GetDbConnection().CreateCommand();
+        tickerColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('UserNewsPreferences') WHERE name = 'TickerOverridesJson';";
+        var tickerColumnExists = Convert.ToInt32(await tickerColumnCheck.ExecuteScalarAsync()) > 0;
+        if (!tickerColumnExists)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"UserNewsPreferences\" ADD COLUMN \"TickerOverridesJson\" TEXT NOT NULL DEFAULT '{{}}';");
+        }
+    }
+    finally
+    {
+        await database.Database.CloseConnectionAsync();
+    }
 
     var existingPreferences = await database.UserNewsPreferences.AsNoTracking().ToArrayAsync();
     var existingStateKeys = await database.TopicRefreshStates

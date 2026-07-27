@@ -47,15 +47,12 @@ const KNOWN_SYMBOLS = new Map<string, string>([
   ["oracle", "ORCL"],
   ["palantir", "PLTR"],
   ["salesforce", "CRM"],
+  ["spacex", "SPCX"],
+  ["space x", "SPCX"],
   ["starbucks", "SBUX"],
   ["taiwan semiconductor", "TSM"],
   ["tesla", "TSLA"],
   ["tsmc", "TSM"],
-]);
-
-const NON_PUBLIC_COMPANIES = new Map<string, string>([
-  ["spacex", "SpaceX is privately held and does not have a public stock ticker."],
-  ["space x", "SpaceX is privately held and does not have a public stock ticker."],
 ]);
 
 const SUPPORTED_TYPES = new Set([
@@ -72,6 +69,14 @@ const quoteCache = new Map<string, { expiresAt: number; quote: Record<string, un
 
 function normalizeTopic(value: string) {
   return value.trim().replace(/\s+/g, " ").slice(0, 80);
+}
+
+function normalizeTicker(value: string) {
+  const symbol = value.trim().replace(/^\$/, "").toUpperCase();
+  if (!/^[A-Z0-9][A-Z0-9.^-]{0,14}$/.test(symbol)) {
+    throw new Error("Enter a valid ticker using letters, numbers, dots or hyphens.");
+  }
+  return symbol;
 }
 
 function normalizeForMatch(value: string) {
@@ -153,14 +158,17 @@ export async function GET(request: Request) {
     );
   }
 
-  const topic = normalizeTopic(new URL(request.url).searchParams.get("topic") ?? "");
+  const searchParams = new URL(request.url).searchParams;
+  const topic = normalizeTopic(searchParams.get("topic") ?? "");
   if (!topic) return Response.json({ error: "Choose a topic." }, { status: 400 });
-
-  const nonPublicMessage = NON_PUBLIC_COMPANIES.get(topic.toLowerCase());
-  if (nonPublicMessage) {
+  const requestedTicker = searchParams.get("symbol");
+  let tickerOverride = "";
+  try {
+    tickerOverride = requestedTicker ? normalizeTicker(requestedTicker) : "";
+  } catch (error) {
     return Response.json(
-      { matched: false, topic, status: "private", message: nonPublicMessage },
-      { headers: { "Cache-Control": "private, max-age=3600" } },
+      { error: error instanceof Error ? error.message : "Enter a valid ticker." },
+      { status: 400, headers: { "Cache-Control": "private, no-store" } },
     );
   }
 
@@ -170,7 +178,9 @@ export async function GET(request: Request) {
   }
 
   try {
-    const match = await findMatch(topic, apiKey);
+    const match = tickerOverride
+      ? { symbol: tickerOverride, name: "", exchange: "" }
+      : await findMatch(topic, apiKey);
     if (!match) {
       return Response.json(
         {
@@ -222,8 +232,8 @@ export async function GET(request: Request) {
   } catch (error) {
     console.error("Market pricing failed", error);
     return Response.json(
-      { error: "Market pricing is temporarily unavailable." },
-      { status: 502, headers: { "Cache-Control": "private, no-store" } },
+      { error: tickerOverride ? "That ticker could not be verified." : "Market pricing is temporarily unavailable." },
+      { status: tickerOverride ? 400 : 502, headers: { "Cache-Control": "private, no-store" } },
     );
   }
 }

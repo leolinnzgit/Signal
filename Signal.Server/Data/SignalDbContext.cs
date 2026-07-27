@@ -24,6 +24,7 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
             preferences.Property(item => item.UserId).HasMaxLength(450);
             preferences.Property(item => item.TopicsJson).IsRequired();
             preferences.Property(item => item.RssFeedsJson).IsRequired();
+            preferences.Property(item => item.TickerOverridesJson).IsRequired();
             preferences.Property(item => item.StoryTitleSize).HasMaxLength(16).IsRequired();
             preferences.HasOne(item => item.User)
                 .WithOne()

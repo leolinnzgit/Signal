@@ -1445,7 +1445,7 @@ main {
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--market-up) 14%, transparent);
 }
 
-.market-private-mark {
+.market-unmatched-mark {
   display: grid;
   width: 1.4rem;
   height: 1.4rem;
@@ -1458,12 +1458,26 @@ main {
   font-weight: 800;
 }
 
-.market-snapshot-private {
-  grid-template-columns: auto minmax(10rem, 1fr);
+.market-snapshot-unmatched {
+  grid-template-columns: auto minmax(10rem, 1fr) auto;
 }
 
-.market-snapshot-private > p {
-  grid-column: 2;
+.market-set-ticker {
+  border: 1px solid var(--page-text);
+  background: transparent;
+  color: var(--page-text);
+  padding: 0.65rem 0.8rem;
+  cursor: pointer;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.market-set-ticker:hover {
+  border-color: var(--red);
+  background: var(--red);
+  color: white;
 }
 
 .market-match small,
@@ -1600,6 +1614,14 @@ main {
   text-transform: none;
 }
 
+.filter-sticky-market:is(button) {
+  border-top: 0;
+  border-bottom: 0;
+  border-left: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
 .filter-sticky-market b {
   color: var(--red);
   font-size: 0.62rem;
@@ -1624,7 +1646,7 @@ main {
 .filter-sticky-market em.positive { color: var(--market-up); }
 .filter-sticky-market em.negative { color: var(--red); }
 .filter-sticky-market em.unchanged { color: var(--text-muted); }
-.filter-sticky-market.private strong { color: var(--text-muted); }
+.filter-sticky-market.unresolved strong { color: var(--red); }
 
 .history-tabs {
   display: flex;
@@ -1957,7 +1979,8 @@ main {
 }
 
 .refresh-button,
-.unfollow-topic-button {
+.unfollow-topic-button,
+.ticker-config-button {
   display: inline-flex;
   min-height: 3rem;
   align-items: center;
@@ -1999,6 +2022,131 @@ main {
 }
 .unfollow-topic-button > span { font-size: 1rem; line-height: 1; }
 .unfollow-topic-button:hover { background: var(--red); color: white; }
+
+.ticker-config-button {
+  gap: 0.35rem;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--page-text);
+  padding: 0.7rem 0.9rem;
+  cursor: pointer;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ticker-config-button > span {
+  color: var(--red);
+  font-size: 0.9rem;
+}
+
+.ticker-config-button:hover,
+.ticker-config-button.active {
+  border-color: var(--page-text);
+}
+
+.ticker-config-button:hover {
+  background: var(--page-text);
+  color: var(--page-background);
+}
+
+.ticker-editor {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) minmax(10rem, 16rem) auto;
+  align-items: end;
+  gap: 0.85rem 1rem;
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.ticker-editor-copy {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.ticker-editor-copy > span,
+.ticker-editor-field label {
+  color: var(--red);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.ticker-editor-copy > strong {
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.ticker-editor-copy > small,
+.ticker-editor-message {
+  color: var(--text-muted);
+  font-size: 0.62rem;
+  line-height: 1.4;
+}
+
+.ticker-editor-field {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.ticker-editor-field input {
+  width: 100%;
+  min-height: 2.65rem;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--page-text);
+  padding: 0.65rem 0.75rem;
+  font: inherit;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ticker-editor-field input:focus {
+  border-color: var(--red);
+  outline: 1px solid var(--red);
+  outline-offset: 1px;
+}
+
+.ticker-editor-actions {
+  display: flex;
+  gap: 0.45rem;
+}
+
+.ticker-editor-actions button {
+  min-height: 2.65rem;
+  border: 1px solid var(--page-text);
+  background: var(--page-text);
+  color: var(--page-background);
+  padding: 0.65rem 0.75rem;
+  cursor: pointer;
+  font-size: 0.61rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.ticker-editor-actions button.secondary {
+  background: transparent;
+  color: var(--page-text);
+}
+
+.ticker-editor-actions button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.ticker-editor-message {
+  grid-column: 2 / -1;
+  min-height: 1em;
+  margin: -0.35rem 0 0;
+}
+
+.ticker-editor-message.error { color: var(--red); }
+
 .spinning { animation: spin 0.75s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -2483,7 +2631,11 @@ footer a { color: var(--paper); text-decoration: none; }
   .feed-actions { align-items: start; flex-direction: column; gap: 0.8rem; }
   .feed-action-buttons { width: 100%; flex-wrap: wrap; }
   .unfollow-topic-button { max-width: min(100%, 17rem); }
+  .ticker-editor { grid-template-columns: 1fr; align-items: stretch; }
+  .ticker-editor-actions { flex-wrap: wrap; }
+  .ticker-editor-message { grid-column: 1; margin-top: 0; }
   .market-snapshot { grid-template-columns: minmax(0, 1fr) auto; gap: 0.7rem 1rem; }
+  .market-snapshot-unmatched { grid-template-columns: 1fr auto; }
   .market-company { grid-column: 1; }
   .market-price { grid-column: 2; grid-row: 1 / span 2; }
   .market-snapshot > p { grid-column: 1 / -1; justify-self: start; margin-top: 0.15rem; text-align: left; }

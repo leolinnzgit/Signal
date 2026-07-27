@@ -59,17 +59,12 @@ public sealed class MarketDataService(
             ["Oracle"] = "ORCL",
             ["Palantir"] = "PLTR",
             ["Salesforce"] = "CRM",
+            ["SpaceX"] = "SPCX",
+            ["Space X"] = "SPCX",
             ["Starbucks"] = "SBUX",
             ["Taiwan Semiconductor"] = "TSM",
             ["Tesla"] = "TSLA",
             ["TSMC"] = "TSM",
-        };
-
-    private static readonly IReadOnlyDictionary<string, string> NonPublicCompanies =
-        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["SpaceX"] = "SpaceX is privately held and does not have a public stock ticker.",
-            ["Space X"] = "SpaceX is privately held and does not have a public stock ticker.",
         };
 
     private static readonly HashSet<string> SupportedInstrumentTypes =
@@ -83,29 +78,49 @@ public sealed class MarketDataService(
             "REIT",
         };
 
-    public async Task<MarketQuote?> GetForTopicAsync(string requestedTopic, CancellationToken cancellationToken)
+    public async Task<MarketQuote?> GetForTopicAsync(
+        string requestedTopic,
+        string? tickerOverride,
+        CancellationToken cancellationToken)
     {
         var topic = NormalizeDisplayText(requestedTopic, 80);
         if (topic.Length == 0) throw new ArgumentException("Choose a topic.");
-        if (NonPublicCompanies.ContainsKey(topic)) return null;
         if (string.IsNullOrWhiteSpace(options.Value.ApiKey)) throw new MarketDataNotConfiguredException();
 
-        var match = await FindMatchAsync(topic, cancellationToken);
+        var normalizedOverride = NormalizeTickerSymbol(tickerOverride);
+        var match = normalizedOverride is null
+            ? await FindMatchAsync(topic, cancellationToken)
+            : new StockMatch(normalizedOverride, "", "");
         if (match is null) return null;
 
         var quoteCacheKey = $"market-quote:{match.Symbol}:{match.Exchange}".ToLowerInvariant();
         if (cache.TryGetValue(quoteCacheKey, out MarketQuote? cachedQuote) && cachedQuote is not null)
             return cachedQuote with { Topic = topic };
 
-        var quote = await RequestQuoteAsync(topic, match, cancellationToken);
+        MarketQuote quote;
+        try
+        {
+            quote = await RequestQuoteAsync(topic, match, cancellationToken);
+        }
+        catch (InvalidOperationException exception) when (normalizedOverride is not null)
+        {
+            throw new ArgumentException("That ticker could not be verified.", exception);
+        }
         cache.Set(quoteCacheKey, quote, TimeSpan.FromMinutes(2));
         return quote;
     }
 
-    public static string? GetNonPublicCompanyMessage(string requestedTopic)
+    private static string? NormalizeTickerSymbol(string? value)
     {
-        var topic = NormalizeDisplayText(requestedTopic, 80);
-        return NonPublicCompanies.TryGetValue(topic, out var message) ? message : null;
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var symbol = value.Trim().TrimStart('$').ToUpperInvariant();
+        if (symbol.Length is < 1 or > 15
+            || !symbol.All(character => char.IsAsciiLetterOrDigit(character)
+                || character is '.' or '-' or '^'))
+        {
+            throw new ArgumentException("Enter a valid ticker using letters, numbers, dots or hyphens.");
+        }
+        return symbol;
     }
 
     private async Task<StockMatch?> FindMatchAsync(string topic, CancellationToken cancellationToken)

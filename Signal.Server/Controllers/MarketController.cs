@@ -13,18 +13,24 @@ public sealed class MarketController(
     ILogger<MarketController> logger) : ControllerBase
 {
     [HttpGet]
-    public async Task<IActionResult> Get([FromQuery] string topic, CancellationToken cancellationToken)
+    public async Task<IActionResult> Get(
+        [FromQuery] string topic,
+        [FromQuery] string? symbol,
+        CancellationToken cancellationToken)
     {
         try
         {
-            var quote = await marketData.GetForTopicAsync(topic, cancellationToken);
+            var quote = await marketData.GetForTopicAsync(topic, symbol, cancellationToken);
             Response.Headers.CacheControl = "private, max-age=60";
             if (quote is not null) return Ok(new { matched = true, quote });
 
-            var nonPublicMessage = MarketDataService.GetNonPublicCompanyMessage(topic);
-            return Ok(nonPublicMessage is null
-                ? new { matched = false, topic, status = "not-found", message = "No confident public stock match was found." }
-                : new { matched = false, topic, status = "private", message = nonPublicMessage });
+            return Ok(new
+            {
+                matched = false,
+                topic,
+                status = "not-found",
+                message = "No confident public stock match was found.",
+            });
         }
         catch (ArgumentException exception)
         {

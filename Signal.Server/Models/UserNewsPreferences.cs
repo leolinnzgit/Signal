@@ -27,5 +27,7 @@ public sealed class UserNewsPreferences
 
     public string RssFeedsJson { get; set; } = "[]";
 
+    public string TickerOverridesJson { get; set; } = "{}";
+
     public DateTimeOffset UpdatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
 }

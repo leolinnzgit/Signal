@@ -106,7 +106,7 @@ type MarketQuote = {
 
 type MarketNotice = {
   topic: string;
-  status: "private";
+  status: "not-found";
   message: string;
 };
 
@@ -133,6 +133,7 @@ export type NewsPreferences = {
   refreshMinutes: number;
   emailSummaryEnabled: boolean;
   articleRetentionDays: number;
+  tickerOverrides: Record<string, string>;
   sources: SourcePreferences;
 };
 
@@ -208,6 +209,7 @@ const DEFAULTS: NewsPreferences = {
   refreshMinutes: 15,
   emailSummaryEnabled: false,
   articleRetentionDays: 30,
+  tickerOverrides: {},
   sources: { google: true, gdelt: true, rssFeeds: [] },
 };
 const STORY_LIMIT_OPTIONS = [10, ...Array.from({ length: 25 }, (_, index) => (index + 1) * 20)];
@@ -420,6 +422,20 @@ function normalizePreferences(saved: Partial<NewsPreferences> & { topic?: string
     ? saved.sources.rssFeeds.filter((feed): feed is string => typeof feed === "string" && feed.startsWith("https://"))
     : [];
   const feedKeys = new Set<string>();
+  const rawTickerOverrides = saved.tickerOverrides
+    && typeof saved.tickerOverrides === "object"
+    && !Array.isArray(saved.tickerOverrides)
+      ? saved.tickerOverrides
+      : {};
+  const tickerOverrides = topics.reduce<Record<string, string>>((result, topic) => {
+    const entry = Object.entries(rawTickerOverrides)
+      .find(([candidate]) => candidate.toLowerCase() === topic.toLowerCase());
+    const symbol = typeof entry?.[1] === "string"
+      ? entry[1].trim().replace(/^\$/, "").toUpperCase()
+      : "";
+    if (/^[A-Z0-9][A-Z0-9.^-]{0,14}$/.test(symbol)) result[topic] = symbol;
+    return result;
+  }, {});
 
   return {
     topics,
@@ -436,6 +452,7 @@ function normalizePreferences(saved: Partial<NewsPreferences> & { topic?: string
     articleRetentionDays: [1, 7, 14, 30, 90, 180, 365].includes(Number(saved.articleRetentionDays))
       ? Number(saved.articleRetentionDays)
       : DEFAULTS.articleRetentionDays,
+    tickerOverrides,
     sources: {
       google: typeof saved.sources?.google === "boolean" ? saved.sources.google : true,
       gdelt: typeof saved.sources?.gdelt === "boolean" ? saved.sources.gdelt : true,
@@ -562,6 +579,10 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [weatherRetryKey, setWeatherRetryKey] = useState(0);
   const [marketQuote, setMarketQuote] = useState<MarketQuote | null>(null);
   const [marketNotice, setMarketNotice] = useState<MarketNotice | null>(null);
+  const [tickerEditorOpen, setTickerEditorOpen] = useState(false);
+  const [tickerInput, setTickerInput] = useState("");
+  const [tickerValidating, setTickerValidating] = useState(false);
+  const [tickerValidationMessage, setTickerValidationMessage] = useState("");
   const [controlsExpanded, setControlsExpanded] = useState(false);
   const [controlsHidden, setControlsHidden] = useState(false);
   const [backToTopVisible, setBackToTopVisible] = useState(false);
@@ -588,6 +609,10 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     + Number(preferences.sources.gdelt)
     + preferences.sources.rssFeeds.length;
   const rssResolving = rssResolvingFeed !== null;
+  const selectedTickerOverride = selectedTopic === ALL_TOPICS
+    ? ""
+    : Object.entries(preferences.tickerOverrides)
+        .find(([topic]) => topic.toLowerCase() === selectedTopic.toLowerCase())?.[1] ?? "";
 
   const trendTrafficRange = useMemo(() => {
     const values = trendingTerms.map((term) => trendTrafficValue(term.traffic)).filter((value) => value > 0);
@@ -828,6 +853,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     const loadMarketQuote = async () => {
       try {
         const params = new URLSearchParams({ topic: selectedTopic });
+        if (selectedTickerOverride) params.set("symbol", selectedTickerOverride);
         const response = await fetch(`/api/market?${params.toString()}`, {
           credentials: "same-origin",
           cache: "no-store",
@@ -849,8 +875,8 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         if (!cancelled) {
           setMarketQuote(data.matched && data.quote ? data.quote : null);
           setMarketNotice(
-            !data.matched && data.status === "private" && data.message
-              ? { topic: data.topic || selectedTopic, status: "private", message: data.message }
+            !data.matched && data.status === "not-found" && data.message
+              ? { topic: data.topic || selectedTopic, status: "not-found", message: data.message }
               : null,
           );
         }
@@ -870,6 +896,11 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
       cancelled = true;
       window.clearInterval(refresh);
     };
+  }, [selectedTopic, selectedTickerOverride]);
+
+  useEffect(() => {
+    setTickerEditorOpen(false);
+    setTickerValidationMessage("");
   }, [selectedTopic]);
 
   const loadNews = useCallback(async (
@@ -1334,7 +1365,14 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   }
 
   function removeTopic(topic: string) {
-    setPreferences((current) => ({ ...current, topics: current.topics.filter((followed) => followed !== topic) }));
+    setPreferences((current) => ({
+      ...current,
+      topics: current.topics.filter((followed) => followed !== topic),
+      tickerOverrides: Object.fromEntries(
+        Object.entries(current.tickerOverrides)
+          .filter(([followed]) => followed.toLowerCase() !== topic.toLowerCase()),
+      ),
+    }));
     setRecentTopicFilters((current) => current.filter((followed) => followed.toLowerCase() !== topic.toLowerCase()));
     if (selectedTopic === topic) setSelectedTopic(ALL_TOPICS);
   }
@@ -1344,6 +1382,84 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     const topic = selectedTopic;
     removeTopic(topic);
     setNotice(`Unfollowed ${topic}. Its saved history remains available.`);
+  }
+
+  function openTickerEditor() {
+    if (selectedTopic === ALL_TOPICS) return;
+    setTickerInput(selectedTickerOverride || (
+      marketQuote?.topic.toLowerCase() === selectedTopic.toLowerCase() ? marketQuote.symbol : ""
+    ));
+    setTickerValidationMessage("");
+    setTickerEditorOpen(true);
+  }
+
+  function closeTickerEditor() {
+    if (tickerValidating) return;
+    setTickerEditorOpen(false);
+    setTickerValidationMessage("");
+  }
+
+  async function saveTickerOverride(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (selectedTopic === ALL_TOPICS || tickerValidating) return;
+    const symbol = tickerInput.trim().replace(/^\$/, "").toUpperCase();
+    if (!/^[A-Z0-9][A-Z0-9.^-]{0,14}$/.test(symbol)) {
+      setTickerValidationMessage("Use 1–15 letters, numbers, dots or hyphens.");
+      return;
+    }
+
+    setTickerValidating(true);
+    setTickerValidationMessage(`Checking ${symbol}…`);
+    try {
+      const params = new URLSearchParams({ topic: selectedTopic, symbol });
+      const response = await fetch(`/api/market?${params.toString()}`, {
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+      const data = await response.json() as {
+        matched?: boolean;
+        quote?: MarketQuote;
+        error?: string;
+      };
+      if (!response.ok || !data.matched || !data.quote) {
+        throw new Error(data.error || "That ticker could not be verified.");
+      }
+
+      setPreferences((current) => ({
+        ...current,
+        tickerOverrides: {
+          ...Object.fromEntries(
+            Object.entries(current.tickerOverrides)
+              .filter(([topic]) => topic.toLowerCase() !== selectedTopic.toLowerCase()),
+          ),
+          [selectedTopic]: symbol,
+        },
+      }));
+      setMarketQuote(data.quote);
+      setMarketNotice(null);
+      setTickerEditorOpen(false);
+      setTickerValidationMessage("");
+      setNotice(`${symbol} is now the saved stock ticker for ${selectedTopic}.`);
+    } catch (caught) {
+      setTickerValidationMessage(caught instanceof Error ? caught.message : "That ticker could not be verified.");
+    } finally {
+      setTickerValidating(false);
+    }
+  }
+
+  function clearTickerOverride() {
+    if (selectedTopic === ALL_TOPICS || !selectedTickerOverride || tickerValidating) return;
+    const clearedSymbol = selectedTickerOverride;
+    setPreferences((current) => ({
+      ...current,
+      tickerOverrides: Object.fromEntries(
+        Object.entries(current.tickerOverrides)
+          .filter(([topic]) => topic.toLowerCase() !== selectedTopic.toLowerCase()),
+      ),
+    }));
+    setTickerEditorOpen(false);
+    setTickerValidationMessage("");
+    setNotice(`Cleared ${clearedSymbol}. Signal will match ${selectedTopic} automatically.`);
   }
 
   function promoteTopicFilter(topic: string) {
@@ -2010,6 +2126,17 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               {selectedTopic !== ALL_TOPICS && (
                 <button
                   type="button"
+                  className={selectedTickerOverride ? "ticker-config-button active" : "ticker-config-button"}
+                  onClick={openTickerEditor}
+                  title={`Set the stock ticker for ${selectedTopic}`}
+                >
+                  <span aria-hidden="true">$</span>
+                  {selectedTickerOverride || "Set ticker"}
+                </button>
+              )}
+              {selectedTopic !== ALL_TOPICS && (
+                <button
+                  type="button"
                   className="unfollow-topic-button"
                   onClick={unfollowSelectedTopic}
                   title={`Unfollow ${selectedTopic}`}
@@ -2023,12 +2150,55 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           </div>
         </div>
 
+        {tickerEditorOpen && selectedTopic !== ALL_TOPICS && (
+          <form className="ticker-editor" onSubmit={saveTickerOverride}>
+            <div className="ticker-editor-copy">
+              <span>Stock ticker override</span>
+              <strong>{selectedTopic}</strong>
+              <small>Manual tickers take priority over Signal’s automatic company matching.</small>
+            </div>
+            <div className="ticker-editor-field">
+              <label htmlFor="ticker-override">Ticker symbol</label>
+              <input
+                id="ticker-override"
+                value={tickerInput}
+                onChange={(event) => {
+                  setTickerInput(event.target.value.toUpperCase().replace(/[^A-Z0-9.^$-]/g, "").slice(0, 16));
+                  setTickerValidationMessage("");
+                }}
+                placeholder="e.g. SPCX"
+                maxLength={16}
+                autoComplete="off"
+                autoCapitalize="characters"
+                spellCheck={false}
+                disabled={tickerValidating}
+              />
+            </div>
+            <div className="ticker-editor-actions">
+              <button type="submit" disabled={tickerValidating}>
+                {tickerValidating ? "Checking…" : "Verify & save"}
+              </button>
+              {selectedTickerOverride && (
+                <button type="button" className="secondary" onClick={clearTickerOverride} disabled={tickerValidating}>
+                  Clear override
+                </button>
+              )}
+              <button type="button" className="secondary" onClick={closeTickerEditor} disabled={tickerValidating}>
+                Cancel
+              </button>
+            </div>
+            <p className={tickerValidationMessage && !tickerValidating ? "ticker-editor-message error" : "ticker-editor-message"} aria-live="polite">
+              {tickerValidationMessage || "Signal verifies the latest quote before saving."}
+            </p>
+          </form>
+        )}
+
         {marketQuote && marketQuote.topic.toLowerCase() === selectedTopic.toLowerCase() && (
           <section className="market-snapshot" aria-label={`Market price for ${marketQuote.name}`}>
             <div className="market-match">
               <span className="market-pulse" aria-hidden="true" />
               <div>
-                <small>Market match</small>
+                <small>{selectedTickerOverride ? "Manual ticker" : "Market match"}</small>
                 <strong>{marketQuote.symbol}</strong>
               </div>
             </div>
@@ -2057,19 +2227,19 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           </section>
         )}
         {marketNotice && marketNotice.topic.toLowerCase() === selectedTopic.toLowerCase() && (
-          <section className="market-snapshot market-snapshot-private" aria-label={`Market status for ${selectedTopic}`}>
+          <section className="market-snapshot market-snapshot-unmatched" aria-label={`Market status for ${selectedTopic}`}>
             <div className="market-match">
-              <span className="market-private-mark" aria-hidden="true">P</span>
+              <span className="market-unmatched-mark" aria-hidden="true">?</span>
               <div>
                 <small>Market status</small>
-                <strong>Private</strong>
+                <strong>No match</strong>
               </div>
             </div>
             <div className="market-company">
               <strong>{selectedTopic}</strong>
-              <span>No public ticker</span>
+              <span>{marketNotice.message}</span>
             </div>
-            <p>{marketNotice.message}<span aria-hidden="true"> · </span>For information only</p>
+            <button type="button" className="market-set-ticker" onClick={openTickerEditor}>Set ticker</button>
           </section>
         )}
 
@@ -2117,10 +2287,10 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                   </span>
                 )}
                 {marketNotice && marketNotice.topic.toLowerCase() === selectedTopic.toLowerCase() && (
-                  <span className="filter-sticky-market private" title={marketNotice.message}>
-                    <b>Private company</b>
-                    <strong>No public ticker</strong>
-                  </span>
+                  <button type="button" className="filter-sticky-market unresolved" title={marketNotice.message} onClick={openTickerEditor}>
+                    <b>No stock match</b>
+                    <strong>Set ticker</strong>
+                  </button>
                 )}
                 <small>{filteredArticles.length} {filteredArticles.length === 1 ? "story" : "stories"}</small>
               </div>

@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -54,6 +55,8 @@ public sealed class PreferencesController(
             .SingleOrDefaultAsync(item => item.UserId == userId, cancellationToken);
         var topicsJson = JsonSerializer.Serialize(topics);
         var rssFeedsJson = JsonSerializer.Serialize(rssFeeds);
+        var tickerOverrides = NormalizeTickerOverrides(request.TickerOverrides, topics);
+        var tickerOverridesJson = JsonSerializer.Serialize(tickerOverrides);
         var storyLimit = NormalizeStoryLimit(request.Limit);
         var forceRefresh = preferences is null
             || preferences.StoryLimit != storyLimit
@@ -77,6 +80,7 @@ public sealed class PreferencesController(
         preferences.GoogleEnabled = request.Sources.Google;
         preferences.GdeltEnabled = request.Sources.Gdelt;
         preferences.RssFeedsJson = rssFeedsJson;
+        preferences.TickerOverridesJson = tickerOverridesJson;
         preferences.UpdatedAtUtc = DateTimeOffset.UtcNow;
 
         await SyncTopicRefreshStatesAsync(
@@ -181,6 +185,7 @@ public sealed class PreferencesController(
         AllowedRefreshMinutes.Contains(preferences.RefreshMinutes) ? preferences.RefreshMinutes : 15,
         preferences.EmailSummaryEnabled,
         NormalizeRetentionDays(preferences.ArticleRetentionDays),
+        DeserializeTickerOverrides(preferences.TickerOverridesJson, DeserializeList(preferences.TopicsJson)),
         new NewsSourcesResponse(
             preferences.GoogleEnabled,
             preferences.GdeltEnabled,
@@ -196,6 +201,30 @@ public sealed class PreferencesController(
             ? value.ToLowerInvariant()
             : "large";
 
+    private static Dictionary<string, string> NormalizeTickerOverrides(
+        IReadOnlyDictionary<string, string>? values,
+        IReadOnlyList<string> topics)
+    {
+        var candidates = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pair in values ?? new Dictionary<string, string>())
+            candidates[pair.Key] = pair.Value;
+
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var topic in topics)
+        {
+            if (!candidates.TryGetValue(topic, out var value)) continue;
+            var symbol = NormalizeTickerSymbol(value);
+            if (symbol is not null) result[topic] = symbol;
+        }
+        return result;
+    }
+
+    private static string? NormalizeTickerSymbol(string? value)
+    {
+        var symbol = (value ?? "").Trim().TrimStart('$').ToUpperInvariant();
+        return Regex.IsMatch(symbol, @"^[A-Z0-9][A-Z0-9.\-^]{0,14}$") ? symbol : null;
+    }
+
     private static string[] DeserializeList(string json)
     {
         try
@@ -205,6 +234,22 @@ public sealed class PreferencesController(
         catch (JsonException)
         {
             return [];
+        }
+    }
+
+    private static Dictionary<string, string> DeserializeTickerOverrides(
+        string json,
+        IReadOnlyList<string> topics)
+    {
+        try
+        {
+            var values = JsonSerializer.Deserialize<Dictionary<string, string>>(json)
+                ?? new Dictionary<string, string>();
+            return NormalizeTickerOverrides(values, topics);
+        }
+        catch (JsonException)
+        {
+            return new Dictionary<string, string>();
         }
     }
 
@@ -268,6 +313,7 @@ public sealed record NewsPreferencesResponse(
     int RefreshMinutes,
     bool EmailSummaryEnabled,
     int ArticleRetentionDays,
+    IReadOnlyDictionary<string, string> TickerOverrides,
     NewsSourcesResponse Sources)
 {
     public static NewsPreferencesResponse Default { get; } = new(
@@ -277,6 +323,7 @@ public sealed record NewsPreferencesResponse(
         15,
         false,
         30,
+        new Dictionary<string, string>(),
         new NewsSourcesResponse(true, true, []));
 }
 
@@ -284,11 +331,12 @@ public sealed record NewsSourcesResponse(bool Google, bool Gdelt, string[] RssFe
 
 public sealed record NewsPreferencesRequest(
     [Required] string[] Topics,
-    [Range(20, 500)] int Limit,
+    [Range(10, 500)] int Limit,
     string? StoryTitleSize,
     int RefreshMinutes,
     bool EmailSummaryEnabled,
     int ArticleRetentionDays,
+    IReadOnlyDictionary<string, string>? TickerOverrides,
     [Required] NewsSourcesRequest Sources);
 
 public sealed record NewsSourcesRequest(
