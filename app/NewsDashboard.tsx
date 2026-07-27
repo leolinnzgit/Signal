@@ -1236,8 +1236,17 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
 
   useEffect(() => {
     if (!readerArticle) return;
+    const scrollPosition = window.scrollY;
+    const previousRootOverflow = document.documentElement.style.overflow;
     const previousOverflow = document.body.style.overflow;
+    const previousPosition = document.body.style.position;
+    const previousTop = document.body.style.top;
+    const previousWidth = document.body.style.width;
+    document.documentElement.style.overflow = "hidden";
     document.body.style.overflow = "hidden";
+    document.body.style.position = "fixed";
+    document.body.style.top = `-${scrollPosition}px`;
+    document.body.style.width = "100%";
     const focusFrame = window.requestAnimationFrame(() => readerCloseButton.current?.focus());
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") closeArticleReader();
@@ -1246,7 +1255,12 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     return () => {
       window.cancelAnimationFrame(focusFrame);
       window.removeEventListener("keydown", closeOnEscape);
+      document.documentElement.style.overflow = previousRootOverflow;
       document.body.style.overflow = previousOverflow;
+      document.body.style.position = previousPosition;
+      document.body.style.top = previousTop;
+      document.body.style.width = previousWidth;
+      window.scrollTo(0, scrollPosition);
     };
   }, [readerArticle]);
 
