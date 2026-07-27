@@ -1504,7 +1504,61 @@ main {
   text-align: right;
 }
 
-.filter-stack { position: relative; border-bottom: 1px solid var(--line); }
+.filter-stack {
+  position: sticky;
+  z-index: 22;
+  top: var(--filter-sticky-top, 8.5rem);
+  border-bottom: 1px solid var(--line);
+  background: var(--content-background);
+}
+
+.filter-stack.pinned {
+  max-height: calc(100vh - var(--filter-sticky-top, 8.5rem) - 0.5rem);
+  overflow-y: auto;
+  border-top: 1px solid var(--line);
+  box-shadow: 0 0.75rem 1.6rem color-mix(in srgb, var(--shadow) 52%, transparent);
+  scrollbar-width: thin;
+}
+
+.filter-sticky-heading {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.72rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.filter-stack.pinned .filter-sticky-heading { display: flex; }
+
+.filter-sticky-heading > div {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 0.7rem;
+}
+
+.filter-sticky-heading span,
+.filter-sticky-heading small {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.filter-sticky-heading strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--page-text);
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: 1.05rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filter-sticky-heading small { color: var(--red); }
 
 .history-tabs {
   display: flex;
@@ -2262,6 +2316,17 @@ footer a { color: var(--paper); text-decoration: none; }
   .history-search button { min-height: 2.4rem; }
   .history-search button.history-search-clear { border-right: 1px solid var(--page-text); }
   .history-load-more { align-items: stretch; flex-direction: column; text-align: center; }
+  .filter-stack.pinned .filter-sticky-heading { padding: 0.58rem 0; }
+  .filter-stack.pinned .filter-sticky-heading span { display: none; }
+  .filter-stack.pinned .topic-filters {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding: 0.65rem 0;
+    scrollbar-width: none;
+  }
+  .filter-stack.pinned .topic-filters::-webkit-scrollbar { display: none; }
+  .filter-stack.pinned .topic-filters > .filter-label { display: none; }
+  .filter-stack.pinned .source-filters-toggle { padding: 0.65rem 0; }
   .topic-filter-picker { padding: 0.8rem; }
   .topic-filter-picker-heading > div { align-items: start; flex-direction: column; gap: 0.2rem; }
   .filter-label { width: auto; margin-right: 0.25rem; }

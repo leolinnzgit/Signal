@@ -548,6 +548,8 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   );
   const requestSequence = useRef(0);
   const historyRequestSequence = useRef(0);
+  const heroElement = useRef<HTMLElement>(null);
+  const filterStackElement = useRef<HTMLDivElement>(null);
   const readerCloseButton = useRef<HTMLButtonElement>(null);
   const readerTrigger = useRef<HTMLAnchorElement | null>(null);
   const lastSavedPreferences = useRef("");
@@ -1205,6 +1207,34 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   }, []);
 
   useEffect(() => {
+    let frame = 0;
+    const updatePinnedFilters = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        const filterStack = filterStackElement.current;
+        if (!filterStack) return;
+        const heroBottom = Math.max(0, heroElement.current?.getBoundingClientRect().bottom ?? 0);
+        filterStack.style.setProperty("--filter-sticky-top", `${Math.round(heroBottom)}px`);
+        const pinned = filterStack.getBoundingClientRect().top <= heroBottom + 1 && window.scrollY > 0;
+        filterStack.classList.toggle("pinned", pinned);
+      });
+    };
+
+    updatePinnedFilters();
+    window.addEventListener("scroll", updatePinnedFilters, { passive: true });
+    window.addEventListener("resize", updatePinnedFilters);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updatePinnedFilters);
+    if (heroElement.current) observer?.observe(heroElement.current);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", updatePinnedFilters);
+      window.removeEventListener("resize", updatePinnedFilters);
+      observer?.disconnect();
+      filterStackElement.current?.classList.remove("pinned");
+    };
+  }, [preferences.topics.length]);
+
+  useEffect(() => {
     if (!readerArticle) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -1534,7 +1564,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         </button>
       )}
 
-      <section className={`hero${controlsHidden ? " controls-hidden" : ""}${heroCompact ? " compact" : ""}`} id="top">
+      <section ref={heroElement} className={`hero${controlsHidden ? " controls-hidden" : ""}${heroCompact ? " compact" : ""}`} id="top">
         <div className="hero-copy">
           <p className="eyebrow">Your interests, continuously monitored</p>
           <h1>Stay current on<br />{" "}<em>what matters.</em></h1>
@@ -1966,7 +1996,14 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         )}
 
         {preferences.topics.length > 0 && (
-          <div className="filter-stack">
+          <div className="filter-stack" ref={filterStackElement}>
+            <div className="filter-sticky-heading">
+              <div>
+                <span>{feedView === "latest" ? "Current topic" : feedView}</span>
+                <strong>{selectedTopic === ALL_TOPICS ? feedTitle : selectedTopic}</strong>
+              </div>
+              <small>{filteredArticles.length} {filteredArticles.length === 1 ? "story" : "stories"}</small>
+            </div>
             <nav className="topic-filters" aria-label="Filter stories by followed topic">
               <span className="filter-label">Topics</span>
               <button type="button" className={selectedTopic === ALL_TOPICS ? "active" : ""} aria-pressed={selectedTopic === ALL_TOPICS} onClick={() => selectTopicFilter(ALL_TOPICS)}>All <span>{feedView === "latest" ? viewedArticles.length : historyFilterTotal}</span></button>
