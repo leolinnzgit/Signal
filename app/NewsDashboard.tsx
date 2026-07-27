@@ -19,6 +19,25 @@ export type FollowedArticle = Article & {
   isBookmarked?: boolean;
 };
 
+type ExtractedReaderArticle = {
+  finalUrl: string;
+  byline: string;
+  siteName: string;
+  publishedAt: string;
+  paragraphs: string[];
+};
+
+type ReaderContent =
+  | { status: "idle" | "loading" }
+  | { status: "ready"; article: ExtractedReaderArticle }
+  | { status: "fallback"; reason: string };
+
+type ArticleReaderResponse = {
+  available: boolean;
+  reason?: string;
+  article?: ExtractedReaderArticle;
+};
+
 export type StoredArticle = FollowedArticle & {
   firstSeenAt: string;
   lastSeenAt: string;
@@ -540,6 +559,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [controlsHidden, setControlsHidden] = useState(false);
   const [backToTopVisible, setBackToTopVisible] = useState(false);
   const [readerArticle, setReaderArticle] = useState<FollowedArticle | null>(null);
+  const [readerContent, setReaderContent] = useState<ReaderContent>({ status: "idle" });
   const [theme, setTheme] = useState<ColorTheme | null>(null);
   const [rssResolvingFeed, setRssResolvingFeed] = useState<string | null>(null);
   const [rssMessage, setRssMessage] = useState("");
@@ -552,6 +572,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const filterStackElement = useRef<HTMLDivElement>(null);
   const readerCloseButton = useRef<HTMLButtonElement>(null);
   const readerTrigger = useRef<HTMLAnchorElement | null>(null);
+  const readerRequestSequence = useRef(0);
   const lastSavedPreferences = useRef("");
   const latestPreferences = useRef(preferences);
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
@@ -1481,10 +1502,35 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   function openArticleReader(article: FollowedArticle, trigger: HTMLAnchorElement) {
     readerTrigger.current = trigger;
     setReaderArticle(article);
+    setReaderContent({ status: "loading" });
+    const requestId = ++readerRequestSequence.current;
+    const params = new URLSearchParams({ url: article.url });
+    void fetch(`/api/article-reader?${params.toString()}`, { cache: "no-store" })
+      .then(async (response) => {
+        const data = await response.json() as ArticleReaderResponse;
+        if (requestId !== readerRequestSequence.current) return;
+        if (data.available && data.article?.paragraphs.length) {
+          setReaderContent({ status: "ready", article: data.article });
+          return;
+        }
+        setReaderContent({
+          status: "fallback",
+          reason: data.reason || "The publisher did not make this story available to Signal Reader.",
+        });
+      })
+      .catch(() => {
+        if (requestId !== readerRequestSequence.current) return;
+        setReaderContent({
+          status: "fallback",
+          reason: "The publisher blocked extraction or the article is temporarily unavailable.",
+        });
+      });
   }
 
   function closeArticleReader() {
+    readerRequestSequence.current += 1;
     setReaderArticle(null);
+    setReaderContent({ status: "idle" });
     window.requestAnimationFrame(() => readerTrigger.current?.focus());
   }
 
@@ -1536,6 +1582,9 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
       timeZone: clockTimeZone,
     })
     : "Local date";
+  const readerOriginalUrl = readerContent.status === "ready"
+    ? readerContent.article.finalUrl
+    : readerArticle?.url ?? "";
 
   return (
     <main className="signal-dashboard" id="top">
@@ -2250,7 +2299,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               <div className="article-reader-toolbar">
                 <span className="article-reader-kicker"><span className="pulse" /> Signal reader</span>
                 <div className="article-reader-actions">
-                  <a href={readerArticle.url} target="_blank" rel="noreferrer">
+                  <a href={readerOriginalUrl} target="_blank" rel="noreferrer">
                     Open original <span aria-hidden="true">&#8599;</span>
                   </a>
                   <button
@@ -2268,17 +2317,50 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                 <span>{formatAge(readerArticle.publishedAt)}</span>
               </div>
               <h2 id="article-reader-title">{readerArticle.title}</h2>
-              <p>Reading from the publisher inside Signal. If the page is blocked, use Open original.</p>
+              <p>
+                {readerContent.status === "loading"
+                  ? "Preparing a clean reading view…"
+                  : readerContent.status === "ready"
+                    ? "Reader view prepared from the publisher’s public article."
+                    : "This story needs to be opened on the publisher’s site."}
+              </p>
             </header>
-            <div className="article-reader-frame-shell">
-              <iframe
-                className="article-reader-frame"
-                src={readerArticle.url}
-                title={`${readerArticle.title} from ${readerArticle.source}`}
-                loading="eager"
-                referrerPolicy="strict-origin-when-cross-origin"
-                sandbox="allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts"
-              />
+            <div className="article-reader-body">
+              {readerContent.status === "loading" && (
+                <div className="article-reader-state" role="status">
+                  <span className="article-reader-loader" aria-hidden="true" />
+                  <strong>Preparing article</strong>
+                  <p>Signal is checking whether the publisher provides a readable version.</p>
+                </div>
+              )}
+              {readerContent.status === "fallback" && (
+                <div className="article-reader-state article-reader-fallback" role="status">
+                  <span className="article-reader-fallback-icon" aria-hidden="true">&#8599;</span>
+                  <strong>Continue on the publisher’s site</strong>
+                  <p>{readerContent.reason}</p>
+                  <a href={readerOriginalUrl} target="_blank" rel="noreferrer">
+                    Open original <span aria-hidden="true">&#8599;</span>
+                  </a>
+                </div>
+              )}
+              {readerContent.status === "ready" && (
+                <article className="article-reader-content">
+                  {(readerContent.article.byline || readerContent.article.siteName) && (
+                    <p className="article-reader-byline">
+                      {[readerContent.article.byline, readerContent.article.siteName]
+                        .filter(Boolean)
+                        .join(" / ")}
+                    </p>
+                  )}
+                  {readerContent.article.paragraphs.map((paragraph, index) => (
+                    <p key={`${index}-${paragraph.slice(0, 24)}`}>{paragraph}</p>
+                  ))}
+                  <div className="article-reader-end">
+                    <span>End of reader view</span>
+                    <a href={readerOriginalUrl} target="_blank" rel="noreferrer">View original article &#8599;</a>
+                  </div>
+                </article>
+              )}
             </div>
           </section>
         </div>

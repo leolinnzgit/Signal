@@ -142,6 +142,16 @@ builder.Services.AddHttpClient<MarketDataService>(client =>
     client.DefaultRequestHeaders.UserAgent.ParseAdd("Signal-News-Monitor/2.0");
     client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
 });
+builder.Services.AddHttpClient<ArticleReaderService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(20);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd(
+        "Mozilla/5.0 (compatible; SignalReader/2.0; +https://github.com/leolinnzgit/Signal)");
+}).ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+{
+    AllowAutoRedirect = false,
+    AutomaticDecompression = System.Net.DecompressionMethods.All,
+});
 builder.Services.AddScoped<TopicRefreshService>();
 builder.Services.AddHostedService<TopicRefreshBackgroundService>();
 
