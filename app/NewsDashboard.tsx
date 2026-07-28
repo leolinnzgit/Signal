@@ -1327,7 +1327,9 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         const storyTop = window.scrollY + storyList.getBoundingClientRect().top;
         pendingPinnedTopicScroll.current = null;
         window.scrollTo({
-          top: Math.max(0, storyTop - filterBottom - 8),
+          // Stay just beyond the sticky threshold so the filters remain pinned
+          // while the first story aligns directly beneath them.
+          top: Math.max(0, storyTop - filterBottom + 2),
           behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
         });
       });
