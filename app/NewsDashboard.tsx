@@ -1225,15 +1225,6 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     );
   }, [preferences.topics, recentTopicFilters]);
 
-  const nextTopic = useMemo(() => {
-    if (preferences.topics.length === 0) return "";
-    if (selectedTopic === ALL_TOPICS) return preferences.topics[0];
-    const currentIndex = preferences.topics.findIndex(
-      (topic) => topic.toLowerCase() === selectedTopic.toLowerCase(),
-    );
-    return preferences.topics[(currentIndex + 1) % preferences.topics.length];
-  }, [preferences.topics, selectedTopic]);
-
   const nextUnreadTopic = useMemo(() => {
     if (feedView !== "latest" || preferences.topics.length === 0) return "";
     const currentIndex = selectedTopic === ALL_TOPICS
@@ -2388,14 +2379,6 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
             <nav className="topic-filters" aria-label="Filter stories by followed topic">
               <span className="filter-label">Topics</span>
               <button type="button" className={selectedTopic === ALL_TOPICS ? "active" : ""} aria-pressed={selectedTopic === ALL_TOPICS} onClick={() => selectTopicFilter(ALL_TOPICS)}>All <span>{feedView === "latest" ? viewedArticles.length : historyFilterTotal}</span></button>
-              <button
-                type="button"
-                className="topic-next"
-                onClick={() => selectTopicFilter(nextTopic)}
-                title={`Go to ${nextTopic}`}
-              >
-                Next: <strong>{nextTopic}</strong> <span aria-hidden="true">&#8594;</span>
-              </button>
               {feedView === "latest" && (
                 <button
                   type="button"
