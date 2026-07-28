@@ -2395,7 +2395,18 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                 </button>
               )}
               {visibleTopicFilters.map((topic) => (
-                <button type="button" key={topic} className={selectedTopic === topic ? "active" : ""} aria-pressed={selectedTopic === topic} onClick={() => selectTopicFilter(topic)}>{topic} <span>{topicCounts[topic] ?? 0}</span></button>
+                <button
+                  type="button"
+                  key={topic}
+                  className={selectedTopic === topic ? "active" : ""}
+                  aria-pressed={selectedTopic === topic}
+                  aria-label={`${topic}, ${topicCounts[topic] ?? 0} stories${(unreadTopicCounts[topic] ?? 0) > 0 ? `, ${unreadTopicCounts[topic]} unread` : ""}`}
+                  onClick={() => selectTopicFilter(topic)}
+                >
+                  {topic}
+                  {(unreadTopicCounts[topic] ?? 0) > 0 && <i className="topic-unread-indicator" aria-hidden="true" />}
+                  <span>{topicCounts[topic] ?? 0}</span>
+                </button>
               ))}
               {preferences.topics.length > visibleTopicFilters.length && (
                 <button
@@ -2433,9 +2444,14 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                       key={topic}
                       className={selectedTopic === topic ? "active" : ""}
                       aria-pressed={selectedTopic === topic}
+                      aria-label={`${topic}, ${topicCounts[topic] ?? 0} stories${(unreadTopicCounts[topic] ?? 0) > 0 ? `, ${unreadTopicCounts[topic]} unread` : ""}`}
                       onClick={() => selectTopicFilter(topic)}
                     >
-                      <span>{topic}</span><b>{topicCounts[topic] ?? 0}</b>
+                      <span>
+                        {topic}
+                        {(unreadTopicCounts[topic] ?? 0) > 0 && <i className="topic-unread-indicator" aria-hidden="true" />}
+                      </span>
+                      <b>{topicCounts[topic] ?? 0}</b>
                     </button>
                   ))}
                   {pickerTopics.length === 0 && <p>No followed topics match that search.</p>}

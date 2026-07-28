@@ -1979,6 +1979,25 @@ main {
 .topic-filters button.active span,
 .source-filters button.active span { color: #f08b76; }
 
+.topic-unread-indicator {
+  display: inline-block;
+  width: 0.38rem;
+  height: 0.38rem;
+  margin-left: 0.38rem;
+  border-radius: 50%;
+  background: var(--red);
+  box-shadow: 0 0 0 2px rgba(200, 63, 50, 0.13);
+  vertical-align: 0.04rem;
+}
+
+.topic-filters button:hover .topic-unread-indicator,
+.topic-filters button.active .topic-unread-indicator,
+.topic-filter-picker-grid button:hover .topic-unread-indicator,
+.topic-filter-picker-grid button.active .topic-unread-indicator {
+  background: #f08b76;
+  box-shadow: 0 0 0 2px rgba(240, 139, 118, 0.18);
+}
+
 .source-filters button { padding: 0.5rem 0.68rem; font-size: 0.62rem; }
 
 .feed-notice {
