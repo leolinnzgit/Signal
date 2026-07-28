@@ -94,8 +94,19 @@ public sealed class TopicRefreshService(
             var outcomes = await FetchAsync(preferences, topics, cancellationToken);
             var refreshedAt = DateTime.UtcNow;
             var selectedArticles = SelectArticles(outcomes, topics, preferences.StoryLimit);
-            await StoreArticlesAsync(userId, selectedArticles, refreshedAt, cancellationToken);
-            await UpdateStatesAsync(userId, topics, preferences.RefreshMinutes, outcomes, refreshedAt, cancellationToken);
+            var newlyAvailableTopicKeys = await StoreArticlesAsync(
+                userId,
+                selectedArticles,
+                refreshedAt,
+                cancellationToken);
+            await UpdateStatesAsync(
+                userId,
+                topics,
+                preferences.RefreshMinutes,
+                outcomes,
+                newlyAvailableTopicKeys,
+                refreshedAt,
+                cancellationToken);
             await PurgeExpiredAsync(userId, preferences.ArticleRetentionDays, refreshedAt, cancellationToken);
 
             if (sendEmail && preferences.EmailSummaryEnabled && selectedArticles.Length > 0)
@@ -274,7 +285,34 @@ public sealed class TopicRefreshService(
             : provider.Equals("GDELT", StringComparison.OrdinalIgnoreCase) ? 1
             : 2;
 
-    private async Task StoreArticlesAsync(
+    public async Task<bool> MarkTopicViewedAsync(
+        string userId,
+        string topic,
+        CancellationToken cancellationToken)
+    {
+        var userLock = UserLocks.GetOrAdd(userId, _ => new SemaphoreSlim(1, 1));
+        await userLock.WaitAsync(cancellationToken);
+        try
+        {
+            var key = NormalizeTopicKey(topic);
+            var state = await database.TopicRefreshStates
+                .SingleOrDefaultAsync(
+                    item => item.UserId == userId && item.TopicKey == key,
+                    cancellationToken);
+            if (state is null) return false;
+
+            state.HasUnread = false;
+            state.LastViewedAtUtc = DateTime.UtcNow;
+            await database.SaveChangesAsync(cancellationToken);
+            return true;
+        }
+        finally
+        {
+            userLock.Release();
+        }
+    }
+
+    private async Task<HashSet<string>> StoreArticlesAsync(
         string userId,
         IReadOnlyCollection<TopicBriefingArticle> articles,
         DateTime refreshedAt,
@@ -289,9 +327,11 @@ public sealed class TopicRefreshService(
                 .ToListAsync(cancellationToken));
         }
         var byUrl = existing.ToDictionary(item => item.Url, StringComparer.OrdinalIgnoreCase);
+        var newlyAvailableTopicKeys = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var article in articles)
         {
+            string[] existingTopics;
             if (!byUrl.TryGetValue(article.Url, out var stored))
             {
                 stored = new StoredNewsArticle
@@ -302,6 +342,19 @@ public sealed class TopicRefreshService(
                 };
                 database.StoredNewsArticles.Add(stored);
                 byUrl[article.Url] = stored;
+                existingTopics = [];
+            }
+            else
+            {
+                existingTopics = DeserializeList(stored.TopicsJson);
+            }
+            var existingTopicKeys = existingTopics
+                .Select(NormalizeTopicKey)
+                .ToHashSet(StringComparer.Ordinal);
+            foreach (var topic in article.Topics)
+            {
+                var topicKey = NormalizeTopicKey(topic);
+                if (!existingTopicKeys.Contains(topicKey)) newlyAvailableTopicKeys.Add(topicKey);
             }
             stored.Title = NormalizeText(article.Title, 500);
             stored.Source = NormalizeText(article.Source, 256);
@@ -312,6 +365,7 @@ public sealed class TopicRefreshService(
             stored.LastSeenAtUtc = refreshedAt;
         }
         await database.SaveChangesAsync(cancellationToken);
+        return newlyAvailableTopicKeys;
     }
 
     private async Task UpdateStatesAsync(
@@ -319,6 +373,7 @@ public sealed class TopicRefreshService(
         IReadOnlyCollection<string> topics,
         int refreshMinutes,
         IReadOnlyCollection<FetchOutcome> outcomes,
+        IReadOnlySet<string> newlyAvailableTopicKeys,
         DateTime refreshedAt,
         CancellationToken cancellationToken)
     {
@@ -349,6 +404,7 @@ public sealed class TopicRefreshService(
             state.Topic = topic;
             state.LastAttemptedAtUtc = refreshedAt;
             if (successful) state.LastSuccessfulAtUtc = refreshedAt;
+            if (newlyAvailableTopicKeys.Contains(key)) state.HasUnread = true;
             state.NextRefreshAtUtc = refreshMinutes == 0 ? null : refreshedAt.AddMinutes(refreshMinutes);
             state.LastError = failures.Length == 0
                 ? ""
@@ -422,6 +478,8 @@ public sealed class TopicRefreshService(
                 item.LastAttemptedAtUtc,
                 item.LastSuccessfulAtUtc,
                 item.NextRefreshAtUtc,
+                item.LastViewedAtUtc,
+                item.HasUnread,
                 item.LastError,
             })
             .ToArrayAsync(cancellationToken);
@@ -430,6 +488,8 @@ public sealed class TopicRefreshService(
             AsUtc(item.LastAttemptedAtUtc),
             AsUtc(item.LastSuccessfulAtUtc),
             AsUtc(item.NextRefreshAtUtc),
+            AsUtc(item.LastViewedAtUtc),
+            item.HasUnread,
             item.LastError)).ToArray();
     }
 
@@ -578,4 +638,6 @@ public sealed record TopicRefreshStatus(
     DateTimeOffset? LastAttemptedAt,
     DateTimeOffset? LastSuccessfulAt,
     DateTimeOffset? NextRefreshAt,
+    DateTimeOffset? LastViewedAt,
+    bool HasUnread,
     string LastError);

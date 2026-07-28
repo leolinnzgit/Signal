@@ -120,6 +120,9 @@ const sqliteTopicRefreshStore: TopicRefreshStore = {
   async refresh(topic) {
     return postJson<TopicBriefing>("/api/topic-refresh", { topic: topic ?? null });
   },
+  async markViewed(topic) {
+    await postJson("/api/topic-refresh/viewed", { topic });
+  },
 };
 
 async function sendNewsSummary(summary: NewsSummary) {

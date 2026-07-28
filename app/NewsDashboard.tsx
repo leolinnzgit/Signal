@@ -174,6 +174,8 @@ export type TopicRefreshStatus = {
   lastAttemptedAt: string | null;
   lastSuccessfulAt: string | null;
   nextRefreshAt: string | null;
+  lastViewedAt: string | null;
+  hasUnread: boolean;
   lastError: string;
 };
 
@@ -204,6 +206,7 @@ export type ArticleStore = {
 export type TopicRefreshStore = {
   load: (topic?: string) => Promise<TopicBriefing>;
   refresh: (topic?: string) => Promise<TopicBriefing>;
+  markViewed?: (topic: string) => Promise<void>;
 };
 
 const DEFAULTS: NewsPreferences = {
@@ -1200,17 +1203,18 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     [feedView, historyTopicFacets, preferences.topics, viewedArticles],
   );
 
-  const unreadTopicCounts = useMemo(
+  const topicHasUnread = useMemo(
     () => Object.fromEntries(
       preferences.topics.map((topic) => [
         topic,
-        articles.filter((article) =>
-          !article.isRead
-          && article.topics.some((candidate) => candidate.toLowerCase() === topic.toLowerCase()),
-        ).length,
+        topicRefreshByKey.get(topic.toLowerCase())?.hasUnread
+          ?? articles.some((article) =>
+            !article.isRead
+            && article.topics.some((candidate) => candidate.toLowerCase() === topic.toLowerCase()),
+          ),
       ]),
     ),
-    [articles, preferences.topics],
+    [articles, preferences.topics, topicRefreshByKey],
   );
 
   const visibleTopicFilters = useMemo(() => {
@@ -1235,10 +1239,10 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     for (let step = 1; step <= preferences.topics.length; step += 1) {
       const topic = preferences.topics[(currentIndex + step) % preferences.topics.length];
       if (topic.toLowerCase() === selectedTopic.toLowerCase()) continue;
-      if ((unreadTopicCounts[topic] ?? 0) > 0) return topic;
+      if (topicHasUnread[topic]) return topic;
     }
     return "";
-  }, [feedView, preferences.topics, selectedTopic, unreadTopicCounts]);
+  }, [feedView, preferences.topics, selectedTopic, topicHasUnread]);
 
   const pickerTopics = useMemo(() => {
     const query = topicPickerQuery.trim().toLowerCase();
@@ -1640,7 +1644,18 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     if (next !== "latest") void loadHistoryPage(next, "", 0);
   }
 
+  function markTopicViewed(topic: string) {
+    if (topic === ALL_TOPICS || !refreshStore?.markViewed) return null;
+    const viewedAt = new Date().toISOString();
+    setTopicRefreshStates((current) => current.map((state) =>
+      state.topic.toLowerCase() === topic.toLowerCase()
+        ? { ...state, hasUnread: false, lastViewedAt: viewedAt }
+        : state));
+    return refreshStore.markViewed(topic);
+  }
+
   function selectTopicFilter(topic: string) {
+    const viewedRequest = markTopicViewed(topic);
     if (topic !== selectedTopic && filterStackElement.current?.classList.contains("pinned")) {
       pendingPinnedTopicScroll.current = topic;
     }
@@ -1653,12 +1668,28 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     if (feedView === "latest") {
       setSelectedProvider(ALL_PROVIDERS);
       if (refreshStore) {
-        void loadNews(preferences, {
+        const loadSelectedTopic = () => loadNews(preferences, {
           quiet: true,
           topic: topic === ALL_TOPICS ? undefined : topic,
         });
+        if (viewedRequest) {
+          void viewedRequest.then(
+            loadSelectedTopic,
+            async (caught) => {
+              await loadSelectedTopic();
+              setNotice(caught instanceof Error ? caught.message : "The topic unread status could not be saved.");
+            },
+          );
+        } else {
+          void loadSelectedTopic();
+        }
       }
     } else {
+      if (viewedRequest) {
+        void viewedRequest.catch((caught) => {
+          setNotice(caught instanceof Error ? caught.message : "The topic unread status could not be saved.");
+        });
+      }
       void loadHistoryPage(feedView, historySearch, 0, topic, selectedProvider);
     }
   }
@@ -2390,7 +2421,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                     : selectedTopic === ALL_TOPICS ? "All topics are caught up" : "No other topic has unread stories"}
                 >
                   {nextUnreadTopic
-                    ? <>Next unread: <strong>{nextUnreadTopic}</strong> <span>{unreadTopicCounts[nextUnreadTopic]}</span></>
+                    ? <>Next unread: <strong>{nextUnreadTopic}</strong></>
                     : selectedTopic === ALL_TOPICS ? "All caught up" : "No other unread"}
                 </button>
               )}
@@ -2400,11 +2431,11 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                   key={topic}
                   className={selectedTopic === topic ? "active" : ""}
                   aria-pressed={selectedTopic === topic}
-                  aria-label={`${topic}, ${topicCounts[topic] ?? 0} stories${(unreadTopicCounts[topic] ?? 0) > 0 ? `, ${unreadTopicCounts[topic]} unread` : ""}`}
+                  aria-label={`${topic}, ${topicCounts[topic] ?? 0} stories${topicHasUnread[topic] ? ", unread news" : ""}`}
                   onClick={() => selectTopicFilter(topic)}
                 >
                   {topic}
-                  {(unreadTopicCounts[topic] ?? 0) > 0 && <i className="topic-unread-indicator" aria-hidden="true" />}
+                  {topicHasUnread[topic] && <i className="topic-unread-indicator" aria-hidden="true" />}
                   <span>{topicCounts[topic] ?? 0}</span>
                 </button>
               ))}
@@ -2444,12 +2475,12 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                       key={topic}
                       className={selectedTopic === topic ? "active" : ""}
                       aria-pressed={selectedTopic === topic}
-                      aria-label={`${topic}, ${topicCounts[topic] ?? 0} stories${(unreadTopicCounts[topic] ?? 0) > 0 ? `, ${unreadTopicCounts[topic]} unread` : ""}`}
+                      aria-label={`${topic}, ${topicCounts[topic] ?? 0} stories${topicHasUnread[topic] ? ", unread news" : ""}`}
                       onClick={() => selectTopicFilter(topic)}
                     >
                       <span>
                         {topic}
-                        {(unreadTopicCounts[topic] ?? 0) > 0 && <i className="topic-unread-indicator" aria-hidden="true" />}
+                        {topicHasUnread[topic] && <i className="topic-unread-indicator" aria-hidden="true" />}
                       </span>
                       <b>{topicCounts[topic] ?? 0}</b>
                     </button>

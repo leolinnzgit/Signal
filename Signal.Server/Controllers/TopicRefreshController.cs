@@ -36,6 +36,26 @@ public sealed class TopicRefreshController(
         var topics = string.IsNullOrWhiteSpace(request.Topic) ? null : new[] { request.Topic };
         return Ok(await refreshService.RefreshAsync(userId, topics, true, cancellationToken));
     }
+
+    [HttpPost("viewed")]
+    public async Task<IActionResult> MarkViewed(
+        TopicViewedRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = userManager.GetUserId(User);
+        if (userId is null) return Unauthorized();
+        if (string.IsNullOrWhiteSpace(request.Topic))
+            return BadRequest(new { error = "Choose a topic." });
+        var updated = await refreshService.MarkTopicViewedAsync(
+            userId,
+            request.Topic,
+            cancellationToken);
+        return updated
+            ? NoContent()
+            : NotFound(new { error = "That topic is no longer followed." });
+    }
 }
 
 public sealed record TopicRefreshRequest(string? Topic);
+
+public sealed record TopicViewedRequest(string Topic);

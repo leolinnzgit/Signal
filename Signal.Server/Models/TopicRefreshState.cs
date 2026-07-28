@@ -21,6 +21,10 @@ public sealed class TopicRefreshState
 
     public DateTime? NextRefreshAtUtc { get; set; }
 
+    public DateTime? LastViewedAtUtc { get; set; }
+
+    public bool HasUnread { get; set; }
+
     [Required]
     public string LastError { get; set; } = "";
 }

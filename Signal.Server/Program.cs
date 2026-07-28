@@ -244,6 +244,8 @@ await using (var scope = app.Services.CreateAsyncScope())
             "LastAttemptedAtUtc" TEXT NULL,
             "LastSuccessfulAtUtc" TEXT NULL,
             "NextRefreshAtUtc" TEXT NULL,
+            "LastViewedAtUtc" TEXT NULL,
+            "HasUnread" INTEGER NOT NULL DEFAULT 0,
             "LastError" TEXT NOT NULL DEFAULT '',
             CONSTRAINT "PK_TopicRefreshStates" PRIMARY KEY ("UserId", "TopicKey"),
             CONSTRAINT "FK_TopicRefreshStates_AspNetUsers_UserId"
@@ -280,6 +282,23 @@ await using (var scope = app.Services.CreateAsyncScope())
         {
             await database.Database.ExecuteSqlRawAsync(
                 "ALTER TABLE \"StoredNewsArticles\" ADD COLUMN \"ReadAtUtc\" TEXT NULL;");
+        }
+
+        await using var topicStateColumnCheck = database.Database.GetDbConnection().CreateCommand();
+        topicStateColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('TopicRefreshStates') WHERE name = 'LastViewedAtUtc';";
+        var lastViewedColumnExists = Convert.ToInt32(await topicStateColumnCheck.ExecuteScalarAsync()) > 0;
+        if (!lastViewedColumnExists)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"TopicRefreshStates\" ADD COLUMN \"LastViewedAtUtc\" TEXT NULL;");
+        }
+
+        topicStateColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('TopicRefreshStates') WHERE name = 'HasUnread';";
+        var hasUnreadColumnExists = Convert.ToInt32(await topicStateColumnCheck.ExecuteScalarAsync()) > 0;
+        if (!hasUnreadColumnExists)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"TopicRefreshStates\" ADD COLUMN \"HasUnread\" INTEGER NOT NULL DEFAULT 1;");
         }
     }
     finally
