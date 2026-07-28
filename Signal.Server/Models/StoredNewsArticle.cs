@@ -38,4 +38,8 @@ public sealed class StoredNewsArticle
     public bool IsBookmarked { get; set; }
 
     public DateTime? BookmarkedAtUtc { get; set; }
+
+    public bool IsRead { get; set; }
+
+    public DateTime? ReadAtUtc { get; set; }
 }

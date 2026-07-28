@@ -17,6 +17,7 @@ export type FollowedArticle = Article & {
   topics: string[];
   providers: string[];
   isBookmarked?: boolean;
+  isRead?: boolean;
 };
 
 type ExtractedReaderArticle = {
@@ -42,6 +43,8 @@ export type StoredArticle = FollowedArticle & {
   lastSeenAt: string;
   isBookmarked: boolean;
   bookmarkedAt: string | null;
+  isRead: boolean;
+  readAt: string | null;
 };
 
 type FeedResponse = {
@@ -159,6 +162,7 @@ export type ArticleHistoryPage = {
   filterTotal: number;
   hasMore: boolean;
   bookmarkedUrls: string[];
+  readUrls: string[];
   topicFacets: ArticleHistoryFacet[];
   providerFacets: ArticleHistoryFacet[];
 };
@@ -194,6 +198,7 @@ export type ArticleStore = {
   load: (query?: ArticleHistoryQuery) => Promise<ArticleHistoryPage>;
   sync: (articles: FollowedArticle[]) => Promise<ArticleHistoryPage>;
   setBookmark: (url: string, bookmarked: boolean) => Promise<void>;
+  setRead: (url: string) => Promise<void>;
 };
 
 export type TopicRefreshStore = {
@@ -349,6 +354,7 @@ function mergeTopicBriefingArticles(
           topics: Array.from(new Set([...existing.topics, ...article.topics])),
           providers: Array.from(new Set([...existing.providers, ...article.providers])),
           isBookmarked: article.isBookmarked ?? existing.isBookmarked,
+          isRead: article.isRead ?? existing.isRead,
         }
       : article);
   });
@@ -1027,11 +1033,13 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         try {
           const historyPage = await articleStore.sync(refreshedArticles);
           const bookmarkedUrls = new Set(historyPage.bookmarkedUrls);
+          const readUrls = new Set(historyPage.readUrls);
           setHistoryTotal(historyPage.historyTotal);
           setBookmarkTotal(historyPage.bookmarkTotal);
           setArticles(refreshedArticles.map((article) => ({
             ...article,
             isBookmarked: bookmarkedUrls.has(article.url),
+            isRead: readUrls.has(article.url),
           })));
         } catch {
           historyNotice = "Stories refreshed, but article history could not be saved.";
@@ -1192,6 +1200,19 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     [feedView, historyTopicFacets, preferences.topics, viewedArticles],
   );
 
+  const unreadTopicCounts = useMemo(
+    () => Object.fromEntries(
+      preferences.topics.map((topic) => [
+        topic,
+        articles.filter((article) =>
+          !article.isRead
+          && article.topics.some((candidate) => candidate.toLowerCase() === topic.toLowerCase()),
+        ).length,
+      ]),
+    ),
+    [articles, preferences.topics],
+  );
+
   const visibleTopicFilters = useMemo(() => {
     const topicsByKey = new Map(preferences.topics.map((topic) => [topic.toLowerCase(), topic]));
     const stacked = recentTopicFilters
@@ -1212,6 +1233,21 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     );
     return preferences.topics[(currentIndex + 1) % preferences.topics.length];
   }, [preferences.topics, selectedTopic]);
+
+  const nextUnreadTopic = useMemo(() => {
+    if (feedView !== "latest" || preferences.topics.length === 0) return "";
+    const currentIndex = selectedTopic === ALL_TOPICS
+      ? -1
+      : preferences.topics.findIndex(
+          (topic) => topic.toLowerCase() === selectedTopic.toLowerCase(),
+        );
+    for (let step = 1; step <= preferences.topics.length; step += 1) {
+      const topic = preferences.topics[(currentIndex + step) % preferences.topics.length];
+      if (topic.toLowerCase() === selectedTopic.toLowerCase()) continue;
+      if ((unreadTopicCounts[topic] ?? 0) > 0) return topic;
+    }
+    return "";
+  }, [feedView, preferences.topics, selectedTopic, unreadTopicCounts]);
 
   const pickerTopics = useMemo(() => {
     const query = topicPickerQuery.trim().toLowerCase();
@@ -1675,6 +1711,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
 
   function openArticleReader(article: FollowedArticle, trigger: HTMLAnchorElement) {
     readerTrigger.current = trigger;
+    markArticleRead(article);
     setReaderArticle(article);
     setReaderContent({ status: "loading" });
     const requestId = ++readerRequestSequence.current;
@@ -1693,6 +1730,22 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         if (requestId !== readerRequestSequence.current) return;
         openOriginalAfterReaderFailure(article.url, requestId);
       });
+  }
+
+  function markArticleRead(article: FollowedArticle) {
+    if (article.isRead) return;
+    const readAt = new Date().toISOString();
+    setArticles((current) => current.map((item) => item.url === article.url
+      ? { ...item, isRead: true }
+      : item));
+    setHistoryArticles((current) => current.map((item) => item.url === article.url
+      ? { ...item, isRead: true, readAt }
+      : item));
+    if (articleStore) {
+      void articleStore.setRead(article.url).catch(() => {
+        setNotice("The story opened, but its read status could not be saved.");
+      });
+    }
   }
 
   function openOriginalAfterReaderFailure(url: string, requestId: number) {
@@ -2343,6 +2396,21 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               >
                 Next: <strong>{nextTopic}</strong> <span aria-hidden="true">&#8594;</span>
               </button>
+              {feedView === "latest" && (
+                <button
+                  type="button"
+                  className="topic-next topic-next-unread"
+                  disabled={!nextUnreadTopic}
+                  onClick={() => nextUnreadTopic && selectTopicFilter(nextUnreadTopic)}
+                  title={nextUnreadTopic
+                    ? `Go to the next topic with unread stories: ${nextUnreadTopic}`
+                    : selectedTopic === ALL_TOPICS ? "All topics are caught up" : "No other topic has unread stories"}
+                >
+                  {nextUnreadTopic
+                    ? <>Next unread: <strong>{nextUnreadTopic}</strong> <span>{unreadTopicCounts[nextUnreadTopic]}</span></>
+                    : selectedTopic === ALL_TOPICS ? "All caught up" : "No other unread"}
+                </button>
+              )}
               {visibleTopicFilters.map((topic) => (
                 <button type="button" key={topic} className={selectedTopic === topic ? "active" : ""} aria-pressed={selectedTopic === topic} onClick={() => selectTopicFilter(topic)}>{topic} <span>{topicCounts[topic] ?? 0}</span></button>
               ))}

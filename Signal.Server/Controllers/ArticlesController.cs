@@ -46,6 +46,7 @@ public sealed class ArticlesController(
             Math.Max(0, offset),
             Math.Clamp(limit, 1, MaximumPageSize),
             [],
+            [],
             cancellationToken));
     }
 
@@ -104,6 +105,13 @@ public sealed class ArticlesController(
                 .Where(item => item.UserId == userId && item.IsBookmarked && urls.Contains(item.Url))
                 .Select(item => item.Url)
                 .ToArrayAsync(cancellationToken);
+        var readUrls = urls.Length == 0
+            ? []
+            : await database.StoredNewsArticles
+                .AsNoTracking()
+                .Where(item => item.UserId == userId && item.IsRead && urls.Contains(item.Url))
+                .Select(item => item.Url)
+                .ToArrayAsync(cancellationToken);
         return Ok(await LoadHistoryAsync(
             userId,
             "",
@@ -113,6 +121,7 @@ public sealed class ArticlesController(
             0,
             DefaultPageSize,
             bookmarkedUrls,
+            readUrls,
             cancellationToken));
     }
 
@@ -136,6 +145,28 @@ public sealed class ArticlesController(
         return Ok(new BookmarkResponse(article.Url, article.IsBookmarked, article.BookmarkedAtUtc));
     }
 
+    [HttpPost("read")]
+    public async Task<IActionResult> MarkRead(ReadRequest request, CancellationToken cancellationToken)
+    {
+        var userId = userManager.GetUserId(User);
+        if (userId is null) return Unauthorized();
+        var url = NormalizeUrl(request.Url);
+        if (url is null) return BadRequest(new { error = "Choose a valid article link." });
+
+        var article = await database.StoredNewsArticles
+            .SingleOrDefaultAsync(item => item.UserId == userId && item.Url == url, cancellationToken);
+        if (article is null) return NotFound(new { error = "Refresh this briefing before opening that story." });
+
+        if (!article.IsRead)
+        {
+            article.IsRead = true;
+            article.ReadAtUtc = DateTime.UtcNow;
+            await database.SaveChangesAsync(cancellationToken);
+        }
+
+        return Ok(new ReadResponse(article.Url, article.IsRead, article.ReadAtUtc));
+    }
+
     private async Task<ArticleHistoryResponse> LoadHistoryAsync(
         string userId,
         string search,
@@ -145,6 +176,7 @@ public sealed class ArticlesController(
         int offset,
         int limit,
         string[] bookmarkedUrls,
+        string[] readUrls,
         CancellationToken cancellationToken)
     {
         var userArticles = database.StoredNewsArticles
@@ -179,6 +211,7 @@ public sealed class ArticlesController(
             facetRows.Length,
             offset + articles.Length < matchingTotal,
             bookmarkedUrls,
+            readUrls,
             topicFacets,
             providerFacets);
     }
@@ -267,7 +300,9 @@ public sealed class ArticlesController(
         article.FirstSeenAtUtc,
         article.LastSeenAtUtc,
         article.IsBookmarked,
-        article.BookmarkedAtUtc);
+        article.BookmarkedAtUtc,
+        article.IsRead,
+        article.ReadAtUtc);
 
     private sealed record NormalizedArticle(
         string Url,
@@ -294,6 +329,10 @@ public sealed record BookmarkRequest([Required] string Url, bool Bookmarked);
 
 public sealed record BookmarkResponse(string Url, bool Bookmarked, DateTime? BookmarkedAt);
 
+public sealed record ReadRequest([Required] string Url);
+
+public sealed record ReadResponse(string Url, bool IsRead, DateTime? ReadAt);
+
 public sealed record ArticleHistoryResponse(
     ArticleHistoryItem[] Articles,
     int HistoryTotal,
@@ -302,6 +341,7 @@ public sealed record ArticleHistoryResponse(
     int FilterTotal,
     bool HasMore,
     string[] BookmarkedUrls,
+    string[] ReadUrls,
     ArticleHistoryFacet[] TopicFacets,
     ArticleHistoryFacet[] ProviderFacets);
 
@@ -318,4 +358,6 @@ public sealed record ArticleHistoryItem(
     DateTime FirstSeenAt,
     DateTime LastSeenAt,
     bool IsBookmarked,
-    DateTime? BookmarkedAt);
+    DateTime? BookmarkedAt,
+    bool IsRead,
+    DateTime? ReadAt);

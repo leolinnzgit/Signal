@@ -403,7 +403,8 @@ public sealed class TopicRefreshService(
                 candidate.Item.Summary,
                 candidate.Topics,
                 candidate.Providers,
-                candidate.Item.IsBookmarked))
+                candidate.Item.IsBookmarked,
+                candidate.Item.IsRead))
             .ToArray();
     }
 
@@ -550,7 +551,7 @@ public sealed class TopicRefreshService(
         public HashSet<string> Providers { get; } = new(StringComparer.OrdinalIgnoreCase);
 
         public TopicBriefingArticle ToResponse() =>
-            new(Title, Url, Source, PublishedAt, Summary, Topics.ToArray(), Providers.ToArray(), false);
+            new(Title, Url, Source, PublishedAt, Summary, Topics.ToArray(), Providers.ToArray(), false, false);
     }
 }
 
@@ -569,7 +570,8 @@ public sealed record TopicBriefingArticle(
     string Summary,
     string[] Topics,
     string[] Providers,
-    bool IsBookmarked);
+    bool IsBookmarked,
+    bool IsRead);
 
 public sealed record TopicRefreshStatus(
     string Topic,

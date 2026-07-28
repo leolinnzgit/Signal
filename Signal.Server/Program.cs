@@ -226,6 +226,8 @@ await using (var scope = app.Services.CreateAsyncScope())
             "LastSeenAtUtc" TEXT NOT NULL,
             "IsBookmarked" INTEGER NOT NULL DEFAULT 0,
             "BookmarkedAtUtc" TEXT NULL,
+            "IsRead" INTEGER NOT NULL DEFAULT 0,
+            "ReadAtUtc" TEXT NULL,
             CONSTRAINT "FK_StoredNewsArticles_AspNetUsers_UserId"
                 FOREIGN KEY ("UserId") REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE
         );
@@ -261,6 +263,23 @@ await using (var scope = app.Services.CreateAsyncScope())
         {
             await database.Database.ExecuteSqlRawAsync(
                 "ALTER TABLE \"UserNewsPreferences\" ADD COLUMN \"TickerOverridesJson\" TEXT NOT NULL DEFAULT '{{}}';");
+        }
+
+        await using var articleColumnCheck = database.Database.GetDbConnection().CreateCommand();
+        articleColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('StoredNewsArticles') WHERE name = 'IsRead';";
+        var isReadColumnExists = Convert.ToInt32(await articleColumnCheck.ExecuteScalarAsync()) > 0;
+        if (!isReadColumnExists)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"StoredNewsArticles\" ADD COLUMN \"IsRead\" INTEGER NOT NULL DEFAULT 0;");
+        }
+
+        articleColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('StoredNewsArticles') WHERE name = 'ReadAtUtc';";
+        var readAtColumnExists = Convert.ToInt32(await articleColumnCheck.ExecuteScalarAsync()) > 0;
+        if (!readAtColumnExists)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"StoredNewsArticles\" ADD COLUMN \"ReadAtUtc\" TEXT NULL;");
         }
     }
     finally

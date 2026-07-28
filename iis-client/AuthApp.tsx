@@ -97,6 +97,9 @@ const sqliteArticleStore: ArticleStore = {
   async setBookmark(url, bookmarked) {
     await postJson("/api/articles/bookmark", { url, bookmarked });
   },
+  async setRead(url) {
+    await postJson("/api/articles/read", { url });
+  },
 };
 
 const sqliteTopicRefreshStore: TopicRefreshStore = {
