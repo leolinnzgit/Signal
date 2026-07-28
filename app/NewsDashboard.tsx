@@ -597,6 +597,8 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const historyRequestSequence = useRef(0);
   const heroElement = useRef<HTMLElement>(null);
   const filterStackElement = useRef<HTMLDivElement>(null);
+  const storyListElement = useRef<HTMLOListElement>(null);
+  const pendingPinnedTopicScroll = useRef<string | null>(null);
   const readerCloseButton = useRef<HTMLButtonElement>(null);
   const readerTrigger = useRef<HTMLAnchorElement | null>(null);
   const readerRequestSequence = useRef(0);
@@ -1311,6 +1313,33 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   }, [preferences.topics.length]);
 
   useEffect(() => {
+    if (pendingPinnedTopicScroll.current?.toLowerCase() !== selectedTopic.toLowerCase()
+        || filteredArticles.length === 0) return;
+
+    let secondFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        const filterStack = filterStackElement.current;
+        const storyList = storyListElement.current;
+        if (!filterStack || !storyList) return;
+
+        const filterBottom = filterStack.getBoundingClientRect().bottom;
+        const storyTop = window.scrollY + storyList.getBoundingClientRect().top;
+        pendingPinnedTopicScroll.current = null;
+        window.scrollTo({
+          top: Math.max(0, storyTop - filterBottom - 8),
+          behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+        });
+      });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      window.cancelAnimationFrame(secondFrame);
+    };
+  }, [filteredArticles.length, selectedTopic]);
+
+  useEffect(() => {
     if (!readerArticle) return;
     const scrollPosition = window.scrollY;
     const previousRootOverflow = document.documentElement.style.overflow;
@@ -1583,6 +1612,9 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   }
 
   function selectTopicFilter(topic: string) {
+    if (topic !== selectedTopic && filterStackElement.current?.classList.contains("pinned")) {
+      pendingPinnedTopicScroll.current = topic;
+    }
     setSelectedTopic(topic);
     promoteTopicFilter(topic);
     setTopicPickerOpen(false);
@@ -2462,7 +2494,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           <div className="message-card"><p className="message-kicker">No coverage found</p><h3>Try a broader filter.</h3><p>Choose All sources or use a more general topic to widen the signal.</p></div>
         ) : (
           <>
-            <ol className="story-list">
+            <ol className="story-list" ref={storyListElement}>
               {filteredArticles.map((article, index) => (
                 <li key={article.url}>
                 <a
