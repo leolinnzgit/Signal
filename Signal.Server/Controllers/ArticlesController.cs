@@ -91,6 +91,7 @@ public sealed class ArticlesController(
             stored.Source = item.Source;
             stored.PublishedAtUtc = item.PublishedAtUtc;
             stored.Summary = item.Summary;
+            if (item.ImageUrl.Length > 0) stored.ImageUrl = item.ImageUrl;
             stored.TopicsJson = JsonSerializer.Serialize(MergeLists(stored.TopicsJson, item.Topics));
             stored.ProvidersJson = JsonSerializer.Serialize(MergeLists(stored.ProvidersJson, item.Providers));
             stored.LastSeenAtUtc = now;
@@ -247,6 +248,7 @@ public sealed class ArticlesController(
             source,
             publishedAt.UtcDateTime,
             NormalizeText(item.Summary, 4000),
+            NormalizeImageUrl(item.ImageUrl),
             NormalizeList(item.Topics),
             NormalizeList(item.Providers));
     }
@@ -255,6 +257,17 @@ public sealed class ArticlesController(
     {
         if (value.Length > 2048 || !Uri.TryCreate(value.Trim(), UriKind.Absolute, out var uri)) return null;
         if ((uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp) || !string.IsNullOrEmpty(uri.UserInfo)) return null;
+        return uri.AbsoluteUri;
+    }
+
+    private static string NormalizeImageUrl(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)
+            || value.Length > 2048
+            || !Uri.TryCreate(value.Trim(), UriKind.Absolute, out var uri)
+            || uri.Scheme != Uri.UriSchemeHttps
+            || !string.IsNullOrEmpty(uri.UserInfo))
+            return "";
         return uri.AbsoluteUri;
     }
 
@@ -295,6 +308,7 @@ public sealed class ArticlesController(
         article.Source,
         article.PublishedAtUtc,
         article.Summary,
+        article.ImageUrl,
         DeserializeList(article.TopicsJson),
         DeserializeList(article.ProvidersJson),
         article.FirstSeenAtUtc,
@@ -310,6 +324,7 @@ public sealed class ArticlesController(
         string Source,
         DateTime PublishedAtUtc,
         string Summary,
+        string ImageUrl,
         string[] Topics,
         string[] Providers);
 }
@@ -322,6 +337,7 @@ public sealed record StoredArticleRequest(
     [Required] string Source,
     DateTimeOffset PublishedAt,
     string Summary,
+    string? ImageUrl,
     [Required] string[] Topics,
     [Required] string[] Providers);
 
@@ -353,6 +369,7 @@ public sealed record ArticleHistoryItem(
     string Source,
     DateTime PublishedAt,
     string Summary,
+    string ImageUrl,
     string[] Topics,
     string[] Providers,
     DateTime FirstSeenAt,

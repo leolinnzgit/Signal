@@ -68,7 +68,8 @@ public sealed class NewsService(HttpClient httpClient)
                     url,
                     GetJsonString(entry, "domain").Trim().Replace("www.", "", StringComparison.OrdinalIgnoreCase),
                     ParseDate(GetJsonString(entry, "seendate")),
-                    "");
+                    "",
+                    ImageUrl: NormalizeImageUrl(GetJsonString(entry, "socialimage"), new Uri(url)));
                 var matchedTopics = topics.Where(topic => TopicMatcher.Matches(article, topic)).ToArray();
                 if (matchedTopics.Length > 0) articles.Add(article with { MatchedTopics = matchedTopics });
             }
@@ -167,7 +168,14 @@ public sealed class NewsService(HttpClient httpClient)
                 : rawTitle;
             var url = Value(item, "link");
             if (string.IsNullOrWhiteSpace(title) || !IsPublicArticleUrl(url)) continue;
-            var article = new NewsArticle(title, url!, source, ParseDate(Value(item, "pubDate")), "");
+            var articleUrl = new Uri(url!);
+            var article = new NewsArticle(
+                title,
+                url!,
+                source,
+                ParseDate(Value(item, "pubDate")),
+                "",
+                ImageUrl: ExtractFeedImage(item, articleUrl));
             if (TopicMatcher.Matches(article, topic)) yield return article;
         }
     }
@@ -206,7 +214,8 @@ public sealed class NewsService(HttpClient httpClient)
                 url!,
                 source,
                 ParseDate(Value(entry, "pubDate") ?? Value(entry, "published") ?? Value(entry, "updated")),
-                summary);
+                summary,
+                ImageUrl: ExtractFeedImage(entry, new Uri(url!)));
             var matchedTopics = topics.Where(topic => TopicMatcher.Matches(article, topic)).ToArray();
             if (matchedTopics.Length > 0) yield return article with { MatchedTopics = matchedTopics };
         }
@@ -289,6 +298,69 @@ public sealed class NewsService(HttpClient httpClient)
         element.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String
             ? value.GetString() ?? ""
             : "";
+
+    private static string ExtractFeedImage(XElement entry, Uri articleUrl)
+    {
+        foreach (var element in entry.Descendants())
+        {
+            var localName = element.Name.LocalName;
+            if (localName is not ("thumbnail" or "content")) continue;
+            var candidate = element.Attribute("url")?.Value;
+            if (string.IsNullOrWhiteSpace(candidate)) continue;
+            var medium = element.Attribute("medium")?.Value;
+            var type = element.Attribute("type")?.Value;
+            if (localName == "thumbnail"
+                || string.Equals(medium, "image", StringComparison.OrdinalIgnoreCase)
+                || type?.StartsWith("image/", StringComparison.OrdinalIgnoreCase) == true
+                || LooksLikeImageUrl(candidate))
+            {
+                var normalized = NormalizeImageUrl(candidate, articleUrl);
+                if (normalized.Length > 0) return normalized;
+            }
+        }
+
+        foreach (var enclosure in entry.Descendants().Where(element => element.Name.LocalName == "enclosure"))
+        {
+            var type = enclosure.Attribute("type")?.Value;
+            var candidate = enclosure.Attribute("url")?.Value;
+            if (string.IsNullOrWhiteSpace(candidate)
+                || (type?.StartsWith("image/", StringComparison.OrdinalIgnoreCase) != true
+                    && !LooksLikeImageUrl(candidate))) continue;
+            var normalized = NormalizeImageUrl(candidate, articleUrl);
+            if (normalized.Length > 0) return normalized;
+        }
+
+        var embeddedHtml = Value(entry, "description")
+            ?? Value(entry, "summary")
+            ?? Value(entry, "encoded")
+            ?? "";
+        var imageMatch = Regex.Match(
+            WebUtility.HtmlDecode(embeddedHtml),
+            """<img\b[^>]*\b(?:src|data-src)=["']([^"']+)["']""",
+            RegexOptions.IgnoreCase);
+        return imageMatch.Success ? NormalizeImageUrl(imageMatch.Groups[1].Value, articleUrl) : "";
+    }
+
+    private static bool LooksLikeImageUrl(string value)
+    {
+        var path = value.Split('?', '#')[0];
+        return path.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase)
+            || path.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase)
+            || path.EndsWith(".png", StringComparison.OrdinalIgnoreCase)
+            || path.EndsWith(".webp", StringComparison.OrdinalIgnoreCase)
+            || path.EndsWith(".gif", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeImageUrl(string? value, Uri articleUrl)
+    {
+        if (string.IsNullOrWhiteSpace(value)
+            || !Uri.TryCreate(articleUrl, value.Trim(), out var imageUrl)
+            || imageUrl.Scheme != Uri.UriSchemeHttps
+            || !string.IsNullOrEmpty(imageUrl.UserInfo)
+            || imageUrl.AbsoluteUri.Length > 2048)
+            return "";
+        return imageUrl.AbsoluteUri;
+    }
 
     private static string StripHtml(string? value) =>
         Regex.Replace(WebUtility.HtmlDecode(value ?? ""), "<[^>]*>", " ")

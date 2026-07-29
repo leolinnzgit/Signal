@@ -6,7 +6,8 @@ public sealed record NewsArticle(
     string Source,
     DateTimeOffset PublishedAt,
     string Summary,
-    IReadOnlyList<string>? MatchedTopics = null);
+    IReadOnlyList<string>? MatchedTopics = null,
+    string ImageUrl = "");
 
 public sealed record NewsResult(
     string Topic,

@@ -220,6 +220,7 @@ await using (var scope = app.Services.CreateAsyncScope())
             "Source" TEXT NOT NULL,
             "PublishedAtUtc" TEXT NOT NULL,
             "Summary" TEXT NOT NULL,
+            "ImageUrl" TEXT NOT NULL DEFAULT '',
             "TopicsJson" TEXT NOT NULL,
             "ProvidersJson" TEXT NOT NULL,
             "FirstSeenAtUtc" TEXT NOT NULL,
@@ -282,6 +283,14 @@ await using (var scope = app.Services.CreateAsyncScope())
         {
             await database.Database.ExecuteSqlRawAsync(
                 "ALTER TABLE \"StoredNewsArticles\" ADD COLUMN \"ReadAtUtc\" TEXT NULL;");
+        }
+
+        articleColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('StoredNewsArticles') WHERE name = 'ImageUrl';";
+        var imageUrlColumnExists = Convert.ToInt32(await articleColumnCheck.ExecuteScalarAsync()) > 0;
+        if (!imageUrlColumnExists)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"StoredNewsArticles\" ADD COLUMN \"ImageUrl\" TEXT NOT NULL DEFAULT '';");
         }
 
         await using var topicStateColumnCheck = database.Database.GetDbConnection().CreateCommand();

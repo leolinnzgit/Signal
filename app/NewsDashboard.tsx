@@ -10,6 +10,7 @@ type Article = {
   source: string;
   publishedAt: string;
   summary: string;
+  imageUrl?: string;
   matchedTopics?: string[];
 };
 
@@ -358,6 +359,7 @@ function mergeTopicBriefingArticles(
           providers: Array.from(new Set([...existing.providers, ...article.providers])),
           isBookmarked: article.isBookmarked ?? existing.isBookmarked,
           isRead: article.isRead ?? existing.isRead,
+          imageUrl: article.imageUrl || existing.imageUrl,
         }
       : article);
   });
@@ -1010,6 +1012,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           if (existing) {
             existing.topics = Array.from(new Set([...existing.topics, ...matchedTopics]));
             existing.providers = Array.from(new Set([...existing.providers, feed.provider]));
+            if (!existing.imageUrl && article.imageUrl) existing.imageUrl = article.imageUrl;
           } else {
             merged.set(key, { ...article, topics: matchedTopics, providers: [feed.provider] });
           }
@@ -2599,7 +2602,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                 <li key={article.url}>
                 <a
                   href={article.url}
-                  className="story-link"
+                  className={article.imageUrl ? "story-link has-image" : "story-link"}
                   onClick={(event) => {
                     event.preventDefault();
                     openArticleReader(article, event.currentTarget);
@@ -2610,6 +2613,17 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                     <div className="story-meta"><span className="story-topic">{article.topics.join(" + ")}</span><span className="story-provider">{article.providers.join(" + ")}</span><span>{article.source}</span><span>{formatAge(article.publishedAt)}</span></div>
                     <h3>{article.title}</h3>{article.summary && <p>{article.summary}</p>}
                   </article>
+                  {article.imageUrl && (
+                    <img
+                      className="story-image"
+                      src={article.imageUrl}
+                      alt=""
+                      loading="lazy"
+                      decoding="async"
+                      referrerPolicy="no-referrer"
+                      onError={(event) => { event.currentTarget.hidden = true; }}
+                    />
+                  )}
                   <ArrowIcon />
                 </a>
                 {articleStore && (
@@ -2696,6 +2710,16 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               )}
               {readerContent.status === "ready" && (
                 <article className="article-reader-content">
+                  {readerArticle.imageUrl && (
+                    <img
+                      className="article-reader-image"
+                      src={readerArticle.imageUrl}
+                      alt=""
+                      decoding="async"
+                      referrerPolicy="no-referrer"
+                      onError={(event) => { event.currentTarget.hidden = true; }}
+                    />
+                  )}
                   {(readerContent.article.byline || readerContent.article.siteName) && (
                     <p className="article-reader-byline">
                       {[readerContent.article.byline, readerContent.article.siteName]

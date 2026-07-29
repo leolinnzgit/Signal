@@ -26,6 +26,9 @@ public sealed class StoredNewsArticle
     public string Summary { get; set; } = "";
 
     [Required]
+    public string ImageUrl { get; set; } = "";
+
+    [Required]
     public string TopicsJson { get; set; } = "[]";
 
     [Required]

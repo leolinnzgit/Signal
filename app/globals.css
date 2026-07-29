@@ -2194,6 +2194,18 @@ main {
   text-decoration: none;
 }
 
+.story-link.has-image {
+  grid-template-columns: 3.2rem minmax(0, 1fr) clamp(8rem, 16vw, 12rem) 2rem;
+}
+
+.story-image {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  background: var(--line);
+}
+
 .bookmark-button {
   position: absolute;
   top: clamp(1.8rem, 3.2vw, 3.2rem);
@@ -2454,6 +2466,15 @@ main {
   padding: clamp(2rem, 5vw, 4.5rem) clamp(1.15rem, 4vw, 3rem) 5rem;
 }
 
+.article-reader-image {
+  display: block;
+  width: 100%;
+  max-height: 30rem;
+  margin: 0 0 2rem;
+  border: 1px solid var(--line);
+  object-fit: cover;
+}
+
 .article-reader-content > p:not(.article-reader-byline) {
   margin: 0 0 1.35em;
   color: var(--page-text);
@@ -2684,6 +2705,8 @@ footer a { color: var(--paper); text-decoration: none; }
   .topic-filter-picker-heading > div { align-items: start; flex-direction: column; gap: 0.2rem; }
   .filter-label { width: auto; margin-right: 0.25rem; }
   .story-link { grid-template-columns: 2rem minmax(0, 1fr); gap: 0.7rem; }
+  .story-link.has-image { grid-template-columns: 2rem minmax(0, 1fr) 5.5rem; }
+  .story-image { grid-column: 3; grid-row: 1; aspect-ratio: 1; }
   .story-link { padding-right: 2.8rem; }
   .bookmark-button { width: 2rem; height: 2rem; }
   .story-link .arrow { display: none; }

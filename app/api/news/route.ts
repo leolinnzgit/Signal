@@ -13,6 +13,7 @@ type ParsedArticle = {
   source: string;
   publishedAt: string;
   summary: string;
+  imageUrl: string;
   matchedTopics?: string[];
 };
 
@@ -59,18 +60,47 @@ function toIsoDate(value: string) {
   return Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString();
 }
 
+function normalizeImageUrl(value: string, baseUrl: string) {
+  if (!value.trim()) return "";
+  try {
+    const url = new URL(value.trim(), baseUrl);
+    if (url.protocol !== "https:" || url.username || url.password || url.href.length > 2048) return "";
+    return url.href;
+  } catch {
+    return "";
+  }
+}
+
+function feedImage(item: string, articleUrl: string) {
+  const mediaThumbnail = attribute(item, "media:thumbnail", "url");
+  const mediaContent = attribute(item, "media:content", "url");
+  const enclosure = attribute(item, "enclosure", "url");
+  const enclosureType = attribute(item, "enclosure", "type");
+  const embeddedHtml = tag(item, "description") || tag(item, "summary") || tag(item, "content:encoded");
+  const embeddedImage = embeddedHtml.match(/<img\b[^>]*\b(?:src|data-src)=["']([^"']+)["']/i)?.[1] ?? "";
+  const candidates = [
+    mediaThumbnail,
+    mediaContent,
+    enclosureType.toLowerCase().startsWith("image/") ? enclosure : "",
+    embeddedImage,
+  ];
+  return candidates.map((candidate) => normalizeImageUrl(candidate, articleUrl)).find(Boolean) ?? "";
+}
+
 function parseGoogleFeed(xml: string, topic: string, limit: number): ParsedArticle[] {
   const items = xml.match(/<item>[\s\S]*?<\/item>/gi) ?? [];
   return items.map((item) => {
     const rawTitle = stripHtml(tag(item, "title"));
     const source = stripHtml(tag(item, "source")) || rawTitle.split(" - ").at(-1) || "News source";
     const suffix = ` - ${source}`;
+    const url = tag(item, "link");
     return {
       title: rawTitle.endsWith(suffix) ? rawTitle.slice(0, -suffix.length) : rawTitle,
-      url: tag(item, "link"),
+      url,
       source,
       publishedAt: toIsoDate(tag(item, "pubDate")),
       summary: "",
+      imageUrl: feedImage(item, url),
     };
   }).filter((article) => topicMatches(article, topic)).slice(0, limit);
 }
@@ -97,6 +127,7 @@ function parsePublisherFeed(xml: string, feedUrl: string, topic: string, limit: 
         source: stripHtml(tag(item, "source")) || fallbackSource,
         publishedAt: toIsoDate(tag(item, "pubDate") || tag(item, "published") || tag(item, "updated")),
         summary,
+        imageUrl: feedImage(item, url),
       };
     })
     .filter((article) => article.title && article.url && topicMatches(article, topic))
@@ -181,7 +212,7 @@ async function getGdeltNews(topics: string[], limit: number) {
   const responseText = await response.text();
   if (!responseText.trim().startsWith("{")) throw new Error("GDELT is currently rate limited.");
   const payload = JSON.parse(responseText) as {
-    articles?: Array<{ title?: string; url?: string; domain?: string; seendate?: string }>;
+    articles?: Array<{ title?: string; url?: string; domain?: string; seendate?: string; socialimage?: string }>;
   };
   const articles = (payload.articles ?? [])
     .filter((article) => article.title && article.url)
@@ -191,6 +222,7 @@ async function getGdeltNews(topics: string[], limit: number) {
       source: article.domain?.replace(/^www\./, "") || new URL(article.url ?? "https://gdeltproject.org").hostname,
       publishedAt: toIsoDate(article.seendate ?? ""),
       summary: "",
+      imageUrl: normalizeImageUrl(article.socialimage ?? "", article.url ?? ""),
     }))
     .map((article) => ({ ...article, matchedTopics: topics.filter((topic) => topicMatches(article, topic)) }))
     .filter((article) => article.matchedTopics.length > 0);

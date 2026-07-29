@@ -220,8 +220,13 @@ public sealed class TopicRefreshService(
                         article.Url,
                         article.Source,
                         article.PublishedAt,
-                        article.Summary);
+                        article.Summary,
+                        article.ImageUrl);
                     merged[article.Url] = existing;
+                }
+                else if (existing.ImageUrl.Length == 0 && article.ImageUrl.Length > 0)
+                {
+                    existing.ImageUrl = article.ImageUrl;
                 }
                 existing.Topics.UnionWith(matchedTopics);
                 existing.Providers.Add(outcome.Result.Provider);
@@ -360,6 +365,8 @@ public sealed class TopicRefreshService(
             stored.Source = NormalizeText(article.Source, 256);
             stored.PublishedAtUtc = article.PublishedAt.UtcDateTime;
             stored.Summary = NormalizeText(article.Summary, 4000);
+            if (article.ImageUrl.Length > 0)
+                stored.ImageUrl = article.ImageUrl[..Math.Min(article.ImageUrl.Length, 2048)];
             stored.TopicsJson = JsonSerializer.Serialize(MergeLists(stored.TopicsJson, article.Topics));
             stored.ProvidersJson = JsonSerializer.Serialize(MergeLists(stored.ProvidersJson, article.Providers));
             stored.LastSeenAtUtc = refreshedAt;
@@ -457,6 +464,7 @@ public sealed class TopicRefreshService(
                 candidate.Item.Source,
                 new DateTimeOffset(candidate.Item.PublishedAtUtc, TimeSpan.Zero),
                 candidate.Item.Summary,
+                candidate.Item.ImageUrl,
                 candidate.Topics,
                 candidate.Providers,
                 candidate.Item.IsBookmarked,
@@ -600,18 +608,20 @@ public sealed class TopicRefreshService(
         string url,
         string source,
         DateTimeOffset publishedAt,
-        string summary)
+        string summary,
+        string imageUrl)
     {
         public string Title { get; } = title;
         public string Url { get; } = url;
         public string Source { get; } = source;
         public DateTimeOffset PublishedAt { get; } = publishedAt;
         public string Summary { get; } = summary;
+        public string ImageUrl { get; set; } = imageUrl;
         public HashSet<string> Topics { get; } = new(StringComparer.OrdinalIgnoreCase);
         public HashSet<string> Providers { get; } = new(StringComparer.OrdinalIgnoreCase);
 
         public TopicBriefingArticle ToResponse() =>
-            new(Title, Url, Source, PublishedAt, Summary, Topics.ToArray(), Providers.ToArray(), false, false);
+            new(Title, Url, Source, PublishedAt, Summary, ImageUrl, Topics.ToArray(), Providers.ToArray(), false, false);
     }
 }
 
@@ -628,6 +638,7 @@ public sealed record TopicBriefingArticle(
     string Source,
     DateTimeOffset PublishedAt,
     string Summary,
+    string ImageUrl,
     string[] Topics,
     string[] Providers,
     bool IsBookmarked,
