@@ -598,6 +598,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [backToTopVisible, setBackToTopVisible] = useState(false);
   const [readerArticle, setReaderArticle] = useState<FollowedArticle | null>(null);
   const [readerContent, setReaderContent] = useState<ReaderContent>({ status: "idle" });
+  const [topicPendingRemoval, setTopicPendingRemoval] = useState<string | null>(null);
   const [theme, setTheme] = useState<ColorTheme | null>(null);
   const [rssResolvingFeed, setRssResolvingFeed] = useState<string | null>(null);
   const [rssMessage, setRssMessage] = useState("");
@@ -614,6 +615,8 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const readerCloseButton = useRef<HTMLButtonElement>(null);
   const readerTrigger = useRef<HTMLAnchorElement | null>(null);
   const readerRequestSequence = useRef(0);
+  const topicRemovalCancelButton = useRef<HTMLButtonElement>(null);
+  const topicRemovalTrigger = useRef<HTMLElement | null>(null);
   const lastSavedPreferences = useRef("");
   const latestPreferences = useRef(preferences);
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
@@ -1406,6 +1409,19 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     };
   }, [readerArticle]);
 
+  useEffect(() => {
+    if (!topicPendingRemoval) return;
+    const focusFrame = window.requestAnimationFrame(() => topicRemovalCancelButton.current?.focus());
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeTopicRemovalConfirmation();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [topicPendingRemoval]);
+
   function addTopic(value: string) {
     const topic = value.trim().replace(/\s+/g, " ").slice(0, 80);
     if (!topic) return false;
@@ -1442,11 +1458,29 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     if (selectedTopic === topic) setSelectedTopic(ALL_TOPICS);
   }
 
+  function requestTopicRemoval(topic: string) {
+    topicRemovalTrigger.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    setTopicPendingRemoval(topic);
+  }
+
+  function closeTopicRemovalConfirmation() {
+    setTopicPendingRemoval(null);
+    window.requestAnimationFrame(() => topicRemovalTrigger.current?.focus());
+  }
+
+  function confirmTopicRemoval() {
+    if (!topicPendingRemoval) return;
+    const topic = topicPendingRemoval;
+    removeTopic(topic);
+    setTopicPendingRemoval(null);
+    setNotice(`Unfollowed ${topic}. Its saved history remains available.`);
+  }
+
   function unfollowSelectedTopic() {
     if (selectedTopic === ALL_TOPICS) return;
-    const topic = selectedTopic;
-    removeTopic(topic);
-    setNotice(`Unfollowed ${topic}. Its saved history remains available.`);
+    requestTopicRemoval(selectedTopic);
   }
 
   function openTickerEditor() {
@@ -2080,7 +2114,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                         </small>
                       )}
                     </span>
-                    <button type="button" onClick={() => removeTopic(topic)} aria-label={`Stop following ${topic}`}>&#215;</button>
+                    <button type="button" onClick={() => requestTopicRemoval(topic)} aria-label={`Stop following ${topic}`}>&#215;</button>
                   </li>
                 ))}
               </ul>
@@ -2663,6 +2697,37 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         )}
       </section>
       </div>
+
+      {topicPendingRemoval && (
+        <div
+          className="topic-confirmation-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeTopicRemovalConfirmation();
+          }}
+        >
+          <section
+            className="topic-confirmation"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="topic-confirmation-title"
+            aria-describedby="topic-confirmation-description"
+          >
+            <p className="topic-confirmation-kicker">Confirm unfollow</p>
+            <h2 id="topic-confirmation-title">Stop following {topicPendingRemoval}?</h2>
+            <p id="topic-confirmation-description">
+              Signal will stop gathering new coverage for this topic. Its existing History and Bookmarks will remain available.
+            </p>
+            <div className="topic-confirmation-actions">
+              <button ref={topicRemovalCancelButton} type="button" onClick={closeTopicRemovalConfirmation}>
+                Keep following
+              </button>
+              <button type="button" className="danger" onClick={confirmTopicRemoval}>
+                Unfollow {topicPendingRemoval}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {readerArticle && (
         <div

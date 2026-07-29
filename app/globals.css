@@ -2315,6 +2315,71 @@ main {
   transform: translateY(-2px);
 }
 
+.topic-confirmation-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+  background: var(--overlay);
+}
+
+.topic-confirmation {
+  width: min(100%, 32rem);
+  border: 1px solid var(--line);
+  background: var(--content-background);
+  color: var(--page-text);
+  padding: clamp(1.5rem, 4vw, 2.5rem);
+  box-shadow: 0 2rem 6rem rgba(0, 0, 0, 0.42);
+}
+
+.topic-confirmation-kicker {
+  margin: 0 0 0.7rem;
+  color: var(--red);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.topic-confirmation h2 {
+  margin: 0;
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: clamp(1.7rem, 4vw, 2.35rem);
+  font-weight: 600;
+  line-height: 1.05;
+}
+
+.topic-confirmation > p:not(.topic-confirmation-kicker) {
+  margin: 1rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+
+.topic-confirmation-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  margin-top: 1.75rem;
+}
+
+.topic-confirmation-actions button {
+  min-height: 2.65rem;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--page-text);
+  padding: 0.65rem 0.9rem;
+  cursor: pointer;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.topic-confirmation-actions button:hover { border-color: var(--page-text); }
+.topic-confirmation-actions .danger { border-color: var(--red); color: var(--red); }
+.topic-confirmation-actions .danger:hover { background: var(--red); color: white; }
+
 .article-reader-backdrop {
   position: fixed;
   inset: 0;
@@ -2682,6 +2747,8 @@ footer a { color: var(--paper); text-decoration: none; }
   .history-search button { min-height: 2.4rem; }
   .history-search button.history-search-clear { border-right: 1px solid var(--page-text); }
   .history-load-more { align-items: stretch; flex-direction: column; text-align: center; }
+  .topic-confirmation-actions { align-items: stretch; flex-direction: column-reverse; }
+  .topic-confirmation-actions button { width: 100%; }
   .filter-stack.pinned .filter-sticky-heading { padding: 0.58rem 0; }
   .filter-stack.pinned .filter-sticky-title > span { display: none; }
   .filter-stack.pinned .filter-sticky-summary > small { display: none; }
