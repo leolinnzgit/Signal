@@ -607,6 +607,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const requestSequence = useRef(0);
   const historyRequestSequence = useRef(0);
   const heroElement = useRef<HTMLElement>(null);
+  const controlPanelElement = useRef<HTMLDivElement>(null);
   const filterStackElement = useRef<HTMLDivElement>(null);
   const storyListElement = useRef<HTMLOListElement>(null);
   const pendingPinnedTopicScroll = useRef<string | null>(null);
@@ -1621,6 +1622,11 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   function showControls() {
     localStorage.setItem(CONTROLS_HIDDEN_STORAGE_KEY, "false");
     setControlsHidden(false);
+    if (window.matchMedia("(max-width: 900px)").matches) {
+      window.requestAnimationFrame(() => {
+        controlPanelElement.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    }
   }
 
   function toggleTheme() {
@@ -1877,19 +1883,18 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         </div>
       </header>
 
-      {controlsHidden && (
-        <button className="control-panel-reveal" type="button" onClick={showControls}>
-          Topics <span aria-hidden="true">&#43;</span>
-        </button>
-      )}
-
       <section ref={heroElement} className={`hero${controlsHidden ? " controls-hidden" : ""}${heroCompact ? " compact" : ""}`} id="top">
         <div className="hero-copy">
           <p className="eyebrow">Your interests, continuously monitored</p>
           <h1>Stay current on<br />{" "}<em>what matters.</em></h1>
           <p className="lede">One focused briefing across multiple news networks and the publishers you trust.</p>
         </div>
-        <aside className="hero-context" aria-label="Local date, time, and weather" aria-live="polite">
+        <aside className="hero-context" aria-label="Topics, local date, time, and weather" aria-live="polite">
+          {controlsHidden && (
+            <button className="hero-topics-button" type="button" onClick={showControls}>
+              Topics <span aria-hidden="true">&#43;</span>
+            </button>
+          )}
           <div className="hero-clock">
             <time className="hero-time" dateTime={currentTime?.toISOString()}>{currentTimeLabel}</time>
             <span className="hero-date">{currentDateLabel}</span>
@@ -1939,7 +1944,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
 
       <div className={controlsHidden ? "content-layout controls-hidden" : "content-layout"}>
 
-        {!controlsHidden && <div className={controlsExpanded ? "control-panel expanded" : "control-panel"}>
+        {!controlsHidden && <div ref={controlPanelElement} className={controlsExpanded ? "control-panel expanded" : "control-panel"}>
           <div className="control-panel-header">
             <div className="control-panel-heading">
               <h2>Add a topic to follow</h2>

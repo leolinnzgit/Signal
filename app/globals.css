@@ -815,31 +815,26 @@ main {
 
 .control-panel-dismiss:hover { border-color: #f08b76; color: #f08b76; }
 
-.control-panel-reveal {
-  position: fixed;
-  z-index: 30;
-  top: 42%;
-  right: 0;
+.hero-topics-button {
   display: inline-flex;
+  min-height: 2.5rem;
+  flex: 0 0 auto;
   align-items: center;
   gap: 0.5rem;
-  border: 0;
-  border-radius: 6px 0 0 6px;
+  border: 1px solid var(--line);
   background: var(--ink);
   color: var(--paper);
-  padding: 0.8rem 0.65rem;
+  padding: 0.65rem 0.8rem;
   cursor: pointer;
-  box-shadow: 0 8px 25px rgba(23, 24, 21, 0.22);
   font-size: 0.64rem;
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  writing-mode: vertical-rl;
 }
 
-.control-panel-reveal span { color: #f08b76; font-size: 1rem; }
-.control-panel-reveal:hover { background: var(--red); }
-.control-panel-reveal:hover span { color: white; }
+.hero-topics-button span { color: #f08b76; font-size: 1rem; line-height: 1; }
+.hero-topics-button:hover { border-color: var(--red); background: var(--red); }
+.hero-topics-button:hover span { color: white; }
 
 .control-panel-chevron {
   display: inline-block;
@@ -2659,7 +2654,7 @@ footer a { color: var(--paper); text-decoration: none; }
   .control-panel-body { padding: 1.4rem; }
   .control-panel-toggle { padding: 0.58rem 0.65rem; }
   .control-panel-dismiss { width: 2.25rem; height: 2.25rem; }
-  .control-panel-reveal { top: auto; bottom: 1.25rem; padding: 0.7rem 0.6rem; }
+  .hero-topics-button { min-height: 2.25rem; padding: 0.55rem 0.65rem; }
   .topic-input-wrap { grid-template-columns: 1fr; }
   .topic-input-wrap button { justify-self: start; padding-left: 0; }
   .source-toggles { grid-template-columns: 1fr; }
