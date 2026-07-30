@@ -3330,15 +3330,30 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         </div>
       )}
 
-      {backToTopVisible && (
-        <a
-          className="floating-back-to-top"
-          href="#top"
-          aria-label="Back to top"
-          title="Back to top"
-        >
-          <span aria-hidden="true">&#8593;</span>
-        </a>
+      {(nextUnreadTopic || backToTopVisible) && (
+        <nav className="floating-navigation" aria-label="Quick page navigation">
+          {nextUnreadTopic && (
+            <button
+              type="button"
+              className="floating-next-unread"
+              onClick={() => selectTopicFilter(nextUnreadTopic)}
+              aria-label={`Go to next unread topic: ${nextUnreadTopic}`}
+              title={`Next unread: ${nextUnreadTopic}`}
+            >
+              <span aria-hidden="true">&#8594;</span>
+            </button>
+          )}
+          {backToTopVisible && (
+            <a
+              className="floating-back-to-top"
+              href="#top"
+              aria-label="Back to top"
+              title="Back to top"
+            >
+              <span aria-hidden="true">&#8593;</span>
+            </a>
+          )}
+        </nav>
       )}
       <footer><p><span className="footer-dot" /> SIGNAL gathers public reporting and sends you to the original publisher.</p></footer>
     </main>

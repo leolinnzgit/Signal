@@ -2489,11 +2489,19 @@ button.local-weather {
 .history-load-more button:disabled { cursor: wait; opacity: 0.55; }
 .history-load-more span { color: var(--text-muted); font-size: 0.68rem; }
 
-.floating-back-to-top {
+.floating-navigation {
   position: fixed;
   left: clamp(1rem, 3vw, 2rem);
   bottom: clamp(1rem, 3vw, 2rem);
   z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.floating-back-to-top,
+.floating-next-unread {
   display: grid;
   width: 3rem;
   height: 3rem;
@@ -2509,13 +2517,39 @@ button.local-weather {
   animation: back-to-top-in 160ms ease-out both;
   transition: transform 180ms ease, background 180ms ease, border-color 180ms ease, color 180ms ease;
 }
+
+.floating-next-unread {
+  position: relative;
+  border-color: var(--red);
+  background: var(--red);
+  color: white;
+  cursor: pointer;
+}
+
+.floating-next-unread::after {
+  content: "";
+  position: absolute;
+  top: 0.24rem;
+  right: 0.24rem;
+  width: 0.46rem;
+  height: 0.46rem;
+  border: 2px solid var(--red);
+  border-radius: 50%;
+  background: white;
+}
+
 @keyframes back-to-top-in { from { opacity: 0; } to { opacity: 1; } }
-.floating-back-to-top:hover {
+.floating-back-to-top:hover,
+.floating-next-unread:hover {
   border-color: var(--red);
   background: var(--red);
   color: white;
   transform: translateY(-2px);
 }
+
+.floating-next-unread:hover { border-color: var(--page-text); background: var(--page-text); }
+.floating-next-unread:focus-visible,
+.floating-back-to-top:focus-visible { outline: 2px solid var(--red); outline-offset: 3px; }
 
 .topic-confirmation-backdrop {
   position: fixed;
@@ -3077,7 +3111,9 @@ footer a { color: var(--paper); text-decoration: none; }
   .article-reader-actions a { padding: 0.55rem 0.65rem; }
   .article-reader h2 { font-size: 1.3rem; }
   .article-reader-header > p { display: none; }
-  .floating-back-to-top { left: 1rem; bottom: 1rem; width: 2.75rem; height: 2.75rem; }
+  .floating-navigation { left: 1rem; bottom: 1rem; }
+  .floating-back-to-top,
+  .floating-next-unread { width: 2.75rem; height: 2.75rem; }
   footer { flex-direction: column; }
 }
 
