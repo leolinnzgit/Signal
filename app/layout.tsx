@@ -15,6 +15,18 @@ export async function generateMetadata(): Promise<Metadata> {
     metadataBase: new URL(origin),
     title: "Signal — Your personal news monitor",
     description,
+    applicationName: "Signal",
+    manifest: "/manifest.webmanifest",
+    themeColor: "#171815",
+    appleWebApp: {
+      capable: true,
+      statusBarStyle: "black-translucent",
+      title: "Signal",
+    },
+    icons: {
+      icon: "/favicon.svg",
+      apple: "/icons/signal-180.png",
+    },
     openGraph: {
       title: "Signal — Stay current on what matters",
       description,

@@ -39,6 +39,11 @@ type ArticleReaderResponse = {
   article?: ExtractedReaderArticle;
 };
 
+type BeforeInstallPromptEvent = Event & {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
+};
+
 export type StoredArticle = FollowedArticle & {
   firstSeenAt: string;
   lastSeenAt: string;
@@ -623,6 +628,10 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [readerArticle, setReaderArticle] = useState<FollowedArticle | null>(null);
   const [readerContent, setReaderContent] = useState<ReaderContent>({ status: "idle" });
   const [topicPendingRemoval, setTopicPendingRemoval] = useState<string | null>(null);
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [installHelpOpen, setInstallHelpOpen] = useState(false);
+  const [appInstalled, setAppInstalled] = useState(false);
+  const [iosInstall, setIosInstall] = useState(false);
   const [theme, setTheme] = useState<ColorTheme | null>(null);
   const [rssResolvingFeed, setRssResolvingFeed] = useState<string | null>(null);
   const [rssMessage, setRssMessage] = useState("");
@@ -641,6 +650,8 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const readerRequestSequence = useRef(0);
   const topicRemovalCancelButton = useRef<HTMLButtonElement>(null);
   const topicRemovalTrigger = useRef<HTMLElement | null>(null);
+  const installHelpCloseButton = useRef<HTMLButtonElement>(null);
+  const installTrigger = useRef<HTMLButtonElement | null>(null);
   const lastSavedPreferences = useRef("");
   const latestPreferences = useRef(preferences);
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
@@ -798,6 +809,45 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     };
     media.addEventListener("change", followSystemTheme);
     return () => media.removeEventListener("change", followSystemTheme);
+  }, []);
+
+  useEffect(() => {
+    const navigatorWithStandalone = navigator as Navigator & { standalone?: boolean };
+    const runningStandalone = window.matchMedia("(display-mode: standalone)").matches
+      || navigatorWithStandalone.standalone === true;
+    const initializeFrame = window.requestAnimationFrame(() => {
+      setAppInstalled(runningStandalone);
+      setIosInstall(
+        /iphone|ipad|ipod/i.test(navigator.userAgent)
+        || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1),
+      );
+    });
+
+    if ("serviceWorker" in navigator) {
+      void navigator.serviceWorker.register("/service-worker.js").catch(() => {
+        // Installation remains available through the browser even if registration
+        // is temporarily blocked by a local browser policy.
+      });
+    }
+
+    const captureInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as BeforeInstallPromptEvent);
+    };
+    const confirmInstallation = () => {
+      setInstallPrompt(null);
+      setInstallHelpOpen(false);
+      setAppInstalled(true);
+      setNotice("Signal is installed and ready to open from your device.");
+    };
+
+    window.addEventListener("beforeinstallprompt", captureInstallPrompt);
+    window.addEventListener("appinstalled", confirmInstallation);
+    return () => {
+      window.cancelAnimationFrame(initializeFrame);
+      window.removeEventListener("beforeinstallprompt", captureInstallPrompt);
+      window.removeEventListener("appinstalled", confirmInstallation);
+    };
   }, []);
 
   useEffect(() => {
@@ -1480,6 +1530,19 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     };
   }, [topicPendingRemoval]);
 
+  useEffect(() => {
+    if (!installHelpOpen) return;
+    const focusFrame = window.requestAnimationFrame(() => installHelpCloseButton.current?.focus());
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeInstallHelp();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [installHelpOpen]);
+
   function addTopic(value: string) {
     const topic = value.trim().replace(/\s+/g, " ").slice(0, 80);
     if (!topic) return false;
@@ -1731,6 +1794,29 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     setTheme(nextTheme);
   }
 
+  async function installSignalApp() {
+    installTrigger.current = document.activeElement instanceof HTMLButtonElement
+      ? document.activeElement
+      : null;
+
+    if (!installPrompt) {
+      setInstallHelpOpen(true);
+      return;
+    }
+
+    await installPrompt.prompt();
+    const choice = await installPrompt.userChoice;
+    setInstallPrompt(null);
+    if (choice.outcome === "dismissed") {
+      setNotice("Installation cancelled. You can install Signal whenever you are ready.");
+    }
+  }
+
+  function closeInstallHelp() {
+    setInstallHelpOpen(false);
+    window.requestAnimationFrame(() => installTrigger.current?.focus());
+  }
+
   function changeFeedView(next: "latest" | "history" | "bookmarks") {
     setFeedView(next);
     setSelectedTopic(ALL_TOPICS);
@@ -1950,6 +2036,18 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         </a>
         <div className="header-actions">
           <div className="live-status"><span className="pulse" aria-hidden="true" />Live web briefing</div>
+          {!appInstalled && (
+            <button
+              type="button"
+              className="app-install-button"
+              onClick={() => void installSignalApp()}
+              aria-label="Install Signal on this device"
+              title="Install Signal on this device"
+            >
+              <span className="app-install-icon" aria-hidden="true">↓</span>
+              <span className="app-install-label">Install app</span>
+            </button>
+          )}
           <button
             type="button"
             className="theme-toggle"
@@ -2823,6 +2921,47 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               </button>
               <button type="button" className="danger" onClick={confirmTopicRemoval}>
                 Unfollow {topicPendingRemoval}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {installHelpOpen && (
+        <div
+          className="topic-confirmation-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeInstallHelp();
+          }}
+        >
+          <section
+            className="topic-confirmation app-install-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="app-install-title"
+            aria-describedby="app-install-description"
+          >
+            <p className="topic-confirmation-kicker">Install Signal</p>
+            <h2 id="app-install-title">Keep your briefing one tap away.</h2>
+            <p id="app-install-description">
+              Your browser does not currently offer its one-tap install prompt. You can still add Signal to this device.
+            </p>
+            {iosInstall ? (
+              <ol className="app-install-steps">
+                <li>Open Signal in Safari.</li>
+                <li>Tap the Share button.</li>
+                <li>Choose <strong>Add to Home Screen</strong>, then tap <strong>Add</strong>.</li>
+              </ol>
+            ) : (
+              <ul className="app-install-steps">
+                <li>Chrome or Edge: open the browser menu and choose <strong>Install Signal</strong> or <strong>Install app</strong>.</li>
+                <li>Android: open the browser menu and choose <strong>Add to Home screen</strong>.</li>
+                <li>Safari on Mac: choose <strong>File → Add to Dock</strong>.</li>
+              </ul>
+            )}
+            <div className="topic-confirmation-actions">
+              <button ref={installHelpCloseButton} type="button" onClick={closeInstallHelp}>
+                Got it
               </button>
             </div>
           </section>

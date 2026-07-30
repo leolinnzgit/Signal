@@ -152,7 +152,8 @@ main {
 .user-identity strong { font-size: 0.7rem; font-weight: 700; }
 .user-identity small { color: var(--text-soft); font-size: 0.6rem; }
 
-.theme-toggle {
+.theme-toggle,
+.app-install-button {
   display: inline-flex;
   align-items: center;
   gap: 0.42rem;
@@ -168,8 +169,13 @@ main {
   letter-spacing: 0.07em;
   text-transform: uppercase;
 }
-.theme-toggle:hover { border-color: var(--red); color: var(--red); }
-.theme-toggle-icon { font-size: 0.9rem; line-height: 1; }
+.theme-toggle:hover,
+.app-install-button:hover { border-color: var(--red); color: var(--red); }
+.theme-toggle:focus-visible,
+.app-install-button:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
+.theme-toggle-icon,
+.app-install-icon { font-size: 0.9rem; line-height: 1; }
+.app-install-icon { font-weight: 400; transform: translateY(-0.04rem); }
 
 .current-user a {
   color: var(--red);
@@ -2506,6 +2512,20 @@ button.local-weather {
 .topic-confirmation-actions .danger { border-color: var(--red); color: var(--red); }
 .topic-confirmation-actions .danger:hover { background: var(--red); color: white; }
 
+.app-install-dialog { width: min(100%, 36rem); }
+
+.app-install-steps {
+  display: grid;
+  gap: 0.7rem;
+  margin: 1.25rem 0 0;
+  padding-left: 1.35rem;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
+.app-install-steps strong { color: var(--page-text); }
+
 .article-reader-backdrop {
   position: fixed;
   inset: 0;
@@ -2818,7 +2838,9 @@ footer a { color: var(--paper); text-decoration: none; }
   .live-status::after { content: "Live"; font-size: 0.64rem; }
   .header-actions { gap: 0; }
   .theme-toggle { min-width: 2rem; justify-content: center; padding: 0.34rem; margin-right: 0.45rem; }
+  .app-install-button { min-width: 2rem; justify-content: center; padding: 0.34rem; margin-right: 0.35rem; }
   .theme-toggle-label { display: none; }
+  .app-install-label { display: none; }
   .header-actions .live-status { display: none; }
   .current-user { gap: 0.45rem; padding-left: 0; border-left: 0; }
   .user-avatar { width: 1.75rem; height: 1.75rem; }
