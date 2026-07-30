@@ -79,6 +79,15 @@ type LocalWeather = {
   timezone: string;
 };
 
+type WeatherForecastDay = {
+  date: string;
+  weatherCode: number;
+  temperatureMax: number;
+  temperatureMin: number;
+  precipitationProbability: number;
+  windSpeed: number;
+};
+
 type OpenMeteoResponse = {
   timezone?: string;
   current?: {
@@ -88,6 +97,14 @@ type OpenMeteoResponse = {
     weather_code?: number;
     wind_speed_10m?: number;
     is_day?: number;
+  };
+  daily?: {
+    time?: string[];
+    weather_code?: number[];
+    temperature_2m_max?: number[];
+    temperature_2m_min?: number[];
+    precipitation_probability_max?: number[];
+    wind_speed_10m_max?: number[];
   };
 };
 
@@ -510,6 +527,11 @@ function weatherGlyph(code: number, isDay: boolean) {
   return "\u2614";
 }
 
+function forecastDayLabel(date: string, index: number) {
+  if (index === 0) return "Today";
+  return new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: "short" });
+}
+
 function timezonePlace(timezone: string) {
   const segment = timezone.split("/").at(-1);
   return segment ? segment.replaceAll("_", " ") : "Current location";
@@ -585,8 +607,10 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [heroCompact, setHeroCompact] = useState(false);
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
   const [localWeather, setLocalWeather] = useState<LocalWeather | null>(null);
+  const [weatherForecast, setWeatherForecast] = useState<WeatherForecastDay[]>([]);
   const [weatherStatus, setWeatherStatus] = useState<WeatherStatus>("locating");
   const [weatherRetryKey, setWeatherRetryKey] = useState(0);
+  const [forecastOpen, setForecastOpen] = useState(false);
   const [marketQuote, setMarketQuote] = useState<MarketQuote | null>(null);
   const [marketNotice, setMarketNotice] = useState<MarketNotice | null>(null);
   const [tickerEditorOpen, setTickerEditorOpen] = useState(false);
@@ -798,6 +822,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     }
 
     setWeatherStatus("locating");
+    setForecastOpen(false);
     navigator.geolocation.getCurrentPosition(
       ({ coords }) => {
         const fetchWeather = async () => {
@@ -806,10 +831,11 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               latitude: coords.latitude.toFixed(4),
               longitude: coords.longitude.toFixed(4),
               current: "temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,is_day",
+              daily: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max",
               temperature_unit: "celsius",
               wind_speed_unit: "kmh",
               timezone: "auto",
-              forecast_days: "1",
+              forecast_days: "7",
             });
             const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params.toString()}`, {
               cache: "no-store",
@@ -828,6 +854,25 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               throw new Error("Weather unavailable");
             }
             if (cancelled) return;
+            const daily = data.daily;
+            const forecast = (daily?.time ?? []).slice(0, 7).flatMap((date, index) => {
+              const weatherCode = daily?.weather_code?.[index];
+              const temperatureMax = daily?.temperature_2m_max?.[index];
+              const temperatureMin = daily?.temperature_2m_min?.[index];
+              if (
+                typeof weatherCode !== "number"
+                || typeof temperatureMax !== "number"
+                || typeof temperatureMin !== "number"
+              ) return [];
+              return [{
+                date,
+                weatherCode,
+                temperatureMax,
+                temperatureMin,
+                precipitationProbability: daily?.precipitation_probability_max?.[index] ?? 0,
+                windSpeed: daily?.wind_speed_10m_max?.[index] ?? 0,
+              }];
+            });
             setLocalWeather({
               temperature: current.temperature_2m,
               apparentTemperature: current.apparent_temperature,
@@ -837,9 +882,13 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               isDay: current.is_day !== 0,
               timezone: data.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
             });
+            setWeatherForecast(forecast);
             setWeatherStatus("ready");
           } catch {
-            if (!cancelled) setWeatherStatus("error");
+            if (!cancelled) {
+              setWeatherForecast([]);
+              setWeatherStatus("error");
+            }
           }
         };
 
@@ -857,6 +906,15 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
       if (weatherRefresh !== undefined) window.clearInterval(weatherRefresh);
     };
   }, [weatherRetryKey]);
+
+  useEffect(() => {
+    if (!forecastOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setForecastOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [forecastOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1655,6 +1713,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
 
   function showControls() {
     localStorage.setItem(CONTROLS_HIDDEN_STORAGE_KEY, "false");
+    setForecastOpen(false);
     setControlsHidden(false);
     if (window.matchMedia("(max-width: 900px)").matches) {
       window.requestAnimationFrame(() => {
@@ -1934,7 +1993,13 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
             <span className="hero-date">{currentDateLabel}</span>
           </div>
           {weatherStatus === "ready" && localWeather ? (
-            <div className="local-weather">
+            <button
+              type="button"
+              className="local-weather weather-summary-button"
+              aria-expanded={forecastOpen}
+              aria-controls="seven-day-weather"
+              onClick={() => setForecastOpen((current) => !current)}
+            >
               <span className="weather-glyph" aria-hidden="true">
                 {weatherGlyph(localWeather.weatherCode, localWeather.isDay)}
               </span>
@@ -1953,7 +2018,10 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                   Wind {Math.round(localWeather.windSpeed)} km/h
                 </small>
               </div>
-            </div>
+              <span className="weather-forecast-trigger">
+                7 days <b aria-hidden="true">{forecastOpen ? "\u2191" : "\u2193"}</b>
+              </span>
+            </button>
           ) : weatherStatus === "locating" ? (
             <div className="weather-message">
               <span className="weather-locating" aria-hidden="true" />
@@ -1974,6 +2042,38 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
             </div>
           )}
         </aside>
+        {forecastOpen && weatherForecast.length > 0 && localWeather && (
+          <section className="weather-forecast-panel" id="seven-day-weather" aria-label="Seven day weather forecast">
+            <div className="weather-forecast-heading">
+              <div>
+                <span>Seven-day forecast</span>
+                <strong>{timezonePlace(localWeather.timezone)}</strong>
+              </div>
+              <button type="button" onClick={() => setForecastOpen(false)} aria-label="Close seven-day forecast">
+                &#215;
+              </button>
+            </div>
+            <div className="weather-forecast-days">
+              {weatherForecast.map((day, index) => (
+                <article className="weather-forecast-day" key={day.date}>
+                  <time dateTime={day.date}>{forecastDayLabel(day.date, index)}</time>
+                  <span className="weather-forecast-glyph" aria-hidden="true">
+                    {weatherGlyph(day.weatherCode, true)}
+                  </span>
+                  <strong>
+                    {Math.round(day.temperatureMax)}°
+                    <span>{Math.round(day.temperatureMin)}°</span>
+                  </strong>
+                  <small>{describeWeather(day.weatherCode)}</small>
+                  <p>
+                    <span>Rain {Math.round(day.precipitationProbability)}%</span>
+                    <span>Wind {Math.round(day.windSpeed)} km/h</span>
+                  </p>
+                </article>
+              ))}
+            </div>
+          </section>
+        )}
       </section>
 
       <div className={controlsHidden ? "content-layout controls-hidden" : "content-layout"}>

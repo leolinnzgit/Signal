@@ -531,6 +531,7 @@ main {
 }
 
 .hero {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
@@ -620,6 +621,131 @@ main {
   align-items: center;
   gap: 0.8rem;
 }
+
+button.local-weather {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.weather-summary-button:hover .weather-glyph,
+.weather-summary-button[aria-expanded="true"] .weather-glyph {
+  border-color: var(--red);
+  background: color-mix(in srgb, var(--red) 8%, transparent);
+}
+
+.weather-forecast-trigger {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--red);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.weather-forecast-trigger b { font-size: 0.8rem; line-height: 1; }
+
+.weather-forecast-panel {
+  position: absolute;
+  z-index: 28;
+  top: 100%;
+  right: clamp(1.25rem, 7vw, 8rem);
+  left: clamp(1.25rem, 7vw, 8rem);
+  border: 1px solid var(--line);
+  background: var(--content-background);
+  color: var(--page-text);
+  padding: 1rem;
+  box-shadow: 0 1.2rem 3rem var(--shadow);
+}
+
+.weather-forecast-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.15rem 0.2rem 0.85rem;
+}
+
+.weather-forecast-heading > div {
+  display: flex;
+  align-items: baseline;
+  gap: 0.65rem;
+}
+
+.weather-forecast-heading span {
+  color: var(--red);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.weather-forecast-heading strong { font-size: 0.72rem; }
+
+.weather-forecast-heading > button {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--page-text);
+  cursor: pointer;
+  font-size: 1.1rem;
+}
+
+.weather-forecast-heading > button:hover { border-color: var(--red); color: var(--red); }
+
+.weather-forecast-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(7rem, 1fr));
+  overflow-x: auto;
+  border-top: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+}
+
+.weather-forecast-day {
+  min-width: 0;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 0.85rem;
+}
+
+.weather-forecast-day time {
+  display: block;
+  color: var(--text-muted);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.weather-forecast-glyph {
+  display: block;
+  margin: 0.7rem 0 0.55rem;
+  color: var(--red);
+  font-size: 1.55rem;
+  line-height: 1;
+}
+
+.weather-forecast-day > strong {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: 1.2rem;
+}
+
+.weather-forecast-day > strong span { color: var(--text-muted); font-size: 0.88rem; }
+.weather-forecast-day > small { display: block; min-height: 2.4em; margin-top: 0.25rem; color: var(--text-muted); font-size: 0.6rem; line-height: 1.2; }
+.weather-forecast-day > p { display: grid; gap: 0.18rem; margin: 0.7rem 0 0; color: var(--text-faint); font-size: 0.56rem; line-height: 1.3; }
 
 .weather-glyph {
   display: grid;
@@ -2665,6 +2791,7 @@ footer a { color: var(--paper); text-decoration: none; }
     border-left: 0;
   }
   .hero.compact .hero-context { padding-top: 0; border-top: 0; }
+  .weather-forecast-panel { right: 1.25rem; left: 1.25rem; }
   .hero-clock { text-align: left; }
   .content-layout { grid-template-columns: minmax(0, 1fr); }
   .content-layout .control-panel {
@@ -2714,6 +2841,11 @@ footer a { color: var(--paper); text-decoration: none; }
   .hero.compact .weather-message small,
   .hero.compact .weather-message button { display: none; }
   .hero.compact .weather-message > span:not(.weather-glyph):not(.weather-locating) { min-width: 0; }
+  .hero.compact .weather-summary-button { gap: 0.45rem; }
+  .hero.compact .weather-reading > div span { display: none; }
+  .hero.compact .weather-forecast-trigger { font-size: 0; gap: 0; }
+  .weather-forecast-panel { right: 0.75rem; left: 0.75rem; padding: 0.75rem; }
+  .weather-forecast-heading > div { align-items: flex-start; flex-direction: column; gap: 0.2rem; }
   .control-panel { box-shadow: 9px 9px 0 rgba(200, 63, 50, 0.18); }
   .control-panel-header { min-height: 5.25rem; padding: 1rem 1.15rem; }
   .control-panel-body { padding: 1.4rem; }
