@@ -2519,23 +2519,10 @@ button.local-weather {
 }
 
 .floating-next-unread {
-  position: relative;
   border-color: var(--red);
   background: var(--red);
   color: white;
   cursor: pointer;
-}
-
-.floating-next-unread::after {
-  content: "";
-  position: absolute;
-  top: 0.24rem;
-  right: 0.24rem;
-  width: 0.46rem;
-  height: 0.46rem;
-  border: 2px solid var(--red);
-  border-radius: 50%;
-  background: white;
 }
 
 @keyframes back-to-top-in { from { opacity: 0; } to { opacity: 1; } }
