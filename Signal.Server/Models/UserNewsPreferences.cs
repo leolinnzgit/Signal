@@ -29,5 +29,7 @@ public sealed class UserNewsPreferences
 
     public string TickerOverridesJson { get; set; } = "{}";
 
+    public string WeatherLocationJson { get; set; } = "{}";
+
     public DateTimeOffset UpdatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
 }

@@ -57,6 +57,8 @@ public sealed class PreferencesController(
         var rssFeedsJson = JsonSerializer.Serialize(rssFeeds);
         var tickerOverrides = NormalizeTickerOverrides(request.TickerOverrides, topics);
         var tickerOverridesJson = JsonSerializer.Serialize(tickerOverrides);
+        var weatherLocation = NormalizeWeatherLocation(request.WeatherLocation);
+        var weatherLocationJson = weatherLocation is null ? "{}" : JsonSerializer.Serialize(weatherLocation);
         var storyLimit = NormalizeStoryLimit(request.Limit);
         var forceRefresh = preferences is null
             || preferences.StoryLimit != storyLimit
@@ -81,6 +83,7 @@ public sealed class PreferencesController(
         preferences.GdeltEnabled = request.Sources.Gdelt;
         preferences.RssFeedsJson = rssFeedsJson;
         preferences.TickerOverridesJson = tickerOverridesJson;
+        preferences.WeatherLocationJson = weatherLocationJson;
         preferences.UpdatedAtUtc = DateTimeOffset.UtcNow;
 
         await SyncTopicRefreshStatesAsync(
@@ -186,6 +189,7 @@ public sealed class PreferencesController(
         preferences.EmailSummaryEnabled,
         NormalizeRetentionDays(preferences.ArticleRetentionDays),
         DeserializeTickerOverrides(preferences.TickerOverridesJson, DeserializeList(preferences.TopicsJson)),
+        DeserializeWeatherLocation(preferences.WeatherLocationJson),
         new NewsSourcesResponse(
             preferences.GoogleEnabled,
             preferences.GdeltEnabled,
@@ -200,6 +204,41 @@ public sealed class PreferencesController(
         value?.ToLowerInvariant() is "small" or "medium" or "large"
             ? value.ToLowerInvariant()
             : "large";
+
+    private static WeatherLocationResponse? NormalizeWeatherLocation(WeatherLocationRequest? location)
+    {
+        if (location is null
+            || !double.IsFinite(location.Latitude)
+            || location.Latitude is < -90 or > 90
+            || !double.IsFinite(location.Longitude)
+            || location.Longitude is < -180 or > 180)
+            return null;
+
+        var name = Regex.Replace(location.Name?.Trim() ?? "", @"\s+", " ");
+        if (name.Length is < 1 or > 120) return null;
+        var timezone = (location.Timezone ?? "").Trim();
+        if (timezone.Length > 80) timezone = timezone[..80];
+        return new WeatherLocationResponse(name, location.Latitude, location.Longitude, timezone);
+    }
+
+    private static WeatherLocationResponse? DeserializeWeatherLocation(string json)
+    {
+        try
+        {
+            var location = JsonSerializer.Deserialize<WeatherLocationResponse>(json);
+            return location is null
+                ? null
+                : NormalizeWeatherLocation(new WeatherLocationRequest(
+                    location.Name,
+                    location.Latitude,
+                    location.Longitude,
+                    location.Timezone));
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
 
     private static Dictionary<string, string> NormalizeTickerOverrides(
         IReadOnlyDictionary<string, string>? values,
@@ -314,6 +353,7 @@ public sealed record NewsPreferencesResponse(
     bool EmailSummaryEnabled,
     int ArticleRetentionDays,
     IReadOnlyDictionary<string, string> TickerOverrides,
+    WeatherLocationResponse? WeatherLocation,
     NewsSourcesResponse Sources)
 {
     public static NewsPreferencesResponse Default { get; } = new(
@@ -324,10 +364,17 @@ public sealed record NewsPreferencesResponse(
         false,
         30,
         new Dictionary<string, string>(),
+        null,
         new NewsSourcesResponse(true, true, []));
 }
 
 public sealed record NewsSourcesResponse(bool Google, bool Gdelt, string[] RssFeeds);
+
+public sealed record WeatherLocationResponse(
+    string Name,
+    double Latitude,
+    double Longitude,
+    string Timezone);
 
 public sealed record NewsPreferencesRequest(
     [Required] string[] Topics,
@@ -337,7 +384,14 @@ public sealed record NewsPreferencesRequest(
     bool EmailSummaryEnabled,
     int ArticleRetentionDays,
     IReadOnlyDictionary<string, string>? TickerOverrides,
+    WeatherLocationRequest? WeatherLocation,
     [Required] NewsSourcesRequest Sources);
+
+public sealed record WeatherLocationRequest(
+    [Required, MaxLength(120)] string Name,
+    [Range(-90, 90)] double Latitude,
+    [Range(-180, 180)] double Longitude,
+    [MaxLength(80)] string? Timezone);
 
 public sealed record NewsSourcesRequest(
     bool Google,

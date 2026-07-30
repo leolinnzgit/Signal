@@ -82,6 +82,7 @@ type LocalWeather = {
   windSpeed: number;
   isDay: boolean;
   timezone: string;
+  locationName: string;
 };
 
 type WeatherForecastDay = {
@@ -111,6 +112,20 @@ type OpenMeteoResponse = {
     precipitation_probability_max?: number[];
     wind_speed_10m_max?: number[];
   };
+};
+
+type WeatherLocationSearchResult = {
+  id: number;
+  name: string;
+  latitude: number;
+  longitude: number;
+  timezone?: string;
+  country?: string;
+  admin1?: string;
+};
+
+type OpenMeteoGeocodingResponse = {
+  results?: WeatherLocationSearchResult[];
 };
 
 type WeatherStatus = "locating" | "ready" | "denied" | "error" | "unsupported";
@@ -151,6 +166,13 @@ export type SourcePreferences = {
 
 export type StoryTitleSize = "small" | "medium" | "large";
 
+export type WeatherLocationPreference = {
+  name: string;
+  latitude: number;
+  longitude: number;
+  timezone: string;
+};
+
 export type NewsPreferences = {
   topics: string[];
   limit: number;
@@ -159,6 +181,7 @@ export type NewsPreferences = {
   emailSummaryEnabled: boolean;
   articleRetentionDays: number;
   tickerOverrides: Record<string, string>;
+  weatherLocation: WeatherLocationPreference | null;
   sources: SourcePreferences;
 };
 
@@ -240,6 +263,7 @@ const DEFAULTS: NewsPreferences = {
   emailSummaryEnabled: false,
   articleRetentionDays: 30,
   tickerOverrides: {},
+  weatherLocation: null,
   sources: { google: true, gdelt: true, rssFeeds: [] },
 };
 const STORY_LIMIT_OPTIONS = [10, ...Array.from({ length: 25 }, (_, index) => (index + 1) * 20)];
@@ -468,6 +492,26 @@ function normalizePreferences(saved: Partial<NewsPreferences> & { topic?: string
     if (/^[A-Z0-9][A-Z0-9.^-]{0,14}$/.test(symbol)) result[topic] = symbol;
     return result;
   }, {});
+  const savedWeatherLocation = saved.weatherLocation;
+  const weatherLocation = savedWeatherLocation
+    && typeof savedWeatherLocation === "object"
+    && typeof savedWeatherLocation.name === "string"
+    && savedWeatherLocation.name.trim()
+    && Number.isFinite(Number(savedWeatherLocation.latitude))
+    && Number(savedWeatherLocation.latitude) >= -90
+    && Number(savedWeatherLocation.latitude) <= 90
+    && Number.isFinite(Number(savedWeatherLocation.longitude))
+    && Number(savedWeatherLocation.longitude) >= -180
+    && Number(savedWeatherLocation.longitude) <= 180
+      ? {
+          name: savedWeatherLocation.name.trim().replace(/\s+/g, " ").slice(0, 120),
+          latitude: Number(savedWeatherLocation.latitude),
+          longitude: Number(savedWeatherLocation.longitude),
+          timezone: typeof savedWeatherLocation.timezone === "string"
+            ? savedWeatherLocation.timezone.trim().slice(0, 80)
+            : "",
+        }
+      : null;
 
   return {
     topics,
@@ -485,6 +529,7 @@ function normalizePreferences(saved: Partial<NewsPreferences> & { topic?: string
       ? Number(saved.articleRetentionDays)
       : DEFAULTS.articleRetentionDays,
     tickerOverrides,
+    weatherLocation,
     sources: {
       google: typeof saved.sources?.google === "boolean" ? saved.sources.google : true,
       gdelt: typeof saved.sources?.gdelt === "boolean" ? saved.sources.gdelt : true,
@@ -540,6 +585,12 @@ function forecastDayLabel(date: string, index: number) {
 function timezonePlace(timezone: string) {
   const segment = timezone.split("/").at(-1);
   return segment ? segment.replaceAll("_", " ") : "Current location";
+}
+
+function weatherLocationLabel(location: Pick<WeatherLocationSearchResult, "name" | "admin1" | "country">) {
+  return [location.name, location.admin1, location.country]
+    .filter((part, index, values): part is string => Boolean(part) && values.indexOf(part) === index)
+    .join(", ");
 }
 
 function formatMarketPrice(price: number, currency: string) {
@@ -616,6 +667,11 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [weatherStatus, setWeatherStatus] = useState<WeatherStatus>("locating");
   const [weatherRetryKey, setWeatherRetryKey] = useState(0);
   const [forecastOpen, setForecastOpen] = useState(false);
+  const [weatherLocationOpen, setWeatherLocationOpen] = useState(false);
+  const [weatherLocationQuery, setWeatherLocationQuery] = useState("");
+  const [weatherLocationResults, setWeatherLocationResults] = useState<WeatherLocationSearchResult[]>([]);
+  const [weatherLocationSearching, setWeatherLocationSearching] = useState(false);
+  const [weatherLocationError, setWeatherLocationError] = useState("");
   const [marketQuote, setMarketQuote] = useState<MarketQuote | null>(null);
   const [marketNotice, setMarketNotice] = useState<MarketNotice | null>(null);
   const [tickerEditorOpen, setTickerEditorOpen] = useState(false);
@@ -652,6 +708,9 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const topicRemovalTrigger = useRef<HTMLElement | null>(null);
   const installHelpCloseButton = useRef<HTMLButtonElement>(null);
   const installTrigger = useRef<HTMLButtonElement | null>(null);
+  const weatherLocationInput = useRef<HTMLInputElement>(null);
+  const weatherLocationTrigger = useRef<HTMLElement | null>(null);
+  const weatherLocationRequestSequence = useRef(0);
   const lastSavedPreferences = useRef("");
   const latestPreferences = useRef(preferences);
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
@@ -863,99 +922,119 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   }, []);
 
   useEffect(() => {
+    if (!ready) return;
     let cancelled = false;
     let weatherRefresh: number | undefined;
 
-    if (!("geolocation" in navigator)) {
-      setWeatherStatus("unsupported");
-      return;
-    }
-
     setWeatherStatus("locating");
+    setLocalWeather(null);
+    setWeatherForecast([]);
     setForecastOpen(false);
-    navigator.geolocation.getCurrentPosition(
-      ({ coords }) => {
-        const fetchWeather = async () => {
-          try {
-            const params = new URLSearchParams({
-              latitude: coords.latitude.toFixed(4),
-              longitude: coords.longitude.toFixed(4),
-              current: "temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,is_day",
-              daily: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max",
-              temperature_unit: "celsius",
-              wind_speed_unit: "kmh",
-              timezone: "auto",
-              forecast_days: "7",
-            });
-            const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params.toString()}`, {
-              cache: "no-store",
-            });
-            if (!response.ok) throw new Error("Weather unavailable");
-            const data = (await response.json()) as OpenMeteoResponse;
-            const current = data.current;
-            if (
-              !current
-              || typeof current.temperature_2m !== "number"
-              || typeof current.apparent_temperature !== "number"
-              || typeof current.relative_humidity_2m !== "number"
-              || typeof current.weather_code !== "number"
-              || typeof current.wind_speed_10m !== "number"
-            ) {
-              throw new Error("Weather unavailable");
-            }
-            if (cancelled) return;
-            const daily = data.daily;
-            const forecast = (daily?.time ?? []).slice(0, 7).flatMap((date, index) => {
-              const weatherCode = daily?.weather_code?.[index];
-              const temperatureMax = daily?.temperature_2m_max?.[index];
-              const temperatureMin = daily?.temperature_2m_min?.[index];
-              if (
-                typeof weatherCode !== "number"
-                || typeof temperatureMax !== "number"
-                || typeof temperatureMin !== "number"
-              ) return [];
-              return [{
-                date,
-                weatherCode,
-                temperatureMax,
-                temperatureMin,
-                precipitationProbability: daily?.precipitation_probability_max?.[index] ?? 0,
-                windSpeed: daily?.wind_speed_10m_max?.[index] ?? 0,
-              }];
-            });
-            setLocalWeather({
-              temperature: current.temperature_2m,
-              apparentTemperature: current.apparent_temperature,
-              humidity: current.relative_humidity_2m,
-              weatherCode: current.weather_code,
-              windSpeed: current.wind_speed_10m,
-              isDay: current.is_day !== 0,
-              timezone: data.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
-            });
-            setWeatherForecast(forecast);
-            setWeatherStatus("ready");
-          } catch {
-            if (!cancelled) {
-              setWeatherForecast([]);
-              setWeatherStatus("error");
-            }
-          }
-        };
+    const fetchWeather = async (latitude: number, longitude: number, locationName: string) => {
+      try {
+        const params = new URLSearchParams({
+          latitude: latitude.toFixed(4),
+          longitude: longitude.toFixed(4),
+          current: "temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,is_day",
+          daily: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max",
+          temperature_unit: "celsius",
+          wind_speed_unit: "kmh",
+          timezone: "auto",
+          forecast_days: "7",
+        });
+        const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params.toString()}`, {
+          cache: "no-store",
+        });
+        if (!response.ok) throw new Error("Weather unavailable");
+        const data = (await response.json()) as OpenMeteoResponse;
+        const current = data.current;
+        if (
+          !current
+          || typeof current.temperature_2m !== "number"
+          || typeof current.apparent_temperature !== "number"
+          || typeof current.relative_humidity_2m !== "number"
+          || typeof current.weather_code !== "number"
+          || typeof current.wind_speed_10m !== "number"
+        ) {
+          throw new Error("Weather unavailable");
+        }
+        if (cancelled) return;
+        const daily = data.daily;
+        const forecast = (daily?.time ?? []).slice(0, 7).flatMap((date, index) => {
+          const weatherCode = daily?.weather_code?.[index];
+          const temperatureMax = daily?.temperature_2m_max?.[index];
+          const temperatureMin = daily?.temperature_2m_min?.[index];
+          if (
+            typeof weatherCode !== "number"
+            || typeof temperatureMax !== "number"
+            || typeof temperatureMin !== "number"
+          ) return [];
+          return [{
+            date,
+            weatherCode,
+            temperatureMax,
+            temperatureMin,
+            precipitationProbability: daily?.precipitation_probability_max?.[index] ?? 0,
+            windSpeed: daily?.wind_speed_10m_max?.[index] ?? 0,
+          }];
+        });
+        setLocalWeather({
+          temperature: current.temperature_2m,
+          apparentTemperature: current.apparent_temperature,
+          humidity: current.relative_humidity_2m,
+          weatherCode: current.weather_code,
+          windSpeed: current.wind_speed_10m,
+          isDay: current.is_day !== 0,
+          timezone: data.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+          locationName: locationName || timezonePlace(data.timezone ?? ""),
+        });
+        setWeatherForecast(forecast);
+        setWeatherStatus("ready");
+      } catch {
+        if (!cancelled) {
+          setWeatherForecast([]);
+          setWeatherStatus("error");
+        }
+      }
+    };
+    const startWeatherRefresh = (latitude: number, longitude: number, locationName: string) => {
+      void fetchWeather(latitude, longitude, locationName);
+      weatherRefresh = window.setInterval(
+        () => void fetchWeather(latitude, longitude, locationName),
+        30 * 60 * 1_000,
+      );
+    };
 
-        void fetchWeather();
-        weatherRefresh = window.setInterval(() => void fetchWeather(), 30 * 60 * 1_000);
-      },
-      (locationError) => {
-        if (!cancelled) setWeatherStatus(locationError.code === locationError.PERMISSION_DENIED ? "denied" : "error");
-      },
-      { enableHighAccuracy: false, maximumAge: 15 * 60 * 1_000, timeout: 12_000 },
-    );
+    const configuredLocation = preferences.weatherLocation;
+    if (configuredLocation) {
+      startWeatherRefresh(
+        configuredLocation.latitude,
+        configuredLocation.longitude,
+        configuredLocation.name,
+      );
+    } else if (!("geolocation" in navigator)) {
+      setWeatherStatus("unsupported");
+    } else {
+      navigator.geolocation.getCurrentPosition(
+        ({ coords }) => startWeatherRefresh(coords.latitude, coords.longitude, ""),
+        (locationError) => {
+          if (!cancelled) setWeatherStatus(locationError.code === locationError.PERMISSION_DENIED ? "denied" : "error");
+        },
+        { enableHighAccuracy: false, maximumAge: 15 * 60 * 1_000, timeout: 12_000 },
+      );
+    }
 
     return () => {
       cancelled = true;
       if (weatherRefresh !== undefined) window.clearInterval(weatherRefresh);
     };
-  }, [weatherRetryKey]);
+  }, [
+    preferences.weatherLocation?.latitude,
+    preferences.weatherLocation?.longitude,
+    preferences.weatherLocation?.name,
+    ready,
+    weatherRetryKey,
+  ]);
 
   useEffect(() => {
     if (!forecastOpen) return;
@@ -1543,6 +1622,19 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     };
   }, [installHelpOpen]);
 
+  useEffect(() => {
+    if (!weatherLocationOpen) return;
+    const focusFrame = window.requestAnimationFrame(() => weatherLocationInput.current?.focus());
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeWeatherLocationEditor();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [weatherLocationOpen]);
+
   function addTopic(value: string) {
     const topic = value.trim().replace(/\s+/g, " ").slice(0, 80);
     if (!topic) return false;
@@ -1815,6 +1907,88 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   function closeInstallHelp() {
     setInstallHelpOpen(false);
     window.requestAnimationFrame(() => installTrigger.current?.focus());
+  }
+
+  function openWeatherLocationEditor() {
+    weatherLocationTrigger.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    setWeatherLocationQuery(preferences.weatherLocation?.name ?? "");
+    setWeatherLocationResults([]);
+    setWeatherLocationError("");
+    setWeatherLocationOpen(true);
+  }
+
+  function closeWeatherLocationEditor() {
+    weatherLocationRequestSequence.current += 1;
+    setWeatherLocationOpen(false);
+    setWeatherLocationSearching(false);
+    window.requestAnimationFrame(() => weatherLocationTrigger.current?.focus());
+  }
+
+  async function searchWeatherLocations(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const query = weatherLocationQuery.trim().replace(/\s+/g, " ");
+    if (query.length < 2) {
+      setWeatherLocationError("Enter at least two characters.");
+      return;
+    }
+
+    const runId = ++weatherLocationRequestSequence.current;
+    setWeatherLocationSearching(true);
+    setWeatherLocationError("");
+    setWeatherLocationResults([]);
+    try {
+      const params = new URLSearchParams({
+        name: query,
+        count: "8",
+        language: navigator.language.split("-")[0] || "en",
+        format: "json",
+      });
+      const response = await fetch(`https://geocoding-api.open-meteo.com/v1/search?${params.toString()}`, {
+        cache: "no-store",
+      });
+      if (!response.ok) throw new Error("Location search unavailable");
+      const data = (await response.json()) as OpenMeteoGeocodingResponse;
+      if (runId !== weatherLocationRequestSequence.current) return;
+      const results = (data.results ?? []).filter((result) =>
+        typeof result.name === "string"
+        && Number.isFinite(result.latitude)
+        && Number.isFinite(result.longitude));
+      setWeatherLocationResults(results);
+      if (results.length === 0) setWeatherLocationError("No matching locations found. Try a nearby city or region.");
+    } catch {
+      if (runId === weatherLocationRequestSequence.current) {
+        setWeatherLocationError("Location search is unavailable right now. Please try again.");
+      }
+    } finally {
+      if (runId === weatherLocationRequestSequence.current) setWeatherLocationSearching(false);
+    }
+  }
+
+  function chooseWeatherLocation(location: WeatherLocationSearchResult) {
+    const name = weatherLocationLabel(location);
+    setPreferences((current) => ({
+      ...current,
+      weatherLocation: {
+        name,
+        latitude: location.latitude,
+        longitude: location.longitude,
+        timezone: location.timezone ?? "",
+      },
+    }));
+    setWeatherRetryKey((value) => value + 1);
+    setWeatherLocationOpen(false);
+    setForecastOpen(false);
+    setNotice(`Weather location set to ${name}.`);
+  }
+
+  function useDeviceWeatherLocation() {
+    setPreferences((current) => ({ ...current, weatherLocation: null }));
+    setWeatherRetryKey((value) => value + 1);
+    setWeatherLocationOpen(false);
+    setForecastOpen(false);
+    setNotice("Weather will use this device's current location.");
   }
 
   function changeFeedView(next: "latest" | "history" | "bookmarks") {
@@ -2107,7 +2281,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                   <span>{describeWeather(localWeather.weatherCode)}</span>
                 </div>
                 <small>
-                  {timezonePlace(localWeather.timezone)}
+                  {localWeather.locationName}
                   <span aria-hidden="true"> · </span>
                   Feels {Math.round(localWeather.apparentTemperature)}°
                   <span aria-hidden="true"> · </span>
@@ -2124,14 +2298,16 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
             <div className="weather-message">
               <span className="weather-locating" aria-hidden="true" />
               <span><strong>Finding local weather</strong><small>Allow location access when prompted</small></span>
+              <button type="button" className="weather-location-set" onClick={openWeatherLocationEditor}>Set location</button>
             </div>
           ) : (
             <div className="weather-message">
               <span className="weather-glyph" aria-hidden="true">{"\u2316"}</span>
               <span>
                 <strong>{weatherStatus === "denied" ? "Local weather is off" : "Weather unavailable"}</strong>
-                <small>{weatherStatus === "denied" ? "Location access is needed" : "Your clock is still live"}</small>
+                <small>{weatherStatus === "denied" ? "Choose a place or allow location access" : "Your clock is still live"}</small>
               </span>
+              <button type="button" className="weather-location-set" onClick={openWeatherLocationEditor}>Set location</button>
               {weatherStatus !== "unsupported" && (
                 <button type="button" onClick={() => setWeatherRetryKey((value) => value + 1)}>
                   Try again
@@ -2145,11 +2321,16 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
             <div className="weather-forecast-heading">
               <div>
                 <span>Seven-day forecast</span>
-                <strong>{timezonePlace(localWeather.timezone)}</strong>
+                <strong>{localWeather.locationName}</strong>
               </div>
-              <button type="button" onClick={() => setForecastOpen(false)} aria-label="Close seven-day forecast">
-                &#215;
-              </button>
+              <div className="weather-forecast-heading-actions">
+                <button type="button" className="weather-change-location" onClick={openWeatherLocationEditor}>
+                  Change location
+                </button>
+                <button type="button" onClick={() => setForecastOpen(false)} aria-label="Close seven-day forecast">
+                  &#215;
+                </button>
+              </div>
             </div>
             <div className="weather-forecast-days">
               {weatherForecast.map((day, index) => (
@@ -2921,6 +3102,67 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               </button>
               <button type="button" className="danger" onClick={confirmTopicRemoval}>
                 Unfollow {topicPendingRemoval}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {weatherLocationOpen && (
+        <div
+          className="topic-confirmation-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeWeatherLocationEditor();
+          }}
+        >
+          <section
+            className="topic-confirmation weather-location-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="weather-location-title"
+            aria-describedby="weather-location-description"
+          >
+            <p className="topic-confirmation-kicker">Weather location</p>
+            <h2 id="weather-location-title">Choose your forecast location.</h2>
+            <p id="weather-location-description">
+              Search for a city, town, or region. Signal will remember your choice for future visits.
+            </p>
+            <form className="weather-location-search" onSubmit={(event) => void searchWeatherLocations(event)}>
+              <input
+                ref={weatherLocationInput}
+                type="search"
+                value={weatherLocationQuery}
+                onChange={(event) => setWeatherLocationQuery(event.target.value)}
+                placeholder="For example, Auckland or Taipei"
+                aria-label="Search for a weather location"
+                maxLength={120}
+              />
+              <button type="submit" disabled={weatherLocationSearching}>
+                {weatherLocationSearching ? "Searching…" : "Search"}
+              </button>
+            </form>
+            {weatherLocationError && <p className="weather-location-error" role="alert">{weatherLocationError}</p>}
+            {weatherLocationResults.length > 0 && (
+              <div className="weather-location-results" role="list" aria-label="Matching weather locations">
+                {weatherLocationResults.map((location) => (
+                  <button
+                    type="button"
+                    role="listitem"
+                    key={`${location.id}:${location.latitude}:${location.longitude}`}
+                    onClick={() => chooseWeatherLocation(location)}
+                  >
+                    <strong>{location.name}</strong>
+                    <small>{[location.admin1, location.country].filter(Boolean).join(", ")}</small>
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="topic-confirmation-actions weather-location-actions">
+              <button type="button" onClick={useDeviceWeatherLocation}>
+                Use my device location
+              </button>
+              <button type="button" onClick={closeWeatherLocationEditor}>
+                Close
               </button>
             </div>
           </section>
