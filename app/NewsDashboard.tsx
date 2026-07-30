@@ -685,6 +685,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [tickerValidationMessage, setTickerValidationMessage] = useState("");
   const [controlsExpanded, setControlsExpanded] = useState(false);
   const [controlsHidden, setControlsHidden] = useState(false);
+  const [followingTopicsExpanded, setFollowingTopicsExpanded] = useState(false);
   const [backToTopVisible, setBackToTopVisible] = useState(false);
   const [readerArticle, setReaderArticle] = useState<FollowedArticle | null>(null);
   const [readerContent, setReaderContent] = useState<ReaderContent>({ status: "idle" });
@@ -1859,6 +1860,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   }
 
   function toggleControls() {
+    if (controlsExpanded) setFollowingTopicsExpanded(false);
     setControlsExpanded((current) => {
       const next = !current;
       localStorage.setItem(CONTROLS_STORAGE_KEY, String(next));
@@ -1868,6 +1870,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
 
   function hideControls() {
     localStorage.setItem(CONTROLS_HIDDEN_STORAGE_KEY, "true");
+    setFollowingTopicsExpanded(false);
     setControlsHidden(true);
   }
 
@@ -2482,9 +2485,23 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           )}
 
           <div className="followed-topics">
-            <p className="panel-label">Following {preferences.topics.length}</p>
+            <div className="followed-topics-heading">
+              <p className="panel-label">Following <strong>{preferences.topics.length}</strong></p>
+              {preferences.topics.length > 0 && (
+                <button
+                  type="button"
+                  className="followed-topics-toggle"
+                  aria-expanded={followingTopicsExpanded}
+                  aria-controls="followed-topics-list"
+                  onClick={() => setFollowingTopicsExpanded((current) => !current)}
+                >
+                  {followingTopicsExpanded ? "Hide" : "Show"}
+                  <span aria-hidden="true">&#8595;</span>
+                </button>
+              )}
+            </div>
             {preferences.topics.length > 0 ? (
-              <ul>
+              <ul id="followed-topics-list" hidden={!followingTopicsExpanded}>
                 {preferences.topics.map((topic) => (
                   <li key={topic}>
                     <span className="followed-topic-copy">

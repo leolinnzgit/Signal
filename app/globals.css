@@ -1313,6 +1313,43 @@ button.local-weather {
   padding: 1.4rem 0 0;
 }
 
+.followed-topics-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.followed-topics-heading .panel-label { margin: 0; }
+.followed-topics-heading .panel-label strong { color: #f08b76; }
+
+.followed-topics-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 0;
+  border-bottom: 1px solid rgba(240, 139, 118, 0.5);
+  background: transparent;
+  color: #f08b76;
+  padding: 0.2rem 0;
+  cursor: pointer;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.followed-topics-toggle:hover { color: var(--paper); }
+
+.followed-topics-toggle span {
+  display: inline-block;
+  font-size: 0.8rem;
+  line-height: 1;
+  transition: transform 180ms ease;
+}
+
+.followed-topics-toggle[aria-expanded="true"] span { transform: rotate(180deg); }
+
 .panel-label {
   margin: 0 0 0.7rem;
   font-size: 0.66rem;
@@ -1326,10 +1363,12 @@ button.local-weather {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
-  margin: 0;
+  margin: 0.7rem 0 0;
   padding: 0;
   list-style: none;
 }
+
+.followed-topics ul[hidden] { display: none; }
 
 .followed-topics li {
   display: inline-flex;
@@ -1374,7 +1413,7 @@ button.local-weather {
 }
 
 .followed-topics li button:hover { background: var(--red); color: white; }
-.no-topics { margin: 0; color: rgba(244, 240, 231, 0.48); font-size: 0.76rem; }
+.no-topics { margin: 0.7rem 0 0; color: rgba(244, 240, 231, 0.48); font-size: 0.76rem; }
 
 .source-settings {
   margin-top: 1.5rem;
