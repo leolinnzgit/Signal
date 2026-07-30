@@ -15,6 +15,8 @@ public sealed class UserNewsPreferences
 
     public string StoryTitleSize { get; set; } = "large";
 
+    public string TopicHeaderSize { get; set; } = "large";
+
     public int RefreshMinutes { get; set; } = 15;
 
     public bool EmailSummaryEnabled { get; set; }

@@ -27,6 +27,7 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
             preferences.Property(item => item.TickerOverridesJson).IsRequired();
             preferences.Property(item => item.WeatherLocationJson).IsRequired();
             preferences.Property(item => item.StoryTitleSize).HasMaxLength(16).IsRequired();
+            preferences.Property(item => item.TopicHeaderSize).HasMaxLength(16).IsRequired();
             preferences.HasOne(item => item.User)
                 .WithOne()
                 .HasForeignKey<UserNewsPreferences>(item => item.UserId)

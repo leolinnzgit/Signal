@@ -76,6 +76,7 @@ public sealed class PreferencesController(
         preferences.TopicsJson = topicsJson;
         preferences.StoryLimit = storyLimit;
         preferences.StoryTitleSize = NormalizeStoryTitleSize(request.StoryTitleSize);
+        preferences.TopicHeaderSize = NormalizeStoryTitleSize(request.TopicHeaderSize);
         preferences.RefreshMinutes = request.RefreshMinutes;
         preferences.EmailSummaryEnabled = request.EmailSummaryEnabled;
         preferences.ArticleRetentionDays = NormalizeRetentionDays(request.ArticleRetentionDays);
@@ -185,6 +186,7 @@ public sealed class PreferencesController(
         DeserializeList(preferences.TopicsJson),
         NormalizeStoryLimit(preferences.StoryLimit),
         NormalizeStoryTitleSize(preferences.StoryTitleSize),
+        NormalizeStoryTitleSize(preferences.TopicHeaderSize),
         AllowedRefreshMinutes.Contains(preferences.RefreshMinutes) ? preferences.RefreshMinutes : 15,
         preferences.EmailSummaryEnabled,
         NormalizeRetentionDays(preferences.ArticleRetentionDays),
@@ -349,6 +351,7 @@ public sealed record NewsPreferencesResponse(
     string[] Topics,
     int Limit,
     string StoryTitleSize,
+    string TopicHeaderSize,
     int RefreshMinutes,
     bool EmailSummaryEnabled,
     int ArticleRetentionDays,
@@ -359,6 +362,7 @@ public sealed record NewsPreferencesResponse(
     public static NewsPreferencesResponse Default { get; } = new(
         ["Artificial intelligence"],
         20,
+        "large",
         "large",
         15,
         false,
@@ -380,6 +384,7 @@ public sealed record NewsPreferencesRequest(
     [Required] string[] Topics,
     [Range(10, 500)] int Limit,
     string? StoryTitleSize,
+    string? TopicHeaderSize,
     int RefreshMinutes,
     bool EmailSummaryEnabled,
     int ArticleRetentionDays,

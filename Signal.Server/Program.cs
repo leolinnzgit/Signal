@@ -199,6 +199,7 @@ await using (var scope = app.Services.CreateAsyncScope())
             "TopicsJson" TEXT NOT NULL,
             "StoryLimit" INTEGER NOT NULL,
             "StoryTitleSize" TEXT NOT NULL DEFAULT 'large',
+            "TopicHeaderSize" TEXT NOT NULL DEFAULT 'large',
             "RefreshMinutes" INTEGER NOT NULL,
             "EmailSummaryEnabled" INTEGER NOT NULL DEFAULT 0,
             "ArticleRetentionDays" INTEGER NOT NULL DEFAULT 30,
@@ -276,6 +277,15 @@ await using (var scope = app.Services.CreateAsyncScope())
         {
             await database.Database.ExecuteSqlRawAsync(
                 "ALTER TABLE \"UserNewsPreferences\" ADD COLUMN \"WeatherLocationJson\" TEXT NOT NULL DEFAULT '{{}}';");
+        }
+
+        await using var topicHeaderSizeColumnCheck = database.Database.GetDbConnection().CreateCommand();
+        topicHeaderSizeColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('UserNewsPreferences') WHERE name = 'TopicHeaderSize';";
+        var topicHeaderSizeColumnExists = Convert.ToInt32(await topicHeaderSizeColumnCheck.ExecuteScalarAsync()) > 0;
+        if (!topicHeaderSizeColumnExists)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"UserNewsPreferences\" ADD COLUMN \"TopicHeaderSize\" TEXT NOT NULL DEFAULT 'large';");
         }
 
         await using var articleColumnCheck = database.Database.GetDbConnection().CreateCommand();

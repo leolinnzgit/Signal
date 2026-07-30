@@ -177,6 +177,7 @@ export type NewsPreferences = {
   topics: string[];
   limit: number;
   storyTitleSize: StoryTitleSize;
+  topicHeaderSize: StoryTitleSize;
   refreshMinutes: number;
   emailSummaryEnabled: boolean;
   articleRetentionDays: number;
@@ -259,6 +260,7 @@ const DEFAULTS: NewsPreferences = {
   topics: ["Artificial intelligence"],
   limit: 20,
   storyTitleSize: "large",
+  topicHeaderSize: "large",
   refreshMinutes: 15,
   emailSummaryEnabled: false,
   articleRetentionDays: 30,
@@ -521,6 +523,9 @@ function normalizePreferences(saved: Partial<NewsPreferences> & { topic?: string
     storyTitleSize: saved.storyTitleSize === "small" || saved.storyTitleSize === "medium" || saved.storyTitleSize === "large"
       ? saved.storyTitleSize
       : DEFAULTS.storyTitleSize,
+    topicHeaderSize: saved.topicHeaderSize === "small" || saved.topicHeaderSize === "medium" || saved.topicHeaderSize === "large"
+      ? saved.topicHeaderSize
+      : DEFAULTS.topicHeaderSize,
     refreshMinutes: [0, 5, 15, 30, 60, 120, 180, 240, 300, 360, 420, 480].includes(Number(saved.refreshMinutes))
       ? Number(saved.refreshMinutes)
       : DEFAULTS.refreshMinutes,
@@ -2588,6 +2593,22 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               ))}
             </div>
           </div>
+          <div className="title-size-setting">
+            <span>Topic header size</span>
+            <div role="group" aria-label="Choose topic header font size">
+              {(["small", "medium", "large"] as StoryTitleSize[]).map((size) => (
+                <button
+                  type="button"
+                  key={size}
+                  className={preferences.topicHeaderSize === size ? "active" : ""}
+                  aria-pressed={preferences.topicHeaderSize === size}
+                  onClick={() => setPreferences((current) => ({ ...current, topicHeaderSize: size }))}
+                >
+                  {size}
+                </button>
+              ))}
+            </div>
+          </div>
           {articleStore && (
             <div className="history-retention-setting">
               <label htmlFor="article-retention">Delete unbookmarked stories after</label>
@@ -2640,7 +2661,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           </div>
         </div>}
 
-      <section className={`feed story-title-${preferences.storyTitleSize}`} aria-labelledby="feed-title">
+      <section className={`feed story-title-${preferences.storyTitleSize} topic-header-${preferences.topicHeaderSize}`} aria-labelledby="feed-title">
         <div className="feed-heading">
           <div><p className="eyebrow">Latest signal</p><h2 id="feed-title">{feedTitle}</h2></div>
           <div className="feed-actions">

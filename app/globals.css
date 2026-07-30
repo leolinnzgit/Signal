@@ -1553,6 +1553,22 @@ button.local-weather {
   font-weight: 600;
 }
 
+.feed.topic-header-small .feed-heading h2 {
+  font-size: clamp(1.7rem, 3vw, 2.8rem);
+  line-height: 1;
+  letter-spacing: -0.025em;
+}
+
+.feed.topic-header-medium .feed-heading h2 {
+  font-size: clamp(2.1rem, 4vw, 4rem);
+  line-height: 0.98;
+  letter-spacing: -0.03em;
+}
+
+.feed.topic-header-small .filter-sticky-title > strong { font-size: 0.88rem; }
+.feed.topic-header-medium .filter-sticky-title > strong { font-size: 1.05rem; }
+.feed.topic-header-large .filter-sticky-title > strong { font-size: 1.18rem; }
+
 .feed-actions { display: flex; align-items: center; gap: 1.4rem; flex-shrink: 0; }
 .feed-meta { max-width: 15rem; text-align: right; font-size: 0.7rem; line-height: 1.5; color: var(--text-muted); }
 .feed-action-buttons { display: flex; align-items: center; gap: 0.55rem; }
