@@ -2,6 +2,7 @@
 
 import { type CSSProperties, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { updateInstalledAppBadge } from "./app-badge";
 import { suggestNewsSources } from "./source-suggestions";
 
 type Article = {
@@ -1416,6 +1417,18 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     ),
     [articles, preferences.topics, topicRefreshByKey],
   );
+
+  const unreadTopicCount = useMemo(
+    () => preferences.topics.reduce(
+      (count, topic) => count + Number(topicHasUnread[topic] === true),
+      0,
+    ),
+    [preferences.topics, topicHasUnread],
+  );
+
+  useEffect(() => {
+    void updateInstalledAppBadge(unreadTopicCount);
+  }, [unreadTopicCount]);
 
   const visibleTopicFilters = useMemo(() => {
     const topicsByKey = new Map(preferences.topics.map((topic) => [topic.toLowerCase(), topic]));

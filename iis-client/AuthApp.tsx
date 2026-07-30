@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
+import { updateInstalledAppBadge } from "../app/app-badge";
 import NewsDashboard, { type ArticleHistoryPage, type ArticleStore, type NewsPreferences, type NewsSummary, type PreferencesStore, type TopicBriefing, type TopicRefreshStore } from "../app/NewsDashboard";
 
 type SessionUser = {
@@ -182,7 +183,11 @@ export default function AuthApp() {
   useEffect(() => {
     void fetch("/api/auth/me", { credentials: "same-origin", cache: "no-store" })
       .then(async (response) => {
-        if (response.ok) setUser(await response.json() as SessionUser);
+        if (response.ok) {
+          setUser(await response.json() as SessionUser);
+        } else {
+          void updateInstalledAppBadge(0);
+        }
       })
       .finally(() => setCheckingSession(false));
   }, []);
@@ -192,6 +197,7 @@ export default function AuthApp() {
       await postJson<void>("/api/auth/logout");
     } finally {
       csrfToken = "";
+      void updateInstalledAppBadge(0);
       setUser(null);
       setAccountOpen(false);
       setNotice("You’re signed out.");

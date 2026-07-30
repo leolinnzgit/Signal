@@ -1,4 +1,5 @@
-const STATIC_CACHE = "signal-static-v1";
+const STATIC_CACHE = "signal-static-v2";
+const APP_BADGE_MESSAGE = "signal:update-app-badge";
 const STATIC_ASSETS = [
   "/favicon.svg",
   "/manifest.webmanifest",
@@ -52,4 +53,23 @@ self.addEventListener("fetch", (event) => {
       });
     }),
   );
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data?.type !== APP_BADGE_MESSAGE) return;
+
+  const requestedCount = Number(event.data.count);
+  const count = Number.isFinite(requestedCount) && requestedCount > 0
+    ? Math.min(Math.floor(requestedCount), 99)
+    : 0;
+  const badgeNavigator = self.navigator;
+  const operation = count > 0
+    ? badgeNavigator.setAppBadge?.(count)
+    : badgeNavigator.clearAppBadge?.();
+
+  if (operation) {
+    event.waitUntil(operation.catch(() => {
+      // Badging is optional and can be blocked by the browser or OS.
+    }));
+  }
 });
