@@ -5,6 +5,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.EntityFrameworkCore;
+using Signal.Server.Data;
 using Microsoft.AspNetCore.WebUtilities;
 using Signal.Server.Models;
 using Signal.Server.Services;
@@ -18,6 +20,7 @@ namespace Signal.Server.Controllers;
 public sealed class AuthController(
     UserManager<ApplicationUser> userManager,
     SignInManager<ApplicationUser> signInManager,
+    SignalDbContext database,
     IAccountEmailSender emailSender,
     IAntiforgery antiforgery,
     ILogger<AuthController> logger) : ControllerBase
@@ -118,7 +121,7 @@ public sealed class AuthController(
 
     [AllowAnonymous]
     [HttpPost("login")]
-    public async Task<IActionResult> Login(LoginRequest request)
+    public async Task<IActionResult> Login(LoginRequest request, CancellationToken cancellationToken)
     {
         var user = await userManager.FindByEmailAsync(request.Email.Trim());
         if (user is null)
@@ -130,7 +133,7 @@ public sealed class AuthController(
             request.RememberMe,
             lockoutOnFailure: true);
 
-        if (result.Succeeded) return Ok(UserPayload(user));
+        if (result.Succeeded) return Ok(await UserPayloadAsync(user, cancellationToken));
         if (result.IsLockedOut)
             return StatusCode(StatusCodes.Status423Locked, new { error = "Too many attempts. Try again in 15 minutes." });
         if (result.IsNotAllowed)
@@ -149,10 +152,84 @@ public sealed class AuthController(
 
     [Authorize]
     [HttpGet("me")]
-    public async Task<IActionResult> Me()
+    public async Task<IActionResult> Me(CancellationToken cancellationToken)
     {
         var user = await userManager.GetUserAsync(User);
-        return user is null ? Unauthorized() : Ok(UserPayload(user));
+        return user is null ? Unauthorized() : Ok(await UserPayloadAsync(user, cancellationToken));
+    }
+
+    [Authorize]
+    [HttpGet("profile-photo")]
+    public async Task<IActionResult> ProfilePhoto(CancellationToken cancellationToken)
+    {
+        var userId = userManager.GetUserId(User);
+        if (userId is null) return Unauthorized();
+
+        var photo = await database.UserProfilePhotos
+            .AsNoTracking()
+            .SingleOrDefaultAsync(item => item.UserId == userId, cancellationToken);
+        if (photo is null) return NotFound();
+
+        var entityTag = $"\"{photo.UpdatedAtUtc.Ticks:x}\"";
+        if (Request.Headers.IfNoneMatch.Any(value => value == entityTag))
+            return StatusCode(StatusCodes.Status304NotModified);
+
+        Response.Headers.ETag = entityTag;
+        Response.Headers.CacheControl = "private, max-age=86400";
+        Response.Headers.XContentTypeOptions = "nosniff";
+        return File(photo.ImageBytes, "image/jpeg");
+    }
+
+    [Authorize]
+    [HttpPost("profile-photo")]
+    [RequestSizeLimit(1_250_000)]
+    public async Task<IActionResult> SaveProfilePhoto(
+        [FromForm] IFormFile? photo,
+        CancellationToken cancellationToken)
+    {
+        var userId = userManager.GetUserId(User);
+        if (userId is null) return Unauthorized();
+        if (photo is null || photo.Length is <= 0 or > ProfilePhotoValidator.MaximumBytes)
+            return BadRequest(new { error = "Choose a profile photo smaller than 1 MB." });
+        if (!string.Equals(photo.ContentType, "image/jpeg", StringComparison.OrdinalIgnoreCase))
+            return BadRequest(new { error = "Signal could not process that photo. Choose another image." });
+
+        await using var stream = new MemoryStream((int)photo.Length);
+        await photo.CopyToAsync(stream, cancellationToken);
+        var imageBytes = stream.ToArray();
+        if (!ProfilePhotoValidator.IsValidJpeg(imageBytes))
+            return BadRequest(new { error = "The profile photo must be a 512 by 512 JPEG created by Signal." });
+
+        var storedPhoto = await database.UserProfilePhotos
+            .SingleOrDefaultAsync(item => item.UserId == userId, cancellationToken);
+        var updatedAt = DateTime.UtcNow;
+        if (storedPhoto is null)
+        {
+            storedPhoto = new UserProfilePhoto { UserId = userId };
+            database.UserProfilePhotos.Add(storedPhoto);
+        }
+        storedPhoto.ImageBytes = imageBytes;
+        storedPhoto.UpdatedAtUtc = updatedAt;
+        await database.SaveChangesAsync(cancellationToken);
+
+        return Ok(new { profilePhotoUrl = ProfilePhotoUrl(updatedAt) });
+    }
+
+    [Authorize]
+    [HttpDelete("profile-photo")]
+    public async Task<IActionResult> DeleteProfilePhoto(CancellationToken cancellationToken)
+    {
+        var userId = userManager.GetUserId(User);
+        if (userId is null) return Unauthorized();
+
+        var photo = await database.UserProfilePhotos
+            .SingleOrDefaultAsync(item => item.UserId == userId, cancellationToken);
+        if (photo is not null)
+        {
+            database.UserProfilePhotos.Remove(photo);
+            await database.SaveChangesAsync(cancellationToken);
+        }
+        return Ok(new { profilePhotoUrl = (string?)null });
     }
 
     [Authorize]
@@ -232,11 +309,25 @@ public sealed class AuthController(
         return BadRequest(new { error = errors.FirstOrDefault() ?? "The account request could not be completed.", errors });
     }
 
-    private static object UserPayload(ApplicationUser user) => new
+    private async Task<object> UserPayloadAsync(
+        ApplicationUser user,
+        CancellationToken cancellationToken)
     {
-        email = user.Email,
-        displayName = user.Email,
-    };
+        var updatedAt = await database.UserProfilePhotos
+            .AsNoTracking()
+            .Where(item => item.UserId == user.Id)
+            .Select(item => (DateTime?)item.UpdatedAtUtc)
+            .SingleOrDefaultAsync(cancellationToken);
+        return new
+        {
+            email = user.Email,
+            displayName = user.Email,
+            profilePhotoUrl = updatedAt.HasValue ? ProfilePhotoUrl(updatedAt.Value) : null,
+        };
+    }
+
+    private static string ProfilePhotoUrl(DateTime updatedAt) =>
+        $"/api/auth/profile-photo?v={updatedAt.Ticks:x}";
 
     private static bool TryDecodeToken(string code, out string token)
     {

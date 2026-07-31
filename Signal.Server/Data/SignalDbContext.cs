@@ -15,6 +15,8 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
 
     public DbSet<UserPushSubscription> UserPushSubscriptions => Set<UserPushSubscription>();
 
+    public DbSet<UserProfilePhoto> UserProfilePhotos => Set<UserProfilePhoto>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
@@ -84,6 +86,18 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
             subscription.HasOne(item => item.User)
                 .WithMany()
                 .HasForeignKey(item => item.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<UserProfilePhoto>(photo =>
+        {
+            photo.ToTable("UserProfilePhotos");
+            photo.HasKey(item => item.UserId);
+            photo.Property(item => item.UserId).HasMaxLength(450);
+            photo.Property(item => item.ImageBytes).IsRequired();
+            photo.HasOne(item => item.User)
+                .WithOne()
+                .HasForeignKey<UserProfilePhoto>(item => item.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
     }

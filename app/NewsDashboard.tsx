@@ -650,6 +650,7 @@ type NewsDashboardProps = {
     email: string;
     fullName: string | null;
     isLocalPreview: boolean;
+    profilePhotoUrl?: string | null;
   };
   signOutPath?: string | null;
   onSignOut?: () => void;
@@ -2453,7 +2454,11 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
             <span className="theme-toggle-label">{theme === "dark" ? "Dark" : theme === "light" ? "Light" : "Theme"}</span>
           </button>
           <div className="current-user">
-            <span className="user-avatar" aria-hidden="true">{user.displayName.charAt(0).toUpperCase()}</span>
+            <span className="user-avatar" aria-hidden="true">
+              {user.profilePhotoUrl
+                ? <img src={user.profilePhotoUrl} alt="" />
+                : user.displayName.charAt(0).toUpperCase()}
+            </span>
             <span className="user-identity">
               <strong>{user.displayName}</strong>
               {user.fullName && <small>{user.email}</small>}

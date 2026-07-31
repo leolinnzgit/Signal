@@ -276,6 +276,15 @@ await using (var scope = app.Services.CreateAsyncScope())
         "CREATE UNIQUE INDEX IF NOT EXISTS \"IX_UserPushSubscriptions_Endpoint\" ON \"UserPushSubscriptions\" (\"Endpoint\");");
     await database.Database.ExecuteSqlRawAsync(
         "CREATE INDEX IF NOT EXISTS \"IX_UserPushSubscriptions_UserId\" ON \"UserPushSubscriptions\" (\"UserId\");");
+    await database.Database.ExecuteSqlRawAsync("""
+        CREATE TABLE IF NOT EXISTS "UserProfilePhotos" (
+            "UserId" TEXT NOT NULL CONSTRAINT "PK_UserProfilePhotos" PRIMARY KEY,
+            "ImageBytes" BLOB NOT NULL,
+            "UpdatedAtUtc" TEXT NOT NULL,
+            CONSTRAINT "FK_UserProfilePhotos_AspNetUsers_UserId"
+                FOREIGN KEY ("UserId") REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE
+        );
+        """);
 
     await database.Database.OpenConnectionAsync();
     try

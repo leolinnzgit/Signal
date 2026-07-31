@@ -134,6 +134,14 @@ main {
   color: var(--paper);
   font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
   font-size: 1rem;
+  overflow: hidden;
+}
+
+.user-avatar img,
+.account-photo-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .user-identity {
@@ -487,6 +495,70 @@ main {
   font-size: 1.5rem;
 }
 .account-email { margin: 1.2rem 0 0; color: var(--sage); font-size: 0.8rem; }
+.account-photo-settings {
+  display: grid;
+  grid-template-columns: 5rem minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+  margin-top: 1.5rem;
+  border: 1px solid var(--line);
+  padding: 1rem;
+  background: var(--input-background);
+}
+.account-photo-preview {
+  display: grid;
+  width: 5rem;
+  height: 5rem;
+  overflow: hidden;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: 2rem;
+}
+.account-photo-settings h3 { margin: 0; font-size: 0.9rem; }
+.account-photo-settings > div > p {
+  margin: 0.35rem 0 0;
+  color: var(--sage);
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
+.account-photo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.8rem;
+}
+.account-photo-action,
+.account-photo-actions button {
+  border: 1px solid var(--line);
+  background: var(--page-background);
+  color: var(--page-text);
+  padding: 0.55rem 0.65rem;
+  cursor: pointer;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.account-photo-action:hover,
+.account-photo-actions button:hover { border-color: var(--red); color: var(--red); }
+.account-photo-action.busy,
+.account-photo-actions button:disabled { cursor: wait; opacity: 0.55; }
+.account-photo-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.account-photo-action:focus-within { outline: 2px solid var(--red); outline-offset: 2px; }
+.account-photo-settings .account-photo-status { margin-top: 0.65rem; color: var(--text-muted); }
+.account-photo-settings .account-photo-status.success { color: var(--market-up); }
+.account-photo-settings .account-photo-status.error { color: var(--red); }
 .email-delivery {
   display: grid;
   grid-template-columns: auto 1fr;
