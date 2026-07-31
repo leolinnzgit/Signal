@@ -20,7 +20,11 @@ export function normalizeSecondaryTimeZone(
   if (typeof candidate.name !== "string" || typeof candidate.timeZone !== "string")
     return null;
 
-  const name = candidate.name.trim().replace(/\s+/g, " ").slice(0, 120);
+  const name = candidate.name
+    .split(",", 1)[0]
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, 120);
   const timeZone = candidate.timeZone.trim().slice(0, 80);
   return name && timeZone && isSupportedTimeZone(timeZone)
     ? { name, timeZone }

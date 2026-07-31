@@ -2247,7 +2247,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         typeof result.name === "string"
         && typeof result.timezone === "string"
         && normalizeSecondaryTimeZone({
-          name: weatherLocationLabel(result),
+          name: result.name,
           timeZone: result.timezone,
         }) !== null);
       setSecondaryTimeZoneResults(results);
@@ -2263,7 +2263,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
 
   function chooseSecondaryTimeZone(location: WeatherLocationSearchResult) {
     const selected = normalizeSecondaryTimeZone({
-      name: weatherLocationLabel(location),
+      name: location.name,
       timeZone: location.timezone,
     });
     if (!selected) {
@@ -2610,7 +2610,10 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           )}
           <div className="hero-clocks">
             <div className="hero-clock">
-              <time className="hero-time" dateTime={currentTime?.toISOString()}>{currentTimeLabel}</time>
+              <div className="hero-local-time-row">
+                <time className="hero-time" dateTime={currentTime?.toISOString()}>{currentTimeLabel}</time>
+                <span className="hero-clock-label">Local</span>
+              </div>
               <span className="hero-date">{currentDateLabel}</span>
             </div>
             {preferences.secondaryTimeZone ? (

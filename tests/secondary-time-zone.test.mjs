@@ -22,9 +22,16 @@ test("normalizes a supported secondary timezone", () => {
     name: "  Taipei,   Taiwan ",
     timeZone: "Asia/Taipei",
   }), {
-    name: "Taipei, Taiwan",
+    name: "Taipei",
     timeZone: "Asia/Taipei",
   });
+});
+
+test("keeps a concise city label for existing saved clocks", () => {
+  assert.equal(timeZones.normalizeSecondaryTimeZone({
+    name: "New York, New York, United States",
+    timeZone: "America/New_York",
+  }).name, "New York");
 });
 
 test("rejects missing or unsupported secondary timezones", () => {

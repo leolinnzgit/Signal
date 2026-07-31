@@ -250,7 +250,10 @@ public sealed class PreferencesController(
         SecondaryTimeZoneRequest? value)
     {
         if (value is null) return null;
-        var name = Regex.Replace(value.Name?.Trim() ?? "", @"\s+", " ");
+        var name = Regex.Replace(
+            (value.Name ?? "").Split(',', 2)[0].Trim(),
+            @"\s+",
+            " ");
         var timeZone = (value.TimeZone ?? "").Trim();
         if (name.Length is < 1 or > 120 || timeZone.Length is < 1 or > 80)
             return null;
