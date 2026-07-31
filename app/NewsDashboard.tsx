@@ -670,6 +670,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [selectedTopic, setSelectedTopic] = useState(ALL_TOPICS);
   const [recentTopicFilters, setRecentTopicFilters] = useState<string[]>([]);
   const [selectedProvider, setSelectedProvider] = useState(ALL_PROVIDERS);
+  const [topicsExpanded, setTopicsExpanded] = useState(false);
   const [topicPickerOpen, setTopicPickerOpen] = useState(false);
   const [topicPickerQuery, setTopicPickerQuery] = useState("");
   const [sourcePickerOpen, setSourcePickerOpen] = useState(false);
@@ -2175,6 +2176,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     setFeedView(next);
     setSelectedTopic(ALL_TOPICS);
     setSelectedProvider(ALL_PROVIDERS);
+    setTopicsExpanded(false);
     setTopicPickerOpen(false);
     setTopicPickerQuery("");
     setSourcePickerOpen(false);
@@ -3125,6 +3127,29 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                 <small>{filteredArticles.length} {filteredArticles.length === 1 ? "story" : "stories"}</small>
               </div>
             </div>
+            <div className="topic-filter-section">
+              <button
+                type="button"
+                className="source-filters-toggle topic-filters-toggle"
+                aria-expanded={topicsExpanded}
+                aria-controls="topic-filter-content"
+                onClick={() => {
+                  if (topicsExpanded) {
+                    setTopicPickerOpen(false);
+                    setTopicPickerQuery("");
+                  }
+                  setTopicsExpanded((current) => !current);
+                }}
+              >
+                <span className="filter-label">Topics</span>
+                <span className="source-filter-summary">
+                  <span>{selectedTopic === ALL_TOPICS ? "All topics" : selectedTopic}</span>
+                  <b>{filteredArticles.length} {filteredArticles.length === 1 ? "story" : "stories"}</b>
+                </span>
+                <span className="source-filter-toggle-action">{topicsExpanded ? "Hide" : "Change"} <b aria-hidden="true">{topicsExpanded ? "\u2212" : "+"}</b></span>
+              </button>
+              {topicsExpanded && (
+                <div id="topic-filter-content">
             <nav className="topic-filters" aria-label="Filter stories by followed topic">
               <span className="filter-label">Topics</span>
               <button type="button" className={selectedTopic === ALL_TOPICS ? "active" : ""} aria-pressed={selectedTopic === ALL_TOPICS} onClick={() => selectTopicFilter(ALL_TOPICS)}>All <span>{feedView === "latest" ? viewedArticles.length : historyFilterTotal}</span></button>
@@ -3207,6 +3232,9 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                 </div>
               </div>
             )}
+                </div>
+              )}
+            </div>
             {availableProviders.length > 0 && (
               <div className="source-filter-section">
                 <button

@@ -1985,7 +1985,8 @@ button.local-weather {
   scrollbar-width: thin;
 }
 
-.topic-filters { border-bottom: 1px solid var(--line); }
+.topic-filter-section { border-bottom: 1px solid var(--line); }
+.topic-filter-section .topic-filters { border-bottom: 0; }
 .source-filters {
   flex-wrap: wrap;
   overflow: visible;
