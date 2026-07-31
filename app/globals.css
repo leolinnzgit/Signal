@@ -2450,10 +2450,18 @@ button.local-weather {
   background: var(--line);
 }
 
-.bookmark-button {
+.story-actions {
   position: absolute;
   top: clamp(1.8rem, 3.2vw, 3.2rem);
   right: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.bookmark-button,
+.share-button {
   display: grid;
   width: 2.25rem;
   height: 2.25rem;
@@ -2467,6 +2475,19 @@ button.local-weather {
   line-height: 1;
 }
 
+.share-button svg {
+  width: 1rem;
+  height: 1rem;
+  overflow: visible;
+  fill: var(--page-background);
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.6;
+}
+
+.share-button:hover,
+.share-button:focus-visible,
 .bookmark-button:hover,
 .bookmark-button.active { border-color: var(--red); color: var(--red); }
 .bookmark-button:disabled { opacity: 0.5; cursor: wait; }
@@ -3135,7 +3156,8 @@ footer a { color: var(--paper); text-decoration: none; }
   .story-link.has-image { grid-template-columns: 2rem minmax(0, 1fr) 5.5rem; }
   .story-image { grid-column: 3; grid-row: 1; aspect-ratio: 1; }
   .story-link { padding-right: 2.8rem; }
-  .bookmark-button { width: 2rem; height: 2rem; }
+  .bookmark-button,
+  .share-button { width: 2rem; height: 2rem; }
   .story-link .arrow { display: none; }
   .story-link p { display: none; }
   .story-meta { flex-wrap: wrap; row-gap: 0.3rem; }

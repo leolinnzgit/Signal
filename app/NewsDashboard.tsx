@@ -3,6 +3,7 @@
 import { type CSSProperties, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { updateInstalledAppBadge } from "./app-badge";
+import { shareArticle } from "./article-share";
 import { suggestNewsSources } from "./source-suggestions";
 
 type Article = {
@@ -308,6 +309,17 @@ function timestampValue(value: string) {
 
 function ArrowIcon() {
   return <span aria-hidden="true" className="arrow">&#8599;</span>;
+}
+
+function ShareIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24">
+      <circle cx="18" cy="5" r="2.5" />
+      <circle cx="6" cy="12" r="2.5" />
+      <circle cx="18" cy="19" r="2.5" />
+      <path d="m8.2 10.8 7.6-4.5M8.2 13.2l7.6 4.5" />
+    </svg>
+  );
 }
 
 function RefreshIcon({ spinning = false }: { spinning?: boolean }) {
@@ -2373,6 +2385,19 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     }
   }
 
+  async function shareStory(article: FollowedArticle) {
+    const result = await shareArticle({
+      title: article.title,
+      text: `${article.title} — ${article.source}`,
+      url: article.url,
+    });
+    if (result === "copied") {
+      setNotice("Story link copied. It is ready to paste.");
+    } else if (result === "failed") {
+      setNotice("This browser could not open sharing or copy the story link.");
+    }
+  }
+
   const feedTitle = feedView === "bookmarks"
     ? "Bookmarked stories"
     : feedView === "history"
@@ -3316,19 +3341,30 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                   )}
                   <ArrowIcon />
                 </a>
-                {articleStore && (
+                <div className="story-actions">
                   <button
                     type="button"
-                    className={article.isBookmarked ? "bookmark-button active" : "bookmark-button"}
-                    onClick={() => void toggleBookmark(article)}
-                    disabled={bookmarkingUrls.has(article.url)}
-                    aria-pressed={article.isBookmarked === true}
-                    aria-label={article.isBookmarked ? `Remove bookmark from ${article.title}` : `Bookmark ${article.title}`}
-                    title={article.isBookmarked ? "Remove bookmark" : "Keep forever"}
+                    className="share-button"
+                    onClick={() => void shareStory(article)}
+                    aria-label={`Share ${article.title}`}
+                    title="Share story"
                   >
-                    <span aria-hidden="true">{article.isBookmarked ? "\u2605" : "\u2606"}</span>
+                    <ShareIcon />
                   </button>
-                )}
+                  {articleStore && (
+                    <button
+                      type="button"
+                      className={article.isBookmarked ? "bookmark-button active" : "bookmark-button"}
+                      onClick={() => void toggleBookmark(article)}
+                      disabled={bookmarkingUrls.has(article.url)}
+                      aria-pressed={article.isBookmarked === true}
+                      aria-label={article.isBookmarked ? `Remove bookmark from ${article.title}` : `Bookmark ${article.title}`}
+                      title={article.isBookmarked ? "Remove bookmark" : "Keep forever"}
+                    >
+                      <span aria-hidden="true">{article.isBookmarked ? "\u2605" : "\u2606"}</span>
+                    </button>
+                  )}
+                </div>
                 </li>
               ))}
             </ol>
