@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { updateInstalledAppBadge } from "../app/app-badge";
-import NewsDashboard, { type ArticleHistoryPage, type ArticleStore, type NewsPreferences, type NewsSummary, type PreferencesStore, type TopicBriefing, type TopicRefreshStore } from "../app/NewsDashboard";
+import NewsDashboard, { type ArticleHistoryPage, type ArticleStore, type NewsPreferences, type NewsSummary, type PreferencesStore, type PushNotificationStore, type PushSubscriptionPayload, type TopicBriefing, type TopicRefreshStore } from "../app/NewsDashboard";
 
 type SessionUser = {
   email: string;
@@ -30,6 +30,22 @@ async function postJson<T>(path: string, body?: unknown): Promise<T> {
   const token = await getCsrfToken();
   const response = await fetch(path, {
     method: "POST",
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      "X-XSRF-TOKEN": token,
+    },
+    body: JSON.stringify(body ?? {}),
+  });
+  const data = await response.json().catch(() => ({})) as { error?: string; detail?: string };
+  if (!response.ok) throw new Error(data.error || data.detail || "The request could not be completed.");
+  return data as T;
+}
+
+async function deleteJson<T>(path: string, body?: unknown): Promise<T> {
+  const token = await getCsrfToken();
+  const response = await fetch(path, {
+    method: "DELETE",
     credentials: "same-origin",
     headers: {
       "Content-Type": "application/json",
@@ -126,6 +142,33 @@ const sqliteTopicRefreshStore: TopicRefreshStore = {
   },
 };
 
+const webPushNotificationStore: PushNotificationStore = {
+  async getPublicKey() {
+    const response = await fetch("/api/push/public-key", {
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+    const data = await response.json().catch(() => ({})) as {
+      publicKey?: string;
+      error?: string;
+      detail?: string;
+    };
+    if (!response.ok || !data.publicKey)
+      throw new Error(data.error || data.detail || "Could not start phone notifications.");
+    return data.publicKey;
+  },
+  async subscribe(subscription: PushSubscriptionPayload) {
+    await postJson("/api/push/subscription", subscription);
+  },
+  async unsubscribe(endpoint: string) {
+    await deleteJson("/api/push/subscription", { endpoint });
+  },
+  async sendTest() {
+    const data = await postJson<{ message: string }>("/api/push/test");
+    return data.message;
+  },
+};
+
 async function sendNewsSummary(summary: NewsSummary) {
   const data = await postJson<{ message: string }>("/api/news-summary", summary);
   return data.message;
@@ -194,6 +237,18 @@ export default function AuthApp() {
 
   async function signOut() {
     try {
+      if ("serviceWorker" in navigator) {
+        try {
+          const registration = await navigator.serviceWorker.ready;
+          const subscription = await registration.pushManager.getSubscription();
+          if (subscription) {
+            await webPushNotificationStore.unsubscribe(subscription.endpoint);
+            await subscription.unsubscribe();
+          }
+        } catch {
+          // Signing out should continue even if the push service is unavailable.
+        }
+      }
       await postJson<void>("/api/auth/logout");
     } finally {
       csrfToken = "";
@@ -219,6 +274,7 @@ export default function AuthApp() {
           articleStore={sqliteArticleStore}
           summarySender={sendNewsSummary}
           refreshStore={sqliteTopicRefreshStore}
+          pushNotificationStore={webPushNotificationStore}
         />
         {accountOpen && (
           <AccountPanel

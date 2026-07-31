@@ -1131,6 +1131,53 @@ button.local-weather {
 .email-summary-toggle strong { color: var(--paper); font-size: 0.72rem; }
 .email-summary-toggle small { color: rgba(244, 240, 231, 0.48); font-size: 0.64rem; line-height: 1.45; }
 
+.push-notification-setting {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.8rem;
+  margin-top: 1rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid rgba(244, 240, 231, 0.18);
+  background: #262723;
+}
+
+.push-notification-setting > span { display: grid; gap: 0.2rem; min-width: 0; }
+.push-notification-setting strong { color: var(--paper); font-size: 0.72rem; }
+.push-notification-setting small {
+  color: rgba(244, 240, 231, 0.48);
+  font-size: 0.64rem;
+  line-height: 1.45;
+}
+
+.push-notification-setting button {
+  min-height: 2.2rem;
+  border: 1px solid rgba(244, 240, 231, 0.28);
+  border-radius: 0;
+  background: transparent;
+  color: var(--paper);
+  padding: 0.55rem 0.75rem;
+  cursor: pointer;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.push-notification-setting.status-on {
+  border-color: rgba(117, 190, 126, 0.55);
+}
+
+.push-notification-setting.status-on button {
+  border-color: rgba(240, 139, 118, 0.55);
+  color: #f3ad9f;
+}
+
+.push-notification-setting button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
 .history-retention-setting {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

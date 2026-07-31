@@ -7,6 +7,10 @@ const source = await readFile(
   new URL("../app/app-badge.ts", import.meta.url),
   "utf8",
 );
+const serviceWorker = await readFile(
+  new URL("../public/service-worker.js", import.meta.url),
+  "utf8",
+);
 const compiled = ts.transpileModule(source, {
   compilerOptions: {
     module: ts.ModuleKind.ES2022,
@@ -62,4 +66,12 @@ test("falls back to the active service worker", async () => {
     type: badge.APP_BADGE_MESSAGE,
     count: 3,
   }]);
+});
+
+test("handles background push notifications and badge updates", () => {
+  assert.match(serviceWorker, /addEventListener\("push"/);
+  assert.match(serviceWorker, /showNotification/);
+  assert.match(serviceWorker, /setAppBadge/);
+  assert.match(serviceWorker, /addEventListener\("notificationclick"/);
+  assert.match(serviceWorker, /openWindow/);
 });

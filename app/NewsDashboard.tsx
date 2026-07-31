@@ -257,6 +257,21 @@ export type TopicRefreshStore = {
   markViewed?: (topic: string) => Promise<void>;
 };
 
+export type PushSubscriptionPayload = {
+  endpoint: string;
+  keys: {
+    p256Dh: string;
+    auth: string;
+  };
+};
+
+export type PushNotificationStore = {
+  getPublicKey: () => Promise<string>;
+  subscribe: (subscription: PushSubscriptionPayload) => Promise<void>;
+  unsubscribe: (endpoint: string) => Promise<void>;
+  sendTest: () => Promise<string>;
+};
+
 const DEFAULTS: NewsPreferences = {
   topics: ["Artificial intelligence"],
   limit: 20,
@@ -611,6 +626,12 @@ function formatMarketPrice(price: number, currency: string) {
   }
 }
 
+function decodeBase64Url(value: string) {
+  const padding = "=".repeat((4 - value.length % 4) % 4);
+  const decoded = window.atob(`${value}${padding}`.replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(decoded, (character) => character.charCodeAt(0));
+}
+
 type NewsDashboardProps = {
   user: {
     displayName: string;
@@ -625,9 +646,12 @@ type NewsDashboardProps = {
   articleStore?: ArticleStore;
   summarySender?: (summary: NewsSummary) => Promise<string>;
   refreshStore?: TopicRefreshStore;
+  pushNotificationStore?: PushNotificationStore;
 };
 
-export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAccount, preferencesStore, articleStore, summarySender, refreshStore }: NewsDashboardProps) {
+type PushNotificationStatus = "checking" | "unsupported" | "off" | "enabling" | "on" | "disabling" | "denied" | "error";
+
+export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAccount, preferencesStore, articleStore, summarySender, refreshStore, pushNotificationStore }: NewsDashboardProps) {
   const [preferences, setPreferences] = useState<NewsPreferences>(DEFAULTS);
   const [topicInput, setTopicInput] = useState("");
   const [rssInput, setRssInput] = useState("");
@@ -695,6 +719,9 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [installHelpOpen, setInstallHelpOpen] = useState(false);
   const [appInstalled, setAppInstalled] = useState(false);
   const [iosInstall, setIosInstall] = useState(false);
+  const [pushNotificationStatus, setPushNotificationStatus] = useState<PushNotificationStatus>(
+    pushNotificationStore ? "checking" : "unsupported",
+  );
   const [theme, setTheme] = useState<ColorTheme | null>(null);
   const [rssResolvingFeed, setRssResolvingFeed] = useState<string | null>(null);
   const [rssMessage, setRssMessage] = useState("");
@@ -853,6 +880,38 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     setControlsExpanded(localStorage.getItem(CONTROLS_STORAGE_KEY) === "true");
     setControlsHidden(localStorage.getItem(CONTROLS_HIDDEN_STORAGE_KEY) === "true");
   }, []);
+
+  useEffect(() => {
+    if (!pushNotificationStore) return;
+    if (
+      !("serviceWorker" in navigator)
+      || !("PushManager" in window)
+      || !("Notification" in window)
+    ) {
+      setPushNotificationStatus("unsupported");
+      return;
+    }
+
+    let cancelled = false;
+    void navigator.serviceWorker.ready
+      .then((registration) => registration.pushManager.getSubscription())
+      .then((subscription) => {
+        if (cancelled) return;
+        setPushNotificationStatus(
+          Notification.permission === "denied"
+            ? "denied"
+            : subscription && Notification.permission === "granted"
+              ? "on"
+              : "off",
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setPushNotificationStatus("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [pushNotificationStore]);
 
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
@@ -1925,6 +1984,94 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     }
   }
 
+  async function enablePushNotifications() {
+    if (!pushNotificationStore) return;
+    if (
+      !("serviceWorker" in navigator)
+      || !("PushManager" in window)
+      || !("Notification" in window)
+    ) {
+      setPushNotificationStatus("unsupported");
+      setNotice("This browser does not support installed-app push notifications.");
+      return;
+    }
+
+    setPushNotificationStatus("enabling");
+    setNotice("");
+    let subscription: PushSubscription | null = null;
+    let savedOnServer = false;
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") {
+        setPushNotificationStatus(permission === "denied" ? "denied" : "off");
+        setNotice(permission === "denied"
+          ? "Notifications are blocked. Allow Signal in your phone notification settings, then try again."
+          : "Notification permission was not enabled.");
+        return;
+      }
+
+      await navigator.serviceWorker.register("/service-worker.js");
+      const registration = await navigator.serviceWorker.ready;
+      subscription = await registration.pushManager.getSubscription();
+      if (!subscription) {
+        const publicKey = await pushNotificationStore.getPublicKey();
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: decodeBase64Url(publicKey),
+        });
+      }
+      const serialized = subscription.toJSON();
+      const p256Dh = serialized.keys?.p256dh;
+      const auth = serialized.keys?.auth;
+      if (!serialized.endpoint || !p256Dh || !auth)
+        throw new Error("The phone did not return a complete notification subscription.");
+      await pushNotificationStore.subscribe({
+        endpoint: serialized.endpoint,
+        keys: { p256Dh, auth },
+      });
+      savedOnServer = true;
+      setPushNotificationStatus("on");
+      try {
+        const testMessage = await pushNotificationStore.sendTest();
+        setNotice(testMessage);
+      } catch {
+        setNotice("Phone notifications are enabled, but the immediate test could not be delivered.");
+      }
+    } catch (caught) {
+      if (subscription && !savedOnServer) {
+        void subscription.unsubscribe().catch(() => {
+          // A failed local cleanup will be replaced the next time the user enables push.
+        });
+      }
+      setPushNotificationStatus("error");
+      setNotice(caught instanceof Error
+        ? caught.message
+        : "Phone notifications could not be enabled.");
+    }
+  }
+
+  async function disablePushNotifications() {
+    if (!pushNotificationStore || !("serviceWorker" in navigator)) return;
+    setPushNotificationStatus("disabling");
+    setNotice("");
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.getSubscription();
+      if (subscription) {
+        await pushNotificationStore.unsubscribe(subscription.endpoint);
+        await subscription.unsubscribe();
+      }
+      await updateInstalledAppBadge(0);
+      setPushNotificationStatus("off");
+      setNotice("Phone notifications are off on this device.");
+    } catch (caught) {
+      setPushNotificationStatus("error");
+      setNotice(caught instanceof Error
+        ? caught.message
+        : "Phone notifications could not be disabled.");
+    }
+  }
+
   function closeInstallHelp() {
     setInstallHelpOpen(false);
     window.requestAnimationFrame(() => installTrigger.current?.focus());
@@ -2676,6 +2823,55 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                 <small>Send a polished summary to {user.email} after scheduled and manual refreshes.</small>
               </span>
             </label>
+          )}
+          {pushNotificationStore && (
+            <div className={`push-notification-setting status-${pushNotificationStatus}`}>
+              <span>
+                <strong>Phone notifications &amp; app badge</strong>
+                <small>
+                  {pushNotificationStatus === "on"
+                    ? "Enabled on this device. Signal will notify you when scheduled refreshes find new stories."
+                    : pushNotificationStatus === "denied"
+                      ? "Blocked by your phone. Allow Signal under the phone's notification settings."
+                      : pushNotificationStatus === "unsupported"
+                        ? "Install Signal as an app using a browser that supports Web Push."
+                        : pushNotificationStatus === "checking"
+                          ? "Checking notification support on this device..."
+                          : pushNotificationStatus === "enabling"
+                            ? "Registering this device and sending a test..."
+                            : pushNotificationStatus === "disabling"
+                              ? "Removing this device..."
+                              : "Enable this to receive a notification dot or badge while Signal is closed."}
+                </small>
+              </span>
+              <button
+                type="button"
+                onClick={() => void (
+                  pushNotificationStatus === "on"
+                    ? disablePushNotifications()
+                    : enablePushNotifications()
+                )}
+                disabled={[
+                  "checking",
+                  "unsupported",
+                  "enabling",
+                  "disabling",
+                  "denied",
+                ].includes(pushNotificationStatus)}
+              >
+                {pushNotificationStatus === "on"
+                  ? "Turn off"
+                  : pushNotificationStatus === "enabling"
+                    ? "Enabling..."
+                    : pushNotificationStatus === "disabling"
+                      ? "Turning off..."
+                      : pushNotificationStatus === "denied"
+                        ? "Blocked"
+                        : pushNotificationStatus === "unsupported"
+                          ? "Unavailable"
+                          : "Enable"}
+              </button>
+            </div>
           )}
           <p className="settings-note" aria-live="polite">
             {!preferencesStore

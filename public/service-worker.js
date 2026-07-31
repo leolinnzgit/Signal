@@ -1,4 +1,4 @@
-const STATIC_CACHE = "signal-static-v2";
+const STATIC_CACHE = "signal-static-v3";
 const APP_BADGE_MESSAGE = "signal:update-app-badge";
 const STATIC_ASSETS = [
   "/favicon.svg",
@@ -72,4 +72,56 @@ self.addEventListener("message", (event) => {
       // Badging is optional and can be blocked by the browser or OS.
     }));
   }
+});
+
+self.addEventListener("push", (event) => {
+  let payload = {};
+  try {
+    payload = event.data?.json() ?? {};
+  } catch {
+    payload = {};
+  }
+
+  const requestedCount = Number(payload.badgeCount);
+  const count = Number.isFinite(requestedCount) && requestedCount > 0
+    ? Math.min(Math.floor(requestedCount), 99)
+    : 0;
+  const requestedUrl = new URL(payload.url || "/", self.location.origin);
+  const url = requestedUrl.origin === self.location.origin
+    ? `${requestedUrl.pathname}${requestedUrl.search}${requestedUrl.hash}`
+    : "/";
+  const operations = [
+    self.registration.showNotification(payload.title || "New stories in Signal", {
+      body: payload.body || "Fresh coverage is ready in your briefing.",
+      icon: payload.icon || "/icons/signal-192.png",
+      badge: payload.badge || "/icons/signal-192.png",
+      tag: "signal-new-stories",
+      renotify: false,
+      data: { url },
+    }),
+  ];
+
+  if (count > 0 && typeof self.navigator.setAppBadge === "function") {
+    operations.push(self.navigator.setAppBadge(count));
+  } else if (count === 0 && typeof self.navigator.clearAppBadge === "function") {
+    operations.push(self.navigator.clearAppBadge());
+  }
+  event.waitUntil(Promise.all(operations));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = new URL(event.notification.data?.url || "/", self.location.origin).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true })
+      .then(async (windows) => {
+        const existing = windows.find((client) =>
+          new URL(client.url).origin === self.location.origin);
+        if (existing) {
+          await existing.navigate(url);
+          return existing.focus();
+        }
+        return self.clients.openWindow(url);
+      }),
+  );
 });

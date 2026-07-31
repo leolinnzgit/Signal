@@ -13,6 +13,8 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
 
     public DbSet<TopicRefreshState> TopicRefreshStates => Set<TopicRefreshState>();
 
+    public DbSet<UserPushSubscription> UserPushSubscriptions => Set<UserPushSubscription>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
@@ -64,6 +66,22 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
             state.Property(item => item.LastError).HasMaxLength(1000).IsRequired();
             state.HasIndex(item => item.NextRefreshAtUtc);
             state.HasOne(item => item.User)
+                .WithMany()
+                .HasForeignKey(item => item.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<UserPushSubscription>(subscription =>
+        {
+            subscription.ToTable("UserPushSubscriptions");
+            subscription.HasKey(item => item.Id);
+            subscription.Property(item => item.UserId).HasMaxLength(450);
+            subscription.Property(item => item.Endpoint).HasMaxLength(4096).IsRequired();
+            subscription.Property(item => item.P256Dh).HasMaxLength(256).IsRequired();
+            subscription.Property(item => item.Auth).HasMaxLength(128).IsRequired();
+            subscription.HasIndex(item => item.Endpoint).IsUnique();
+            subscription.HasIndex(item => item.UserId);
+            subscription.HasOne(item => item.User)
                 .WithMany()
                 .HasForeignKey(item => item.UserId)
                 .OnDelete(DeleteBehavior.Cascade);

@@ -10,6 +10,7 @@ public sealed class TopicRefreshService(
     SignalDbContext database,
     NewsService newsService,
     IAccountEmailSender emailSender,
+    PushNotificationService pushNotificationService,
     ILogger<TopicRefreshService> logger)
 {
     private const int ProviderConcurrency = 8;
@@ -107,6 +108,27 @@ public sealed class TopicRefreshService(
                 newlyAvailableTopicKeys,
                 refreshedAt,
                 cancellationToken);
+            if (newlyAvailableTopicKeys.Count > 0)
+            {
+                try
+                {
+                    await pushNotificationService.SendNewStoriesAsync(
+                        userId,
+                        newlyAvailableTopicKeys,
+                        cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    logger.LogError(
+                        exception,
+                        "Could not send new-story push notifications for user {UserId}.",
+                        userId);
+                }
+            }
             await PurgeExpiredAsync(userId, preferences.ArticleRetentionDays, refreshedAt, cancellationToken);
 
             if (sendEmail && preferences.EmailSummaryEnabled && selectedArticles.Length > 0)
