@@ -4,6 +4,10 @@ import { type CSSProperties, FormEvent, useCallback, useEffect, useMemo, useRef,
 
 import { updateInstalledAppBadge } from "./app-badge";
 import { shareArticle } from "./article-share";
+import {
+  normalizeSecondaryTimeZone,
+  type SecondaryTimeZonePreference,
+} from "./secondary-time-zone";
 import { suggestNewsSources } from "./source-suggestions";
 
 type Article = {
@@ -185,6 +189,7 @@ export type NewsPreferences = {
   articleRetentionDays: number;
   tickerOverrides: Record<string, string>;
   weatherLocation: WeatherLocationPreference | null;
+  secondaryTimeZone: SecondaryTimeZonePreference | null;
   sources: SourcePreferences;
 };
 
@@ -283,6 +288,7 @@ const DEFAULTS: NewsPreferences = {
   articleRetentionDays: 30,
   tickerOverrides: {},
   weatherLocation: null,
+  secondaryTimeZone: null,
   sources: { google: true, gdelt: true, rssFeeds: [] },
 };
 const STORY_LIMIT_OPTIONS = [10, ...Array.from({ length: 25 }, (_, index) => (index + 1) * 20)];
@@ -563,6 +569,7 @@ function normalizePreferences(saved: Partial<NewsPreferences> & { topic?: string
       : DEFAULTS.articleRetentionDays,
     tickerOverrides,
     weatherLocation,
+    secondaryTimeZone: normalizeSecondaryTimeZone(saved.secondaryTimeZone),
     sources: {
       google: typeof saved.sources?.google === "boolean" ? saved.sources.google : true,
       gdelt: typeof saved.sources?.gdelt === "boolean" ? saved.sources.gdelt : true,
@@ -716,6 +723,11 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [weatherLocationResults, setWeatherLocationResults] = useState<WeatherLocationSearchResult[]>([]);
   const [weatherLocationSearching, setWeatherLocationSearching] = useState(false);
   const [weatherLocationError, setWeatherLocationError] = useState("");
+  const [secondaryTimeZoneOpen, setSecondaryTimeZoneOpen] = useState(false);
+  const [secondaryTimeZoneQuery, setSecondaryTimeZoneQuery] = useState("");
+  const [secondaryTimeZoneResults, setSecondaryTimeZoneResults] = useState<WeatherLocationSearchResult[]>([]);
+  const [secondaryTimeZoneSearching, setSecondaryTimeZoneSearching] = useState(false);
+  const [secondaryTimeZoneError, setSecondaryTimeZoneError] = useState("");
   const [marketQuote, setMarketQuote] = useState<MarketQuote | null>(null);
   const [marketNotice, setMarketNotice] = useState<MarketNotice | null>(null);
   const [tickerEditorOpen, setTickerEditorOpen] = useState(false);
@@ -759,6 +771,9 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const weatherLocationInput = useRef<HTMLInputElement>(null);
   const weatherLocationTrigger = useRef<HTMLElement | null>(null);
   const weatherLocationRequestSequence = useRef(0);
+  const secondaryTimeZoneInput = useRef<HTMLInputElement>(null);
+  const secondaryTimeZoneTrigger = useRef<HTMLElement | null>(null);
+  const secondaryTimeZoneRequestSequence = useRef(0);
   const lastSavedPreferences = useRef("");
   const latestPreferences = useRef(preferences);
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
@@ -1727,6 +1742,19 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     };
   }, [weatherLocationOpen]);
 
+  useEffect(() => {
+    if (!secondaryTimeZoneOpen) return;
+    const focusFrame = window.requestAnimationFrame(() => secondaryTimeZoneInput.current?.focus());
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeSecondaryTimeZoneEditor();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [secondaryTimeZoneOpen]);
+
   function addTopic(value: string) {
     const topic = value.trim().replace(/\s+/g, " ").slice(0, 80);
     if (!topic) return false;
@@ -2173,6 +2201,86 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     setNotice("Weather will use this device's current location.");
   }
 
+  function openSecondaryTimeZoneEditor() {
+    secondaryTimeZoneTrigger.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    setSecondaryTimeZoneQuery(preferences.secondaryTimeZone?.name ?? "");
+    setSecondaryTimeZoneResults([]);
+    setSecondaryTimeZoneError("");
+    setSecondaryTimeZoneOpen(true);
+  }
+
+  function closeSecondaryTimeZoneEditor() {
+    secondaryTimeZoneRequestSequence.current += 1;
+    setSecondaryTimeZoneOpen(false);
+    setSecondaryTimeZoneSearching(false);
+    window.requestAnimationFrame(() => secondaryTimeZoneTrigger.current?.focus());
+  }
+
+  async function searchSecondaryTimeZones(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const query = secondaryTimeZoneQuery.trim().replace(/\s+/g, " ");
+    if (query.length < 2) {
+      setSecondaryTimeZoneError("Enter at least two characters.");
+      return;
+    }
+
+    const runId = ++secondaryTimeZoneRequestSequence.current;
+    setSecondaryTimeZoneSearching(true);
+    setSecondaryTimeZoneError("");
+    setSecondaryTimeZoneResults([]);
+    try {
+      const params = new URLSearchParams({
+        name: query,
+        count: "8",
+        language: navigator.language.split("-")[0] || "en",
+        format: "json",
+      });
+      const response = await fetch(`https://geocoding-api.open-meteo.com/v1/search?${params.toString()}`, {
+        cache: "no-store",
+      });
+      if (!response.ok) throw new Error("Time zone search unavailable");
+      const data = (await response.json()) as OpenMeteoGeocodingResponse;
+      if (runId !== secondaryTimeZoneRequestSequence.current) return;
+      const results = (data.results ?? []).filter((result) =>
+        typeof result.name === "string"
+        && typeof result.timezone === "string"
+        && normalizeSecondaryTimeZone({
+          name: weatherLocationLabel(result),
+          timeZone: result.timezone,
+        }) !== null);
+      setSecondaryTimeZoneResults(results);
+      if (results.length === 0) setSecondaryTimeZoneError("No matching time zones found. Try a nearby city.");
+    } catch {
+      if (runId === secondaryTimeZoneRequestSequence.current) {
+        setSecondaryTimeZoneError("Time zone search is unavailable right now. Please try again.");
+      }
+    } finally {
+      if (runId === secondaryTimeZoneRequestSequence.current) setSecondaryTimeZoneSearching(false);
+    }
+  }
+
+  function chooseSecondaryTimeZone(location: WeatherLocationSearchResult) {
+    const selected = normalizeSecondaryTimeZone({
+      name: weatherLocationLabel(location),
+      timeZone: location.timezone,
+    });
+    if (!selected) {
+      setSecondaryTimeZoneError("That location did not provide a supported time zone.");
+      return;
+    }
+    setPreferences((current) => ({ ...current, secondaryTimeZone: selected }));
+    setSecondaryTimeZoneOpen(false);
+    setNotice(`Additional clock set to ${selected.name}.`);
+  }
+
+  function removeSecondaryTimeZone() {
+    setPreferences((current) => ({ ...current, secondaryTimeZone: null }));
+    setSecondaryTimeZoneOpen(false);
+    setNotice("The additional clock has been removed.");
+  }
+
   function changeFeedView(next: "latest" | "history" | "bookmarks") {
     setFeedView(next);
     setSelectedTopic(ALL_TOPICS);
@@ -2418,6 +2526,21 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
       timeZone: clockTimeZone,
     })
     : "Local date";
+  const secondaryTimeLabel = currentTime && preferences.secondaryTimeZone
+    ? currentTime.toLocaleTimeString(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+      timeZone: preferences.secondaryTimeZone.timeZone,
+    })
+    : "--:--";
+  const secondaryDateLabel = currentTime && preferences.secondaryTimeZone
+    ? currentTime.toLocaleDateString(undefined, {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      timeZone: preferences.secondaryTimeZone.timeZone,
+    })
+    : "";
   const readerOriginalUrl = readerContent.status === "ready"
     ? readerContent.article.finalUrl
     : readerArticle?.url ?? "";
@@ -2485,9 +2608,26 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               Topics <span aria-hidden="true">&#43;</span>
             </button>
           )}
-          <div className="hero-clock">
-            <time className="hero-time" dateTime={currentTime?.toISOString()}>{currentTimeLabel}</time>
-            <span className="hero-date">{currentDateLabel}</span>
+          <div className="hero-clocks">
+            <div className="hero-clock">
+              <time className="hero-time" dateTime={currentTime?.toISOString()}>{currentTimeLabel}</time>
+              <span className="hero-date">{currentDateLabel}</span>
+            </div>
+            {preferences.secondaryTimeZone ? (
+              <button
+                type="button"
+                className="hero-secondary-clock"
+                onClick={openSecondaryTimeZoneEditor}
+                aria-label={`Additional clock for ${preferences.secondaryTimeZone.name}. Change or remove time zone.`}
+              >
+                <time dateTime={currentTime?.toISOString()}>{secondaryTimeLabel}</time>
+                <span>{preferences.secondaryTimeZone.name}<small>{secondaryDateLabel}</small></span>
+              </button>
+            ) : (
+              <button type="button" className="hero-time-zone-add" onClick={openSecondaryTimeZoneEditor}>
+                <span aria-hidden="true">+</span> Time zone
+              </button>
+            )}
           </div>
           {weatherStatus === "ready" && localWeather ? (
             <button
@@ -3503,6 +3643,72 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                 Use my device location
               </button>
               <button type="button" onClick={closeWeatherLocationEditor}>
+                Close
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {secondaryTimeZoneOpen && (
+        <div
+          className="topic-confirmation-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeSecondaryTimeZoneEditor();
+          }}
+        >
+          <section
+            className="topic-confirmation weather-location-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="secondary-time-zone-title"
+            aria-describedby="secondary-time-zone-description"
+          >
+            <p className="topic-confirmation-kicker">Additional clock</p>
+            <h2 id="secondary-time-zone-title">Add another time zone.</h2>
+            <p id="secondary-time-zone-description">
+              Search for a city or region. Its current time will appear beside your local clock.
+            </p>
+            <form className="weather-location-search" onSubmit={(event) => void searchSecondaryTimeZones(event)}>
+              <input
+                ref={secondaryTimeZoneInput}
+                type="search"
+                value={secondaryTimeZoneQuery}
+                onChange={(event) => setSecondaryTimeZoneQuery(event.target.value)}
+                placeholder="For example, London or Taipei"
+                aria-label="Search for an additional time zone"
+                maxLength={120}
+              />
+              <button type="submit" disabled={secondaryTimeZoneSearching}>
+                {secondaryTimeZoneSearching ? "Searching…" : "Search"}
+              </button>
+            </form>
+            {secondaryTimeZoneError && <p className="weather-location-error" role="alert">{secondaryTimeZoneError}</p>}
+            {secondaryTimeZoneResults.length > 0 && (
+              <div className="weather-location-results" role="list" aria-label="Matching time zones">
+                {secondaryTimeZoneResults.map((location) => (
+                  <button
+                    type="button"
+                    role="listitem"
+                    key={`${location.id}:${location.timezone}`}
+                    onClick={() => chooseSecondaryTimeZone(location)}
+                  >
+                    <strong>{location.name}</strong>
+                    <small>
+                      {[location.admin1, location.country].filter(Boolean).join(", ")}
+                      {location.timezone ? ` · ${location.timezone.replaceAll("_", " ")}` : ""}
+                    </small>
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="topic-confirmation-actions weather-location-actions">
+              {preferences.secondaryTimeZone && (
+                <button type="button" className="danger" onClick={removeSecondaryTimeZone}>
+                  Remove clock
+                </button>
+              )}
+              <button type="button" onClick={closeSecondaryTimeZoneEditor}>
                 Close
               </button>
             </div>

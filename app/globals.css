@@ -674,6 +674,83 @@ main {
   text-align: right;
 }
 
+.hero-clocks {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.hero-secondary-clock {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  min-width: 0;
+  align-items: center;
+  gap: 0.55rem;
+  border: 0;
+  border-left: 1px solid var(--line);
+  background: transparent;
+  color: var(--page-text);
+  padding: 0.15rem 0 0.15rem 0.9rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.hero-secondary-clock > time {
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  white-space: nowrap;
+}
+
+.hero-secondary-clock > span {
+  display: grid;
+  min-width: 0;
+  max-width: 9rem;
+  color: var(--text-muted);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.25;
+  text-transform: uppercase;
+}
+
+.hero-secondary-clock > span,
+.hero-secondary-clock > span small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hero-secondary-clock > span small {
+  color: var(--text-faint);
+  font-size: 0.52rem;
+  font-weight: 600;
+}
+
+.hero-secondary-clock:hover { color: var(--red); }
+
+.hero-time-zone-add {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px dashed var(--line);
+  background: transparent;
+  color: var(--text-muted);
+  padding: 0.52rem 0.62rem;
+  cursor: pointer;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.hero-time-zone-add span { color: var(--red); font-size: 0.9rem; line-height: 0.7; }
+.hero-time-zone-add:hover { border-color: var(--red); color: var(--red); }
+
 .hero-time {
   font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
   font-size: clamp(1.55rem, 2.15vw, 2.15rem);
@@ -3161,7 +3238,16 @@ footer a { color: var(--paper); text-decoration: none; }
   .hero.compact h1 br { display: block; }
   .hero.compact .lede { margin-top: 0.45rem; font-size: 0.82rem; }
   .hero-context { flex-wrap: wrap; gap: 0.9rem 1.4rem; }
-  .hero.compact .hero-context { flex-wrap: nowrap; }
+  .hero.compact .hero-context {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .hero.compact .hero-context::-webkit-scrollbar { display: none; }
+  .hero-clocks { flex: 0 0 auto; }
+  .hero-secondary-clock > span { max-width: 6.5rem; }
+  .hero.compact .hero-date,
+  .hero.compact .hero-secondary-clock > span small { display: none; }
   .hero-time { font-size: 1.55rem; }
   .weather-reading small { max-width: min(19rem, 70vw); }
   .hero.compact .weather-reading small { display: none; }

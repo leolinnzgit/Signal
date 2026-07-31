@@ -33,5 +33,7 @@ public sealed class UserNewsPreferences
 
     public string WeatherLocationJson { get; set; } = "{}";
 
+    public string SecondaryTimeZoneJson { get; set; } = "{}";
+
     public DateTimeOffset UpdatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
 }

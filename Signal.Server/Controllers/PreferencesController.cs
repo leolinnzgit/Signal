@@ -59,6 +59,8 @@ public sealed class PreferencesController(
         var tickerOverridesJson = JsonSerializer.Serialize(tickerOverrides);
         var weatherLocation = NormalizeWeatherLocation(request.WeatherLocation);
         var weatherLocationJson = weatherLocation is null ? "{}" : JsonSerializer.Serialize(weatherLocation);
+        var secondaryTimeZone = NormalizeSecondaryTimeZone(request.SecondaryTimeZone);
+        var secondaryTimeZoneJson = secondaryTimeZone is null ? "{}" : JsonSerializer.Serialize(secondaryTimeZone);
         var storyLimit = NormalizeStoryLimit(request.Limit);
         var forceRefresh = preferences is null
             || preferences.StoryLimit != storyLimit
@@ -85,6 +87,7 @@ public sealed class PreferencesController(
         preferences.RssFeedsJson = rssFeedsJson;
         preferences.TickerOverridesJson = tickerOverridesJson;
         preferences.WeatherLocationJson = weatherLocationJson;
+        preferences.SecondaryTimeZoneJson = secondaryTimeZoneJson;
         preferences.UpdatedAtUtc = DateTimeOffset.UtcNow;
 
         await SyncTopicRefreshStatesAsync(
@@ -192,6 +195,7 @@ public sealed class PreferencesController(
         NormalizeRetentionDays(preferences.ArticleRetentionDays),
         DeserializeTickerOverrides(preferences.TickerOverridesJson, DeserializeList(preferences.TopicsJson)),
         DeserializeWeatherLocation(preferences.WeatherLocationJson),
+        DeserializeSecondaryTimeZone(preferences.SecondaryTimeZoneJson),
         new NewsSourcesResponse(
             preferences.GoogleEnabled,
             preferences.GdeltEnabled,
@@ -235,6 +239,48 @@ public sealed class PreferencesController(
                     location.Latitude,
                     location.Longitude,
                     location.Timezone));
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static SecondaryTimeZoneResponse? NormalizeSecondaryTimeZone(
+        SecondaryTimeZoneRequest? value)
+    {
+        if (value is null) return null;
+        var name = Regex.Replace(value.Name?.Trim() ?? "", @"\s+", " ");
+        var timeZone = (value.TimeZone ?? "").Trim();
+        if (name.Length is < 1 or > 120 || timeZone.Length is < 1 or > 80)
+            return null;
+        try
+        {
+            _ = TimeZoneInfo.FindSystemTimeZoneById(timeZone);
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            if (!TimeZoneInfo.TryConvertIanaIdToWindowsId(timeZone, out var windowsId))
+                return null;
+            try { _ = TimeZoneInfo.FindSystemTimeZoneById(windowsId); }
+            catch (TimeZoneNotFoundException) { return null; }
+            catch (InvalidTimeZoneException) { return null; }
+        }
+        catch (InvalidTimeZoneException)
+        {
+            return null;
+        }
+        return new SecondaryTimeZoneResponse(name, timeZone);
+    }
+
+    private static SecondaryTimeZoneResponse? DeserializeSecondaryTimeZone(string json)
+    {
+        try
+        {
+            var value = JsonSerializer.Deserialize<SecondaryTimeZoneResponse>(json);
+            return value is null
+                ? null
+                : NormalizeSecondaryTimeZone(new SecondaryTimeZoneRequest(value.Name, value.TimeZone));
         }
         catch (JsonException)
         {
@@ -357,6 +403,7 @@ public sealed record NewsPreferencesResponse(
     int ArticleRetentionDays,
     IReadOnlyDictionary<string, string> TickerOverrides,
     WeatherLocationResponse? WeatherLocation,
+    SecondaryTimeZoneResponse? SecondaryTimeZone,
     NewsSourcesResponse Sources)
 {
     public static NewsPreferencesResponse Default { get; } = new(
@@ -369,6 +416,7 @@ public sealed record NewsPreferencesResponse(
         30,
         new Dictionary<string, string>(),
         null,
+        null,
         new NewsSourcesResponse(true, true, []));
 }
 
@@ -380,6 +428,10 @@ public sealed record WeatherLocationResponse(
     double Longitude,
     string Timezone);
 
+public sealed record SecondaryTimeZoneResponse(
+    string Name,
+    string TimeZone);
+
 public sealed record NewsPreferencesRequest(
     [Required] string[] Topics,
     [Range(10, 500)] int Limit,
@@ -390,6 +442,7 @@ public sealed record NewsPreferencesRequest(
     int ArticleRetentionDays,
     IReadOnlyDictionary<string, string>? TickerOverrides,
     WeatherLocationRequest? WeatherLocation,
+    SecondaryTimeZoneRequest? SecondaryTimeZone,
     [Required] NewsSourcesRequest Sources);
 
 public sealed record WeatherLocationRequest(
@@ -397,6 +450,10 @@ public sealed record WeatherLocationRequest(
     [Range(-90, 90)] double Latitude,
     [Range(-180, 180)] double Longitude,
     [MaxLength(80)] string? Timezone);
+
+public sealed record SecondaryTimeZoneRequest(
+    [Required, MaxLength(120)] string Name,
+    [Required, MaxLength(80)] string TimeZone);
 
 public sealed record NewsSourcesRequest(
     bool Google,

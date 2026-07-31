@@ -210,6 +210,7 @@ await using (var scope = app.Services.CreateAsyncScope())
             "RssFeedsJson" TEXT NOT NULL,
             "TickerOverridesJson" TEXT NOT NULL DEFAULT '{{}}',
             "WeatherLocationJson" TEXT NOT NULL DEFAULT '{{}}',
+            "SecondaryTimeZoneJson" TEXT NOT NULL DEFAULT '{{}}',
             "UpdatedAtUtc" TEXT NOT NULL,
             CONSTRAINT "FK_UserNewsPreferences_AspNetUsers_UserId"
                 FOREIGN KEY ("UserId") REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE
@@ -305,6 +306,15 @@ await using (var scope = app.Services.CreateAsyncScope())
         {
             await database.Database.ExecuteSqlRawAsync(
                 "ALTER TABLE \"UserNewsPreferences\" ADD COLUMN \"WeatherLocationJson\" TEXT NOT NULL DEFAULT '{{}}';");
+        }
+
+        await using var secondaryTimeZoneColumnCheck = database.Database.GetDbConnection().CreateCommand();
+        secondaryTimeZoneColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('UserNewsPreferences') WHERE name = 'SecondaryTimeZoneJson';";
+        var secondaryTimeZoneColumnExists = Convert.ToInt32(await secondaryTimeZoneColumnCheck.ExecuteScalarAsync()) > 0;
+        if (!secondaryTimeZoneColumnExists)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"UserNewsPreferences\" ADD COLUMN \"SecondaryTimeZoneJson\" TEXT NOT NULL DEFAULT '{{}}';");
         }
 
         await using var topicHeaderSizeColumnCheck = database.Database.GetDbConnection().CreateCommand();
