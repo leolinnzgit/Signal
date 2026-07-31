@@ -2287,6 +2287,13 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   function markArticleRead(article: FollowedArticle) {
     if (article.isRead) return;
     const readAt = new Date().toISOString();
+    const caughtUpTopics = feedView === "latest"
+      ? article.topics.filter((topic) => !articles.some((candidate) =>
+          candidate.url !== article.url
+          && !candidate.isRead
+          && candidate.topics.some((candidateTopic) =>
+            candidateTopic.toLowerCase() === topic.toLowerCase())))
+      : [];
     setArticles((current) => current.map((item) => item.url === article.url
       ? { ...item, isRead: true }
       : item));
@@ -2297,6 +2304,24 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
       void articleStore.setRead(article.url).catch(() => {
         setNotice("The story opened, but its read status could not be saved.");
       });
+    }
+    if (caughtUpTopics.length > 0) {
+      const viewedAt = new Date().toISOString();
+      const caughtUpKeys = new Set(caughtUpTopics.map((topic) => topic.toLowerCase()));
+      setTopicRefreshStates((current) => current.map((state) =>
+        caughtUpKeys.has(state.topic.toLowerCase())
+          ? { ...state, hasUnread: false, lastViewedAt: viewedAt }
+          : state));
+      const markViewed = refreshStore?.markViewed;
+      if (markViewed) {
+        void Promise.allSettled(
+          caughtUpTopics.map((topic) => markViewed(topic)),
+        ).then((results) => {
+          if (results.some((result) => result.status === "rejected")) {
+            setNotice("The stories were read, but one topic's unread status could not be saved.");
+          }
+        });
+      }
     }
   }
 

@@ -68,10 +68,38 @@ test("falls back to the active service worker", async () => {
   }]);
 });
 
+test("notifies the service worker when clearing a directly supported badge", async () => {
+  const calls = [];
+  const messages = [];
+  const target = {
+    async clearAppBadge() {
+      calls.push("clear");
+    },
+    serviceWorker: {
+      ready: Promise.resolve({
+        active: {
+          postMessage(message) {
+            messages.push(message);
+          },
+        },
+      }),
+    },
+  };
+
+  assert.equal(await badge.updateInstalledAppBadge(0, target), true);
+  assert.deepEqual(calls, ["clear"]);
+  assert.deepEqual(messages, [{
+    type: badge.APP_BADGE_MESSAGE,
+    count: 0,
+  }]);
+});
+
 test("handles background push notifications and badge updates", () => {
   assert.match(serviceWorker, /addEventListener\("push"/);
   assert.match(serviceWorker, /showNotification/);
   assert.match(serviceWorker, /setAppBadge/);
   assert.match(serviceWorker, /addEventListener\("notificationclick"/);
   assert.match(serviceWorker, /openWindow/);
+  assert.match(serviceWorker, /getNotifications/);
+  assert.match(serviceWorker, /notification\.close/);
 });

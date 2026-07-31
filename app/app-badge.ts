@@ -28,15 +28,16 @@ export async function updateInstalledAppBadge(
   target: AppBadgeTarget = navigator as Navigator & AppBadgeTarget,
 ) {
   const normalizedCount = normalizeAppBadgeCount(count);
+  let updated = false;
 
   try {
     if (normalizedCount > 0 && typeof target.setAppBadge === "function") {
       await target.setAppBadge(normalizedCount);
-      return true;
+      updated = true;
     }
     if (normalizedCount === 0 && typeof target.clearAppBadge === "function") {
       await target.clearAppBadge();
-      return true;
+      updated = true;
     }
   } catch {
     // Some browser shells expose the API before the PWA has been installed.
@@ -45,13 +46,13 @@ export async function updateInstalledAppBadge(
 
   try {
     const registration = await target.serviceWorker?.ready;
-    if (!registration?.active) return false;
+    if (!registration?.active) return updated;
     registration.active.postMessage({
       type: APP_BADGE_MESSAGE,
       count: normalizedCount,
     });
     return true;
   } catch {
-    return false;
+    return updated;
   }
 }

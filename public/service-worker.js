@@ -1,5 +1,6 @@
-const STATIC_CACHE = "signal-static-v3";
+const STATIC_CACHE = "signal-static-v4";
 const APP_BADGE_MESSAGE = "signal:update-app-badge";
+const NEWS_NOTIFICATION_TAG = "signal-new-stories";
 const STATIC_ASSETS = [
   "/favicon.svg",
   "/manifest.webmanifest",
@@ -62,15 +63,23 @@ self.addEventListener("message", (event) => {
   const count = Number.isFinite(requestedCount) && requestedCount > 0
     ? Math.min(Math.floor(requestedCount), 99)
     : 0;
-  const badgeNavigator = self.navigator;
-  const operation = count > 0
-    ? badgeNavigator.setAppBadge?.(count)
-    : badgeNavigator.clearAppBadge?.();
+  const operations = [];
+  if (count > 0 && typeof self.navigator.setAppBadge === "function") {
+    operations.push(self.navigator.setAppBadge(count));
+  } else if (count === 0 && typeof self.navigator.clearAppBadge === "function") {
+    operations.push(self.navigator.clearAppBadge());
+  }
+  if (count === 0) {
+    operations.push(
+      self.registration.getNotifications({ tag: NEWS_NOTIFICATION_TAG })
+        .then((notifications) => notifications.forEach((notification) => notification.close())),
+    );
+  }
 
-  if (operation) {
-    event.waitUntil(operation.catch(() => {
-      // Badging is optional and can be blocked by the browser or OS.
-    }));
+  if (operations.length > 0) {
+    event.waitUntil(Promise.all(operations.map((operation) => operation.catch(() => {
+      // Badging and notification cleanup are optional OS integrations.
+    }))));
   }
 });
 
@@ -95,7 +104,7 @@ self.addEventListener("push", (event) => {
       body: payload.body || "Fresh coverage is ready in your briefing.",
       icon: payload.icon || "/icons/signal-192.png",
       badge: payload.badge || "/icons/signal-192.png",
-      tag: "signal-new-stories",
+      tag: NEWS_NOTIFICATION_TAG,
       renotify: false,
       data: { url },
     }),
