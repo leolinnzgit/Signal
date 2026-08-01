@@ -1,8 +1,10 @@
 using System.Net;
 using System.Text;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging.Abstractions;
 using Signal.Server.Data;
 using Signal.Server.Models;
@@ -58,6 +60,28 @@ if (FeedUrlCanonicalizer.NormalizeForStorage("http://example.com/feed") is not n
     throw new InvalidOperationException("Feed storage normalization accepted an insecure URL.");
 
 Console.WriteLine($"Feed URL canonicalizer passed {feedCases.Length + 2} checks.");
+
+var validProfilePhoto = new byte[]
+{
+    0xff, 0xd8,
+    0xff, 0xc0, 0x00, 0x07, 0x08,
+    0x02, 0x00,
+    0x02, 0x00,
+    0xff, 0xd9,
+};
+if (!ProfilePhotoValidator.IsValidJpeg(validProfilePhoto))
+    throw new InvalidOperationException("Profile photo validation rejected a 512 by 512 JPEG.");
+
+var wrongSizeProfilePhoto = validProfilePhoto.ToArray();
+wrongSizeProfilePhoto[8] = 0x01;
+if (ProfilePhotoValidator.IsValidJpeg(wrongSizeProfilePhoto))
+    throw new InvalidOperationException("Profile photo validation accepted incorrect dimensions.");
+
+var truncatedProfilePhoto = validProfilePhoto[..^2];
+if (ProfilePhotoValidator.IsValidJpeg(truncatedProfilePhoto))
+    throw new InvalidOperationException("Profile photo validation accepted a truncated JPEG.");
+
+Console.WriteLine("Profile photo validation passed format and dimension checks.");
 
 var trendsHandler = new FakeGoogleTrendsHandler();
 using var trendsClient = new HttpClient(trendsHandler);
@@ -187,10 +211,17 @@ await using (var scheduleDatabase = new SignalDbContext(scheduleOptions))
     await scheduleDatabase.SaveChangesAsync();
 
     using var scheduleClient = new HttpClient(new FakeGoogleNewsHandler());
+    var pushService = new PushNotificationService(
+        scheduleDatabase,
+        new VapidKeyStore(
+            new TestWebHostEnvironment(),
+            NullLogger<VapidKeyStore>.Instance),
+        NullLogger<PushNotificationService>.Instance);
     var refreshService = new TopicRefreshService(
         scheduleDatabase,
         new NewsService(scheduleClient),
         new NullAccountEmailSender(),
+        pushService,
         NullLogger<TopicRefreshService>.Instance);
     await refreshService.RefreshAsync("schedule-user", ["Robots"], false, CancellationToken.None);
 
@@ -304,4 +335,19 @@ file sealed class NullAccountEmailSender : IAccountEmailSender
 
     public Task SendNewsSummaryAsync(string email, NewsSummaryDigest digest, CancellationToken cancellationToken) =>
         Task.CompletedTask;
+}
+
+file sealed class TestWebHostEnvironment : IWebHostEnvironment
+{
+    public string ApplicationName { get; set; } = "Signal.Tests";
+
+    public IFileProvider WebRootFileProvider { get; set; } = new NullFileProvider();
+
+    public string WebRootPath { get; set; } = Path.GetTempPath();
+
+    public string EnvironmentName { get; set; } = "Development";
+
+    public string ContentRootPath { get; set; } = Path.GetTempPath();
+
+    public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
 }

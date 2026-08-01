@@ -2,6 +2,12 @@
 
 import { type CSSProperties, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { updateInstalledAppBadge } from "./app-badge";
+import { shareArticle } from "./article-share";
+import {
+  normalizeSecondaryTimeZone,
+  type SecondaryTimeZonePreference,
+} from "./secondary-time-zone";
 import { suggestNewsSources } from "./source-suggestions";
 
 type Article = {
@@ -183,6 +189,7 @@ export type NewsPreferences = {
   articleRetentionDays: number;
   tickerOverrides: Record<string, string>;
   weatherLocation: WeatherLocationPreference | null;
+  secondaryTimeZone: SecondaryTimeZonePreference | null;
   sources: SourcePreferences;
 };
 
@@ -256,6 +263,21 @@ export type TopicRefreshStore = {
   markViewed?: (topic: string) => Promise<void>;
 };
 
+export type PushSubscriptionPayload = {
+  endpoint: string;
+  keys: {
+    p256Dh: string;
+    auth: string;
+  };
+};
+
+export type PushNotificationStore = {
+  getPublicKey: () => Promise<string>;
+  subscribe: (subscription: PushSubscriptionPayload) => Promise<void>;
+  unsubscribe: (endpoint: string) => Promise<void>;
+  sendTest: () => Promise<string>;
+};
+
 const DEFAULTS: NewsPreferences = {
   topics: ["Artificial intelligence"],
   limit: 20,
@@ -266,6 +288,7 @@ const DEFAULTS: NewsPreferences = {
   articleRetentionDays: 30,
   tickerOverrides: {},
   weatherLocation: null,
+  secondaryTimeZone: null,
   sources: { google: true, gdelt: true, rssFeeds: [] },
 };
 const STORY_LIMIT_OPTIONS = [10, ...Array.from({ length: 25 }, (_, index) => (index + 1) * 20)];
@@ -292,6 +315,17 @@ function timestampValue(value: string) {
 
 function ArrowIcon() {
   return <span aria-hidden="true" className="arrow">&#8599;</span>;
+}
+
+function ShareIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24">
+      <circle cx="18" cy="5" r="2.5" />
+      <circle cx="6" cy="12" r="2.5" />
+      <circle cx="18" cy="19" r="2.5" />
+      <path d="m8.2 10.8 7.6-4.5M8.2 13.2l7.6 4.5" />
+    </svg>
+  );
 }
 
 function RefreshIcon({ spinning = false }: { spinning?: boolean }) {
@@ -535,6 +569,7 @@ function normalizePreferences(saved: Partial<NewsPreferences> & { topic?: string
       : DEFAULTS.articleRetentionDays,
     tickerOverrides,
     weatherLocation,
+    secondaryTimeZone: normalizeSecondaryTimeZone(saved.secondaryTimeZone),
     sources: {
       google: typeof saved.sources?.google === "boolean" ? saved.sources.google : true,
       gdelt: typeof saved.sources?.gdelt === "boolean" ? saved.sources.gdelt : true,
@@ -610,12 +645,19 @@ function formatMarketPrice(price: number, currency: string) {
   }
 }
 
+function decodeBase64Url(value: string) {
+  const padding = "=".repeat((4 - value.length % 4) % 4);
+  const decoded = window.atob(`${value}${padding}`.replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(decoded, (character) => character.charCodeAt(0));
+}
+
 type NewsDashboardProps = {
   user: {
     displayName: string;
     email: string;
     fullName: string | null;
     isLocalPreview: boolean;
+    profilePhotoUrl?: string | null;
   };
   signOutPath?: string | null;
   onSignOut?: () => void;
@@ -624,15 +666,19 @@ type NewsDashboardProps = {
   articleStore?: ArticleStore;
   summarySender?: (summary: NewsSummary) => Promise<string>;
   refreshStore?: TopicRefreshStore;
+  pushNotificationStore?: PushNotificationStore;
 };
 
-export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAccount, preferencesStore, articleStore, summarySender, refreshStore }: NewsDashboardProps) {
+type PushNotificationStatus = "checking" | "unsupported" | "off" | "enabling" | "on" | "disabling" | "denied" | "error";
+
+export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAccount, preferencesStore, articleStore, summarySender, refreshStore, pushNotificationStore }: NewsDashboardProps) {
   const [preferences, setPreferences] = useState<NewsPreferences>(DEFAULTS);
   const [topicInput, setTopicInput] = useState("");
   const [rssInput, setRssInput] = useState("");
   const [selectedTopic, setSelectedTopic] = useState(ALL_TOPICS);
   const [recentTopicFilters, setRecentTopicFilters] = useState<string[]>([]);
   const [selectedProvider, setSelectedProvider] = useState(ALL_PROVIDERS);
+  const [topicsExpanded, setTopicsExpanded] = useState(false);
   const [topicPickerOpen, setTopicPickerOpen] = useState(false);
   const [topicPickerQuery, setTopicPickerQuery] = useState("");
   const [sourcePickerOpen, setSourcePickerOpen] = useState(false);
@@ -677,6 +723,11 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [weatherLocationResults, setWeatherLocationResults] = useState<WeatherLocationSearchResult[]>([]);
   const [weatherLocationSearching, setWeatherLocationSearching] = useState(false);
   const [weatherLocationError, setWeatherLocationError] = useState("");
+  const [secondaryTimeZoneOpen, setSecondaryTimeZoneOpen] = useState(false);
+  const [secondaryTimeZoneQuery, setSecondaryTimeZoneQuery] = useState("");
+  const [secondaryTimeZoneResults, setSecondaryTimeZoneResults] = useState<WeatherLocationSearchResult[]>([]);
+  const [secondaryTimeZoneSearching, setSecondaryTimeZoneSearching] = useState(false);
+  const [secondaryTimeZoneError, setSecondaryTimeZoneError] = useState("");
   const [marketQuote, setMarketQuote] = useState<MarketQuote | null>(null);
   const [marketNotice, setMarketNotice] = useState<MarketNotice | null>(null);
   const [tickerEditorOpen, setTickerEditorOpen] = useState(false);
@@ -694,6 +745,9 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [installHelpOpen, setInstallHelpOpen] = useState(false);
   const [appInstalled, setAppInstalled] = useState(false);
   const [iosInstall, setIosInstall] = useState(false);
+  const [pushNotificationStatus, setPushNotificationStatus] = useState<PushNotificationStatus>(
+    pushNotificationStore ? "checking" : "unsupported",
+  );
   const [theme, setTheme] = useState<ColorTheme | null>(null);
   const [rssResolvingFeed, setRssResolvingFeed] = useState<string | null>(null);
   const [rssMessage, setRssMessage] = useState("");
@@ -717,6 +771,9 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const weatherLocationInput = useRef<HTMLInputElement>(null);
   const weatherLocationTrigger = useRef<HTMLElement | null>(null);
   const weatherLocationRequestSequence = useRef(0);
+  const secondaryTimeZoneInput = useRef<HTMLInputElement>(null);
+  const secondaryTimeZoneTrigger = useRef<HTMLElement | null>(null);
+  const secondaryTimeZoneRequestSequence = useRef(0);
   const lastSavedPreferences = useRef("");
   const latestPreferences = useRef(preferences);
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
@@ -852,6 +909,38 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     setControlsExpanded(localStorage.getItem(CONTROLS_STORAGE_KEY) === "true");
     setControlsHidden(localStorage.getItem(CONTROLS_HIDDEN_STORAGE_KEY) === "true");
   }, []);
+
+  useEffect(() => {
+    if (!pushNotificationStore) return;
+    if (
+      !("serviceWorker" in navigator)
+      || !("PushManager" in window)
+      || !("Notification" in window)
+    ) {
+      setPushNotificationStatus("unsupported");
+      return;
+    }
+
+    let cancelled = false;
+    void navigator.serviceWorker.ready
+      .then((registration) => registration.pushManager.getSubscription())
+      .then((subscription) => {
+        if (cancelled) return;
+        setPushNotificationStatus(
+          Notification.permission === "denied"
+            ? "denied"
+            : subscription && Notification.permission === "granted"
+              ? "on"
+              : "off",
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setPushNotificationStatus("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [pushNotificationStore]);
 
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
@@ -1417,6 +1506,18 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     [articles, preferences.topics, topicRefreshByKey],
   );
 
+  const unreadTopicCount = useMemo(
+    () => preferences.topics.reduce(
+      (count, topic) => count + Number(topicHasUnread[topic] === true),
+      0,
+    ),
+    [preferences.topics, topicHasUnread],
+  );
+
+  useEffect(() => {
+    void updateInstalledAppBadge(unreadTopicCount);
+  }, [unreadTopicCount]);
+
   const visibleTopicFilters = useMemo(() => {
     const topicsByKey = new Map(preferences.topics.map((topic) => [topic.toLowerCase(), topic]));
     const stacked = recentTopicFilters
@@ -1640,6 +1741,19 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
       window.removeEventListener("keydown", closeOnEscape);
     };
   }, [weatherLocationOpen]);
+
+  useEffect(() => {
+    if (!secondaryTimeZoneOpen) return;
+    const focusFrame = window.requestAnimationFrame(() => secondaryTimeZoneInput.current?.focus());
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeSecondaryTimeZoneEditor();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [secondaryTimeZoneOpen]);
 
   function addTopic(value: string) {
     const topic = value.trim().replace(/\s+/g, " ").slice(0, 80);
@@ -1912,6 +2026,94 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     }
   }
 
+  async function enablePushNotifications() {
+    if (!pushNotificationStore) return;
+    if (
+      !("serviceWorker" in navigator)
+      || !("PushManager" in window)
+      || !("Notification" in window)
+    ) {
+      setPushNotificationStatus("unsupported");
+      setNotice("This browser does not support installed-app push notifications.");
+      return;
+    }
+
+    setPushNotificationStatus("enabling");
+    setNotice("");
+    let subscription: PushSubscription | null = null;
+    let savedOnServer = false;
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") {
+        setPushNotificationStatus(permission === "denied" ? "denied" : "off");
+        setNotice(permission === "denied"
+          ? "Notifications are blocked. Allow Signal in your phone notification settings, then try again."
+          : "Notification permission was not enabled.");
+        return;
+      }
+
+      await navigator.serviceWorker.register("/service-worker.js");
+      const registration = await navigator.serviceWorker.ready;
+      subscription = await registration.pushManager.getSubscription();
+      if (!subscription) {
+        const publicKey = await pushNotificationStore.getPublicKey();
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: decodeBase64Url(publicKey),
+        });
+      }
+      const serialized = subscription.toJSON();
+      const p256Dh = serialized.keys?.p256dh;
+      const auth = serialized.keys?.auth;
+      if (!serialized.endpoint || !p256Dh || !auth)
+        throw new Error("The phone did not return a complete notification subscription.");
+      await pushNotificationStore.subscribe({
+        endpoint: serialized.endpoint,
+        keys: { p256Dh, auth },
+      });
+      savedOnServer = true;
+      setPushNotificationStatus("on");
+      try {
+        const testMessage = await pushNotificationStore.sendTest();
+        setNotice(testMessage);
+      } catch {
+        setNotice("Phone notifications are enabled, but the immediate test could not be delivered.");
+      }
+    } catch (caught) {
+      if (subscription && !savedOnServer) {
+        void subscription.unsubscribe().catch(() => {
+          // A failed local cleanup will be replaced the next time the user enables push.
+        });
+      }
+      setPushNotificationStatus("error");
+      setNotice(caught instanceof Error
+        ? caught.message
+        : "Phone notifications could not be enabled.");
+    }
+  }
+
+  async function disablePushNotifications() {
+    if (!pushNotificationStore || !("serviceWorker" in navigator)) return;
+    setPushNotificationStatus("disabling");
+    setNotice("");
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.getSubscription();
+      if (subscription) {
+        await pushNotificationStore.unsubscribe(subscription.endpoint);
+        await subscription.unsubscribe();
+      }
+      await updateInstalledAppBadge(0);
+      setPushNotificationStatus("off");
+      setNotice("Phone notifications are off on this device.");
+    } catch (caught) {
+      setPushNotificationStatus("error");
+      setNotice(caught instanceof Error
+        ? caught.message
+        : "Phone notifications could not be disabled.");
+    }
+  }
+
   function closeInstallHelp() {
     setInstallHelpOpen(false);
     window.requestAnimationFrame(() => installTrigger.current?.focus());
@@ -1999,10 +2201,91 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     setNotice("Weather will use this device's current location.");
   }
 
+  function openSecondaryTimeZoneEditor() {
+    secondaryTimeZoneTrigger.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    setSecondaryTimeZoneQuery(preferences.secondaryTimeZone?.name ?? "");
+    setSecondaryTimeZoneResults([]);
+    setSecondaryTimeZoneError("");
+    setSecondaryTimeZoneOpen(true);
+  }
+
+  function closeSecondaryTimeZoneEditor() {
+    secondaryTimeZoneRequestSequence.current += 1;
+    setSecondaryTimeZoneOpen(false);
+    setSecondaryTimeZoneSearching(false);
+    window.requestAnimationFrame(() => secondaryTimeZoneTrigger.current?.focus());
+  }
+
+  async function searchSecondaryTimeZones(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const query = secondaryTimeZoneQuery.trim().replace(/\s+/g, " ");
+    if (query.length < 2) {
+      setSecondaryTimeZoneError("Enter at least two characters.");
+      return;
+    }
+
+    const runId = ++secondaryTimeZoneRequestSequence.current;
+    setSecondaryTimeZoneSearching(true);
+    setSecondaryTimeZoneError("");
+    setSecondaryTimeZoneResults([]);
+    try {
+      const params = new URLSearchParams({
+        name: query,
+        count: "8",
+        language: navigator.language.split("-")[0] || "en",
+        format: "json",
+      });
+      const response = await fetch(`https://geocoding-api.open-meteo.com/v1/search?${params.toString()}`, {
+        cache: "no-store",
+      });
+      if (!response.ok) throw new Error("Time zone search unavailable");
+      const data = (await response.json()) as OpenMeteoGeocodingResponse;
+      if (runId !== secondaryTimeZoneRequestSequence.current) return;
+      const results = (data.results ?? []).filter((result) =>
+        typeof result.name === "string"
+        && typeof result.timezone === "string"
+        && normalizeSecondaryTimeZone({
+          name: result.name,
+          timeZone: result.timezone,
+        }) !== null);
+      setSecondaryTimeZoneResults(results);
+      if (results.length === 0) setSecondaryTimeZoneError("No matching time zones found. Try a nearby city.");
+    } catch {
+      if (runId === secondaryTimeZoneRequestSequence.current) {
+        setSecondaryTimeZoneError("Time zone search is unavailable right now. Please try again.");
+      }
+    } finally {
+      if (runId === secondaryTimeZoneRequestSequence.current) setSecondaryTimeZoneSearching(false);
+    }
+  }
+
+  function chooseSecondaryTimeZone(location: WeatherLocationSearchResult) {
+    const selected = normalizeSecondaryTimeZone({
+      name: location.name,
+      timeZone: location.timezone,
+    });
+    if (!selected) {
+      setSecondaryTimeZoneError("That location did not provide a supported time zone.");
+      return;
+    }
+    setPreferences((current) => ({ ...current, secondaryTimeZone: selected }));
+    setSecondaryTimeZoneOpen(false);
+    setNotice(`Additional clock set to ${selected.name}.`);
+  }
+
+  function removeSecondaryTimeZone() {
+    setPreferences((current) => ({ ...current, secondaryTimeZone: null }));
+    setSecondaryTimeZoneOpen(false);
+    setNotice("The additional clock has been removed.");
+  }
+
   function changeFeedView(next: "latest" | "history" | "bookmarks") {
     setFeedView(next);
     setSelectedTopic(ALL_TOPICS);
     setSelectedProvider(ALL_PROVIDERS);
+    setTopicsExpanded(false);
     setTopicPickerOpen(false);
     setTopicPickerQuery("");
     setSourcePickerOpen(false);
@@ -2127,6 +2410,13 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   function markArticleRead(article: FollowedArticle) {
     if (article.isRead) return;
     const readAt = new Date().toISOString();
+    const caughtUpTopics = feedView === "latest"
+      ? article.topics.filter((topic) => !articles.some((candidate) =>
+          candidate.url !== article.url
+          && !candidate.isRead
+          && candidate.topics.some((candidateTopic) =>
+            candidateTopic.toLowerCase() === topic.toLowerCase())))
+      : [];
     setArticles((current) => current.map((item) => item.url === article.url
       ? { ...item, isRead: true }
       : item));
@@ -2137,6 +2427,24 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
       void articleStore.setRead(article.url).catch(() => {
         setNotice("The story opened, but its read status could not be saved.");
       });
+    }
+    if (caughtUpTopics.length > 0) {
+      const viewedAt = new Date().toISOString();
+      const caughtUpKeys = new Set(caughtUpTopics.map((topic) => topic.toLowerCase()));
+      setTopicRefreshStates((current) => current.map((state) =>
+        caughtUpKeys.has(state.topic.toLowerCase())
+          ? { ...state, hasUnread: false, lastViewedAt: viewedAt }
+          : state));
+      const markViewed = refreshStore?.markViewed;
+      if (markViewed) {
+        void Promise.allSettled(
+          caughtUpTopics.map((topic) => markViewed(topic)),
+        ).then((results) => {
+          if (results.some((result) => result.status === "rejected")) {
+            setNotice("The stories were read, but one topic's unread status could not be saved.");
+          }
+        });
+      }
     }
   }
 
@@ -2188,6 +2496,19 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     }
   }
 
+  async function shareStory(article: FollowedArticle) {
+    const result = await shareArticle({
+      title: article.title,
+      text: `${article.title} — ${article.source}`,
+      url: article.url,
+    });
+    if (result === "copied") {
+      setNotice("Story link copied. It is ready to paste.");
+    } else if (result === "failed") {
+      setNotice("This browser could not open sharing or copy the story link.");
+    }
+  }
+
   const feedTitle = feedView === "bookmarks"
     ? "Bookmarked stories"
     : feedView === "history"
@@ -2205,6 +2526,21 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
       timeZone: clockTimeZone,
     })
     : "Local date";
+  const secondaryTimeLabel = currentTime && preferences.secondaryTimeZone
+    ? currentTime.toLocaleTimeString(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+      timeZone: preferences.secondaryTimeZone.timeZone,
+    })
+    : "--:--";
+  const secondaryDateLabel = currentTime && preferences.secondaryTimeZone
+    ? currentTime.toLocaleDateString(undefined, {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      timeZone: preferences.secondaryTimeZone.timeZone,
+    })
+    : "";
   const readerOriginalUrl = readerContent.status === "ready"
     ? readerContent.article.finalUrl
     : readerArticle?.url ?? "";
@@ -2241,7 +2577,11 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
             <span className="theme-toggle-label">{theme === "dark" ? "Dark" : theme === "light" ? "Light" : "Theme"}</span>
           </button>
           <div className="current-user">
-            <span className="user-avatar" aria-hidden="true">{user.displayName.charAt(0).toUpperCase()}</span>
+            <span className="user-avatar" aria-hidden="true">
+              {user.profilePhotoUrl
+                ? <img src={user.profilePhotoUrl} alt="" />
+                : user.displayName.charAt(0).toUpperCase()}
+            </span>
             <span className="user-identity">
               <strong>{user.displayName}</strong>
               {user.fullName && <small>{user.email}</small>}
@@ -2268,9 +2608,29 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               Topics <span aria-hidden="true">&#43;</span>
             </button>
           )}
-          <div className="hero-clock">
-            <time className="hero-time" dateTime={currentTime?.toISOString()}>{currentTimeLabel}</time>
-            <span className="hero-date">{currentDateLabel}</span>
+          <div className="hero-clocks">
+            <div className="hero-clock">
+              <div className="hero-local-time-row">
+                <time className="hero-time" dateTime={currentTime?.toISOString()}>{currentTimeLabel}</time>
+                <span className="hero-clock-label">Local</span>
+              </div>
+              <span className="hero-date">{currentDateLabel}</span>
+            </div>
+            {preferences.secondaryTimeZone ? (
+              <button
+                type="button"
+                className="hero-secondary-clock"
+                onClick={openSecondaryTimeZoneEditor}
+                aria-label={`Additional clock for ${preferences.secondaryTimeZone.name}. Change or remove time zone.`}
+              >
+                <time dateTime={currentTime?.toISOString()}>{secondaryTimeLabel}</time>
+                <span>{preferences.secondaryTimeZone.name}<small>{secondaryDateLabel}</small></span>
+              </button>
+            ) : (
+              <button type="button" className="hero-time-zone-add" onClick={openSecondaryTimeZoneEditor}>
+                <span aria-hidden="true">+</span> Time zone
+              </button>
+            )}
           </div>
           {weatherStatus === "ready" && localWeather ? (
             <button
@@ -2664,6 +3024,55 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               </span>
             </label>
           )}
+          {pushNotificationStore && (
+            <div className={`push-notification-setting status-${pushNotificationStatus}`}>
+              <span>
+                <strong>Phone notifications &amp; app badge</strong>
+                <small>
+                  {pushNotificationStatus === "on"
+                    ? "Enabled on this device. Signal will notify you when scheduled refreshes find new stories."
+                    : pushNotificationStatus === "denied"
+                      ? "Blocked by your phone. Allow Signal under the phone's notification settings."
+                      : pushNotificationStatus === "unsupported"
+                        ? "Install Signal as an app using a browser that supports Web Push."
+                        : pushNotificationStatus === "checking"
+                          ? "Checking notification support on this device..."
+                          : pushNotificationStatus === "enabling"
+                            ? "Registering this device and sending a test..."
+                            : pushNotificationStatus === "disabling"
+                              ? "Removing this device..."
+                              : "Enable this to receive a notification dot or badge while Signal is closed."}
+                </small>
+              </span>
+              <button
+                type="button"
+                onClick={() => void (
+                  pushNotificationStatus === "on"
+                    ? disablePushNotifications()
+                    : enablePushNotifications()
+                )}
+                disabled={[
+                  "checking",
+                  "unsupported",
+                  "enabling",
+                  "disabling",
+                  "denied",
+                ].includes(pushNotificationStatus)}
+              >
+                {pushNotificationStatus === "on"
+                  ? "Turn off"
+                  : pushNotificationStatus === "enabling"
+                    ? "Enabling..."
+                    : pushNotificationStatus === "disabling"
+                      ? "Turning off..."
+                      : pushNotificationStatus === "denied"
+                        ? "Blocked"
+                        : pushNotificationStatus === "unsupported"
+                          ? "Unavailable"
+                          : "Enable"}
+              </button>
+            </div>
+          )}
           <p className="settings-note" aria-live="polite">
             {!preferencesStore
               ? "Your topics, sources and settings are saved on this device."
@@ -2866,6 +3275,29 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                 <small>{filteredArticles.length} {filteredArticles.length === 1 ? "story" : "stories"}</small>
               </div>
             </div>
+            <div className="topic-filter-section">
+              <button
+                type="button"
+                className="source-filters-toggle topic-filters-toggle"
+                aria-expanded={topicsExpanded}
+                aria-controls="topic-filter-content"
+                onClick={() => {
+                  if (topicsExpanded) {
+                    setTopicPickerOpen(false);
+                    setTopicPickerQuery("");
+                  }
+                  setTopicsExpanded((current) => !current);
+                }}
+              >
+                <span className="filter-label">Topics</span>
+                <span className="source-filter-summary">
+                  <span>{selectedTopic === ALL_TOPICS ? "All topics" : selectedTopic}</span>
+                  <b>{filteredArticles.length} {filteredArticles.length === 1 ? "story" : "stories"}</b>
+                </span>
+                <span className="source-filter-toggle-action">{topicsExpanded ? "Hide" : "Change"} <b aria-hidden="true">{topicsExpanded ? "\u2212" : "+"}</b></span>
+              </button>
+              {topicsExpanded && (
+                <div id="topic-filter-content">
             <nav className="topic-filters" aria-label="Filter stories by followed topic">
               <span className="filter-label">Topics</span>
               <button type="button" className={selectedTopic === ALL_TOPICS ? "active" : ""} aria-pressed={selectedTopic === ALL_TOPICS} onClick={() => selectTopicFilter(ALL_TOPICS)}>All <span>{feedView === "latest" ? viewedArticles.length : historyFilterTotal}</span></button>
@@ -2948,6 +3380,9 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                 </div>
               </div>
             )}
+                </div>
+              )}
+            </div>
             {availableProviders.length > 0 && (
               <div className="source-filter-section">
                 <button
@@ -3082,19 +3517,30 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                   )}
                   <ArrowIcon />
                 </a>
-                {articleStore && (
+                <div className="story-actions">
                   <button
                     type="button"
-                    className={article.isBookmarked ? "bookmark-button active" : "bookmark-button"}
-                    onClick={() => void toggleBookmark(article)}
-                    disabled={bookmarkingUrls.has(article.url)}
-                    aria-pressed={article.isBookmarked === true}
-                    aria-label={article.isBookmarked ? `Remove bookmark from ${article.title}` : `Bookmark ${article.title}`}
-                    title={article.isBookmarked ? "Remove bookmark" : "Keep forever"}
+                    className="share-button"
+                    onClick={() => void shareStory(article)}
+                    aria-label={`Share ${article.title}`}
+                    title="Share story"
                   >
-                    <span aria-hidden="true">{article.isBookmarked ? "\u2605" : "\u2606"}</span>
+                    <ShareIcon />
                   </button>
-                )}
+                  {articleStore && (
+                    <button
+                      type="button"
+                      className={article.isBookmarked ? "bookmark-button active" : "bookmark-button"}
+                      onClick={() => void toggleBookmark(article)}
+                      disabled={bookmarkingUrls.has(article.url)}
+                      aria-pressed={article.isBookmarked === true}
+                      aria-label={article.isBookmarked ? `Remove bookmark from ${article.title}` : `Bookmark ${article.title}`}
+                      title={article.isBookmarked ? "Remove bookmark" : "Keep forever"}
+                    >
+                      <span aria-hidden="true">{article.isBookmarked ? "\u2605" : "\u2606"}</span>
+                    </button>
+                  )}
+                </div>
                 </li>
               ))}
             </ol>
@@ -3200,6 +3646,72 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                 Use my device location
               </button>
               <button type="button" onClick={closeWeatherLocationEditor}>
+                Close
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {secondaryTimeZoneOpen && (
+        <div
+          className="topic-confirmation-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeSecondaryTimeZoneEditor();
+          }}
+        >
+          <section
+            className="topic-confirmation weather-location-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="secondary-time-zone-title"
+            aria-describedby="secondary-time-zone-description"
+          >
+            <p className="topic-confirmation-kicker">Additional clock</p>
+            <h2 id="secondary-time-zone-title">Add another time zone.</h2>
+            <p id="secondary-time-zone-description">
+              Search for a city or region. Its current time will appear beside your local clock.
+            </p>
+            <form className="weather-location-search" onSubmit={(event) => void searchSecondaryTimeZones(event)}>
+              <input
+                ref={secondaryTimeZoneInput}
+                type="search"
+                value={secondaryTimeZoneQuery}
+                onChange={(event) => setSecondaryTimeZoneQuery(event.target.value)}
+                placeholder="For example, London or Taipei"
+                aria-label="Search for an additional time zone"
+                maxLength={120}
+              />
+              <button type="submit" disabled={secondaryTimeZoneSearching}>
+                {secondaryTimeZoneSearching ? "Searching…" : "Search"}
+              </button>
+            </form>
+            {secondaryTimeZoneError && <p className="weather-location-error" role="alert">{secondaryTimeZoneError}</p>}
+            {secondaryTimeZoneResults.length > 0 && (
+              <div className="weather-location-results" role="list" aria-label="Matching time zones">
+                {secondaryTimeZoneResults.map((location) => (
+                  <button
+                    type="button"
+                    role="listitem"
+                    key={`${location.id}:${location.timezone}`}
+                    onClick={() => chooseSecondaryTimeZone(location)}
+                  >
+                    <strong>{location.name}</strong>
+                    <small>
+                      {[location.admin1, location.country].filter(Boolean).join(", ")}
+                      {location.timezone ? ` · ${location.timezone.replaceAll("_", " ")}` : ""}
+                    </small>
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="topic-confirmation-actions weather-location-actions">
+              {preferences.secondaryTimeZone && (
+                <button type="button" className="danger" onClick={removeSecondaryTimeZone}>
+                  Remove clock
+                </button>
+              )}
+              <button type="button" onClick={closeSecondaryTimeZoneEditor}>
                 Close
               </button>
             </div>

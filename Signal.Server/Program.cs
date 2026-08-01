@@ -153,6 +153,8 @@ builder.Services.AddHttpClient<ArticleReaderService>(client =>
     AutomaticDecompression = System.Net.DecompressionMethods.All,
 });
 builder.Services.AddScoped<TopicRefreshService>();
+builder.Services.AddSingleton<VapidKeyStore>();
+builder.Services.AddScoped<PushNotificationService>();
 builder.Services.AddHostedService<TopicRefreshBackgroundService>();
 
 var app = builder.Build();
@@ -208,6 +210,7 @@ await using (var scope = app.Services.CreateAsyncScope())
             "RssFeedsJson" TEXT NOT NULL,
             "TickerOverridesJson" TEXT NOT NULL DEFAULT '{{}}',
             "WeatherLocationJson" TEXT NOT NULL DEFAULT '{{}}',
+            "SecondaryTimeZoneJson" TEXT NOT NULL DEFAULT '{{}}',
             "UpdatedAtUtc" TEXT NOT NULL,
             CONSTRAINT "FK_UserNewsPreferences_AspNetUsers_UserId"
                 FOREIGN KEY ("UserId") REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE
@@ -257,6 +260,32 @@ await using (var scope = app.Services.CreateAsyncScope())
         """);
     await database.Database.ExecuteSqlRawAsync(
         "CREATE INDEX IF NOT EXISTS \"IX_TopicRefreshStates_NextRefreshAtUtc\" ON \"TopicRefreshStates\" (\"NextRefreshAtUtc\");");
+    await database.Database.ExecuteSqlRawAsync("""
+        CREATE TABLE IF NOT EXISTS "UserPushSubscriptions" (
+            "Id" INTEGER NOT NULL CONSTRAINT "PK_UserPushSubscriptions" PRIMARY KEY AUTOINCREMENT,
+            "UserId" TEXT NOT NULL,
+            "Endpoint" TEXT NOT NULL,
+            "P256Dh" TEXT NOT NULL,
+            "Auth" TEXT NOT NULL,
+            "CreatedAtUtc" TEXT NOT NULL,
+            "UpdatedAtUtc" TEXT NOT NULL,
+            CONSTRAINT "FK_UserPushSubscriptions_AspNetUsers_UserId"
+                FOREIGN KEY ("UserId") REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE
+        );
+        """);
+    await database.Database.ExecuteSqlRawAsync(
+        "CREATE UNIQUE INDEX IF NOT EXISTS \"IX_UserPushSubscriptions_Endpoint\" ON \"UserPushSubscriptions\" (\"Endpoint\");");
+    await database.Database.ExecuteSqlRawAsync(
+        "CREATE INDEX IF NOT EXISTS \"IX_UserPushSubscriptions_UserId\" ON \"UserPushSubscriptions\" (\"UserId\");");
+    await database.Database.ExecuteSqlRawAsync("""
+        CREATE TABLE IF NOT EXISTS "UserProfilePhotos" (
+            "UserId" TEXT NOT NULL CONSTRAINT "PK_UserProfilePhotos" PRIMARY KEY,
+            "ImageBytes" BLOB NOT NULL,
+            "UpdatedAtUtc" TEXT NOT NULL,
+            CONSTRAINT "FK_UserProfilePhotos_AspNetUsers_UserId"
+                FOREIGN KEY ("UserId") REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE
+        );
+        """);
 
     await database.Database.OpenConnectionAsync();
     try
@@ -277,6 +306,15 @@ await using (var scope = app.Services.CreateAsyncScope())
         {
             await database.Database.ExecuteSqlRawAsync(
                 "ALTER TABLE \"UserNewsPreferences\" ADD COLUMN \"WeatherLocationJson\" TEXT NOT NULL DEFAULT '{{}}';");
+        }
+
+        await using var secondaryTimeZoneColumnCheck = database.Database.GetDbConnection().CreateCommand();
+        secondaryTimeZoneColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('UserNewsPreferences') WHERE name = 'SecondaryTimeZoneJson';";
+        var secondaryTimeZoneColumnExists = Convert.ToInt32(await secondaryTimeZoneColumnCheck.ExecuteScalarAsync()) > 0;
+        if (!secondaryTimeZoneColumnExists)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"UserNewsPreferences\" ADD COLUMN \"SecondaryTimeZoneJson\" TEXT NOT NULL DEFAULT '{{}}';");
         }
 
         await using var topicHeaderSizeColumnCheck = database.Database.GetDbConnection().CreateCommand();

@@ -1,9 +1,12 @@
-import { FormEvent, useEffect, useState } from "react";
-import NewsDashboard, { type ArticleHistoryPage, type ArticleStore, type NewsPreferences, type NewsSummary, type PreferencesStore, type TopicBriefing, type TopicRefreshStore } from "../app/NewsDashboard";
+import { ChangeEvent, FormEvent, useEffect, useState } from "react";
+import { updateInstalledAppBadge } from "../app/app-badge";
+import { prepareProfilePhoto } from "../app/profile-photo";
+import NewsDashboard, { type ArticleHistoryPage, type ArticleStore, type NewsPreferences, type NewsSummary, type PreferencesStore, type PushNotificationStore, type PushSubscriptionPayload, type TopicBriefing, type TopicRefreshStore } from "../app/NewsDashboard";
 
 type SessionUser = {
   email: string;
   displayName: string;
+  profilePhotoUrl: string | null;
 };
 
 type EmailDeliveryStatus = {
@@ -29,6 +32,35 @@ async function postJson<T>(path: string, body?: unknown): Promise<T> {
   const token = await getCsrfToken();
   const response = await fetch(path, {
     method: "POST",
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      "X-XSRF-TOKEN": token,
+    },
+    body: JSON.stringify(body ?? {}),
+  });
+  const data = await response.json().catch(() => ({})) as { error?: string; detail?: string };
+  if (!response.ok) throw new Error(data.error || data.detail || "The request could not be completed.");
+  return data as T;
+}
+
+async function postForm<T>(path: string, body: FormData): Promise<T> {
+  const token = await getCsrfToken();
+  const response = await fetch(path, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "X-XSRF-TOKEN": token },
+    body,
+  });
+  const data = await response.json().catch(() => ({})) as { error?: string; detail?: string };
+  if (!response.ok) throw new Error(data.error || data.detail || "The upload could not be completed.");
+  return data as T;
+}
+
+async function deleteJson<T>(path: string, body?: unknown): Promise<T> {
+  const token = await getCsrfToken();
+  const response = await fetch(path, {
+    method: "DELETE",
     credentials: "same-origin",
     headers: {
       "Content-Type": "application/json",
@@ -125,6 +157,33 @@ const sqliteTopicRefreshStore: TopicRefreshStore = {
   },
 };
 
+const webPushNotificationStore: PushNotificationStore = {
+  async getPublicKey() {
+    const response = await fetch("/api/push/public-key", {
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+    const data = await response.json().catch(() => ({})) as {
+      publicKey?: string;
+      error?: string;
+      detail?: string;
+    };
+    if (!response.ok || !data.publicKey)
+      throw new Error(data.error || data.detail || "Could not start phone notifications.");
+    return data.publicKey;
+  },
+  async subscribe(subscription: PushSubscriptionPayload) {
+    await postJson("/api/push/subscription", subscription);
+  },
+  async unsubscribe(endpoint: string) {
+    await deleteJson("/api/push/subscription", { endpoint });
+  },
+  async sendTest() {
+    const data = await postJson<{ message: string }>("/api/push/test");
+    return data.message;
+  },
+};
+
 async function sendNewsSummary(summary: NewsSummary) {
   const data = await postJson<{ message: string }>("/api/news-summary", summary);
   return data.message;
@@ -182,16 +241,33 @@ export default function AuthApp() {
   useEffect(() => {
     void fetch("/api/auth/me", { credentials: "same-origin", cache: "no-store" })
       .then(async (response) => {
-        if (response.ok) setUser(await response.json() as SessionUser);
+        if (response.ok) {
+          setUser(await response.json() as SessionUser);
+        } else {
+          void updateInstalledAppBadge(0);
+        }
       })
       .finally(() => setCheckingSession(false));
   }, []);
 
   async function signOut() {
     try {
+      if ("serviceWorker" in navigator) {
+        try {
+          const registration = await navigator.serviceWorker.ready;
+          const subscription = await registration.pushManager.getSubscription();
+          if (subscription) {
+            await webPushNotificationStore.unsubscribe(subscription.endpoint);
+            await subscription.unsubscribe();
+          }
+        } catch {
+          // Signing out should continue even if the push service is unavailable.
+        }
+      }
       await postJson<void>("/api/auth/logout");
     } finally {
       csrfToken = "";
+      void updateInstalledAppBadge(0);
       setUser(null);
       setAccountOpen(false);
       setNotice("You’re signed out.");
@@ -206,17 +282,19 @@ export default function AuthApp() {
     return (
       <>
         <NewsDashboard
-          user={{ displayName: user.displayName, email: user.email, fullName: null, isLocalPreview: false }}
+          user={{ displayName: user.displayName, email: user.email, fullName: null, isLocalPreview: false, profilePhotoUrl: user.profilePhotoUrl }}
           onSignOut={() => void signOut()}
           onManageAccount={() => setAccountOpen(true)}
           preferencesStore={sqlitePreferencesStore}
           articleStore={sqliteArticleStore}
           summarySender={sendNewsSummary}
           refreshStore={sqliteTopicRefreshStore}
+          pushNotificationStore={webPushNotificationStore}
         />
         {accountOpen && (
           <AccountPanel
-            email={user.email}
+            user={user}
+            onUserUpdated={setUser}
             onClose={() => setAccountOpen(false)}
             onSignedOut={() => void signOut()}
           />
@@ -421,13 +499,26 @@ function ResetPasswordForm(props: AuthScreenProps) {
   );
 }
 
-function AccountPanel({ email, onClose, onSignedOut }: { email: string; onClose: () => void; onSignedOut: () => void }) {
+function AccountPanel({
+  user,
+  onUserUpdated,
+  onClose,
+  onSignedOut,
+}: {
+  user: SessionUser;
+  onUserUpdated: (user: SessionUser) => void;
+  onClose: () => void;
+  onSignedOut: () => void;
+}) {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoMessage, setPhotoMessage] = useState("");
+  const [photoError, setPhotoError] = useState("");
   const [delivery, setDelivery] = useState<EmailDeliveryStatus | null>(null);
 
   useEffect(() => {
@@ -449,13 +540,90 @@ function AccountPanel({ email, onClose, onSignedOut }: { email: string; onClose:
     } finally { setBusy(false); }
   }
 
+  async function selectProfilePhoto(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!file) return;
+
+    setPhotoBusy(true);
+    setPhotoMessage("");
+    setPhotoError("");
+    try {
+      const photo = await prepareProfilePhoto(file);
+      const form = new FormData();
+      form.append("photo", photo, "profile-photo.jpg");
+      const result = await postForm<{ profilePhotoUrl: string }>("/api/auth/profile-photo", form);
+      onUserUpdated({ ...user, profilePhotoUrl: result.profilePhotoUrl });
+      setPhotoMessage("Your profile picture has been updated.");
+    } catch (caught) {
+      setPhotoError(caught instanceof Error ? caught.message : "The profile picture could not be updated.");
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
+
+  async function removeProfilePhoto() {
+    setPhotoBusy(true);
+    setPhotoMessage("");
+    setPhotoError("");
+    try {
+      await deleteJson("/api/auth/profile-photo");
+      onUserUpdated({ ...user, profilePhotoUrl: null });
+      setPhotoMessage("Your profile picture has been removed.");
+    } catch (caught) {
+      setPhotoError(caught instanceof Error ? caught.message : "The profile picture could not be removed.");
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
+
   return (
     <div className="account-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section className="account-panel" role="dialog" aria-modal="true" aria-labelledby="account-title">
         <button className="account-close" type="button" onClick={onClose} aria-label="Close account settings">×</button>
         <p className="eyebrow">Account settings</p>
         <h2 id="account-title">Your Signal account</h2>
-        <p className="account-email">Signed in as <strong>{email}</strong></p>
+        <p className="account-email">Signed in as <strong>{user.email}</strong></p>
+        <section className="account-photo-settings" aria-labelledby="profile-photo-title">
+          <span className="account-photo-preview" aria-hidden="true">
+            {user.profilePhotoUrl
+              ? <img src={user.profilePhotoUrl} alt="" />
+              : user.displayName.charAt(0).toUpperCase()}
+          </span>
+          <div>
+            <h3 id="profile-photo-title">Profile picture</h3>
+            <p>Take a photo or choose one from this device. Signal crops and resizes it before upload.</p>
+            <div className="account-photo-actions">
+              <label className={photoBusy ? "account-photo-action busy" : "account-photo-action"}>
+                Take photo
+                <input
+                  className="account-photo-input"
+                  type="file"
+                  accept="image/*"
+                  capture="user"
+                  disabled={photoBusy}
+                  onChange={(event) => void selectProfilePhoto(event)}
+                />
+              </label>
+              <label className={photoBusy ? "account-photo-action busy" : "account-photo-action"}>
+                Choose photo
+                <input
+                  className="account-photo-input"
+                  type="file"
+                  accept="image/*"
+                  disabled={photoBusy}
+                  onChange={(event) => void selectProfilePhoto(event)}
+                />
+              </label>
+              {user.profilePhotoUrl && (
+                <button type="button" disabled={photoBusy} onClick={() => void removeProfilePhoto()}>Remove</button>
+              )}
+            </div>
+            {photoBusy && <p className="account-photo-status" role="status">Preparing photo…</p>}
+            {photoMessage && <p className="account-photo-status success" role="status">{photoMessage}</p>}
+            {photoError && <p className="account-photo-status error" role="alert">{photoError}</p>}
+          </div>
+        </section>
         <div className="email-delivery" aria-live="polite">
           <span className={delivery?.connected ? "delivery-dot connected" : "delivery-dot"} aria-hidden="true" />
           <div>

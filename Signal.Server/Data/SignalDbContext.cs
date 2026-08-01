@@ -13,6 +13,10 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
 
     public DbSet<TopicRefreshState> TopicRefreshStates => Set<TopicRefreshState>();
 
+    public DbSet<UserPushSubscription> UserPushSubscriptions => Set<UserPushSubscription>();
+
+    public DbSet<UserProfilePhoto> UserProfilePhotos => Set<UserProfilePhoto>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
@@ -26,6 +30,7 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
             preferences.Property(item => item.RssFeedsJson).IsRequired();
             preferences.Property(item => item.TickerOverridesJson).IsRequired();
             preferences.Property(item => item.WeatherLocationJson).IsRequired();
+            preferences.Property(item => item.SecondaryTimeZoneJson).IsRequired();
             preferences.Property(item => item.StoryTitleSize).HasMaxLength(16).IsRequired();
             preferences.Property(item => item.TopicHeaderSize).HasMaxLength(16).IsRequired();
             preferences.HasOne(item => item.User)
@@ -66,6 +71,34 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
             state.HasOne(item => item.User)
                 .WithMany()
                 .HasForeignKey(item => item.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<UserPushSubscription>(subscription =>
+        {
+            subscription.ToTable("UserPushSubscriptions");
+            subscription.HasKey(item => item.Id);
+            subscription.Property(item => item.UserId).HasMaxLength(450);
+            subscription.Property(item => item.Endpoint).HasMaxLength(4096).IsRequired();
+            subscription.Property(item => item.P256Dh).HasMaxLength(256).IsRequired();
+            subscription.Property(item => item.Auth).HasMaxLength(128).IsRequired();
+            subscription.HasIndex(item => item.Endpoint).IsUnique();
+            subscription.HasIndex(item => item.UserId);
+            subscription.HasOne(item => item.User)
+                .WithMany()
+                .HasForeignKey(item => item.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<UserProfilePhoto>(photo =>
+        {
+            photo.ToTable("UserProfilePhotos");
+            photo.HasKey(item => item.UserId);
+            photo.Property(item => item.UserId).HasMaxLength(450);
+            photo.Property(item => item.ImageBytes).IsRequired();
+            photo.HasOne(item => item.User)
+                .WithOne()
+                .HasForeignKey<UserProfilePhoto>(item => item.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
     }
