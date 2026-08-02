@@ -19,6 +19,11 @@ public sealed class MarketDataNotConfiguredException : Exception
     }
 }
 
+public sealed class MarketDataPlanRequiredException(string message, Exception? innerException = null)
+    : Exception(message, innerException)
+{
+}
+
 public sealed record MarketQuote(
     string Topic,
     string Symbol,
@@ -119,6 +124,17 @@ public sealed class MarketDataService(
         try
         {
             quote = await RequestQuoteAsync(topic, match, cancellationToken);
+        }
+        catch (InvalidOperationException exception) when (IsPlanRestriction(exception))
+        {
+            var qualifiedSymbol = match.Exchange.Length > 0
+                ? $"{match.Symbol}:{match.Exchange}"
+                : match.Symbol;
+            throw new MarketDataPlanRequiredException(
+                match.Exchange.Equals("NZX", StringComparison.OrdinalIgnoreCase)
+                    ? $"{qualifiedSymbol} is a valid NZX ticker, but NZX prices require a Twelve Data Pro or Venture plan."
+                    : $"{qualifiedSymbol} is not available on the configured Twelve Data plan.",
+                exception);
         }
         catch (InvalidOperationException exception) when (normalizedOverride is not null)
         {
@@ -226,6 +242,9 @@ public sealed class MarketDataService(
         return normalizedName.StartsWith($"{normalizedTopic} ", StringComparison.Ordinal)
             || normalizedTopic.StartsWith($"{normalizedName} ", StringComparison.Ordinal);
     }
+
+    private static bool IsPlanRestriction(InvalidOperationException exception) =>
+        exception.Message.Contains("available starting with the Pro or Venture plan", StringComparison.OrdinalIgnoreCase);
 
     private static string NormalizeForMatch(string value)
     {

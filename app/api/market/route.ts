@@ -258,9 +258,20 @@ export async function GET(request: Request) {
     );
   } catch (error) {
     console.error("Market pricing failed", error);
+    const planRestricted = error instanceof Error
+      && error.message.toLowerCase().includes("available starting with the pro or venture plan");
+    const qualifiedSymbol = tickerOverride?.exchange
+      ? `${tickerOverride.symbol}:${tickerOverride.exchange}`
+      : tickerOverride?.symbol ?? "This ticker";
     return Response.json(
-      { error: tickerOverride ? "That ticker could not be verified." : "Market pricing is temporarily unavailable." },
-      { status: tickerOverride ? 400 : 502, headers: { "Cache-Control": "private, no-store" } },
+      {
+        error: planRestricted
+          ? tickerOverride?.exchange === "NZX"
+            ? `${qualifiedSymbol} is a valid NZX ticker, but NZX prices require a Twelve Data Pro or Venture plan.`
+            : `${qualifiedSymbol} is not available on the configured Twelve Data plan.`
+          : tickerOverride ? "That ticker could not be verified." : "Market pricing is temporarily unavailable.",
+      },
+      { status: planRestricted ? 402 : tickerOverride ? 400 : 502, headers: { "Cache-Control": "private, no-store" } },
     );
   }
 }

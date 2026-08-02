@@ -134,6 +134,10 @@ Signal supports exchange-qualified ticker overrides using
 code—for example, `AIR:NZX`, `SPK:NZX`, or `FBU:NZX`. The Twelve Data `XNZE`
 market identifier is accepted and normalized to `NZX`.
 
+Twelve Data currently makes NZX prices available on its Pro and Venture plans
+or higher. Signal identifies valid NZX tickers on lower plans and reports this
+provider requirement explicitly instead of treating the ticker as invalid.
+
 ### Gmail API OAuth
 
 Signal can send confirmation, password-reset, and refreshed-briefing emails

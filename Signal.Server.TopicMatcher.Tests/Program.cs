@@ -119,6 +119,33 @@ if (airNewZealandQuote?.Symbol != "AIR"
 
 Console.WriteLine("Market data service passed the NZX quote request check.");
 
+var restrictedMarketHandler = new RestrictedMarketDataHandler();
+using var restrictedMarketClient = new HttpClient(restrictedMarketHandler)
+{
+    BaseAddress = new Uri("https://api.twelvedata.com/"),
+};
+using var restrictedMarketCache = new MemoryCache(new MemoryCacheOptions());
+var restrictedMarketService = new MarketDataService(
+    restrictedMarketClient,
+    restrictedMarketCache,
+    Options.Create(new MarketDataOptions { ApiKey = "test-key" }));
+try
+{
+    _ = await restrictedMarketService.GetForTopicAsync(
+        "Contact Energy",
+        "CEN:NZX",
+        CancellationToken.None);
+    throw new InvalidOperationException("A plan-restricted NZX quote did not report the provider requirement.");
+}
+catch (MarketDataPlanRequiredException exception)
+{
+    if (!exception.Message.Contains("CEN:NZX is a valid NZX ticker", StringComparison.Ordinal)
+        || !exception.Message.Contains("Pro or Venture", StringComparison.Ordinal))
+        throw new InvalidOperationException("The NZX plan restriction message was not clear.");
+}
+
+Console.WriteLine("Market data service passed the NZX provider-plan restriction check.");
+
 var trendsHandler = new FakeGoogleTrendsHandler();
 using var trendsClient = new HttpClient(trendsHandler);
 using var trendsCache = new MemoryCache(new MemoryCacheOptions());
@@ -358,6 +385,26 @@ file sealed class FakeMarketDataHandler : HttpMessageHandler
             }
             """;
         return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(json, Encoding.UTF8, "application/json"),
+        });
+    }
+}
+
+file sealed class RestrictedMarketDataHandler : HttpMessageHandler
+{
+    protected override Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        const string json = """
+            {
+              "code": 404,
+              "message": "This symbol is available starting with the Pro or Venture plan.",
+              "status": "error"
+            }
+            """;
+        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)
         {
             Content = new StringContent(json, Encoding.UTF8, "application/json"),
         });
