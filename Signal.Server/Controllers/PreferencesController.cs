@@ -311,8 +311,9 @@ public sealed class PreferencesController(
 
     private static string? NormalizeTickerSymbol(string? value)
     {
-        var symbol = (value ?? "").Trim().TrimStart('$').ToUpperInvariant();
-        return Regex.IsMatch(symbol, @"^[A-Z0-9][A-Z0-9.\-^]{0,14}$") ? symbol : null;
+        return MarketTickerParser.TryParse(value, out var ticker)
+            ? ticker!.QualifiedSymbol
+            : null;
     }
 
     private static string[] DeserializeList(string json)

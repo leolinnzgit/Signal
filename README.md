@@ -32,7 +32,7 @@ IIS for a persistent personal deployment.
 - Suggest publishers and current Google Trends from English- and
   Mandarin-speaking regions.
 - Show current market pricing for matching topics, with manual ticker
-  overrides.
+  overrides, including qualified NZX symbols such as `AIR:NZX`.
 - Show current conditions and a seven-day forecast for a saved weather
   location.
 - Send a formatted email briefing after scheduled refreshes.
@@ -128,6 +128,11 @@ dotnet user-secrets --project Signal.Server set "MarketData:ApiKey" "YOUR_API_KE
 
 For IIS, configure the equivalent `MarketData__ApiKey` environment variable on
 the application pool and recycle the pool.
+
+Signal supports exchange-qualified ticker overrides using
+`SYMBOL:EXCHANGE`. For New Zealand Exchange listings, use the `NZX` exchange
+code—for example, `AIR:NZX`, `SPK:NZX`, or `FBU:NZX`. The Twelve Data `XNZE`
+market identifier is accepted and normalized to `NZX`.
 
 ### Gmail API OAuth
 

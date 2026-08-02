@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Signal.Server.Data;
 using Signal.Server.Models;
 using Signal.Server.Services;
@@ -82,6 +83,41 @@ if (ProfilePhotoValidator.IsValidJpeg(truncatedProfilePhoto))
     throw new InvalidOperationException("Profile photo validation accepted a truncated JPEG.");
 
 Console.WriteLine("Profile photo validation passed format and dimension checks.");
+
+var nzxTicker = MarketTickerParser.ParseOptional("air:xnze");
+if (nzxTicker?.Symbol != "AIR"
+    || nzxTicker.Exchange != "NZX"
+    || nzxTicker.QualifiedSymbol != "AIR:NZX")
+    throw new InvalidOperationException("NZX ticker parsing did not normalize the symbol and exchange.");
+if (MarketTickerParser.TryParse("AIR:NZX:EXTRA", out _))
+    throw new InvalidOperationException("Ticker parsing accepted more than one exchange qualifier.");
+if (MarketTickerParser.ParseOptional("AAPL")?.QualifiedSymbol != "AAPL")
+    throw new InvalidOperationException("Ticker parsing broke existing unqualified symbols.");
+
+Console.WriteLine("Market ticker parsing passed NZX and existing-symbol checks.");
+
+var marketHandler = new FakeMarketDataHandler();
+using var marketClient = new HttpClient(marketHandler)
+{
+    BaseAddress = new Uri("https://api.twelvedata.com/"),
+};
+using var marketCache = new MemoryCache(new MemoryCacheOptions());
+var marketService = new MarketDataService(
+    marketClient,
+    marketCache,
+    Options.Create(new MarketDataOptions { ApiKey = "test-key" }));
+var airNewZealandQuote = await marketService.GetForTopicAsync(
+    "Air New Zealand",
+    null,
+    CancellationToken.None);
+if (airNewZealandQuote?.Symbol != "AIR"
+    || airNewZealandQuote.Exchange != "NZX"
+    || airNewZealandQuote.Currency != "NZD"
+    || marketHandler.LastRequestUri?.Query.Contains("symbol=AIR", StringComparison.Ordinal) != true
+    || marketHandler.LastRequestUri.Query.Contains("exchange=NZX", StringComparison.Ordinal) != true)
+    throw new InvalidOperationException("Air New Zealand did not request and return an NZX quote.");
+
+Console.WriteLine("Market data service passed the NZX quote request check.");
 
 var trendsHandler = new FakeGoogleTrendsHandler();
 using var trendsClient = new HttpClient(trendsHandler);
@@ -295,6 +331,35 @@ file sealed class FakeGoogleTrendsHandler : HttpMessageHandler
         return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StringContent(xml, Encoding.UTF8, "text/xml"),
+        });
+    }
+}
+
+file sealed class FakeMarketDataHandler : HttpMessageHandler
+{
+    public Uri? LastRequestUri { get; private set; }
+
+    protected override Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        LastRequestUri = request.RequestUri;
+        const string json = """
+            {
+              "symbol": "AIR",
+              "name": "Air New Zealand Limited",
+              "exchange": "NZX",
+              "currency": "NZD",
+              "datetime": "2026-08-02",
+              "close": "0.62",
+              "change": "0.01",
+              "percent_change": "1.64",
+              "is_market_open": false
+            }
+            """;
+        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(json, Encoding.UTF8, "application/json"),
         });
     }
 }

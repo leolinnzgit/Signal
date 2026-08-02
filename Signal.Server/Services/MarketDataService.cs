@@ -67,6 +67,24 @@ public sealed class MarketDataService(
             ["TSMC"] = "TSM",
         };
 
+    private static readonly IReadOnlyDictionary<string, string> KnownNzxSymbols =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Air New Zealand"] = "AIR",
+            ["Auckland Airport"] = "AIA",
+            ["Auckland International Airport"] = "AIA",
+            ["Contact Energy"] = "CEN",
+            ["Fisher & Paykel Healthcare"] = "FPH",
+            ["Fletcher Building"] = "FBU",
+            ["Infratil"] = "IFT",
+            ["Mainfreight"] = "MFT",
+            ["Mercury NZ"] = "MCY",
+            ["Meridian Energy"] = "MEL",
+            ["Spark New Zealand"] = "SPK",
+            ["The a2 Milk Company"] = "ATM",
+            ["The Warehouse Group"] = "WHS",
+        };
+
     private static readonly HashSet<string> SupportedInstrumentTypes =
         new(StringComparer.OrdinalIgnoreCase)
         {
@@ -87,10 +105,10 @@ public sealed class MarketDataService(
         if (topic.Length == 0) throw new ArgumentException("Choose a topic.");
         if (string.IsNullOrWhiteSpace(options.Value.ApiKey)) throw new MarketDataNotConfiguredException();
 
-        var normalizedOverride = NormalizeTickerSymbol(tickerOverride);
+        var normalizedOverride = MarketTickerParser.ParseOptional(tickerOverride);
         var match = normalizedOverride is null
             ? await FindMatchAsync(topic, cancellationToken)
-            : new StockMatch(normalizedOverride, "", "");
+            : new StockMatch(normalizedOverride.Symbol, "", normalizedOverride.Exchange);
         if (match is null) return null;
 
         var quoteCacheKey = $"market-quote:{match.Symbol}:{match.Exchange}".ToLowerInvariant();
@@ -110,23 +128,12 @@ public sealed class MarketDataService(
         return quote;
     }
 
-    private static string? NormalizeTickerSymbol(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value)) return null;
-        var symbol = value.Trim().TrimStart('$').ToUpperInvariant();
-        if (symbol.Length is < 1 or > 15
-            || !symbol.All(character => char.IsAsciiLetterOrDigit(character)
-                || character is '.' or '-' or '^'))
-        {
-            throw new ArgumentException("Enter a valid ticker using letters, numbers, dots or hyphens.");
-        }
-        return symbol;
-    }
-
     private async Task<StockMatch?> FindMatchAsync(string topic, CancellationToken cancellationToken)
     {
         if (KnownSymbols.TryGetValue(topic, out var knownSymbol))
             return new StockMatch(knownSymbol, "", "");
+        if (KnownNzxSymbols.TryGetValue(topic, out var knownNzxSymbol))
+            return new StockMatch(knownNzxSymbol, "", "NZX");
 
         var cacheKey = $"market-match:{topic}".ToLowerInvariant();
         if (cache.TryGetValue(cacheKey, out StockMatchCache? cachedMatch) && cachedMatch is not null)

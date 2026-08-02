@@ -1,6 +1,7 @@
 import { getChatGPTUser } from "../../chatgpt-auth";
 
 type StockMatch = { symbol: string; name: string; exchange: string };
+type TickerOverride = { symbol: string; exchange: string };
 
 type TwelveDataSearchResponse = {
   data?: Array<{
@@ -55,6 +56,22 @@ const KNOWN_SYMBOLS = new Map<string, string>([
   ["tsmc", "TSM"],
 ]);
 
+const KNOWN_NZX_SYMBOLS = new Map<string, string>([
+  ["air new zealand", "AIR"],
+  ["auckland airport", "AIA"],
+  ["auckland international airport", "AIA"],
+  ["contact energy", "CEN"],
+  ["fisher & paykel healthcare", "FPH"],
+  ["fletcher building", "FBU"],
+  ["infratil", "IFT"],
+  ["mainfreight", "MFT"],
+  ["mercury nz", "MCY"],
+  ["meridian energy", "MEL"],
+  ["spark new zealand", "SPK"],
+  ["the a2 milk company", "ATM"],
+  ["the warehouse group", "WHS"],
+]);
+
 const SUPPORTED_TYPES = new Set([
   "american depositary receipt",
   "common stock",
@@ -71,12 +88,20 @@ function normalizeTopic(value: string) {
   return value.trim().replace(/\s+/g, " ").slice(0, 80);
 }
 
-function normalizeTicker(value: string) {
-  const symbol = value.trim().replace(/^\$/, "").toUpperCase();
-  if (!/^[A-Z0-9][A-Z0-9.^-]{0,14}$/.test(symbol)) {
-    throw new Error("Enter a valid ticker using letters, numbers, dots or hyphens.");
+function normalizeTicker(value: string): TickerOverride {
+  const parts = value.trim().replace(/^\$/, "").toUpperCase().split(":");
+  const symbol = parts[0]?.trim() ?? "";
+  const requestedExchange = parts[1]?.trim() ?? "";
+  const exchange = requestedExchange === "XNZE" ? "NZX" : requestedExchange;
+  if (parts.length > 2
+    || !/^[A-Z0-9][A-Z0-9.^-]{0,14}$/.test(symbol)
+    || (parts.length === 2 && !/^[A-Z0-9][A-Z0-9._-]{1,11}$/.test(exchange))) {
+    throw new Error("Enter a ticker such as AAPL or an exchange-qualified ticker such as AIR:NZX.");
   }
-  return symbol;
+  return {
+    symbol,
+    exchange,
+  };
 }
 
 function normalizeForMatch(value: string) {
@@ -122,6 +147,8 @@ async function requestTwelveData<T>(path: string, apiKey: string): Promise<T> {
 async function findMatch(topic: string, apiKey: string) {
   const known = KNOWN_SYMBOLS.get(topic.toLowerCase());
   if (known) return { symbol: known, name: "", exchange: "" };
+  const knownNzx = KNOWN_NZX_SYMBOLS.get(topic.toLowerCase());
+  if (knownNzx) return { symbol: knownNzx, name: "", exchange: "NZX" };
 
   const cacheKey = topic.toLowerCase();
   const cached = matchCache.get(cacheKey);
@@ -162,9 +189,9 @@ export async function GET(request: Request) {
   const topic = normalizeTopic(searchParams.get("topic") ?? "");
   if (!topic) return Response.json({ error: "Choose a topic." }, { status: 400 });
   const requestedTicker = searchParams.get("symbol");
-  let tickerOverride = "";
+  let tickerOverride: TickerOverride | null = null;
   try {
-    tickerOverride = requestedTicker ? normalizeTicker(requestedTicker) : "";
+    tickerOverride = requestedTicker ? normalizeTicker(requestedTicker) : null;
   } catch (error) {
     return Response.json(
       { error: error instanceof Error ? error.message : "Enter a valid ticker." },
@@ -179,7 +206,7 @@ export async function GET(request: Request) {
 
   try {
     const match = tickerOverride
-      ? { symbol: tickerOverride, name: "", exchange: "" }
+      ? { symbol: tickerOverride.symbol, name: "", exchange: tickerOverride.exchange }
       : await findMatch(topic, apiKey);
     if (!match) {
       return Response.json(
