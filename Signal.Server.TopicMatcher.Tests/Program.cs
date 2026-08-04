@@ -182,6 +182,25 @@ if (trendsHandler.RequestCount != 20)
 
 Console.WriteLine("Worldwide Google Trends passed region balance and cache checks.");
 
+var redirectHandler = new FakeArticleRedirectHandler();
+using var readerClient = new HttpClient(redirectHandler);
+using var readerCache = new MemoryCache(new MemoryCacheOptions());
+var readerService = new ArticleReaderService(
+    readerClient,
+    readerCache,
+    NullLogger<ArticleReaderService>.Instance);
+const string wrappedArticleUrl = "https://93.184.216.34/news/story";
+const string publisherArticleUrl = "https://93.184.216.34/publisher/story";
+var resolvedArticleUrl = await readerService.ResolveUrlAsync(wrappedArticleUrl, CancellationToken.None);
+if (resolvedArticleUrl != publisherArticleUrl)
+    throw new InvalidOperationException("Article URL resolution did not follow the publisher redirect.");
+
+await readerService.ResolveUrlAsync(wrappedArticleUrl, CancellationToken.None);
+if (redirectHandler.RequestCount != 2)
+    throw new InvalidOperationException("Article URL resolution did not reuse its cached result.");
+
+Console.WriteLine("Article sharing URL resolution passed redirect and cache checks.");
+
 await using var historyConnection = new SqliteConnection("Data Source=:memory:");
 await historyConnection.OpenAsync();
 var historyOptions = new DbContextOptionsBuilder<SignalDbContext>()
@@ -434,6 +453,26 @@ file sealed class FakeGoogleNewsHandler : HttpMessageHandler
         {
             Content = new StringContent(xml, Encoding.UTF8, "text/xml"),
         });
+    }
+}
+
+file sealed class FakeArticleRedirectHandler : HttpMessageHandler
+{
+    public int RequestCount { get; private set; }
+
+    protected override Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        RequestCount++;
+        if (request.RequestUri?.AbsolutePath == "/news/story")
+        {
+            var redirect = new HttpResponseMessage(HttpStatusCode.Redirect);
+            redirect.Headers.Location = new Uri("/publisher/story", UriKind.Relative);
+            return Task.FromResult(redirect);
+        }
+
+        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Forbidden));
     }
 }
 

@@ -14,6 +14,24 @@ public sealed class ArticleReaderController(
     ArticleReaderService articleReader,
     ILogger<ArticleReaderController> logger) : ControllerBase
 {
+    [HttpGet("resolve")]
+    public async Task<IActionResult> Resolve([FromQuery] string url, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return Ok(new { url = await articleReader.ResolveUrlAsync(url, cancellationToken) });
+        }
+        catch (ArgumentException exception)
+        {
+            return BadRequest(new { url, error = exception.Message });
+        }
+        catch (Exception exception)
+        {
+            logger.LogInformation(exception, "Could not resolve the publisher URL for {ArticleUrl}.", url);
+            return Ok(new { url });
+        }
+    }
+
     [HttpGet]
     public async Task<IActionResult> Get([FromQuery] string url, CancellationToken cancellationToken)
     {

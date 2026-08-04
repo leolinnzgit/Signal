@@ -2661,7 +2661,8 @@ button.local-weather {
 .share-button:focus-visible,
 .bookmark-button:hover,
 .bookmark-button.active { border-color: var(--red); color: var(--red); }
-.bookmark-button:disabled { opacity: 0.5; cursor: wait; }
+.bookmark-button:disabled,
+.share-button:disabled { opacity: 0.5; cursor: wait; }
 
 .story-number {
   padding-top: 0.25rem;

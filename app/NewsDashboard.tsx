@@ -3,7 +3,7 @@
 import { type CSSProperties, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { updateInstalledAppBadge } from "./app-badge";
-import { shareArticle } from "./article-share";
+import { resolveArticleShareUrl, shareArticle } from "./article-share";
 import {
   normalizeSecondaryTimeZone,
   type SecondaryTimeZonePreference,
@@ -699,6 +699,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [historySearch, setHistorySearch] = useState("");
   const [feedView, setFeedView] = useState<"latest" | "history" | "bookmarks">("latest");
   const [bookmarkingUrls, setBookmarkingUrls] = useState<Set<string>>(() => new Set());
+  const [sharingUrls, setSharingUrls] = useState<Set<string>>(() => new Set());
   const [fetchedAt, setFetchedAt] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -2497,15 +2498,26 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   }
 
   async function shareStory(article: FollowedArticle) {
-    const result = await shareArticle({
-      title: article.title,
-      text: `${article.title} — ${article.source}`,
-      url: article.url,
-    });
-    if (result === "copied") {
-      setNotice("Story link copied. It is ready to paste.");
-    } else if (result === "failed") {
-      setNotice("This browser could not open sharing or copy the story link.");
+    if (sharingUrls.has(article.url)) return;
+    setSharingUrls((current) => new Set(current).add(article.url));
+    try {
+      const resolvedUrl = await resolveArticleShareUrl(article.url);
+      const result = await shareArticle({
+        title: article.title,
+        text: `${article.title} — ${article.source}`,
+        url: resolvedUrl,
+      });
+      if (result === "copied") {
+        setNotice("Publisher link copied. It is ready to paste.");
+      } else if (result === "failed") {
+        setNotice("This browser could not open sharing or copy the story link.");
+      }
+    } finally {
+      setSharingUrls((current) => {
+        const next = new Set(current);
+        next.delete(article.url);
+        return next;
+      });
     }
   }
 
@@ -3522,8 +3534,10 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                     type="button"
                     className="share-button"
                     onClick={() => void shareStory(article)}
+                    disabled={sharingUrls.has(article.url)}
+                    aria-busy={sharingUrls.has(article.url)}
                     aria-label={`Share ${article.title}`}
-                    title="Share story"
+                    title={sharingUrls.has(article.url) ? "Resolving publisher link" : "Share story"}
                   >
                     <ShareIcon />
                   </button>
