@@ -41,6 +41,11 @@ public sealed class MarketController(
             logger.LogInformation(exception, "Market pricing was requested before it was configured.");
             return StatusCode(StatusCodes.Status503ServiceUnavailable, new { error = exception.Message });
         }
+        catch (MarketDataPlanRequiredException exception)
+        {
+            logger.LogInformation(exception, "Market pricing requires a higher provider plan for topic {Topic}.", topic);
+            return StatusCode(StatusCodes.Status402PaymentRequired, new { error = exception.Message });
+        }
         catch (Exception exception)
         {
             logger.LogWarning(exception, "Market pricing failed for topic {Topic}.", topic);

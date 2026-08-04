@@ -1835,8 +1835,8 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     event.preventDefault();
     if (selectedTopic === ALL_TOPICS || tickerValidating) return;
     const symbol = tickerInput.trim().replace(/^\$/, "").toUpperCase();
-    if (!/^[A-Z0-9][A-Z0-9.^-]{0,14}$/.test(symbol)) {
-      setTickerValidationMessage("Use 1–15 letters, numbers, dots or hyphens.");
+    if (!/^[A-Z0-9][A-Z0-9.^-]{0,14}(?::[A-Z0-9][A-Z0-9._-]{1,11})?$/.test(symbol)) {
+      setTickerValidationMessage("Use SYMBOL or SYMBOL:EXCHANGE, for example AIR:NZX.");
       return;
     }
 
@@ -3143,11 +3143,11 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                 id="ticker-override"
                 value={tickerInput}
                 onChange={(event) => {
-                  setTickerInput(event.target.value.toUpperCase().replace(/[^A-Z0-9.^$-]/g, "").slice(0, 16));
+                  setTickerInput(event.target.value.toUpperCase().replace(/[^A-Z0-9.^$:_-]/g, "").slice(0, 28));
                   setTickerValidationMessage("");
                 }}
-                placeholder="e.g. SPCX"
-                maxLength={16}
+                placeholder="e.g. AIR:NZX"
+                maxLength={28}
                 autoComplete="off"
                 autoCapitalize="characters"
                 spellCheck={false}
@@ -3168,7 +3168,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               </button>
             </div>
             <p className={tickerValidationMessage && !tickerValidating ? "ticker-editor-message error" : "ticker-editor-message"} aria-live="polite">
-              {tickerValidationMessage || "Signal verifies the latest quote before saving."}
+              {tickerValidationMessage || "Use AIR:NZX for an NZX listing. Signal verifies the latest quote before saving."}
             </p>
           </form>
         )}
