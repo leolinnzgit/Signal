@@ -89,6 +89,42 @@ public sealed class ArticleReaderService(
         return result;
     }
 
+    public async Task<string> ResolveUrlAsync(string value, CancellationToken cancellationToken)
+    {
+        var initialUri = await ValidatePublicArticleUriAsync(value, cancellationToken);
+        var cacheKey = $"article-url:{initialUri.AbsoluteUri}";
+        if (cache.TryGetValue(cacheKey, out string? cached) && !string.IsNullOrWhiteSpace(cached))
+            return cached;
+
+        var currentUri = initialUri;
+        for (var redirectCount = 0; redirectCount <= MaximumRedirects; redirectCount++)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, currentUri);
+            request.Headers.Accept.ParseAdd("text/html,application/xhtml+xml;q=0.9,*/*;q=0.8");
+            using var response = await httpClient.SendAsync(
+                request,
+                HttpCompletionOption.ResponseHeadersRead,
+                cancellationToken);
+
+            if (!IsRedirect(response.StatusCode))
+            {
+                var resolvedUrl = currentUri.AbsoluteUri;
+                cache.Set(cacheKey, resolvedUrl, TimeSpan.FromHours(6));
+                return resolvedUrl;
+            }
+
+            if (redirectCount == MaximumRedirects || response.Headers.Location is null)
+                throw new InvalidOperationException("The publisher redirected this story too many times.");
+
+            var redirectUri = response.Headers.Location.IsAbsoluteUri
+                ? response.Headers.Location
+                : new Uri(currentUri, response.Headers.Location);
+            currentUri = await ValidatePublicArticleUriAsync(redirectUri.AbsoluteUri, cancellationToken);
+        }
+
+        return initialUri.AbsoluteUri;
+    }
+
     private async Task<ArticleReaderResult> FetchAndExtractAsync(
         Uri initialUri,
         CancellationToken cancellationToken)

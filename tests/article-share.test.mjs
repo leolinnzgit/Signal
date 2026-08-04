@@ -54,3 +54,44 @@ test("copies the story URL when native sharing fails", async () => {
 test("reports failure when neither sharing nor copying works", async () => {
   assert.equal(await sharing.shareArticle(data, {}), "failed");
 });
+
+test("resolves the publisher URL before sharing", async () => {
+  const requested = [];
+  const resolved = await sharing.resolveArticleShareUrl(
+    "https://news.example.test/story-1",
+    async (url, init) => {
+      requested.push({ url, init });
+      return {
+        ok: true,
+        async json() {
+          return { url: "https://publisher.example.test/news/story-1" };
+        },
+      };
+    },
+  );
+
+  assert.equal(resolved, "https://publisher.example.test/news/story-1");
+  assert.match(requested[0].url, /^\/api\/article-reader\/resolve\?url=/);
+  assert.equal(requested[0].init.credentials, "same-origin");
+});
+
+test("falls back to the stored URL when resolution fails", async () => {
+  const storedUrl = "https://news.example.test/story-2";
+  const resolved = await sharing.resolveArticleShareUrl(storedUrl, async () => {
+    throw new Error("publisher unavailable");
+  });
+
+  assert.equal(resolved, storedUrl);
+});
+
+test("rejects a resolved URL that is not HTTPS", async () => {
+  const storedUrl = "https://news.example.test/story-3";
+  const resolved = await sharing.resolveArticleShareUrl(storedUrl, async () => ({
+    ok: true,
+    async json() {
+      return { url: "http://publisher.example.test/story-3" };
+    },
+  }));
+
+  assert.equal(resolved, storedUrl);
+});
