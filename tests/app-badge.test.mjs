@@ -11,6 +11,13 @@ const serviceWorker = await readFile(
   new URL("../public/service-worker.js", import.meta.url),
   "utf8",
 );
+const notificationBadge = await readFile(
+  new URL("../public/icons/signal-notification-96.png", import.meta.url),
+);
+const pushNotificationService = await readFile(
+  new URL("../Signal.Server/Services/PushNotificationService.cs", import.meta.url),
+  "utf8",
+);
 const compiled = ts.transpileModule(source, {
   compilerOptions: {
     module: ts.ModuleKind.ES2022,
@@ -102,4 +109,12 @@ test("handles background push notifications and badge updates", () => {
   assert.match(serviceWorker, /openWindow/);
   assert.match(serviceWorker, /getNotifications/);
   assert.match(serviceWorker, /notification\.close/);
+});
+
+test("uses a dedicated transparent Android notification badge", () => {
+  assert.match(serviceWorker, /badge: payload\.badge \|\| "\/icons\/signal-notification-96\.png"/);
+  assert.match(pushNotificationService, /badge = "\/icons\/signal-notification-96\.png"/);
+  assert.equal(notificationBadge.readUInt32BE(16), 96);
+  assert.equal(notificationBadge.readUInt32BE(20), 96);
+  assert.equal(notificationBadge[25], 6);
 });
