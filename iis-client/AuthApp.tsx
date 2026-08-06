@@ -26,6 +26,7 @@ type CommentAuthor = {
 type NewsComment = {
   id: number;
   articleUrl: string;
+  articleTitle: string;
   body: string;
   createdAt: string;
   author: CommentAuthor;
@@ -38,6 +39,9 @@ type CommentPage = {
   total: number;
   hasMore: boolean;
 };
+
+type LatestCommentsPage = { comments: NewsComment[]; newCount: number };
+type DiscussionArticle = Pick<FollowedArticle, "url" | "title" | "source">;
 
 type SocialUser = {
   userId: string;
@@ -293,8 +297,15 @@ export default function AuthApp() {
   });
   const [accountOpen, setAccountOpen] = useState(initialAuth?.startsWith("google-") === true);
   const [communityOpen, setCommunityOpen] = useState(false);
-  const [discussionArticle, setDiscussionArticle] = useState<FollowedArticle | null>(null);
+  const [latestCommentsOpen, setLatestCommentsOpen] = useState(false);
+  const [latestComments, setLatestComments] = useState<NewsComment[]>([]);
+  const [latestCommentUnread, setLatestCommentUnread] = useState(0);
+  const [discussionArticle, setDiscussionArticle] = useState<DiscussionArticle | null>(null);
   const [socialUnread, setSocialUnread] = useState(0);
+  const lastSeenCommentId = useRef(0);
+  const latestCommentsOpenRef = useRef(false);
+
+  useEffect(() => { latestCommentsOpenRef.current = latestCommentsOpen; }, [latestCommentsOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -355,6 +366,50 @@ export default function AuthApp() {
   }, [user]);
 
   useEffect(() => {
+    if (!user) {
+      setLatestComments([]);
+      setLatestCommentUnread(0);
+      lastSeenCommentId.current = 0;
+      return;
+    }
+    let cancelled = false;
+    async function loadLatestComments() {
+      try {
+        const params = new URLSearchParams({ limit: "12" });
+        if (lastSeenCommentId.current > 0) params.set("afterId", String(lastSeenCommentId.current));
+        const page = await getJson<LatestCommentsPage>(`/api/comments/latest?${params.toString()}`);
+        if (cancelled) return;
+        setLatestComments(page.comments);
+        const newestId = page.comments[0]?.id ?? lastSeenCommentId.current;
+        if (lastSeenCommentId.current === 0 || latestCommentsOpenRef.current) {
+          lastSeenCommentId.current = newestId;
+          setLatestCommentUnread(0);
+        } else {
+          setLatestCommentUnread(page.newCount);
+        }
+      } catch {
+        // Comment activity should not interrupt the main briefing.
+      }
+    }
+    void loadLatestComments();
+    const interval = window.setInterval(() => void loadLatestComments(), 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [user]);
+
+  function openLatestComments() {
+    setAccountOpen(false);
+    setCommunityOpen(false);
+    setDiscussionArticle(null);
+    setLatestCommentsOpen(true);
+    latestCommentsOpenRef.current = true;
+    lastSeenCommentId.current = latestComments[0]?.id ?? lastSeenCommentId.current;
+    setLatestCommentUnread(0);
+  }
+
+  useEffect(() => {
     void fetch("/api/auth/providers", { credentials: "same-origin", cache: "no-store" })
       .then(async (response) => {
         if (response.ok) {
@@ -395,6 +450,9 @@ export default function AuthApp() {
       setUser(null);
       setAccountOpen(false);
       setCommunityOpen(false);
+      setLatestCommentsOpen(false);
+      setLatestComments([]);
+      setLatestCommentUnread(0);
       setDiscussionArticle(null);
       setSocialUnread(0);
       setNotice("You’re signed out.");
@@ -411,10 +469,12 @@ export default function AuthApp() {
         <NewsDashboard
           user={{ displayName: user.displayName, email: user.email, fullName: null, isLocalPreview: false, profilePhotoUrl: user.profilePhotoUrl }}
           onSignOut={() => void signOut()}
-          onManageAccount={() => { setCommunityOpen(false); setDiscussionArticle(null); setAccountOpen(true); }}
-          onOpenCommunity={() => { setAccountOpen(false); setDiscussionArticle(null); setCommunityOpen(true); }}
-          onOpenDiscussion={(article) => { setAccountOpen(false); setCommunityOpen(false); setDiscussionArticle(article); }}
+          onManageAccount={() => { setCommunityOpen(false); setLatestCommentsOpen(false); setDiscussionArticle(null); setAccountOpen(true); }}
+          onOpenCommunity={() => { setAccountOpen(false); setLatestCommentsOpen(false); setDiscussionArticle(null); setCommunityOpen(true); }}
+          onOpenLatestComments={openLatestComments}
+          onOpenDiscussion={(article) => { setAccountOpen(false); setCommunityOpen(false); setLatestCommentsOpen(false); setDiscussionArticle(article); }}
           communityUnreadCount={socialUnread}
+          latestCommentUnreadCount={latestCommentUnread}
           preferencesStore={sqlitePreferencesStore}
           articleStore={sqliteArticleStore}
           summarySender={sendNewsSummary}
@@ -439,6 +499,17 @@ export default function AuthApp() {
             article={discussionArticle}
             onClose={() => setDiscussionArticle(null)}
             onOpenCommunity={() => { setDiscussionArticle(null); setCommunityOpen(true); }}
+          />
+        )}
+        {latestCommentsOpen && (
+          <LatestCommentsPanel
+            comments={latestComments}
+            onClose={() => { setLatestCommentsOpen(false); latestCommentsOpenRef.current = false; }}
+            onOpenDiscussion={(comment) => {
+              setLatestCommentsOpen(false);
+              latestCommentsOpenRef.current = false;
+              setDiscussionArticle({ url: comment.articleUrl, title: comment.articleTitle, source: "Signal community" });
+            }}
           />
         )}
         {communityOpen && (
@@ -943,12 +1014,55 @@ function CommunityPanel({
   );
 }
 
+function LatestCommentsPanel({
+  comments,
+  onClose,
+  onOpenDiscussion,
+}: {
+  comments: NewsComment[];
+  onClose: () => void;
+  onOpenDiscussion: (comment: NewsComment) => void;
+}) {
+  return (
+    <div className="social-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="latest-comments-panel" role="dialog" aria-modal="true" aria-labelledby="latest-comments-title">
+        <header className="social-panel-header">
+          <div>
+            <p className="eyebrow">Signal community</p>
+            <h2 id="latest-comments-title">Latest comments</h2>
+          </div>
+          <button className="social-close" type="button" onClick={onClose} aria-label="Close latest comments">×</button>
+        </header>
+        {comments.length === 0 ? (
+          <p className="social-empty">No comments have been posted yet.</p>
+        ) : (
+          <ol className="latest-comments-list">
+            {comments.map((comment) => (
+              <li key={comment.id}>
+                <button type="button" onClick={() => onOpenDiscussion(comment)} aria-label={`Open discussion for ${comment.articleTitle}`}>
+                  <SocialAvatar user={comment.author} showInitial={false} />
+                  <span className="latest-comment-copy">
+                    <span><strong>{comment.author.name}</strong><time dateTime={comment.createdAt}>{formatSocialTime(comment.createdAt)}</time></span>
+                    <b>{comment.articleTitle}</b>
+                    <em>{comment.body}</em>
+                  </span>
+                  <span className="social-person-arrow" aria-hidden="true">→</span>
+                </button>
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
+    </div>
+  );
+}
+
 function DiscussionPanel({
   article,
   onClose,
   onOpenCommunity,
 }: {
-  article: FollowedArticle;
+  article: DiscussionArticle;
   onClose: () => void;
   onOpenCommunity: () => void;
 }) {

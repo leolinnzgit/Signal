@@ -681,8 +681,10 @@ type NewsDashboardProps = {
   onSignOut?: () => void;
   onManageAccount?: () => void;
   onOpenCommunity?: () => void;
+  onOpenLatestComments?: () => void;
   onOpenDiscussion?: (article: FollowedArticle) => void;
   communityUnreadCount?: number;
+  latestCommentUnreadCount?: number;
   preferencesStore?: PreferencesStore;
   articleStore?: ArticleStore;
   summarySender?: (summary: NewsSummary) => Promise<string>;
@@ -692,7 +694,7 @@ type NewsDashboardProps = {
 
 type PushNotificationStatus = "checking" | "unsupported" | "off" | "enabling" | "on" | "disabling" | "denied" | "error";
 
-export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAccount, onOpenCommunity, onOpenDiscussion, communityUnreadCount = 0, preferencesStore, articleStore, summarySender, refreshStore, pushNotificationStore }: NewsDashboardProps) {
+export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAccount, onOpenCommunity, onOpenLatestComments, onOpenDiscussion, communityUnreadCount = 0, latestCommentUnreadCount = 0, preferencesStore, articleStore, summarySender, refreshStore, pushNotificationStore }: NewsDashboardProps) {
   const [preferences, setPreferences] = useState<NewsPreferences>(DEFAULTS);
   const [topicInput, setTopicInput] = useState("");
   const [rssInput, setRssInput] = useState("");
@@ -2621,6 +2623,19 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               <CommunityIcon />
               <span className="community-button-label">Friends</span>
               {communityUnreadCount > 0 && <span className="community-unread">{Math.min(communityUnreadCount, 99)}</span>}
+            </button>
+          )}
+          {onOpenLatestComments && (
+            <button
+              type="button"
+              className="community-button latest-comments-button"
+              onClick={onOpenLatestComments}
+              aria-label={latestCommentUnreadCount > 0 ? `Latest comments, ${latestCommentUnreadCount} new` : "Latest comments"}
+              title="Latest comments"
+            >
+              <CommentIcon />
+              <span className="latest-comments-button-label">Comments</span>
+              {latestCommentUnreadCount > 0 && <span className="community-unread">{Math.min(latestCommentUnreadCount, 99)}</span>}
             </button>
           )}
           <button

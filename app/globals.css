@@ -3292,7 +3292,8 @@ button.local-weather {
 }
 
 .discussion-panel,
-.community-panel {
+.community-panel,
+.latest-comments-panel {
   display: flex;
   width: min(100%, 38rem);
   height: 100vh;
@@ -3339,7 +3340,8 @@ button.local-weather {
 
 .discussion-panel,
 .community-overview,
-.conversation-view { overflow-y: auto; }
+.conversation-view,
+.latest-comments-panel { overflow-y: auto; }
 .discussion-article,
 .comment-composer,
 .comment-list-heading,
@@ -3592,6 +3594,50 @@ button.local-weather {
 .message-list .social-empty { align-self: center; margin: auto; }
 .message-composer { position: sticky; bottom: -2rem; flex: 0 0 auto; margin-top: 1rem; background: var(--content-background); }
 
+.latest-comments-list {
+  margin: 0;
+  padding: 0 clamp(1.25rem, 5vw, 2.25rem) 2rem;
+  list-style: none;
+}
+.latest-comments-list > li { border-bottom: 1px solid var(--line); }
+.latest-comments-list > li > button {
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+  gap: 0.85rem;
+  border: 0;
+  background: transparent;
+  color: var(--page-text);
+  padding: 1.15rem 0;
+  cursor: pointer;
+  text-align: left;
+}
+.latest-comments-list > li > button:hover b,
+.latest-comments-list > li > button:focus-visible b { color: var(--red); }
+.latest-comments-list > li > button:focus-visible { outline: 2px solid var(--red); outline-offset: 3px; }
+.latest-comment-copy { display: grid; min-width: 0; flex: 1 1 auto; gap: 0.35rem; }
+.latest-comment-copy > span { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; }
+.latest-comment-copy strong { font-size: 0.72rem; }
+.latest-comment-copy time { flex: 0 0 auto; color: var(--text-faint); font-size: 0.6rem; }
+.latest-comment-copy b {
+  overflow: hidden;
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: 0.95rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.latest-comment-copy em {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text-body);
+  font-size: 0.75rem;
+  font-style: normal;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
 footer {
   display: flex;
   justify-content: space-between;
@@ -3649,7 +3695,8 @@ footer a { color: var(--paper); text-decoration: none; }
 @media (max-width: 560px) {
   .social-backdrop { padding: 0; }
   .discussion-panel,
-  .community-panel { width: 100vw; border-left: 0; }
+  .community-panel,
+  .latest-comments-panel { width: 100vw; border-left: 0; }
   .social-panel-header { min-height: 5.5rem; padding: 1rem 1.15rem; }
   .discussion-article,
   .comment-composer,
@@ -3673,6 +3720,7 @@ footer a { color: var(--paper); text-decoration: none; }
   .theme-toggle-label { display: none; }
   .app-install-label { display: none; }
   .community-button-label { display: none; }
+  .latest-comments-button-label { display: none; }
   .header-actions .live-status { display: none; }
   .current-user { gap: 0.45rem; padding-left: 0; border-left: 0; }
   .user-avatar { width: 1.75rem; height: 1.75rem; }

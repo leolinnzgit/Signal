@@ -21,6 +21,37 @@ public sealed class CommentsController(
     private const int DefaultPageSize = 50;
     private const int MaximumPageSize = 100;
 
+    [HttpGet("latest")]
+    public async Task<IActionResult> GetLatest(
+        [FromQuery] long? afterId = null,
+        [FromQuery] int limit = 12,
+        CancellationToken cancellationToken = default)
+    {
+        var userId = userManager.GetUserId(User);
+        if (userId is null) return Unauthorized();
+        var pageSize = Math.Clamp(limit, 1, 30);
+        var query = database.NewsComments
+            .AsNoTracking()
+            .Include(comment => comment.User);
+        var comments = await query
+            .OrderByDescending(comment => comment.Id)
+            .Take(pageSize)
+            .ToArrayAsync(cancellationToken);
+        var friendshipStates = await LoadFriendshipStatesAsync(
+            userId,
+            comments.Select(comment => comment.UserId),
+            cancellationToken);
+        var newCount = afterId.HasValue
+            ? await database.NewsComments.CountAsync(
+                comment => comment.Id > afterId.Value && comment.UserId != userId,
+                cancellationToken)
+            : 0;
+
+        return Ok(new LatestCommentsResponse(
+            comments.Select(comment => ToResponse(comment, userId, friendshipStates)).ToArray(),
+            newCount));
+    }
+
     [HttpGet]
     public async Task<IActionResult> Get(
         [FromQuery] string url,
@@ -157,6 +188,7 @@ public sealed class CommentsController(
         IReadOnlyDictionary<string, string> friendshipStates) => new(
             comment.Id,
             comment.ArticleUrl,
+            comment.ArticleTitle,
             comment.Body,
             comment.CreatedAtUtc,
             new CommentAuthorResponse(
@@ -204,10 +236,13 @@ public sealed record CommentPageResponse(CommentResponse[] Comments, int Total, 
 public sealed record CommentResponse(
     long Id,
     string ArticleUrl,
+    string ArticleTitle,
     string Body,
     DateTime CreatedAt,
     CommentAuthorResponse Author,
     bool CanDelete,
     string FriendshipState);
+
+public sealed record LatestCommentsResponse(CommentResponse[] Comments, int NewCount);
 
 public sealed record CommentAuthorResponse(string UserId, string Name, string ProfilePhotoUrl);
