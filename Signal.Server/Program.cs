@@ -59,6 +59,10 @@ if (!string.IsNullOrWhiteSpace(googleClientId) && !string.IsNullOrWhiteSpace(goo
             "urn:google:email_verified",
             System.Security.Claims.ClaimValueTypes.Boolean,
             "verified_email"));
+        options.ClaimActions.Add(new JsonKeyClaimAction(
+            "urn:google:email_verified",
+            System.Security.Claims.ClaimValueTypes.Boolean,
+            "email_verified"));
     });
 }
 

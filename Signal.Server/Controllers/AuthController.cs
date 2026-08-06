@@ -83,10 +83,12 @@ public sealed class AuthController(
         if (info is null) return AuthRedirect("google-error");
 
         var googleEmail = info.Principal.FindFirstValue(ClaimTypes.Email)?.Trim();
-        var emailVerified = string.Equals(
-            info.Principal.FindFirstValue("urn:google:email_verified"),
-            "true",
-            StringComparison.OrdinalIgnoreCase);
+        var emailVerified = info.Principal
+            .FindAll("urn:google:email_verified")
+            .Any(claim => string.Equals(
+                claim.Value,
+                "true",
+                StringComparison.OrdinalIgnoreCase));
         if (string.IsNullOrWhiteSpace(googleEmail) || !emailVerified)
             return AuthRedirect("google-unverified");
 
