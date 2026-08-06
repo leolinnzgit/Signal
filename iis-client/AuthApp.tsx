@@ -1054,7 +1054,20 @@ function DiscussionPanel({
           <ol className="comment-list">
             {comments.map((comment) => (
               <li key={comment.id}>
-                <SocialAvatar user={comment.author} />
+                {!comment.canDelete && comment.friendshipState === "none" ? (
+                  <button
+                    type="button"
+                    className="comment-author-avatar"
+                    disabled={friendBusy.has(comment.author.userId)}
+                    onClick={() => void addFriend(comment.author.userId)}
+                    aria-label={`Add ${comment.author.name} as a friend`}
+                    title={`Add ${comment.author.name} as a friend`}
+                  >
+                    <SocialAvatar user={comment.author} />
+                  </button>
+                ) : (
+                  <SocialAvatar user={comment.author} />
+                )}
                 <div>
                   <header><strong>{comment.author.name}</strong><time dateTime={comment.createdAt}>{formatSocialTime(comment.createdAt)}</time></header>
                   <p>{comment.body}</p>
