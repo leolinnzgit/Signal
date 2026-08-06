@@ -103,6 +103,29 @@ public sealed class CommentsController(
         return NoContent();
     }
 
+    [HttpPut("{commentId:long}")]
+    public async Task<IActionResult> Update(
+        long commentId,
+        EditCommentRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = userManager.GetUserId(User);
+        if (userId is null) return Unauthorized();
+        var body = request.Body.Trim();
+        if (body.Length == 0) return BadRequest(new { error = "Write a comment first." });
+        if (body.Length > 2000) return BadRequest(new { error = "Comments can contain up to 2,000 characters." });
+
+        var comment = await database.NewsComments
+            .Include(item => item.User)
+            .SingleOrDefaultAsync(item => item.Id == commentId, cancellationToken);
+        if (comment is null) return NotFound();
+        if (comment.UserId != userId) return Forbid();
+
+        comment.Body = body;
+        await database.SaveChangesAsync(cancellationToken);
+        return Ok(ToResponse(comment, userId, new Dictionary<string, string>()));
+    }
+
     private async Task<Dictionary<string, string>> LoadFriendshipStatesAsync(
         string currentUserId,
         IEnumerable<string> authorIds,
@@ -173,6 +196,8 @@ public sealed record CreateCommentRequest(
     [Required, MaxLength(2048)] string ArticleUrl,
     [Required, MaxLength(500)] string ArticleTitle,
     [Required, MaxLength(2000)] string Body);
+
+public sealed record EditCommentRequest([Required, MaxLength(2000)] string Body);
 
 public sealed record CommentPageResponse(CommentResponse[] Comments, int Total, bool HasMore);
 

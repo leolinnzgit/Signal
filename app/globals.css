@@ -3484,6 +3484,32 @@ button.local-weather {
 .comment-list header strong { font-size: 0.8rem; }
 .comment-list time { color: var(--text-faint); font-size: 0.62rem; }
 .comment-list p { margin: 0.55rem 0; color: var(--text-body); line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.comment-edit-form { display: grid; gap: 0.55rem; margin: 0.65rem 0; }
+.comment-edit-form textarea {
+  width: 100%;
+  min-height: 5.5rem;
+  resize: vertical;
+  border: 1px solid var(--red);
+  outline: 0;
+  background: var(--input-background);
+  color: var(--page-text);
+  padding: 0.7rem;
+  line-height: 1.45;
+}
+.comment-edit-form > div { display: flex; align-items: center; justify-content: flex-end; gap: 0.65rem; }
+.comment-edit-form span { margin-right: auto; color: var(--text-faint); font-size: 0.65rem; }
+.comment-edit-form button {
+  border: 0;
+  background: transparent;
+  color: var(--red);
+  padding: 0;
+  cursor: pointer;
+  font-size: 0.67rem;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.comment-edit-form button:disabled { cursor: wait; opacity: 0.5; }
 .comment-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 0.8rem; }
 .comment-actions span { color: var(--text-faint); font-size: 0.65rem; }
 .social-error,

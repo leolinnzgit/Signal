@@ -114,6 +114,22 @@ async function postJson<T>(path: string, body?: unknown): Promise<T> {
   return data as T;
 }
 
+async function putJson<T>(path: string, body?: unknown): Promise<T> {
+  const token = await getCsrfToken();
+  const response = await fetch(path, {
+    method: "PUT",
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      "X-XSRF-TOKEN": token,
+    },
+    body: JSON.stringify(body ?? {}),
+  });
+  const data = await response.json().catch(() => ({})) as { error?: string; detail?: string };
+  if (!response.ok) throw new Error(data.error || data.detail || "The request could not be completed.");
+  return data as T;
+}
+
 async function postForm<T>(path: string, body: FormData): Promise<T> {
   const token = await getCsrfToken();
   const response = await fetch(path, {
@@ -943,6 +959,8 @@ function DiscussionPanel({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [friendBusy, setFriendBusy] = useState<Set<string>>(() => new Set());
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingBody, setEditingBody] = useState("");
   const [error, setError] = useState("");
 
   async function loadComments(beforeId?: number) {
@@ -994,6 +1012,23 @@ function DiscussionPanel({
       setTotal((current) => Math.max(0, current - 1));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "That comment could not be removed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveComment(event: FormEvent, commentId: number) {
+    event.preventDefault();
+    if (!editingBody.trim()) return;
+    setBusy(true);
+    setError("");
+    try {
+      const updated = await putJson<NewsComment>(`/api/comments/${commentId}`, { body: editingBody });
+      setComments((current) => current.map((comment) => comment.id === commentId ? updated : comment));
+      setEditingId(null);
+      setEditingBody("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "That comment could not be updated.");
     } finally {
       setBusy(false);
     }
@@ -1076,9 +1111,32 @@ function DiscussionPanel({
                 )}
                 <div>
                   <header><strong>{comment.author.name}</strong><time dateTime={comment.createdAt}>{formatSocialTime(comment.createdAt)}</time></header>
-                  <p>{comment.body}</p>
+                  {editingId === comment.id ? (
+                    <form className="comment-edit-form" onSubmit={(event) => void saveComment(event, comment.id)}>
+                      <textarea
+                        value={editingBody}
+                        onChange={(event) => setEditingBody(event.target.value)}
+                        maxLength={2000}
+                        rows={4}
+                        aria-label="Edit comment"
+                        autoFocus
+                      />
+                      <div>
+                        <span>{editingBody.length}/2000</span>
+                        <button type="button" disabled={busy} onClick={() => { setEditingId(null); setEditingBody(""); }}>Cancel</button>
+                        <button type="submit" disabled={busy || !editingBody.trim()}>{busy ? "Saving…" : "Save"}</button>
+                      </div>
+                    </form>
+                  ) : (
+                    <p>{comment.body}</p>
+                  )}
                   <div className="comment-actions">
-                    {comment.canDelete && <button type="button" disabled={busy} onClick={() => void removeComment(comment.id)}>Delete</button>}
+                    {comment.canDelete && editingId !== comment.id && (
+                      <>
+                        <button type="button" disabled={busy} onClick={() => { setEditingId(comment.id); setEditingBody(comment.body); }}>Edit</button>
+                        <button type="button" disabled={busy} onClick={() => void removeComment(comment.id)}>Delete</button>
+                      </>
+                    )}
                     {!comment.canDelete && comment.friendshipState === "none" && (
                       <button type="button" disabled={friendBusy.has(comment.author.userId)} onClick={() => void addFriend(comment.author.userId)}>
                         {friendBusy.has(comment.author.userId) ? "Sending…" : "Add friend"}
