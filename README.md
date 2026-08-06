@@ -76,6 +76,7 @@ app/                                Earlier OpenAI Sites/Vinext implementation
 - Optional: a Twelve Data API key for stock quotes
 - Optional: a Google OAuth desktop client with the Gmail API enabled, or an
   SMTP account, for real email delivery
+- Optional: a Google OAuth **Web application** client for Google account sign-in
 
 ## Run locally
 
@@ -137,6 +138,25 @@ market identifier is accepted and normalized to `NZX`.
 Twelve Data currently makes NZX prices available on its Pro and Venture plans
 or higher. Signal identifies valid NZX tickers on lower plans and reports this
 provider requirement explicitly instead of treating the ticker as invalid.
+
+### Google account sign-in
+
+Google sign-in uses a separate OAuth client of type **Web application**. The
+registered redirect URI for the public Signal site is:
+
+```text
+https://signal.tail445c22.ts.net/signin-google
+```
+
+The public client ID is stored in `Signal.Server/appsettings.json`. Keep the
+client secret outside Git. After deploying, run `Configure Signal Google
+Login.cmd` on the IIS machine and paste the client secret into its hidden
+prompt. The script stores it only in the preserved IIS
+`appsettings.Production.json` file and restarts Signal.
+
+Existing password accounts must sign in first and use **Connect Google** in
+Account settings. Signal deliberately does not link accounts solely because
+their email addresses match.
 
 ### Gmail API OAuth
 

@@ -2,6 +2,7 @@ using System.IO;
 using System.Text.Json;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.OAuth.Claims;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
@@ -43,6 +44,23 @@ builder.Services
     })
     .AddEntityFrameworkStores<SignalDbContext>()
     .AddDefaultTokenProviders();
+
+var googleClientId = builder.Configuration["Authentication:Google:ClientId"];
+var googleClientSecret = builder.Configuration["Authentication:Google:ClientSecret"];
+if (!string.IsNullOrWhiteSpace(googleClientId) && !string.IsNullOrWhiteSpace(googleClientSecret))
+{
+    builder.Services.AddAuthentication().AddGoogle(options =>
+    {
+        options.ClientId = googleClientId;
+        options.ClientSecret = googleClientSecret;
+        options.CallbackPath = "/signin-google";
+        options.SaveTokens = false;
+        options.ClaimActions.Add(new JsonKeyClaimAction(
+            "urn:google:email_verified",
+            System.Security.Claims.ClaimValueTypes.Boolean,
+            "verified_email"));
+    });
+}
 
 builder.Services.ConfigureApplicationCookie(options =>
 {

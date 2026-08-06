@@ -7,6 +7,8 @@ type SessionUser = {
   email: string;
   displayName: string;
   profilePhotoUrl: string | null;
+  googleConnected: boolean;
+  hasPassword: boolean;
 };
 
 type EmailDeliveryStatus = {
@@ -194,13 +196,22 @@ export default function AuthApp() {
   const initialAuth = query.get("auth");
   const [user, setUser] = useState<SessionUser | null>(null);
   const [checkingSession, setCheckingSession] = useState(true);
+  const [googleAvailable, setGoogleAvailable] = useState(false);
   const [view, setView] = useState<AuthView>(initialAuth === "reset" ? "reset" : "login");
   const [notice, setNotice] = useState(() => {
     if (initialAuth === "confirmed") return "Your email is confirmed. You can sign in now.";
     if (initialAuth === "confirmation-failed") return "That confirmation link is invalid or expired.";
+    if (initialAuth === "google-existing") return "This email already has a Signal account. Sign in with your password, then connect Google in Account settings.";
+    if (initialAuth === "google-unverified") return "Google did not provide a verified email address.";
+    if (initialAuth === "google-locked") return "This account is temporarily locked. Try again later.";
+    if (initialAuth === "google-error") return "Google sign-in could not be completed. Please try again.";
     return "";
   });
-  const [accountOpen, setAccountOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(
+    initialAuth === "google-linked"
+      || initialAuth === "google-link-failed"
+      || initialAuth === "google-link-email-mismatch",
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -239,6 +250,14 @@ export default function AuthApp() {
   }, []);
 
   useEffect(() => {
+    void fetch("/api/auth/providers", { credentials: "same-origin", cache: "no-store" })
+      .then(async (response) => {
+        if (response.ok) {
+          const providers = await response.json() as { google?: boolean };
+          setGoogleAvailable(providers.google === true);
+        }
+      });
+
     void fetch("/api/auth/me", { credentials: "same-origin", cache: "no-store" })
       .then(async (response) => {
         if (response.ok) {
@@ -294,8 +313,13 @@ export default function AuthApp() {
         {accountOpen && (
           <AccountPanel
             user={user}
+            googleAvailable={googleAvailable}
+            googleStatus={initialAuth}
             onUserUpdated={setUser}
-            onClose={() => setAccountOpen(false)}
+            onClose={() => {
+              setAccountOpen(false);
+              if (initialAuth?.startsWith("google-")) window.history.replaceState({}, "", "/");
+            }}
             onSignedOut={() => void signOut()}
           />
         )}
@@ -309,6 +333,7 @@ export default function AuthApp() {
       notice={notice}
       resetEmail={query.get("email") ?? ""}
       resetCode={query.get("code") ?? ""}
+      googleAvailable={googleAvailable}
       onViewChange={(next) => { setView(next); setNotice(""); }}
       onNotice={setNotice}
       onSignedIn={(nextUser) => {
@@ -335,6 +360,7 @@ type AuthScreenProps = {
   notice: string;
   resetEmail: string;
   resetCode: string;
+  googleAvailable: boolean;
   onViewChange: (view: AuthView) => void;
   onNotice: (message: string) => void;
   onSignedIn: (user: SessionUser) => void;
@@ -367,7 +393,7 @@ function AuthScreen(props: AuthScreenProps) {
   );
 }
 
-function LoginForm({ onSignedIn, onViewChange, onNotice }: AuthScreenProps) {
+function LoginForm({ onSignedIn, onViewChange, onNotice, googleAvailable }: AuthScreenProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(true);
@@ -389,6 +415,15 @@ function LoginForm({ onSignedIn, onViewChange, onNotice }: AuthScreenProps) {
     <form className="auth-form" onSubmit={submit}>
       <AuthHeading kicker="Welcome back" title="Sign in to Signal" />
       <AuthError message={error} />
+      {googleAvailable && (
+        <>
+          <a className="google-signin" href="/api/auth/google">
+            <span aria-hidden="true">G</span>
+            Continue with Google
+          </a>
+          <div className="auth-divider"><span>or use your email</span></div>
+        </>
+      )}
       <AuthInput label="Email address" type="email" value={email} onChange={setEmail} autoComplete="email" />
       <AuthInput label="Password" type="password" value={password} onChange={setPassword} autoComplete="current-password" />
       <label className="auth-checkbox"><input type="checkbox" checked={rememberMe} onChange={(event) => setRememberMe(event.target.checked)} />Keep me signed in</label>
@@ -501,11 +536,15 @@ function ResetPasswordForm(props: AuthScreenProps) {
 
 function AccountPanel({
   user,
+  googleAvailable,
+  googleStatus,
   onUserUpdated,
   onClose,
   onSignedOut,
 }: {
   user: SessionUser;
+  googleAvailable: boolean;
+  googleStatus: string | null;
   onUserUpdated: (user: SessionUser) => void;
   onClose: () => void;
   onSignedOut: () => void;
@@ -533,8 +572,11 @@ function AccountPanel({
     if (newPassword !== confirmPassword) { setError("The new passwords do not match."); return; }
     setBusy(true); setError(""); setMessage("");
     try {
-      const result = await postJson<{ message: string }>("/api/auth/change-password", { currentPassword, newPassword });
+      const result = user.hasPassword
+        ? await postJson<{ message: string }>("/api/auth/change-password", { currentPassword, newPassword })
+        : await postJson<{ message: string }>("/api/auth/set-password", { newPassword });
       setMessage(result.message); setCurrentPassword(""); setNewPassword(""); setConfirmPassword("");
+      if (!user.hasPassword) onUserUpdated({ ...user, hasPassword: true });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not change the password.");
     } finally { setBusy(false); }
@@ -624,6 +666,21 @@ function AccountPanel({
             {photoError && <p className="account-photo-status error" role="alert">{photoError}</p>}
           </div>
         </section>
+        {googleAvailable && (
+          <section className="google-account-settings" aria-labelledby="google-account-title">
+            <span className="google-account-mark" aria-hidden="true">G</span>
+            <div>
+              <h3 id="google-account-title">Google sign-in</h3>
+              <p>{user.googleConnected
+                ? "Google is connected to this Signal account."
+                : "Connect the Google account with the same email address for quicker sign-in."}</p>
+              {googleStatus === "google-linked" && <p className="google-account-status success" role="status">Google sign-in is connected.</p>}
+              {googleStatus === "google-link-failed" && <p className="google-account-status error" role="alert">That Google account could not be connected.</p>}
+              {googleStatus === "google-link-email-mismatch" && <p className="google-account-status error" role="alert">Choose the Google account that uses {user.email}.</p>}
+              {!user.googleConnected && <a className="google-account-action" href="/api/auth/google">Connect Google</a>}
+            </div>
+          </section>
+        )}
         <div className="email-delivery" aria-live="polite">
           <span className={delivery?.connected ? "delivery-dot connected" : "delivery-dot"} aria-hidden="true" />
           <div>
@@ -634,13 +691,13 @@ function AccountPanel({
           </div>
         </div>
         <form className="auth-form compact" onSubmit={submit}>
-          <h3>Change password</h3>
+          <h3>{user.hasPassword ? "Change password" : "Add password sign-in"}</h3>
           {message && <p className="auth-notice" role="status">{message}</p>}
           <AuthError message={error} />
-          <AuthInput label="Current password" type="password" value={currentPassword} onChange={setCurrentPassword} autoComplete="current-password" />
+          {user.hasPassword && <AuthInput label="Current password" type="password" value={currentPassword} onChange={setCurrentPassword} autoComplete="current-password" />}
           <AuthInput label="New password" type="password" value={newPassword} onChange={setNewPassword} autoComplete="new-password" minLength={12} />
           <AuthInput label="Confirm new password" type="password" value={confirmPassword} onChange={setConfirmPassword} autoComplete="new-password" minLength={12} />
-          <button className="auth-submit" disabled={busy}>{busy ? "Saving…" : "Change password"}</button>
+          <button className="auth-submit" disabled={busy}>{busy ? "Saving…" : user.hasPassword ? "Change password" : "Add password"}</button>
         </form>
         <button className="account-signout" type="button" onClick={onSignedOut}>Sign out of Signal</button>
       </section>

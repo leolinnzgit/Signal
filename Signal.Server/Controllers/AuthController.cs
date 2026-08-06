@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authorization;
@@ -23,14 +24,133 @@ public sealed class AuthController(
     SignalDbContext database,
     IAccountEmailSender emailSender,
     IAntiforgery antiforgery,
+    IConfiguration configuration,
     ILogger<AuthController> logger) : ControllerBase
 {
+    private const string GoogleProvider = "Google";
+
     [AllowAnonymous]
     [HttpGet("csrf")]
     public IActionResult Csrf()
     {
         var tokens = antiforgery.GetAndStoreTokens(HttpContext);
         return Ok(new { token = tokens.RequestToken });
+    }
+
+    [AllowAnonymous]
+    [HttpGet("providers")]
+    public IActionResult Providers() => Ok(new { google = GoogleConfigured });
+
+    [AllowAnonymous]
+    [HttpGet("google")]
+    public IActionResult Google()
+    {
+        if (!GoogleConfigured)
+        {
+            return Problem(
+                statusCode: StatusCodes.Status503ServiceUnavailable,
+                title: "Google sign-in is not configured");
+        }
+
+        var redirectUrl = Url.Action(nameof(GoogleCallback))
+            ?? throw new InvalidOperationException("Could not create the Google callback URL.");
+        var properties = signInManager.ConfigureExternalAuthenticationProperties(
+            GoogleProvider,
+            redirectUrl);
+        return Challenge(properties, GoogleProvider);
+    }
+
+    [AllowAnonymous]
+    [HttpGet("google-callback")]
+    public async Task<IActionResult> GoogleCallback(
+        [FromQuery] string? remoteError,
+        CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(remoteError))
+        {
+            logger.LogWarning("Google sign-in returned an error: {RemoteError}", remoteError);
+            return AuthRedirect("google-error");
+        }
+
+        var info = await signInManager.GetExternalLoginInfoAsync();
+        if (info is null) return AuthRedirect("google-error");
+
+        var googleEmail = info.Principal.FindFirstValue(ClaimTypes.Email)?.Trim();
+        var emailVerified = string.Equals(
+            info.Principal.FindFirstValue("urn:google:email_verified"),
+            "true",
+            StringComparison.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(googleEmail) || !emailVerified)
+            return AuthRedirect("google-unverified");
+
+        if (User.Identity?.IsAuthenticated == true)
+        {
+            var currentUser = await userManager.GetUserAsync(User);
+            if (currentUser is null) return AuthRedirect("google-link-failed");
+            if (!string.Equals(currentUser.Email, googleEmail, StringComparison.OrdinalIgnoreCase))
+                return AuthRedirect("google-link-email-mismatch");
+
+            var currentLogins = await userManager.GetLoginsAsync(currentUser);
+            if (!currentLogins.Any(login =>
+                    login.LoginProvider == info.LoginProvider
+                    && login.ProviderKey == info.ProviderKey))
+            {
+                var linkResult = await userManager.AddLoginAsync(currentUser, info);
+                if (!linkResult.Succeeded)
+                {
+                    logger.LogWarning(
+                        "Could not link Google login for user {UserId}: {Errors}",
+                        currentUser.Id,
+                        string.Join(", ", linkResult.Errors.Select(error => error.Code)));
+                    return AuthRedirect("google-link-failed");
+                }
+            }
+
+            await signInManager.RefreshSignInAsync(currentUser);
+            return AuthRedirect("google-linked");
+        }
+
+        var externalResult = await signInManager.ExternalLoginSignInAsync(
+            info.LoginProvider,
+            info.ProviderKey,
+            isPersistent: true,
+            bypassTwoFactor: false);
+        if (externalResult.Succeeded) return Redirect("/");
+        if (externalResult.IsLockedOut) return AuthRedirect("google-locked");
+
+        var existingUser = await userManager.FindByEmailAsync(googleEmail);
+        if (existingUser is not null) return AuthRedirect("google-existing");
+
+        var user = new ApplicationUser
+        {
+            UserName = googleEmail,
+            Email = googleEmail,
+            EmailConfirmed = true,
+        };
+        var createResult = await userManager.CreateAsync(user);
+        if (!createResult.Succeeded)
+        {
+            logger.LogWarning(
+                "Could not create Google account: {Errors}",
+                string.Join(", ", createResult.Errors.Select(error => error.Code)));
+            return AuthRedirect("google-error");
+        }
+
+        var addLoginResult = await userManager.AddLoginAsync(user, info);
+        if (!addLoginResult.Succeeded)
+        {
+            await userManager.DeleteAsync(user);
+            logger.LogWarning(
+                "Could not attach Google login to new account: {Errors}",
+                string.Join(", ", addLoginResult.Errors.Select(error => error.Code)));
+            return AuthRedirect("google-error");
+        }
+
+        await signInManager.SignInAsync(
+            user,
+            isPersistent: true,
+            authenticationMethod: GoogleProvider);
+        return Redirect("/");
     }
 
     [AllowAnonymous]
@@ -246,6 +366,22 @@ public sealed class AuthController(
         return Ok(new { message = "Your password has been changed." });
     }
 
+    [Authorize]
+    [HttpPost("set-password")]
+    public async Task<IActionResult> SetPassword(SetPasswordRequest request)
+    {
+        var user = await userManager.GetUserAsync(User);
+        if (user is null) return Unauthorized();
+        if (await userManager.HasPasswordAsync(user))
+            return BadRequest(new { error = "This account already has a password." });
+
+        var result = await userManager.AddPasswordAsync(user, request.NewPassword);
+        if (!result.Succeeded) return IdentityFailure(result);
+
+        await signInManager.RefreshSignInAsync(user);
+        return Ok(new { message = "Password sign-in has been added to your account." });
+    }
+
     [AllowAnonymous]
     [HttpPost("forgot-password")]
     public async Task<IActionResult> ForgotPassword(
@@ -323,8 +459,18 @@ public sealed class AuthController(
             email = user.Email,
             displayName = user.Email,
             profilePhotoUrl = updatedAt.HasValue ? ProfilePhotoUrl(updatedAt.Value) : null,
+            googleConnected = (await userManager.GetLoginsAsync(user))
+                .Any(login => login.LoginProvider == GoogleProvider),
+            hasPassword = await userManager.HasPasswordAsync(user),
         };
     }
+
+    private bool GoogleConfigured =>
+        !string.IsNullOrWhiteSpace(configuration["Authentication:Google:ClientId"])
+        && !string.IsNullOrWhiteSpace(configuration["Authentication:Google:ClientSecret"]);
+
+    private IActionResult AuthRedirect(string status) =>
+        Redirect(QueryHelpers.AddQueryString("/", "auth", status));
 
     private static string ProfilePhotoUrl(DateTime updatedAt) =>
         $"/api/auth/profile-photo?v={updatedAt.Ticks:x}";
@@ -358,6 +504,9 @@ public sealed record EmailRequest(
 
 public sealed record ChangePasswordRequest(
     [Required, MaxLength(128)] string CurrentPassword,
+    [Required, MinLength(12), MaxLength(128)] string NewPassword);
+
+public sealed record SetPasswordRequest(
     [Required, MinLength(12), MaxLength(128)] string NewPassword);
 
 public sealed record ResetPasswordRequest(
