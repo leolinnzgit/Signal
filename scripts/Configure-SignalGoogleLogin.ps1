@@ -30,9 +30,12 @@ $secureSecret = Read-Host "Google OAuth client secret" -AsSecureString
 $secretPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureSecret)
 
 try {
-    $clientSecret = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($secretPointer)
-    if ([string]::IsNullOrWhiteSpace($clientSecret)) {
-        throw "A Google OAuth client secret is required."
+    $clientSecret = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($secretPointer).Trim()
+    if ([string]::IsNullOrWhiteSpace($clientSecret) -or $clientSecret.Length -lt 20) {
+        throw "The Google OAuth client secret appears incomplete. Copy the full Client secret value and try again."
+    }
+    if ($clientSecret.EndsWith(".apps.googleusercontent.com", [StringComparison]::OrdinalIgnoreCase)) {
+        throw "That value is a Client ID, not a Client secret. Copy the Client secret value and try again."
     }
 
     $configuration.Authentication.Google |
