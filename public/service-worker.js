@@ -1,4 +1,4 @@
-const STATIC_CACHE = "signal-static-v4";
+const STATIC_CACHE = "signal-static-v5";
 const APP_BADGE_MESSAGE = "signal:update-app-badge";
 const NEWS_NOTIFICATION_TAG = "signal-new-stories";
 const STATIC_ASSETS = [
@@ -7,6 +7,7 @@ const STATIC_ASSETS = [
   "/icons/signal-180.png",
   "/icons/signal-192.png",
   "/icons/signal-512.png",
+  "/icons/signal-notification-96.png",
 ];
 
 self.addEventListener("install", (event) => {
@@ -103,7 +104,7 @@ self.addEventListener("push", (event) => {
     self.registration.showNotification(payload.title || "New stories in Signal", {
       body: payload.body || "Fresh coverage is ready in your briefing.",
       icon: payload.icon || "/icons/signal-192.png",
-      badge: payload.badge || "/icons/signal-192.png",
+      badge: payload.badge || "/icons/signal-notification-96.png",
       tag: NEWS_NOTIFICATION_TAG,
       renotify: false,
       data: { url },
