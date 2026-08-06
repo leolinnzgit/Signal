@@ -61,7 +61,7 @@ body {
   font-family: "Aptos", "Segoe UI", Arial, sans-serif;
 }
 
-button, input, select { font: inherit; }
+button, input, select, textarea { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 a { color: inherit; }
 
@@ -161,7 +161,8 @@ main {
 .user-identity small { color: var(--text-soft); font-size: 0.6rem; }
 
 .theme-toggle,
-.app-install-button {
+.app-install-button,
+.community-button {
   display: inline-flex;
   align-items: center;
   gap: 0.42rem;
@@ -178,12 +179,35 @@ main {
   text-transform: uppercase;
 }
 .theme-toggle:hover,
-.app-install-button:hover { border-color: var(--red); color: var(--red); }
+.app-install-button:hover,
+.community-button:hover { border-color: var(--red); color: var(--red); }
 .theme-toggle:focus-visible,
-.app-install-button:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
+.app-install-button:focus-visible,
+.community-button:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
 .theme-toggle-icon,
 .app-install-icon { font-size: 0.9rem; line-height: 1; }
 .app-install-icon { font-weight: 400; transform: translateY(-0.04rem); }
+.community-button { position: relative; }
+.community-button svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.6;
+}
+.community-unread {
+  display: grid;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--red);
+  color: white;
+  font-size: 0.55rem;
+  line-height: 1;
+}
 
 .current-user a {
   color: var(--red);
@@ -2682,7 +2706,8 @@ button.local-weather {
 }
 
 .bookmark-button,
-.share-button {
+.share-button,
+.comment-button {
   display: grid;
   width: 2.25rem;
   height: 2.25rem;
@@ -2696,7 +2721,8 @@ button.local-weather {
   line-height: 1;
 }
 
-.share-button svg {
+.share-button svg,
+.comment-button svg {
   width: 1rem;
   height: 1rem;
   overflow: visible;
@@ -2709,10 +2735,13 @@ button.local-weather {
 
 .share-button:hover,
 .share-button:focus-visible,
+.comment-button:hover,
+.comment-button:focus-visible,
 .bookmark-button:hover,
 .bookmark-button.active { border-color: var(--red); color: var(--red); }
 .bookmark-button:disabled,
-.share-button:disabled { opacity: 0.5; cursor: wait; }
+.share-button:disabled,
+.comment-button:disabled { opacity: 0.5; cursor: wait; }
 
 .story-number {
   padding-top: 0.25rem;
@@ -3251,6 +3280,240 @@ button.local-weather {
 .message-card p { color: var(--text-strong-muted); }
 .message-card button { margin-top: 1rem; border: 0; background: var(--red); color: white; padding: 0.8rem 1.2rem; cursor: pointer; }
 
+.social-backdrop {
+  position: fixed;
+  z-index: 80;
+  inset: 0;
+  display: flex;
+  justify-content: flex-end;
+  background: var(--overlay);
+  backdrop-filter: blur(3px);
+  overscroll-behavior: contain;
+}
+
+.discussion-panel,
+.community-panel {
+  display: flex;
+  width: min(100%, 38rem);
+  height: 100vh;
+  height: 100dvh;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid var(--line);
+  background: var(--content-background);
+  box-shadow: -1.5rem 0 4rem var(--shadow);
+}
+
+.social-panel-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 6.5rem;
+  padding: 1.25rem clamp(1.25rem, 5vw, 2.25rem);
+  border-bottom: 1px solid var(--line);
+}
+.social-panel-header .eyebrow { margin: 0 0 0.3rem; }
+.social-panel-header h2 {
+  margin: 0;
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: clamp(1.5rem, 4vw, 2rem);
+  line-height: 1.05;
+}
+.social-close {
+  display: grid;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--page-text);
+  cursor: pointer;
+  font-size: 1.4rem;
+}
+.social-close:hover,
+.social-close:focus-visible { border-color: var(--red); color: var(--red); }
+
+.discussion-panel,
+.community-overview,
+.conversation-view { overflow-y: auto; }
+.discussion-article,
+.comment-composer,
+.comment-list-heading,
+.comment-list,
+.community-overview,
+.conversation-view {
+  padding-right: clamp(1.25rem, 5vw, 2.25rem);
+  padding-left: clamp(1.25rem, 5vw, 2.25rem);
+}
+.discussion-article { padding-top: 1.5rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--line); }
+.discussion-article > span,
+.comment-composer label,
+.friend-search label,
+.social-section h3 {
+  color: var(--red);
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+.discussion-article h3 {
+  margin: 0.55rem 0 0.8rem;
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: 1.28rem;
+  line-height: 1.2;
+}
+.discussion-article a,
+.comment-actions button,
+.conversation-back,
+.social-load-more {
+  border: 0;
+  background: transparent;
+  color: var(--red);
+  cursor: pointer;
+  padding: 0;
+  font-size: 0.67rem;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+.discussion-article a:hover,
+.comment-actions button:hover,
+.conversation-back:hover,
+.social-load-more:hover { text-decoration: underline; text-underline-offset: 0.2rem; }
+
+.comment-composer,
+.message-composer { display: grid; gap: 0.65rem; padding-top: 1.4rem; padding-bottom: 1.4rem; border-bottom: 1px solid var(--line); }
+.comment-composer textarea,
+.message-composer textarea,
+.friend-search input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  outline: 0;
+  background: var(--input-background);
+  color: var(--page-text);
+}
+.comment-composer textarea,
+.message-composer textarea { min-height: 6rem; resize: vertical; padding: 0.8rem; line-height: 1.45; }
+.comment-composer textarea:focus,
+.message-composer textarea:focus,
+.friend-search input:focus { border-color: var(--red); }
+.comment-composer > div,
+.message-composer > div { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.comment-composer > div span,
+.message-composer > div span { color: var(--text-faint); font-size: 0.65rem; }
+.comment-composer button,
+.message-composer button,
+.friend-search button,
+.social-person > button,
+.social-person-actions button {
+  min-height: 2.35rem;
+  border: 1px solid var(--page-text);
+  background: var(--page-text);
+  color: var(--page-background);
+  padding: 0.45rem 0.85rem;
+  cursor: pointer;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.comment-composer button:disabled,
+.message-composer button:disabled,
+.friend-search button:disabled,
+.social-person button:disabled { cursor: wait; opacity: 0.55; }
+
+.comment-list-heading { padding-top: 1.1rem; padding-bottom: 0.3rem; }
+.comment-list-heading strong { font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; }
+.comment-list { margin: 0; list-style: none; }
+.comment-list > li { display: grid; grid-template-columns: 2.5rem minmax(0, 1fr); gap: 0.85rem; padding: 1.25rem 0; border-bottom: 1px solid var(--line); }
+.social-avatar {
+  display: grid;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex: 0 0 auto;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--paper-deep);
+  color: var(--page-text);
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: 1rem;
+  font-weight: 700;
+}
+.social-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.comment-list header { display: flex; align-items: baseline; justify-content: space-between; gap: 0.8rem; }
+.comment-list header strong { font-size: 0.8rem; }
+.comment-list time { color: var(--text-faint); font-size: 0.62rem; }
+.comment-list p { margin: 0.55rem 0; color: var(--text-body); line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.comment-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 0.8rem; }
+.comment-actions span { color: var(--text-faint); font-size: 0.65rem; }
+.social-error,
+.social-notice,
+.social-empty,
+.social-load-more { margin: 1rem clamp(1.25rem, 5vw, 2.25rem); }
+.social-error { color: var(--red); font-size: 0.75rem; }
+.social-notice { color: var(--market-up); font-size: 0.75rem; }
+.social-empty { color: var(--text-soft); font-size: 0.78rem; line-height: 1.5; }
+
+.community-overview,
+.conversation-view { flex: 1 1 auto; padding-top: 1.4rem; padding-bottom: 2rem; }
+.friend-search { display: grid; gap: 0.6rem; }
+.friend-search > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+.friend-search input { min-height: 2.65rem; padding: 0.55rem 0.75rem; border-right: 0; }
+.friend-search button { min-height: 2.65rem; }
+.search-result { margin-top: 1rem; border: 1px solid var(--line); padding: 0.85rem; }
+.social-section { margin-top: 1.75rem; }
+.social-section h3 { margin: 0 0 0.6rem; }
+.social-person {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.8rem;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--page-text);
+  padding: 0.8rem 0;
+  text-align: left;
+}
+.social-person > div:not(.social-avatar),
+.social-person > span:not(.social-person-arrow) { display: grid; min-width: 0; flex: 1 1 auto; gap: 0.18rem; }
+.social-person strong { overflow: hidden; font-size: 0.8rem; text-overflow: ellipsis; white-space: nowrap; }
+.social-person small { color: var(--text-soft); font-size: 0.66rem; }
+.social-person > span:not(.social-person-arrow) { color: var(--text-soft); font-size: 0.68rem; }
+.social-person.friend { border: 0; border-bottom: 1px solid var(--line); cursor: pointer; }
+.social-person.friend:hover { color: var(--red); }
+.social-person-arrow { margin-left: auto; color: var(--red); font-size: 1rem; }
+.social-person-actions { display: flex !important; flex: 0 0 auto !important; gap: 0.4rem !important; }
+.social-person-actions button:last-child { background: transparent; color: var(--page-text); }
+
+.conversation-view { display: flex; min-height: 0; flex-direction: column; }
+.conversation-back { align-self: flex-start; margin-bottom: 0.8rem; }
+.message-list {
+  display: flex;
+  min-height: 12rem;
+  flex: 1 1 auto;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.message-list > li:not(.social-empty) { max-width: 82%; border: 1px solid var(--line); padding: 0.65rem 0.8rem; }
+.message-list > li.mine { align-self: flex-end; border-color: var(--red); background: rgba(200, 63, 50, 0.09); }
+.message-list > li.theirs { align-self: flex-start; background: var(--input-background); }
+.message-list p { margin: 0; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.message-list time { display: block; margin-top: 0.35rem; color: var(--text-faint); font-size: 0.58rem; text-align: right; }
+.message-list .social-empty { align-self: center; margin: auto; }
+.message-composer { position: sticky; bottom: -2rem; flex: 0 0 auto; margin-top: 1rem; background: var(--content-background); }
+
 footer {
   display: flex;
   justify-content: space-between;
@@ -3306,6 +3569,23 @@ footer a { color: var(--paper); text-decoration: none; }
 }
 
 @media (max-width: 560px) {
+  .social-backdrop { padding: 0; }
+  .discussion-panel,
+  .community-panel { width: 100vw; border-left: 0; }
+  .social-panel-header { min-height: 5.5rem; padding: 1rem 1.15rem; }
+  .discussion-article,
+  .comment-composer,
+  .comment-list-heading,
+  .comment-list,
+  .community-overview,
+  .conversation-view { padding-right: 1.15rem; padding-left: 1.15rem; }
+  .social-error,
+  .social-notice,
+  .social-empty,
+  .social-load-more { margin-right: 1.15rem; margin-left: 1.15rem; }
+  .social-person { align-items: flex-start; flex-wrap: wrap; }
+  .social-person-actions { width: 100%; padding-left: 3.3rem; }
+  .message-list > li:not(.social-empty) { max-width: 90%; }
   .site-header { min-height: 68px; }
   .live-status { font-size: 0; }
   .live-status::after { content: "Live"; font-size: 0.64rem; }
@@ -3314,6 +3594,7 @@ footer a { color: var(--paper); text-decoration: none; }
   .app-install-button { min-width: 2rem; justify-content: center; padding: 0.34rem; margin-right: 0.35rem; }
   .theme-toggle-label { display: none; }
   .app-install-label { display: none; }
+  .community-button-label { display: none; }
   .header-actions .live-status { display: none; }
   .current-user { gap: 0.45rem; padding-left: 0; border-left: 0; }
   .user-avatar { width: 1.75rem; height: 1.75rem; }
@@ -3410,7 +3691,8 @@ footer a { color: var(--paper); text-decoration: none; }
   .story-image { grid-column: 3; grid-row: 1; aspect-ratio: 1; }
   .story-link { padding-right: 2.8rem; }
   .bookmark-button,
-  .share-button { width: 2rem; height: 2rem; }
+  .share-button,
+  .comment-button { width: 2rem; height: 2rem; }
   .story-link .arrow { display: none; }
   .story-link p { display: none; }
   .story-meta { flex-wrap: wrap; row-gap: 0.3rem; }

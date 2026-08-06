@@ -308,6 +308,59 @@ await using (var scope = app.Services.CreateAsyncScope())
                 FOREIGN KEY ("UserId") REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE
         );
         """);
+    await database.Database.ExecuteSqlRawAsync("""
+        CREATE TABLE IF NOT EXISTS "NewsComments" (
+            "Id" INTEGER NOT NULL CONSTRAINT "PK_NewsComments" PRIMARY KEY AUTOINCREMENT,
+            "ArticleUrl" TEXT NOT NULL,
+            "ArticleTitle" TEXT NOT NULL,
+            "UserId" TEXT NOT NULL,
+            "Body" TEXT NOT NULL,
+            "CreatedAtUtc" TEXT NOT NULL,
+            CONSTRAINT "FK_NewsComments_AspNetUsers_UserId"
+                FOREIGN KEY ("UserId") REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE
+        );
+        """);
+    await database.Database.ExecuteSqlRawAsync(
+        "CREATE INDEX IF NOT EXISTS \"IX_NewsComments_ArticleUrl_CreatedAtUtc\" ON \"NewsComments\" (\"ArticleUrl\", \"CreatedAtUtc\");");
+    await database.Database.ExecuteSqlRawAsync(
+        "CREATE INDEX IF NOT EXISTS \"IX_NewsComments_UserId\" ON \"NewsComments\" (\"UserId\");");
+    await database.Database.ExecuteSqlRawAsync("""
+        CREATE TABLE IF NOT EXISTS "FriendRelationships" (
+            "Id" INTEGER NOT NULL CONSTRAINT "PK_FriendRelationships" PRIMARY KEY AUTOINCREMENT,
+            "UserOneId" TEXT NOT NULL,
+            "UserTwoId" TEXT NOT NULL,
+            "RequestedByUserId" TEXT NOT NULL,
+            "Status" TEXT NOT NULL,
+            "CreatedAtUtc" TEXT NOT NULL,
+            "UpdatedAtUtc" TEXT NOT NULL,
+            CONSTRAINT "FK_FriendRelationships_AspNetUsers_UserOneId"
+                FOREIGN KEY ("UserOneId") REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE,
+            CONSTRAINT "FK_FriendRelationships_AspNetUsers_UserTwoId"
+                FOREIGN KEY ("UserTwoId") REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE
+        );
+        """);
+    await database.Database.ExecuteSqlRawAsync(
+        "CREATE UNIQUE INDEX IF NOT EXISTS \"IX_FriendRelationships_UserOneId_UserTwoId\" ON \"FriendRelationships\" (\"UserOneId\", \"UserTwoId\");");
+    await database.Database.ExecuteSqlRawAsync(
+        "CREATE INDEX IF NOT EXISTS \"IX_FriendRelationships_Status_UpdatedAtUtc\" ON \"FriendRelationships\" (\"Status\", \"UpdatedAtUtc\");");
+    await database.Database.ExecuteSqlRawAsync("""
+        CREATE TABLE IF NOT EXISTS "DirectMessages" (
+            "Id" INTEGER NOT NULL CONSTRAINT "PK_DirectMessages" PRIMARY KEY AUTOINCREMENT,
+            "SenderUserId" TEXT NOT NULL,
+            "RecipientUserId" TEXT NOT NULL,
+            "Body" TEXT NOT NULL,
+            "CreatedAtUtc" TEXT NOT NULL,
+            "ReadAtUtc" TEXT NULL,
+            CONSTRAINT "FK_DirectMessages_AspNetUsers_SenderUserId"
+                FOREIGN KEY ("SenderUserId") REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE,
+            CONSTRAINT "FK_DirectMessages_AspNetUsers_RecipientUserId"
+                FOREIGN KEY ("RecipientUserId") REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE
+        );
+        """);
+    await database.Database.ExecuteSqlRawAsync(
+        "CREATE INDEX IF NOT EXISTS \"IX_DirectMessages_SenderUserId_RecipientUserId_CreatedAtUtc\" ON \"DirectMessages\" (\"SenderUserId\", \"RecipientUserId\", \"CreatedAtUtc\");");
+    await database.Database.ExecuteSqlRawAsync(
+        "CREATE INDEX IF NOT EXISTS \"IX_DirectMessages_RecipientUserId_ReadAtUtc\" ON \"DirectMessages\" (\"RecipientUserId\", \"ReadAtUtc\");");
 
     await database.Database.OpenConnectionAsync();
     try

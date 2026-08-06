@@ -17,6 +17,12 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
 
     public DbSet<UserProfilePhoto> UserProfilePhotos => Set<UserProfilePhoto>();
 
+    public DbSet<NewsComment> NewsComments => Set<NewsComment>();
+
+    public DbSet<FriendRelationship> FriendRelationships => Set<FriendRelationship>();
+
+    public DbSet<DirectMessage> DirectMessages => Set<DirectMessage>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
@@ -100,6 +106,45 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
                 .WithOne()
                 .HasForeignKey<UserProfilePhoto>(item => item.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<NewsComment>(comment =>
+        {
+            comment.ToTable("NewsComments");
+            comment.HasKey(item => item.Id);
+            comment.Property(item => item.ArticleUrl).HasMaxLength(2048).IsRequired();
+            comment.Property(item => item.ArticleTitle).HasMaxLength(500).IsRequired();
+            comment.Property(item => item.UserId).HasMaxLength(450).IsRequired();
+            comment.Property(item => item.Body).HasMaxLength(2000).IsRequired();
+            comment.HasIndex(item => new { item.ArticleUrl, item.CreatedAtUtc });
+            comment.HasIndex(item => item.UserId);
+            comment.HasOne(item => item.User)
+                .WithMany()
+                .HasForeignKey(item => item.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<FriendRelationship>(relationship =>
+        {
+            relationship.ToTable("FriendRelationships");
+            relationship.HasKey(item => item.Id);
+            relationship.Property(item => item.UserOneId).HasMaxLength(450).IsRequired();
+            relationship.Property(item => item.UserTwoId).HasMaxLength(450).IsRequired();
+            relationship.Property(item => item.RequestedByUserId).HasMaxLength(450).IsRequired();
+            relationship.Property(item => item.Status).HasMaxLength(16).IsRequired();
+            relationship.HasIndex(item => new { item.UserOneId, item.UserTwoId }).IsUnique();
+            relationship.HasIndex(item => new { item.Status, item.UpdatedAtUtc });
+        });
+
+        builder.Entity<DirectMessage>(message =>
+        {
+            message.ToTable("DirectMessages");
+            message.HasKey(item => item.Id);
+            message.Property(item => item.SenderUserId).HasMaxLength(450).IsRequired();
+            message.Property(item => item.RecipientUserId).HasMaxLength(450).IsRequired();
+            message.Property(item => item.Body).HasMaxLength(2000).IsRequired();
+            message.HasIndex(item => new { item.SenderUserId, item.RecipientUserId, item.CreatedAtUtc });
+            message.HasIndex(item => new { item.RecipientUserId, item.ReadAtUtc });
         });
     }
 }

@@ -328,6 +328,24 @@ function ShareIcon() {
   );
 }
 
+function CommentIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24">
+      <path d="M5 5.5h14v10H10l-4.5 3v-3H5z" />
+    </svg>
+  );
+}
+
+function CommunityIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24">
+      <circle cx="9" cy="8" r="3" />
+      <circle cx="17" cy="9" r="2.3" />
+      <path d="M3.5 19c.5-3.3 2.3-5 5.5-5s5 1.7 5.5 5M14 14.5c3.5-.7 5.7.8 6.3 4.5" />
+    </svg>
+  );
+}
+
 function RefreshIcon({ spinning = false }: { spinning?: boolean }) {
   return <span aria-hidden="true" className={spinning ? "refresh-icon spinning" : "refresh-icon"}>&#8635;</span>;
 }
@@ -662,6 +680,9 @@ type NewsDashboardProps = {
   signOutPath?: string | null;
   onSignOut?: () => void;
   onManageAccount?: () => void;
+  onOpenCommunity?: () => void;
+  onOpenDiscussion?: (article: FollowedArticle) => void;
+  communityUnreadCount?: number;
   preferencesStore?: PreferencesStore;
   articleStore?: ArticleStore;
   summarySender?: (summary: NewsSummary) => Promise<string>;
@@ -671,7 +692,7 @@ type NewsDashboardProps = {
 
 type PushNotificationStatus = "checking" | "unsupported" | "off" | "enabling" | "on" | "disabling" | "denied" | "error";
 
-export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAccount, preferencesStore, articleStore, summarySender, refreshStore, pushNotificationStore }: NewsDashboardProps) {
+export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAccount, onOpenCommunity, onOpenDiscussion, communityUnreadCount = 0, preferencesStore, articleStore, summarySender, refreshStore, pushNotificationStore }: NewsDashboardProps) {
   const [preferences, setPreferences] = useState<NewsPreferences>(DEFAULTS);
   const [topicInput, setTopicInput] = useState("");
   const [rssInput, setRssInput] = useState("");
@@ -2589,6 +2610,19 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               <span className="app-install-label">Install app</span>
             </button>
           )}
+          {onOpenCommunity && (
+            <button
+              type="button"
+              className="community-button"
+              onClick={onOpenCommunity}
+              aria-label={communityUnreadCount > 0 ? `Friends and messages, ${communityUnreadCount} unread` : "Friends and messages"}
+              title="Friends and messages"
+            >
+              <CommunityIcon />
+              <span className="community-button-label">Friends</span>
+              {communityUnreadCount > 0 && <span className="community-unread">{Math.min(communityUnreadCount, 99)}</span>}
+            </button>
+          )}
           <button
             type="button"
             className="theme-toggle"
@@ -3536,6 +3570,17 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                   <ArrowIcon />
                 </a>
                 <div className="story-actions">
+                  {onOpenDiscussion && (
+                    <button
+                      type="button"
+                      className="comment-button"
+                      onClick={() => onOpenDiscussion(article)}
+                      aria-label={`Discuss ${article.title}`}
+                      title="Comments"
+                    >
+                      <CommentIcon />
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="share-button"
