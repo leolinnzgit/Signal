@@ -472,10 +472,16 @@ function formatSocialTime(value: string) {
   return date.toLocaleDateString(undefined, { day: "numeric", month: "short", year: date.getFullYear() === new Date().getFullYear() ? undefined : "numeric" });
 }
 
-function SocialAvatar({ user }: { user: { name: string; profilePhotoUrl: string } }) {
+function SocialAvatar({
+  user,
+  showInitial = true,
+}: {
+  user: { name: string; profilePhotoUrl: string };
+  showInitial?: boolean;
+}) {
   return (
     <span className="social-avatar" aria-hidden="true">
-      {user.name.charAt(0).toUpperCase()}
+      {showInitial ? user.name.charAt(0).toUpperCase() : null}
       <img src={user.profilePhotoUrl} alt="" onError={(event) => { event.currentTarget.hidden = true; }} />
     </span>
   );
@@ -1063,10 +1069,10 @@ function DiscussionPanel({
                     aria-label={`Add ${comment.author.name} as a friend`}
                     title={`Add ${comment.author.name} as a friend`}
                   >
-                    <SocialAvatar user={comment.author} />
+                    <SocialAvatar user={comment.author} showInitial={false} />
                   </button>
                 ) : (
-                  <SocialAvatar user={comment.author} />
+                  <SocialAvatar user={comment.author} showInitial={false} />
                 )}
                 <div>
                   <header><strong>{comment.author.name}</strong><time dateTime={comment.createdAt}>{formatSocialTime(comment.createdAt)}</time></header>
