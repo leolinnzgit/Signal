@@ -1132,27 +1132,6 @@ button.local-weather {
 
 .control-panel-dismiss:hover { border-color: #f08b76; color: #f08b76; }
 
-.hero-topics-button {
-  display: inline-flex;
-  min-height: 2.5rem;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 0.5rem;
-  border: 1px solid var(--line);
-  background: var(--ink);
-  color: var(--paper);
-  padding: 0.65rem 0.8rem;
-  cursor: pointer;
-  font-size: 0.64rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.hero-topics-button span { color: #f08b76; font-size: 1rem; line-height: 1; }
-.hero-topics-button:hover { border-color: var(--red); background: var(--red); }
-.hero-topics-button:hover span { color: white; }
-
 .control-panel-chevron {
   display: inline-block;
   font-size: 0.9rem;
@@ -2741,6 +2720,8 @@ button.local-weather {
 }
 
 .floating-back-to-top,
+.floating-add-topic,
+.floating-previous-topic,
 .floating-next-unread {
   display: grid;
   width: 3rem;
@@ -2758,6 +2739,15 @@ button.local-weather {
   transition: transform 180ms ease, background 180ms ease, border-color 180ms ease, color 180ms ease;
 }
 
+.floating-add-topic {
+  border-color: var(--red);
+  background: var(--page-background);
+  color: var(--red);
+  cursor: pointer;
+  font-size: 1.5rem;
+}
+
+.floating-previous-topic,
 .floating-next-unread {
   border-color: var(--red);
   background: var(--red);
@@ -2767,6 +2757,8 @@ button.local-weather {
 
 @keyframes back-to-top-in { from { opacity: 0; } to { opacity: 1; } }
 .floating-back-to-top:hover,
+.floating-add-topic:hover,
+.floating-previous-topic:hover,
 .floating-next-unread:hover {
   border-color: var(--red);
   background: var(--red);
@@ -2774,7 +2766,10 @@ button.local-weather {
   transform: translateY(-2px);
 }
 
+.floating-previous-topic:hover,
 .floating-next-unread:hover { border-color: var(--page-text); background: var(--page-text); }
+.floating-add-topic:focus-visible,
+.floating-previous-topic:focus-visible,
 .floating-next-unread:focus-visible,
 .floating-back-to-top:focus-visible { outline: 2px solid var(--red); outline-offset: 3px; }
 
@@ -3293,7 +3288,6 @@ footer a { color: var(--paper); text-decoration: none; }
   .control-panel-body { padding: 1.4rem; }
   .control-panel-toggle { padding: 0.58rem 0.65rem; }
   .control-panel-dismiss { width: 2.25rem; height: 2.25rem; }
-  .hero-topics-button { min-height: 2.25rem; padding: 0.55rem 0.65rem; }
   .topic-input-wrap { grid-template-columns: 1fr; }
   .topic-input-wrap button { justify-self: start; padding-left: 0; }
   .source-toggles { grid-template-columns: 1fr; }
@@ -3357,6 +3351,8 @@ footer a { color: var(--paper); text-decoration: none; }
   .article-reader-header > p { display: none; }
   .floating-navigation { left: 1rem; bottom: 1rem; }
   .floating-back-to-top,
+  .floating-add-topic,
+  .floating-previous-topic,
   .floating-next-unread { width: 2.75rem; height: 2.75rem; }
   footer { flex-direction: column; }
 }

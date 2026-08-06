@@ -1546,6 +1546,17 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     return "";
   }, [feedView, preferences.topics, selectedTopic, topicHasUnread]);
 
+  const previousTopic = useMemo(() => {
+    if (feedView !== "latest" || selectedTopic === ALL_TOPICS || preferences.topics.length < 2) return "";
+    const currentIndex = preferences.topics.findIndex(
+      (topic) => topic.toLowerCase() === selectedTopic.toLowerCase(),
+    );
+    if (currentIndex < 0) return "";
+    return preferences.topics[
+      (currentIndex - 1 + preferences.topics.length) % preferences.topics.length
+    ];
+  }, [feedView, preferences.topics, selectedTopic]);
+
   const pickerTopics = useMemo(() => {
     const query = topicPickerQuery.trim().toLowerCase();
     return query
@@ -2615,11 +2626,6 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           <p className="lede">One focused briefing across multiple news networks and the publishers you trust.</p>
         </div>
         <aside className="hero-context" aria-label="Topics, local date, time, and weather" aria-live="polite">
-          {controlsHidden && (
-            <button className="hero-topics-button" type="button" onClick={showControls}>
-              Topics <span aria-hidden="true">&#43;</span>
-            </button>
-          )}
           <div className="hero-clocks">
             <div className="hero-clock">
               <div className="hero-local-time-row">
@@ -3856,8 +3862,30 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         </div>
       )}
 
-      {(nextUnreadTopic || backToTopVisible) && (
+      {(controlsHidden || previousTopic || nextUnreadTopic || backToTopVisible) && (
         <nav className="floating-navigation" aria-label="Quick page navigation">
+          {controlsHidden && (
+            <button
+              type="button"
+              className="floating-add-topic"
+              onClick={showControls}
+              aria-label="Add or manage topics"
+              title="Add or manage topics"
+            >
+              <span aria-hidden="true">&#43;</span>
+            </button>
+          )}
+          {previousTopic && (
+            <button
+              type="button"
+              className="floating-previous-topic"
+              onClick={() => selectTopicFilter(previousTopic)}
+              aria-label={`Go to previous topic: ${previousTopic}`}
+              title={`Previous topic: ${previousTopic}`}
+            >
+              <span aria-hidden="true">&#8592;</span>
+            </button>
+          )}
           {nextUnreadTopic && (
             <button
               type="button"
