@@ -1,7 +1,7 @@
 import { ChangeEvent, FormEvent, useEffect, useState } from "react";
 import { updateInstalledAppBadge } from "../app/app-badge";
 import { prepareProfilePhoto } from "../app/profile-photo";
-import NewsDashboard, { type ArticleHistoryPage, type ArticleStore, type NewsPreferences, type NewsSummary, type PreferencesStore, type PushNotificationStore, type PushSubscriptionPayload, type TopicBriefing, type TopicRefreshStore } from "../app/NewsDashboard";
+import NewsDashboard, { type ArticleHistoryPage, type ArticleStore, type FollowedArticle, type NewsPreferences, type NewsSummary, type PreferencesStore, type PushNotificationStore, type PushSubscriptionPayload, type TopicBriefing, type TopicRefreshStore } from "../app/NewsDashboard";
 
 type SessionUser = {
   email: string;
@@ -17,6 +17,67 @@ type EmailDeliveryStatus = {
   email: string | null;
 };
 
+type CommentAuthor = {
+  userId: string;
+  name: string;
+  profilePhotoUrl: string;
+};
+
+type NewsComment = {
+  id: number;
+  articleUrl: string;
+  body: string;
+  createdAt: string;
+  author: CommentAuthor;
+  canDelete: boolean;
+  friendshipState: "self" | "none" | "outgoing" | "incoming" | "friends";
+};
+
+type CommentPage = {
+  comments: NewsComment[];
+  total: number;
+  hasMore: boolean;
+};
+
+type SocialUser = {
+  userId: string;
+  name: string;
+  profilePhotoUrl: string;
+  unreadMessages: number;
+};
+
+type FriendSummary = { relationshipId: number; user: SocialUser };
+type FriendRequestSummary = { relationshipId: number; user: SocialUser; createdAt: string };
+
+type SocialOverview = {
+  friends: FriendSummary[];
+  incomingRequests: FriendRequestSummary[];
+  outgoingRequests: FriendRequestSummary[];
+  unreadMessages: number;
+};
+
+type UserSearchResult = {
+  user: SocialUser;
+  friendshipState: "none" | "outgoing" | "incoming" | "friends";
+  relationshipId: number | null;
+};
+
+type FriendActionResult = {
+  relationshipId: number;
+  friendshipState: "none" | "outgoing" | "incoming" | "friends";
+  message: string;
+};
+
+type DirectMessage = {
+  id: number;
+  body: string;
+  createdAt: string;
+  readAt: string | null;
+  isMine: boolean;
+};
+
+type MessagePage = { messages: DirectMessage[]; hasMore: boolean };
+
 type AuthView = "login" | "register" | "forgot" | "reset" | "resend";
 
 let csrfToken = "";
@@ -28,6 +89,13 @@ async function getCsrfToken(force = false) {
   const data = await response.json() as { token: string };
   csrfToken = data.token;
   return csrfToken;
+}
+
+async function getJson<T>(path: string): Promise<T> {
+  const response = await fetch(path, { credentials: "same-origin", cache: "no-store" });
+  const data = await response.json().catch(() => ({})) as { error?: string; detail?: string };
+  if (!response.ok) throw new Error(data.error || data.detail || "The request could not be completed.");
+  return data as T;
 }
 
 async function postJson<T>(path: string, body?: unknown): Promise<T> {
@@ -208,6 +276,9 @@ export default function AuthApp() {
     return "";
   });
   const [accountOpen, setAccountOpen] = useState(initialAuth?.startsWith("google-") === true);
+  const [communityOpen, setCommunityOpen] = useState(false);
+  const [discussionArticle, setDiscussionArticle] = useState<FollowedArticle | null>(null);
+  const [socialUnread, setSocialUnread] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -244,6 +315,28 @@ export default function AuthApp() {
       document.removeEventListener("visibilitychange", checkWhenVisible);
     };
   }, []);
+
+  useEffect(() => {
+    if (!user) {
+      setSocialUnread(0);
+      return;
+    }
+    let cancelled = false;
+    async function loadSocialSummary() {
+      try {
+        const overview = await getJson<SocialOverview>("/api/social");
+        if (!cancelled) setSocialUnread(overview.unreadMessages);
+      } catch {
+        // Social availability should not interrupt the news briefing.
+      }
+    }
+    void loadSocialSummary();
+    const interval = window.setInterval(() => void loadSocialSummary(), 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [user]);
 
   useEffect(() => {
     void fetch("/api/auth/providers", { credentials: "same-origin", cache: "no-store" })
@@ -285,6 +378,9 @@ export default function AuthApp() {
       void updateInstalledAppBadge(0);
       setUser(null);
       setAccountOpen(false);
+      setCommunityOpen(false);
+      setDiscussionArticle(null);
+      setSocialUnread(0);
       setNotice("You’re signed out.");
       setView("login");
       window.history.replaceState({}, "", "/");
@@ -299,7 +395,10 @@ export default function AuthApp() {
         <NewsDashboard
           user={{ displayName: user.displayName, email: user.email, fullName: null, isLocalPreview: false, profilePhotoUrl: user.profilePhotoUrl }}
           onSignOut={() => void signOut()}
-          onManageAccount={() => setAccountOpen(true)}
+          onManageAccount={() => { setCommunityOpen(false); setDiscussionArticle(null); setAccountOpen(true); }}
+          onOpenCommunity={() => { setAccountOpen(false); setDiscussionArticle(null); setCommunityOpen(true); }}
+          onOpenDiscussion={(article) => { setAccountOpen(false); setCommunityOpen(false); setDiscussionArticle(article); }}
+          communityUnreadCount={socialUnread}
           preferencesStore={sqlitePreferencesStore}
           articleStore={sqliteArticleStore}
           summarySender={sendNewsSummary}
@@ -317,6 +416,19 @@ export default function AuthApp() {
               if (initialAuth?.startsWith("google-")) window.history.replaceState({}, "", "/");
             }}
             onSignedOut={() => void signOut()}
+          />
+        )}
+        {discussionArticle && (
+          <DiscussionPanel
+            article={discussionArticle}
+            onClose={() => setDiscussionArticle(null)}
+            onOpenCommunity={() => { setDiscussionArticle(null); setCommunityOpen(true); }}
+          />
+        )}
+        {communityOpen && (
+          <CommunityPanel
+            onClose={() => setCommunityOpen(false)}
+            onUnreadChange={setSocialUnread}
           />
         )}
       </>
@@ -348,6 +460,24 @@ function AuthLoading() {
       <span className="brand"><span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>SIGNAL</span>
       <span className="auth-spinner" aria-hidden="true" />
     </main>
+  );
+}
+
+function formatSocialTime(value: string) {
+  const date = new Date(value);
+  const differenceMinutes = Math.max(0, Math.round((Date.now() - date.getTime()) / 60_000));
+  if (differenceMinutes < 1) return "Just now";
+  if (differenceMinutes < 60) return `${differenceMinutes}m ago`;
+  if (differenceMinutes < 1_440) return `${Math.round(differenceMinutes / 60)}h ago`;
+  return date.toLocaleDateString(undefined, { day: "numeric", month: "short", year: date.getFullYear() === new Date().getFullYear() ? undefined : "numeric" });
+}
+
+function SocialAvatar({ user }: { user: { name: string; profilePhotoUrl: string } }) {
+  return (
+    <span className="social-avatar" aria-hidden="true">
+      {user.name.charAt(0).toUpperCase()}
+      <img src={user.profilePhotoUrl} alt="" onError={(event) => { event.currentTarget.hidden = true; }} />
+    </span>
   );
 }
 
@@ -527,6 +657,425 @@ function ResetPasswordForm(props: AuthScreenProps) {
       <p className="password-hint">Use at least 12 characters with uppercase, lowercase, a number and a symbol.</p>
       <button className="auth-submit" disabled={busy}>{busy ? "Resetting…" : "Reset password"}</button>
     </form>
+  );
+}
+
+function CommunityPanel({
+  onClose,
+  onUnreadChange,
+}: {
+  onClose: () => void;
+  onUnreadChange: (count: number) => void;
+}) {
+  const [overview, setOverview] = useState<SocialOverview | null>(null);
+  const [selectedFriend, setSelectedFriend] = useState<FriendSummary | null>(null);
+  const [messages, setMessages] = useState<DirectMessage[]>([]);
+  const [messagesHaveMore, setMessagesHaveMore] = useState(false);
+  const [email, setEmail] = useState("");
+  const [searchResult, setSearchResult] = useState<UserSearchResult | null>(null);
+  const [messageBody, setMessageBody] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [conversationLoading, setConversationLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+
+  async function loadOverview(showLoading = false) {
+    if (showLoading) setLoading(true);
+    try {
+      const next = await getJson<SocialOverview>("/api/social");
+      setOverview(next);
+      onUnreadChange(next.unreadMessages);
+      if (selectedFriend) {
+        const refreshed = next.friends.find((friend) => friend.user.userId === selectedFriend.user.userId) ?? null;
+        setSelectedFriend(refreshed);
+      }
+    } catch (caught) {
+      if (showLoading) setError(caught instanceof Error ? caught.message : "Friends could not be loaded.");
+    } finally {
+      if (showLoading) setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    async function initialLoad() {
+      try {
+        const next = await getJson<SocialOverview>("/api/social");
+        if (!cancelled) {
+          setOverview(next);
+          onUnreadChange(next.unreadMessages);
+        }
+      } catch (caught) {
+        if (!cancelled) setError(caught instanceof Error ? caught.message : "Friends could not be loaded.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    void initialLoad();
+    const interval = window.setInterval(() => { if (!cancelled) void loadOverview(); }, 15_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, []);
+
+  async function loadMessages(friend: FriendSummary, beforeId?: number, quiet = false) {
+    if (!quiet) setConversationLoading(true);
+    try {
+      const params = new URLSearchParams({ friendUserId: friend.user.userId, limit: "50" });
+      if (beforeId) params.set("beforeId", String(beforeId));
+      const page = await getJson<MessagePage>(`/api/social/messages?${params.toString()}`);
+      setMessages((current) => beforeId ? [...page.messages, ...current] : page.messages);
+      setMessagesHaveMore(page.hasMore);
+      if (!beforeId) {
+        setOverview((current) => current ? {
+          ...current,
+          unreadMessages: Math.max(0, current.unreadMessages - friend.user.unreadMessages),
+          friends: current.friends.map((item) => item.user.userId === friend.user.userId
+            ? { ...item, user: { ...item.user, unreadMessages: 0 } }
+            : item),
+        } : current);
+        onUnreadChange(Math.max(0, (overview?.unreadMessages ?? 0) - friend.user.unreadMessages));
+      }
+    } catch (caught) {
+      if (!quiet) setError(caught instanceof Error ? caught.message : "Messages could not be loaded.");
+    } finally {
+      if (!quiet) setConversationLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!selectedFriend) return;
+    void loadMessages(selectedFriend);
+    const interval = window.setInterval(() => void loadMessages(selectedFriend, undefined, true), 8_000);
+    return () => window.clearInterval(interval);
+  }, [selectedFriend?.user.userId]);
+
+  async function search(event: FormEvent) {
+    event.preventDefault();
+    if (!email.trim()) return;
+    setBusy(true); setError(""); setNotice(""); setSearchResult(null);
+    try {
+      setSearchResult(await getJson<UserSearchResult>(`/api/social/users?email=${encodeURIComponent(email.trim())}`));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "That user could not be found.");
+    } finally { setBusy(false); }
+  }
+
+  async function requestFriend(userId: string) {
+    setBusy(true); setError(""); setNotice("");
+    try {
+      const result = await postJson<FriendActionResult>("/api/social/friends/request", { userId });
+      setNotice(result.message);
+      setSearchResult((current) => current && current.user.userId === userId
+        ? { ...current, friendshipState: result.friendshipState, relationshipId: result.relationshipId }
+        : current);
+      await loadOverview();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "The friend request could not be sent.");
+    } finally { setBusy(false); }
+  }
+
+  async function acceptFriend(relationshipId: number) {
+    setBusy(true); setError(""); setNotice("");
+    try {
+      const result = await postJson<FriendActionResult>(`/api/social/friends/${relationshipId}/accept`);
+      setNotice(result.message);
+      await loadOverview();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "The friend request could not be accepted.");
+    } finally { setBusy(false); }
+  }
+
+  async function removeRelationship(relationshipId: number) {
+    setBusy(true); setError(""); setNotice("");
+    try {
+      await deleteJson(`/api/social/friends/${relationshipId}`);
+      setSearchResult((current) => current?.relationshipId === relationshipId
+        ? { ...current, friendshipState: "none", relationshipId: null }
+        : current);
+      setSelectedFriend((current) => current?.relationshipId === relationshipId ? null : current);
+      setNotice("Friend request removed.");
+      await loadOverview();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "That request could not be updated.");
+    } finally { setBusy(false); }
+  }
+
+  async function sendMessage(event: FormEvent) {
+    event.preventDefault();
+    if (!selectedFriend || !messageBody.trim()) return;
+    setBusy(true); setError("");
+    try {
+      const message = await postJson<DirectMessage>("/api/social/messages", {
+        recipientUserId: selectedFriend.user.userId,
+        body: messageBody,
+      });
+      setMessages((current) => [...current, message]);
+      setMessageBody("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Your message could not be sent.");
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="social-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="community-panel" role="dialog" aria-modal="true" aria-labelledby="community-title">
+        <header className="social-panel-header">
+          <div>
+            <p className="eyebrow">Signal community</p>
+            <h2 id="community-title">{selectedFriend ? selectedFriend.user.name : "Friends & messages"}</h2>
+          </div>
+          <button className="social-close" type="button" onClick={onClose} aria-label="Close friends and messages">×</button>
+        </header>
+        {selectedFriend ? (
+          <div className="conversation-view">
+            <button className="conversation-back" type="button" onClick={() => { setSelectedFriend(null); setMessages([]); }}>← All friends</button>
+            {error && <p className="social-error" role="alert">{error}</p>}
+            {messagesHaveMore && messages.length > 0 && (
+              <button className="social-load-more" type="button" disabled={conversationLoading} onClick={() => void loadMessages(selectedFriend, messages[0].id)}>
+                {conversationLoading ? "Loading…" : "Load earlier messages"}
+              </button>
+            )}
+            <ol className="message-list" aria-live="polite">
+              {conversationLoading && messages.length === 0 ? (
+                <li className="social-empty">Loading messages…</li>
+              ) : messages.length === 0 ? (
+                <li className="social-empty">No messages yet. Say hello.</li>
+              ) : messages.map((message) => (
+                <li key={message.id} className={message.isMine ? "mine" : "theirs"}>
+                  <p>{message.body}</p>
+                  <time dateTime={message.createdAt}>{formatSocialTime(message.createdAt)}</time>
+                </li>
+              ))}
+            </ol>
+            <form className="message-composer" onSubmit={sendMessage}>
+              <textarea value={messageBody} onChange={(event) => setMessageBody(event.target.value)} placeholder={`Message ${selectedFriend.user.name}…`} maxLength={2000} rows={3} aria-label={`Message ${selectedFriend.user.name}`} />
+              <div><span>{messageBody.length}/2000</span><button type="submit" disabled={busy || !messageBody.trim()}>{busy ? "Sending…" : "Send"}</button></div>
+            </form>
+          </div>
+        ) : (
+          <div className="community-overview">
+            <form className="friend-search" onSubmit={search}>
+              <label htmlFor="friend-email">Find a Signal user by exact email</label>
+              <div><input id="friend-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="friend@example.com" maxLength={254} required /><button type="submit" disabled={busy}>Find</button></div>
+            </form>
+            {error && <p className="social-error" role="alert">{error}</p>}
+            {notice && <p className="social-notice" role="status">{notice}</p>}
+            {searchResult && (
+              <div className="social-person search-result">
+                <SocialAvatar user={searchResult.user} />
+                <div><strong>{searchResult.user.name}</strong><small>Signal user</small></div>
+                {searchResult.friendshipState === "none" && <button type="button" disabled={busy} onClick={() => void requestFriend(searchResult.user.userId)}>Add friend</button>}
+                {searchResult.friendshipState === "outgoing" && <span>Request sent</span>}
+                {searchResult.friendshipState === "incoming" && <span>Request received below</span>}
+                {searchResult.friendshipState === "friends" && <button type="button" onClick={() => {
+                  const friend = overview?.friends.find((item) => item.user.userId === searchResult.user.userId);
+                  if (friend) setSelectedFriend(friend);
+                }}>Message</button>}
+              </div>
+            )}
+            {loading ? <p className="social-empty">Loading friends…</p> : (
+              <>
+                {(overview?.incomingRequests.length ?? 0) > 0 && (
+                  <section className="social-section">
+                    <h3>Requests</h3>
+                    {overview!.incomingRequests.map((request) => (
+                      <div className="social-person" key={request.relationshipId}>
+                        <SocialAvatar user={request.user} />
+                        <div><strong>{request.user.name}</strong><small>Wants to be friends</small></div>
+                        <div className="social-person-actions"><button type="button" disabled={busy} onClick={() => void acceptFriend(request.relationshipId)}>Accept</button><button type="button" disabled={busy} onClick={() => void removeRelationship(request.relationshipId)}>Decline</button></div>
+                      </div>
+                    ))}
+                  </section>
+                )}
+                <section className="social-section">
+                  <h3>Friends</h3>
+                  {(overview?.friends.length ?? 0) === 0 ? <p className="social-empty">No friends yet. Find someone by email or add them from a comment.</p> : overview!.friends.map((friend) => (
+                    <button className="social-person friend" type="button" key={friend.relationshipId} onClick={() => setSelectedFriend(friend)}>
+                      <SocialAvatar user={friend.user} />
+                      <span><strong>{friend.user.name}</strong><small>{friend.user.unreadMessages > 0 ? `${friend.user.unreadMessages} unread` : "Open conversation"}</small></span>
+                      <span className="social-person-arrow">→</span>
+                    </button>
+                  ))}
+                </section>
+                {(overview?.outgoingRequests.length ?? 0) > 0 && (
+                  <section className="social-section">
+                    <h3>Sent requests</h3>
+                    {overview!.outgoingRequests.map((request) => (
+                      <div className="social-person" key={request.relationshipId}>
+                        <SocialAvatar user={request.user} />
+                        <div><strong>{request.user.name}</strong><small>Waiting for acceptance</small></div>
+                        <button type="button" disabled={busy} onClick={() => void removeRelationship(request.relationshipId)}>Cancel</button>
+                      </div>
+                    ))}
+                  </section>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function DiscussionPanel({
+  article,
+  onClose,
+  onOpenCommunity,
+}: {
+  article: FollowedArticle;
+  onClose: () => void;
+  onOpenCommunity: () => void;
+}) {
+  const [comments, setComments] = useState<NewsComment[]>([]);
+  const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [body, setBody] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [friendBusy, setFriendBusy] = useState<Set<string>>(() => new Set());
+  const [error, setError] = useState("");
+
+  async function loadComments(beforeId?: number) {
+    setLoading(true);
+    setError("");
+    try {
+      const params = new URLSearchParams({ url: article.url, limit: "50" });
+      if (beforeId) params.set("beforeId", String(beforeId));
+      const page = await getJson<CommentPage>(`/api/comments?${params.toString()}`);
+      setComments((current) => beforeId ? [...page.comments, ...current] : page.comments);
+      setTotal(page.total);
+      setHasMore(page.hasMore);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Comments could not be loaded.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { void loadComments(); }, [article.url]);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!body.trim()) return;
+    setBusy(true);
+    setError("");
+    try {
+      const comment = await postJson<NewsComment>("/api/comments", {
+        articleUrl: article.url,
+        articleTitle: article.title,
+        body,
+      });
+      setComments((current) => [...current, comment]);
+      setTotal((current) => current + 1);
+      setBody("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Your comment could not be posted.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeComment(commentId: number) {
+    setBusy(true);
+    setError("");
+    try {
+      await deleteJson(`/api/comments/${commentId}`);
+      setComments((current) => current.filter((comment) => comment.id !== commentId));
+      setTotal((current) => Math.max(0, current - 1));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "That comment could not be removed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function addFriend(authorId: string) {
+    setFriendBusy((current) => new Set(current).add(authorId));
+    setError("");
+    try {
+      const result = await postJson<FriendActionResult>("/api/social/friends/request", { userId: authorId });
+      setComments((current) => current.map((comment) => comment.author.userId === authorId
+        ? { ...comment, friendshipState: result.friendshipState }
+        : comment));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "The friend request could not be sent.");
+    } finally {
+      setFriendBusy((current) => {
+        const next = new Set(current);
+        next.delete(authorId);
+        return next;
+      });
+    }
+  }
+
+  return (
+    <div className="social-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="discussion-panel" role="dialog" aria-modal="true" aria-labelledby="discussion-title">
+        <header className="social-panel-header">
+          <div>
+            <p className="eyebrow">Public discussion</p>
+            <h2 id="discussion-title">Comments</h2>
+          </div>
+          <button className="social-close" type="button" onClick={onClose} aria-label="Close comments">×</button>
+        </header>
+        <div className="discussion-article">
+          <span>{article.source}</span>
+          <h3>{article.title}</h3>
+          <a href={article.url} target="_blank" rel="noreferrer">Open article ↗</a>
+        </div>
+        <form className="comment-composer" onSubmit={submit}>
+          <label htmlFor="new-comment">Join the discussion</label>
+          <textarea
+            id="new-comment"
+            value={body}
+            onChange={(event) => setBody(event.target.value)}
+            placeholder="Share a thoughtful comment…"
+            maxLength={2000}
+            rows={4}
+          />
+          <div><span>{body.length}/2000</span><button type="submit" disabled={busy || !body.trim()}>{busy ? "Posting…" : "Post comment"}</button></div>
+        </form>
+        {error && <p className="social-error" role="alert">{error}</p>}
+        <div className="comment-list-heading"><strong>{total} {total === 1 ? "comment" : "comments"}</strong></div>
+        {hasMore && comments.length > 0 && (
+          <button className="social-load-more" type="button" disabled={loading} onClick={() => void loadComments(comments[0].id)}>
+            {loading ? "Loading…" : "Load earlier comments"}
+          </button>
+        )}
+        {loading && comments.length === 0 ? (
+          <p className="social-empty">Loading comments…</p>
+        ) : comments.length === 0 ? (
+          <p className="social-empty">No comments yet. Start the conversation.</p>
+        ) : (
+          <ol className="comment-list">
+            {comments.map((comment) => (
+              <li key={comment.id}>
+                <SocialAvatar user={comment.author} />
+                <div>
+                  <header><strong>{comment.author.name}</strong><time dateTime={comment.createdAt}>{formatSocialTime(comment.createdAt)}</time></header>
+                  <p>{comment.body}</p>
+                  <div className="comment-actions">
+                    {comment.canDelete && <button type="button" disabled={busy} onClick={() => void removeComment(comment.id)}>Delete</button>}
+                    {!comment.canDelete && comment.friendshipState === "none" && (
+                      <button type="button" disabled={friendBusy.has(comment.author.userId)} onClick={() => void addFriend(comment.author.userId)}>
+                        {friendBusy.has(comment.author.userId) ? "Sending…" : "Add friend"}
+                      </button>
+                    )}
+                    {comment.friendshipState === "outgoing" && <span>Friend request sent</span>}
+                    {comment.friendshipState === "friends" && <span>Friends</span>}
+                    {comment.friendshipState === "incoming" && <button type="button" onClick={onOpenCommunity}>Review friend request</button>}
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
+    </div>
   );
 }
 
