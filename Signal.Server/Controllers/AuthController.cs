@@ -28,6 +28,7 @@ public sealed class AuthController(
     ILogger<AuthController> logger) : ControllerBase
 {
     private const string GoogleProvider = "Google";
+    private const string GoogleLinkUserIdKey = "Signal.GoogleLinkUserId";
 
     [AllowAnonymous]
     [HttpGet("csrf")]
@@ -43,7 +44,7 @@ public sealed class AuthController(
 
     [AllowAnonymous]
     [HttpGet("google")]
-    public IActionResult Google()
+    public async Task<IActionResult> Google()
     {
         if (!GoogleConfigured)
         {
@@ -57,6 +58,12 @@ public sealed class AuthController(
         var properties = signInManager.ConfigureExternalAuthenticationProperties(
             GoogleProvider,
             redirectUrl);
+        if (User.Identity?.IsAuthenticated == true)
+        {
+            var linkingUser = await userManager.GetUserAsync(User);
+            if (linkingUser is not null)
+                properties.Items[GoogleLinkUserIdKey] = linkingUser.Id;
+        }
         return Challenge(properties, GoogleProvider);
     }
 
@@ -83,30 +90,44 @@ public sealed class AuthController(
         if (string.IsNullOrWhiteSpace(googleEmail) || !emailVerified)
             return AuthRedirect("google-unverified");
 
-        if (User.Identity?.IsAuthenticated == true)
+        ApplicationUser? linkingUser = null;
+        if (info.AuthenticationProperties?.Items.TryGetValue(
+                GoogleLinkUserIdKey,
+                out var linkingUserId) == true
+            && !string.IsNullOrWhiteSpace(linkingUserId))
         {
-            var currentUser = await userManager.GetUserAsync(User);
-            if (currentUser is null) return AuthRedirect("google-link-failed");
-            if (!string.Equals(currentUser.Email, googleEmail, StringComparison.OrdinalIgnoreCase))
+            linkingUser = await userManager.FindByIdAsync(linkingUserId);
+        }
+        else if (User.Identity?.IsAuthenticated == true)
+        {
+            linkingUser = await userManager.GetUserAsync(User);
+        }
+
+        if (linkingUser is not null)
+        {
+            if (!string.Equals(linkingUser.Email, googleEmail, StringComparison.OrdinalIgnoreCase))
                 return AuthRedirect("google-link-email-mismatch");
 
-            var currentLogins = await userManager.GetLoginsAsync(currentUser);
+            var currentLogins = await userManager.GetLoginsAsync(linkingUser);
             if (!currentLogins.Any(login =>
                     login.LoginProvider == info.LoginProvider
                     && login.ProviderKey == info.ProviderKey))
             {
-                var linkResult = await userManager.AddLoginAsync(currentUser, info);
+                var linkResult = await userManager.AddLoginAsync(linkingUser, info);
                 if (!linkResult.Succeeded)
                 {
                     logger.LogWarning(
                         "Could not link Google login for user {UserId}: {Errors}",
-                        currentUser.Id,
+                        linkingUser.Id,
                         string.Join(", ", linkResult.Errors.Select(error => error.Code)));
                     return AuthRedirect("google-link-failed");
                 }
             }
 
-            await signInManager.RefreshSignInAsync(currentUser);
+            await signInManager.SignInAsync(
+                linkingUser,
+                isPersistent: true,
+                authenticationMethod: GoogleProvider);
             return AuthRedirect("google-linked");
         }
 

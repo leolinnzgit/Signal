@@ -207,11 +207,7 @@ export default function AuthApp() {
     if (initialAuth === "google-error") return "Google sign-in could not be completed. Please try again.";
     return "";
   });
-  const [accountOpen, setAccountOpen] = useState(
-    initialAuth === "google-linked"
-      || initialAuth === "google-link-failed"
-      || initialAuth === "google-link-email-mismatch",
-  );
+  const [accountOpen, setAccountOpen] = useState(initialAuth?.startsWith("google-") === true);
 
   useEffect(() => {
     let cancelled = false;
@@ -677,6 +673,9 @@ function AccountPanel({
               {googleStatus === "google-linked" && <p className="google-account-status success" role="status">Google sign-in is connected.</p>}
               {googleStatus === "google-link-failed" && <p className="google-account-status error" role="alert">That Google account could not be connected.</p>}
               {googleStatus === "google-link-email-mismatch" && <p className="google-account-status error" role="alert">Choose the Google account that uses {user.email}.</p>}
+              {googleStatus === "google-unverified" && <p className="google-account-status error" role="alert">Google did not return a verified email address.</p>}
+              {googleStatus === "google-existing" && <p className="google-account-status error" role="alert">Signal lost the account-link request. Please try Connect Google again.</p>}
+              {googleStatus === "google-error" && <p className="google-account-status error" role="alert">Google could not complete the connection. Please try again.</p>}
               {!user.googleConnected && <a className="google-account-action" href="/api/auth/google">Connect Google</a>}
             </div>
           </section>
