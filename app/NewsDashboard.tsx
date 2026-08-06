@@ -1546,6 +1546,17 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     return "";
   }, [feedView, preferences.topics, selectedTopic, topicHasUnread]);
 
+  const previousTopic = useMemo(() => {
+    if (feedView !== "latest" || selectedTopic === ALL_TOPICS || preferences.topics.length < 2) return "";
+    const currentIndex = preferences.topics.findIndex(
+      (topic) => topic.toLowerCase() === selectedTopic.toLowerCase(),
+    );
+    if (currentIndex < 0) return "";
+    return preferences.topics[
+      (currentIndex - 1 + preferences.topics.length) % preferences.topics.length
+    ];
+  }, [feedView, preferences.topics, selectedTopic]);
+
   const pickerTopics = useMemo(() => {
     const query = topicPickerQuery.trim().toLowerCase();
     return query
@@ -3856,8 +3867,19 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         </div>
       )}
 
-      {(nextUnreadTopic || backToTopVisible) && (
+      {(previousTopic || nextUnreadTopic || backToTopVisible) && (
         <nav className="floating-navigation" aria-label="Quick page navigation">
+          {previousTopic && (
+            <button
+              type="button"
+              className="floating-previous-topic"
+              onClick={() => selectTopicFilter(previousTopic)}
+              aria-label={`Go to previous topic: ${previousTopic}`}
+              title={`Previous topic: ${previousTopic}`}
+            >
+              <span aria-hidden="true">&#8592;</span>
+            </button>
+          )}
           {nextUnreadTopic && (
             <button
               type="button"

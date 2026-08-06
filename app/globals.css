@@ -2741,6 +2741,7 @@ button.local-weather {
 }
 
 .floating-back-to-top,
+.floating-previous-topic,
 .floating-next-unread {
   display: grid;
   width: 3rem;
@@ -2758,6 +2759,7 @@ button.local-weather {
   transition: transform 180ms ease, background 180ms ease, border-color 180ms ease, color 180ms ease;
 }
 
+.floating-previous-topic,
 .floating-next-unread {
   border-color: var(--red);
   background: var(--red);
@@ -2767,6 +2769,7 @@ button.local-weather {
 
 @keyframes back-to-top-in { from { opacity: 0; } to { opacity: 1; } }
 .floating-back-to-top:hover,
+.floating-previous-topic:hover,
 .floating-next-unread:hover {
   border-color: var(--red);
   background: var(--red);
@@ -2774,7 +2777,9 @@ button.local-weather {
   transform: translateY(-2px);
 }
 
+.floating-previous-topic:hover,
 .floating-next-unread:hover { border-color: var(--page-text); background: var(--page-text); }
+.floating-previous-topic:focus-visible,
 .floating-next-unread:focus-visible,
 .floating-back-to-top:focus-visible { outline: 2px solid var(--red); outline-offset: 3px; }
 
@@ -3357,6 +3362,7 @@ footer a { color: var(--paper); text-decoration: none; }
   .article-reader-header > p { display: none; }
   .floating-navigation { left: 1rem; bottom: 1rem; }
   .floating-back-to-top,
+  .floating-previous-topic,
   .floating-next-unread { width: 2.75rem; height: 2.75rem; }
   footer { flex-direction: column; }
 }
