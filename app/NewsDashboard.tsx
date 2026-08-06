@@ -2626,11 +2626,6 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           <p className="lede">One focused briefing across multiple news networks and the publishers you trust.</p>
         </div>
         <aside className="hero-context" aria-label="Topics, local date, time, and weather" aria-live="polite">
-          {controlsHidden && (
-            <button className="hero-topics-button" type="button" onClick={showControls}>
-              Topics <span aria-hidden="true">&#43;</span>
-            </button>
-          )}
           <div className="hero-clocks">
             <div className="hero-clock">
               <div className="hero-local-time-row">
@@ -3867,8 +3862,19 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         </div>
       )}
 
-      {(previousTopic || nextUnreadTopic || backToTopVisible) && (
+      {(controlsHidden || previousTopic || nextUnreadTopic || backToTopVisible) && (
         <nav className="floating-navigation" aria-label="Quick page navigation">
+          {controlsHidden && (
+            <button
+              type="button"
+              className="floating-add-topic"
+              onClick={showControls}
+              aria-label="Add or manage topics"
+              title="Add or manage topics"
+            >
+              <span aria-hidden="true">&#43;</span>
+            </button>
+          )}
           {previousTopic && (
             <button
               type="button"
