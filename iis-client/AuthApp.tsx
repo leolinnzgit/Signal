@@ -1,4 +1,4 @@
-import { ChangeEvent, FormEvent, useEffect, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import { updateInstalledAppBadge } from "../app/app-badge";
 import { prepareProfilePhoto } from "../app/profile-photo";
 import NewsDashboard, { type ArticleHistoryPage, type ArticleStore, type FollowedArticle, type NewsPreferences, type NewsSummary, type PreferencesStore, type PushNotificationStore, type PushSubscriptionPayload, type TopicBriefing, type TopicRefreshStore } from "../app/NewsDashboard";
@@ -961,7 +961,10 @@ function DiscussionPanel({
   const [friendBusy, setFriendBusy] = useState<Set<string>>(() => new Set());
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingBody, setEditingBody] = useState("");
+  const [newCommentCount, setNewCommentCount] = useState(0);
   const [error, setError] = useState("");
+  const latestCommentId = useRef(0);
+  const commentList = useRef<HTMLOListElement | null>(null);
 
   async function loadComments(beforeId?: number) {
     setLoading(true);
@@ -971,6 +974,7 @@ function DiscussionPanel({
       if (beforeId) params.set("beforeId", String(beforeId));
       const page = await getJson<CommentPage>(`/api/comments?${params.toString()}`);
       setComments((current) => beforeId ? [...page.comments, ...current] : page.comments);
+      if (!beforeId) latestCommentId.current = page.comments.at(-1)?.id ?? 0;
       setTotal(page.total);
       setHasMore(page.hasMore);
     } catch (caught) {
@@ -980,7 +984,45 @@ function DiscussionPanel({
     }
   }
 
-  useEffect(() => { void loadComments(); }, [article.url]);
+  useEffect(() => {
+    latestCommentId.current = 0;
+    setNewCommentCount(0);
+    void loadComments();
+  }, [article.url]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function refreshLatestComments() {
+      try {
+        const params = new URLSearchParams({ url: article.url, limit: "50" });
+        const page = await getJson<CommentPage>(`/api/comments?${params.toString()}`);
+        if (cancelled) return;
+        const newestId = page.comments.at(-1)?.id ?? latestCommentId.current;
+        const newlyArrived = page.comments.filter((comment) => comment.id > latestCommentId.current && !comment.canDelete);
+        if (newlyArrived.length > 0) setNewCommentCount((current) => current + newlyArrived.length);
+        latestCommentId.current = Math.max(latestCommentId.current, newestId);
+        setComments((current) => {
+          const merged = new Map(current.map((comment) => [comment.id, comment]));
+          for (const comment of page.comments) merged.set(comment.id, comment);
+          return Array.from(merged.values()).sort((left, right) => left.id - right.id);
+        });
+        setTotal(page.total);
+        setHasMore((current) => current || page.hasMore);
+      } catch {
+        // Keep the current discussion visible and retry quietly on the next interval.
+      }
+    }
+    const interval = window.setInterval(() => void refreshLatestComments(), 15_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [article.url]);
+
+  function showLatestComment() {
+    setNewCommentCount(0);
+    commentList.current?.lastElementChild?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -994,6 +1036,7 @@ function DiscussionPanel({
         body,
       });
       setComments((current) => [...current, comment]);
+      latestCommentId.current = Math.max(latestCommentId.current, comment.id);
       setTotal((current) => current + 1);
       setBody("");
     } catch (caught) {
@@ -1082,6 +1125,11 @@ function DiscussionPanel({
         </form>
         {error && <p className="social-error" role="alert">{error}</p>}
         <div className="comment-list-heading"><strong>{total} {total === 1 ? "comment" : "comments"}</strong></div>
+        {newCommentCount > 0 && (
+          <button className="new-comments-notice" type="button" onClick={showLatestComment} aria-live="polite">
+            {newCommentCount} new {newCommentCount === 1 ? "comment" : "comments"} — view latest ↓
+          </button>
+        )}
         {hasMore && comments.length > 0 && (
           <button className="social-load-more" type="button" disabled={loading} onClick={() => void loadComments(comments[0].id)}>
             {loading ? "Loading…" : "Load earlier comments"}
@@ -1092,7 +1140,7 @@ function DiscussionPanel({
         ) : comments.length === 0 ? (
           <p className="social-empty">No comments yet. Start the conversation.</p>
         ) : (
-          <ol className="comment-list">
+          <ol className="comment-list" ref={commentList}>
             {comments.map((comment) => (
               <li key={comment.id}>
                 {!comment.canDelete && comment.friendshipState === "none" ? (
