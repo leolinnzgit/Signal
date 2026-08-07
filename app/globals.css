@@ -3600,7 +3600,8 @@ button.local-weather {
   text-align: left;
 }
 .social-person > div:not(.social-avatar),
-.social-person > span:not(.social-person-arrow) { display: grid; min-width: 0; flex: 1 1 auto; gap: 0.18rem; }
+.social-person > span:not(.social-person-arrow):not(.social-avatar) { display: grid; min-width: 0; flex: 1 1 auto; gap: 0.18rem; }
+.social-person > .social-avatar { width: 2.5rem; min-width: 2.5rem; max-width: 2.5rem; flex: 0 0 2.5rem; }
 .social-person strong { overflow: hidden; font-size: 0.8rem; text-overflow: ellipsis; white-space: nowrap; }
 .social-person small { color: var(--text-soft); font-size: 0.66rem; }
 .social-person > span:not(.social-person-arrow) { color: var(--text-soft); font-size: 0.68rem; }
