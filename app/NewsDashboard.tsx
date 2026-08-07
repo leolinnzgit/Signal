@@ -2615,7 +2615,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           {onOpenCommunity && (
             <button
               type="button"
-              className="community-button"
+              className={communityUnreadCount > 0 ? "community-button has-new-messages" : "community-button"}
               onClick={onOpenCommunity}
               aria-label={communityUnreadCount > 0 ? `Friends and messages, ${communityUnreadCount} unread` : "Friends and messages"}
               title="Friends and messages"

@@ -209,7 +209,8 @@ main {
   line-height: 1;
 }
 
-.latest-comments-button.has-new-comments {
+.latest-comments-button.has-new-comments,
+.community-button.has-new-messages {
   border-color: var(--red);
   background: var(--red);
   color: white;
@@ -217,12 +218,15 @@ main {
   animation: latest-comment-alert 1.8s ease-out infinite;
 }
 .latest-comments-button.has-new-comments:hover,
-.latest-comments-button.has-new-comments:focus-visible {
+.latest-comments-button.has-new-comments:focus-visible,
+.community-button.has-new-messages:hover,
+.community-button.has-new-messages:focus-visible {
   border-color: var(--page-text);
   background: var(--page-text);
   color: var(--page-background);
 }
-.latest-comments-button.has-new-comments .community-unread {
+.latest-comments-button.has-new-comments .community-unread,
+.community-button.has-new-messages .community-unread {
   border: 2px solid white;
   background: var(--page-text);
   color: var(--page-background);
@@ -3882,5 +3886,6 @@ footer a { color: var(--paper); text-decoration: none; }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
-  .latest-comments-button.has-new-comments { animation: none; }
+  .latest-comments-button.has-new-comments,
+  .community-button.has-new-messages { animation: none; }
 }
