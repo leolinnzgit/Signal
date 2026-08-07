@@ -3742,8 +3742,10 @@ button.local-weather {
 .message-list time { display: block; margin-top: 0.35rem; color: var(--text-faint); font-size: 0.58rem; text-align: right; }
 .message-list .social-empty { align-self: center; margin: auto; }
 .message-composer { position: sticky; bottom: -2rem; flex: 0 0 auto; margin-top: 1rem; background: var(--content-background); }
-.message-emoji-row { position: relative; display: flex; justify-content: flex-start !important; }
-.message-composer .message-emoji-trigger {
+.message-emoji-row,
+.comment-emoji-row { position: relative; display: flex; justify-content: flex-start !important; }
+.message-composer .message-emoji-trigger,
+.comment-composer .comment-emoji-trigger {
   display: grid;
   width: 2.25rem;
   min-height: 2.25rem;
@@ -3758,8 +3760,10 @@ button.local-weather {
   text-transform: none;
 }
 .message-composer .message-emoji-trigger:hover,
-.message-composer .message-emoji-trigger:focus-visible { border-color: var(--red); color: var(--red); }
-.message-emoji-picker {
+.message-composer .message-emoji-trigger:focus-visible,
+.comment-composer .comment-emoji-trigger:hover,
+.comment-composer .comment-emoji-trigger:focus-visible { border-color: var(--red); color: var(--red); }
+.social-emoji-picker {
   position: absolute;
   z-index: 3;
   left: 0;
@@ -3773,7 +3777,7 @@ button.local-weather {
   box-shadow: 0 0.8rem 2rem var(--shadow);
   padding: 0.55rem;
 }
-.message-composer .message-emoji-picker button {
+.social-emoji-picker button {
   display: grid;
   min-width: 0;
   min-height: 2.1rem;
@@ -3787,9 +3791,10 @@ button.local-weather {
   letter-spacing: 0;
   text-transform: none;
 }
-.message-composer .message-emoji-picker button:hover,
-.message-composer .message-emoji-picker button:focus-visible { background: var(--input-background); transform: scale(1.12); }
+.social-emoji-picker button:hover,
+.social-emoji-picker button:focus-visible { background: var(--input-background); transform: scale(1.12); }
 .message-composer-footer { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.comment-composer-footer { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 
 .latest-comments-list {
   margin: 0;

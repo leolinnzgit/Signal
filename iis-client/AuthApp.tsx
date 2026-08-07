@@ -1030,7 +1030,7 @@ function CommunityPanel({
                   ☺
                 </button>
                 {emojiPickerOpen && (
-                  <div className="message-emoji-picker" role="group" aria-label="Emojis">
+                  <div className="social-emoji-picker message-emoji-picker" role="group" aria-label="Emojis">
                     {CHAT_EMOJIS.map((emoji) => (
                       <button type="button" key={emoji} onClick={() => insertEmoji(emoji)} aria-label={`Add ${emoji}`}>{emoji}</button>
                     ))}
@@ -1176,10 +1176,12 @@ function DiscussionPanel({
   const [friendBusy, setFriendBusy] = useState<Set<string>>(() => new Set());
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingBody, setEditingBody] = useState("");
+  const [commentEmojiPickerOpen, setCommentEmojiPickerOpen] = useState(false);
   const [newCommentCount, setNewCommentCount] = useState(0);
   const [error, setError] = useState("");
   const latestCommentId = useRef(0);
   const commentList = useRef<HTMLOListElement | null>(null);
+  const commentInput = useRef<HTMLTextAreaElement | null>(null);
 
   async function loadComments(beforeId?: number) {
     setLoading(true);
@@ -1254,11 +1256,25 @@ function DiscussionPanel({
       latestCommentId.current = Math.max(latestCommentId.current, comment.id);
       setTotal((current) => current + 1);
       setBody("");
+      setCommentEmojiPickerOpen(false);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Your comment could not be posted.");
     } finally {
       setBusy(false);
     }
+  }
+
+  function insertCommentEmoji(emoji: string) {
+    const input = commentInput.current;
+    const start = input?.selectionStart ?? body.length;
+    const end = input?.selectionEnd ?? start;
+    const next = `${body.slice(0, start)}${emoji}${body.slice(end)}`;
+    if (next.length > 2000) return;
+    setBody(next);
+    window.requestAnimationFrame(() => {
+      input?.focus();
+      input?.setSelectionRange(start + emoji.length, start + emoji.length);
+    });
   }
 
   async function removeComment(commentId: number) {
@@ -1329,6 +1345,7 @@ function DiscussionPanel({
         <form className="comment-composer" onSubmit={submit}>
           <label htmlFor="new-comment">Join the discussion</label>
           <textarea
+            ref={commentInput}
             id="new-comment"
             value={body}
             onChange={(event) => setBody(event.target.value)}
@@ -1336,7 +1353,26 @@ function DiscussionPanel({
             maxLength={2000}
             rows={4}
           />
-          <div><span>{body.length}/2000</span><button type="submit" disabled={busy || !body.trim()}>{busy ? "Posting…" : "Post comment"}</button></div>
+          <div className="comment-emoji-row">
+            <button
+              type="button"
+              className="comment-emoji-trigger"
+              onClick={() => setCommentEmojiPickerOpen((current) => !current)}
+              aria-expanded={commentEmojiPickerOpen}
+              aria-label="Choose an emoji"
+              title="Add emoji"
+            >
+              ☺
+            </button>
+            {commentEmojiPickerOpen && (
+              <div className="social-emoji-picker comment-emoji-picker" role="group" aria-label="Emojis">
+                {CHAT_EMOJIS.map((emoji) => (
+                  <button type="button" key={emoji} onClick={() => insertCommentEmoji(emoji)} aria-label={`Add ${emoji}`}>{emoji}</button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="comment-composer-footer"><span>{body.length}/2000</span><button type="submit" disabled={busy || !body.trim()}>{busy ? "Posting…" : "Post comment"}</button></div>
         </form>
         {error && <p className="social-error" role="alert">{error}</p>}
         <div className="comment-list-heading"><strong>{total} {total === 1 ? "comment" : "comments"}</strong></div>
