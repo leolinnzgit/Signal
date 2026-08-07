@@ -91,6 +91,45 @@ const CHAT_EMOJIS = [
   "☕", "🌏", "📰", "🚀", "🤖", "📈", "💡", "🤣",
 ];
 
+let messageAudioContext: AudioContext | null = null;
+let lastMessageToneAt = 0;
+
+function unlockMessageAudio() {
+  const AudioContextType = window.AudioContext
+    ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioContextType) return;
+  messageAudioContext ??= new AudioContextType();
+  if (messageAudioContext.state === "suspended") void messageAudioContext.resume();
+}
+
+function playMessageTone() {
+  const context = messageAudioContext;
+  if (!context || context.state !== "running") return;
+  const now = Date.now();
+  if (now - lastMessageToneAt < 10_000) return;
+  lastMessageToneAt = now;
+  const start = context.currentTime;
+  const gain = context.createGain();
+  gain.gain.setValueAtTime(0.0001, start);
+  gain.gain.exponentialRampToValueAtTime(0.16, start + 0.015);
+  gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.34);
+  gain.connect(context.destination);
+
+  const first = context.createOscillator();
+  first.type = "sine";
+  first.frequency.setValueAtTime(659.25, start);
+  first.connect(gain);
+  first.start(start);
+  first.stop(start + 0.15);
+
+  const second = context.createOscillator();
+  second.type = "sine";
+  second.frequency.setValueAtTime(880, start + 0.16);
+  second.connect(gain);
+  second.start(start + 0.16);
+  second.stop(start + 0.34);
+}
+
 type AuthView = "login" | "register" | "forgot" | "reset" | "resend";
 
 let csrfToken = "";
@@ -313,8 +352,28 @@ export default function AuthApp() {
   const [socialUnread, setSocialUnread] = useState(0);
   const lastSeenCommentId = useRef(0);
   const latestCommentsOpenRef = useRef(false);
+  const socialUnreadRef = useRef(0);
+  const socialSummaryInitialized = useRef(false);
 
   useEffect(() => { latestCommentsOpenRef.current = latestCommentsOpen; }, [latestCommentsOpen]);
+
+  useEffect(() => {
+    if (!user) return;
+    const unlock = () => unlockMessageAudio();
+    document.addEventListener("pointerdown", unlock, { once: true });
+    document.addEventListener("keydown", unlock, { once: true });
+    return () => {
+      document.removeEventListener("pointerdown", unlock);
+      document.removeEventListener("keydown", unlock);
+    };
+  }, [user]);
+
+  function updateSocialUnread(count: number) {
+    if (socialSummaryInitialized.current && count > socialUnreadRef.current) playMessageTone();
+    socialUnreadRef.current = count;
+    socialSummaryInitialized.current = true;
+    setSocialUnread(count);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -355,13 +414,15 @@ export default function AuthApp() {
   useEffect(() => {
     if (!user) {
       setSocialUnread(0);
+      socialUnreadRef.current = 0;
+      socialSummaryInitialized.current = false;
       return;
     }
     let cancelled = false;
     async function loadSocialSummary() {
       try {
         const overview = await getJson<SocialOverview>("/api/social");
-        if (!cancelled) setSocialUnread(overview.unreadMessages);
+        if (!cancelled) updateSocialUnread(overview.unreadMessages);
       } catch {
         // Social availability should not interrupt the news briefing.
       }
@@ -465,6 +526,8 @@ export default function AuthApp() {
       setLatestCommentUnread(0);
       setDiscussionArticle(null);
       setSocialUnread(0);
+      socialUnreadRef.current = 0;
+      socialSummaryInitialized.current = false;
       setNotice("You’re signed out.");
       setView("login");
       window.history.replaceState({}, "", "/");
@@ -525,7 +588,7 @@ export default function AuthApp() {
         {communityOpen && (
           <CommunityPanel
             onClose={() => setCommunityOpen(false)}
-            onUnreadChange={setSocialUnread}
+            onUnreadChange={updateSocialUnread}
           />
         )}
       </>
@@ -791,6 +854,7 @@ function CommunityPanel({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const messageInput = useRef<HTMLTextAreaElement | null>(null);
+  const latestConversationMessageId = useRef(0);
 
   async function loadOverview(showLoading = false) {
     if (showLoading) setLoading(true);
@@ -838,6 +902,14 @@ function CommunityPanel({
       const params = new URLSearchParams({ friendUserId: friend.user.userId, limit: "50" });
       if (beforeId) params.set("beforeId", String(beforeId));
       const page = await getJson<MessagePage>(`/api/social/messages?${params.toString()}`);
+      if (!beforeId) {
+        const newestId = page.messages.at(-1)?.id ?? 0;
+        if (quiet && latestConversationMessageId.current > 0
+          && page.messages.some((message) => message.id > latestConversationMessageId.current && !message.isMine)) {
+          playMessageTone();
+        }
+        latestConversationMessageId.current = newestId;
+      }
       setMessages((current) => beforeId ? [...page.messages, ...current] : page.messages);
       setMessagesHaveMore(page.hasMore);
       if (!beforeId) {
@@ -859,6 +931,7 @@ function CommunityPanel({
 
   useEffect(() => {
     if (!selectedFriend || conversationMinimized) return;
+    latestConversationMessageId.current = 0;
     void loadMessages(selectedFriend);
     const interval = window.setInterval(() => void loadMessages(selectedFriend, undefined, true), 8_000);
     return () => window.clearInterval(interval);
@@ -931,6 +1004,7 @@ function CommunityPanel({
         body: messageBody,
       });
       setMessages((current) => [...current, message]);
+      latestConversationMessageId.current = Math.max(latestConversationMessageId.current, message.id);
       setMessageBody("");
       setEmojiPickerOpen(false);
     } catch (caught) {
