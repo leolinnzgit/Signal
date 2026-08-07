@@ -190,7 +190,7 @@ public sealed class CommentsController(
             comment.ArticleUrl,
             comment.ArticleTitle,
             comment.Body,
-            comment.CreatedAtUtc,
+            AsUtc(comment.CreatedAtUtc),
             new CommentAuthorResponse(
                 comment.UserId,
                 PublicName(comment.User),
@@ -202,6 +202,13 @@ public sealed class CommentsController(
 
     private static string OtherUserId(FriendRelationship relationship, string currentUserId) =>
         relationship.UserOneId == currentUserId ? relationship.UserTwoId : relationship.UserOneId;
+
+    private static DateTime AsUtc(DateTime value) => value.Kind switch
+    {
+        DateTimeKind.Utc => value,
+        DateTimeKind.Local => value.ToUniversalTime(),
+        _ => DateTime.SpecifyKind(value, DateTimeKind.Utc),
+    };
 
     internal static string PublicName(ApplicationUser user)
     {

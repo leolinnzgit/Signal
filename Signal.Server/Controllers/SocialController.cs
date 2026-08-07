@@ -281,7 +281,7 @@ public sealed class SocialController(
     {
         var otherId = OtherUserId(relationship, currentUserId);
         return users.TryGetValue(otherId, out var user)
-            ? new FriendRequestResponse(relationship.Id, ToUserCard(user, 0), relationship.CreatedAtUtc)
+            ? new FriendRequestResponse(relationship.Id, ToUserCard(user, 0), AsUtc(relationship.CreatedAtUtc))
             : null;
     }
 
@@ -336,9 +336,16 @@ public sealed class SocialController(
     private static DirectMessageResponse ToMessageResponse(DirectMessage message, string currentUserId) => new(
         message.Id,
         message.Body,
-        message.CreatedAtUtc,
-        message.ReadAtUtc,
+        AsUtc(message.CreatedAtUtc),
+        message.ReadAtUtc.HasValue ? AsUtc(message.ReadAtUtc.Value) : null,
         message.SenderUserId == currentUserId);
+
+    private static DateTime AsUtc(DateTime value) => value.Kind switch
+    {
+        DateTimeKind.Utc => value,
+        DateTimeKind.Local => value.ToUniversalTime(),
+        _ => DateTime.SpecifyKind(value, DateTimeKind.Utc),
+    };
 }
 
 public sealed record FriendRequestCreateRequest(string? UserId, string? Email);
