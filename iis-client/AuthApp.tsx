@@ -913,7 +913,10 @@ function CommunityPanel({
   }
 
   return (
-    <div className="social-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <div
+      className={selectedFriend ? "social-backdrop conversation-floating-backdrop" : "social-backdrop"}
+      onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}
+    >
       <section className="community-panel" role="dialog" aria-modal="true" aria-labelledby="community-title">
         <header className="social-panel-header">
           <div>

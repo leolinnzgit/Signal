@@ -3320,6 +3320,26 @@ button.local-weather {
   overscroll-behavior: contain;
 }
 
+.conversation-floating-backdrop {
+  align-items: flex-end;
+  padding: 1.25rem;
+  background: transparent;
+  backdrop-filter: none;
+  pointer-events: none;
+}
+.conversation-floating-backdrop .community-panel {
+  width: min(25rem, calc(100vw - 2.5rem));
+  height: min(38rem, calc(100dvh - 7rem));
+  border: 1px solid var(--line);
+  box-shadow: 0 1rem 3.5rem var(--shadow);
+  pointer-events: auto;
+}
+.conversation-floating-backdrop .social-panel-header { min-height: 5rem; padding: 0.9rem 1rem; }
+.conversation-floating-backdrop .social-panel-header .eyebrow { display: none; }
+.conversation-floating-backdrop .social-panel-header h2 { font-size: 1.35rem; }
+.conversation-floating-backdrop .conversation-view { padding: 0.9rem 1rem 1rem; }
+.conversation-floating-backdrop .message-composer { bottom: -1rem; }
+
 .discussion-panel,
 .community-panel,
 .latest-comments-panel {
@@ -3732,6 +3752,12 @@ footer a { color: var(--paper); text-decoration: none; }
 
 @media (max-width: 560px) {
   .social-backdrop { padding: 0; }
+  .conversation-floating-backdrop { align-items: flex-end; padding: 0.6rem; }
+  .conversation-floating-backdrop .community-panel {
+    width: calc(100vw - 1.2rem);
+    height: min(72dvh, 36rem);
+    border: 1px solid var(--line);
+  }
   .discussion-panel,
   .community-panel,
   .latest-comments-panel { width: 100vw; border-left: 0; }
