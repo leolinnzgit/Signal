@@ -3337,6 +3337,29 @@ button.local-weather {
 .conversation-floating-backdrop .social-panel-header { min-height: 5rem; padding: 0.9rem 1rem; }
 .conversation-floating-backdrop .social-panel-header .eyebrow { display: none; }
 .conversation-floating-backdrop .social-panel-header h2 { font-size: 1.35rem; }
+.conversation-presence,
+.friend-presence {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--text-soft);
+  font-size: 0.64rem;
+  font-weight: 600;
+}
+.conversation-presence { margin-top: 0.3rem; }
+.conversation-presence i,
+.friend-presence i {
+  display: inline-block;
+  width: 0.48rem;
+  height: 0.48rem;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+.conversation-presence.online,
+.friend-presence.online { color: var(--market-up); }
+.conversation-presence.online i,
+.friend-presence.online i { background: var(--market-up); box-shadow: 0 0 0 0.18rem rgba(51, 122, 74, 0.15); }
 .conversation-floating-backdrop .conversation-view { padding: 0.9rem 1rem 1rem; }
 .conversation-floating-backdrop .message-composer { bottom: -1rem; }
 .social-panel-controls { display: flex; align-items: center; gap: 0.5rem; }
@@ -3390,6 +3413,7 @@ button.local-weather {
   color: white;
   font-size: 0.45rem;
 }
+.conversation-minimized-glyph.online { background: var(--market-up); }
 .conversation-minimized-unread {
   position: absolute;
   top: -0.35rem;

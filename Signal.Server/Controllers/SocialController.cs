@@ -22,13 +22,26 @@ public sealed class SocialController(
     private const string AcceptedStatus = "Accepted";
     private const int DefaultMessagePageSize = 50;
     private const int MaximumMessagePageSize = 100;
+    private static readonly TimeSpan OnlineWindow = TimeSpan.FromSeconds(150);
 
     [HttpGet]
     public async Task<IActionResult> Get(CancellationToken cancellationToken)
     {
         var userId = userManager.GetUserId(User);
         if (userId is null) return Unauthorized();
+        await TouchPresenceAsync(userId, cancellationToken);
         return Ok(await LoadOverviewAsync(userId, cancellationToken));
+    }
+
+    [HttpDelete("presence")]
+    public async Task<IActionResult> ClearPresence(CancellationToken cancellationToken)
+    {
+        var userId = userManager.GetUserId(User);
+        if (userId is null) return Unauthorized();
+        await database.UserPresences
+            .Where(item => item.UserId == userId)
+            .ExecuteDeleteAsync(cancellationToken);
+        return NoContent();
     }
 
     [HttpGet("users")]
@@ -246,6 +259,13 @@ public sealed class SocialController(
             .GroupBy(message => message.SenderUserId)
             .Select(group => new { UserId = group.Key, Count = group.Count() })
             .ToDictionaryAsync(item => item.UserId, item => item.Count, cancellationToken);
+        var presences = otherIds.Length == 0
+            ? new Dictionary<string, DateTime>(StringComparer.Ordinal)
+            : await database.UserPresences
+                .AsNoTracking()
+                .Where(presence => otherIds.Contains(presence.UserId))
+                .ToDictionaryAsync(presence => presence.UserId, presence => presence.LastSeenAtUtc, cancellationToken);
+        var onlineSince = DateTime.UtcNow - OnlineWindow;
 
         var friends = relationships
             .Where(item => item.Status == AcceptedStatus)
@@ -253,7 +273,11 @@ public sealed class SocialController(
             .Where(item => byId.ContainsKey(item.OtherId))
             .Select(item => new FriendResponse(
                 item.Relationship.Id,
-                ToUserCard(byId[item.OtherId], unreadCounts.GetValueOrDefault(item.OtherId))))
+                ToUserCard(
+                    byId[item.OtherId],
+                    unreadCounts.GetValueOrDefault(item.OtherId),
+                    presences.GetValueOrDefault(item.OtherId),
+                    onlineSince)))
             .ToArray();
         var incoming = relationships
             .Where(item => item.Status == PendingStatus && item.RequestedByUserId != userId)
@@ -331,7 +355,31 @@ public sealed class SocialController(
         user.Id,
         CommentsController.PublicName(user),
         $"/api/social/users/{Uri.EscapeDataString(user.Id)}/photo",
-        unreadMessages);
+        unreadMessages,
+        false,
+        null);
+
+    private static SocialUserResponse ToUserCard(
+        ApplicationUser user,
+        int unreadMessages,
+        DateTime lastSeenAtUtc,
+        DateTime onlineSince) => new(
+        user.Id,
+        CommentsController.PublicName(user),
+        $"/api/social/users/{Uri.EscapeDataString(user.Id)}/photo",
+        unreadMessages,
+        lastSeenAtUtc >= onlineSince,
+        lastSeenAtUtc == default ? null : AsUtc(lastSeenAtUtc));
+
+    private async Task TouchPresenceAsync(string userId, CancellationToken cancellationToken)
+    {
+        var now = DateTime.UtcNow;
+        await database.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "UserPresences" ("UserId", "LastSeenAtUtc")
+            VALUES ({userId}, {now})
+            ON CONFLICT("UserId") DO UPDATE SET "LastSeenAtUtc" = excluded."LastSeenAtUtc";
+            """, cancellationToken);
+    }
 
     private static DirectMessageResponse ToMessageResponse(DirectMessage message, string currentUserId) => new(
         message.Id,
@@ -371,7 +419,9 @@ public sealed record SocialUserResponse(
     string UserId,
     string Name,
     string ProfilePhotoUrl,
-    int UnreadMessages);
+    int UnreadMessages,
+    bool IsOnline,
+    DateTime? LastSeenAt);
 
 public sealed record UserSearchResponse(
     SocialUserResponse User,

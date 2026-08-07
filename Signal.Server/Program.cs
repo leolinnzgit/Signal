@@ -361,6 +361,16 @@ await using (var scope = app.Services.CreateAsyncScope())
         "CREATE INDEX IF NOT EXISTS \"IX_DirectMessages_SenderUserId_RecipientUserId_CreatedAtUtc\" ON \"DirectMessages\" (\"SenderUserId\", \"RecipientUserId\", \"CreatedAtUtc\");");
     await database.Database.ExecuteSqlRawAsync(
         "CREATE INDEX IF NOT EXISTS \"IX_DirectMessages_RecipientUserId_ReadAtUtc\" ON \"DirectMessages\" (\"RecipientUserId\", \"ReadAtUtc\");");
+    await database.Database.ExecuteSqlRawAsync("""
+        CREATE TABLE IF NOT EXISTS "UserPresences" (
+            "UserId" TEXT NOT NULL CONSTRAINT "PK_UserPresences" PRIMARY KEY,
+            "LastSeenAtUtc" TEXT NOT NULL,
+            CONSTRAINT "FK_UserPresences_AspNetUsers_UserId"
+                FOREIGN KEY ("UserId") REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE
+        );
+        """);
+    await database.Database.ExecuteSqlRawAsync(
+        "CREATE INDEX IF NOT EXISTS \"IX_UserPresences_LastSeenAtUtc\" ON \"UserPresences\" (\"LastSeenAtUtc\");");
 
     await database.Database.OpenConnectionAsync();
     try

@@ -48,6 +48,8 @@ type SocialUser = {
   name: string;
   profilePhotoUrl: string;
   unreadMessages: number;
+  isOnline: boolean;
+  lastSeenAt: string | null;
 };
 
 type FriendSummary = { relationshipId: number; user: SocialUser };
@@ -450,6 +452,7 @@ export default function AuthApp() {
           // Signing out should continue even if the push service is unavailable.
         }
       }
+      try { await deleteJson<void>("/api/social/presence"); } catch { /* Presence will expire automatically. */ }
       await postJson<void>("/api/auth/logout");
     } finally {
       csrfToken = "";
@@ -564,6 +567,12 @@ function formatSocialTime(value: string) {
   if (differenceMinutes < 60) return `${differenceMinutes}m ago`;
   if (differenceMinutes < 1_440) return `${Math.round(differenceMinutes / 60)}h ago`;
   return date.toLocaleDateString(undefined, { day: "numeric", month: "short", year: date.getFullYear() === new Date().getFullYear() ? undefined : "numeric" });
+}
+
+function formatPresence(user: SocialUser) {
+  if (user.isOnline) return "Online";
+  if (!user.lastSeenAt) return "Offline";
+  return `Last seen ${formatSocialTime(user.lastSeenAt)}`;
 }
 
 function SocialAvatar({
@@ -962,7 +971,7 @@ function CommunityPanel({
           title={`Open conversation with ${activeFriend.user.name}`}
         >
           <SocialAvatar user={activeFriend.user} />
-          <span className="conversation-minimized-glyph" aria-hidden="true">●</span>
+          <span className={activeFriend.user.isOnline ? "conversation-minimized-glyph online" : "conversation-minimized-glyph"} aria-hidden="true">●</span>
           {activeFriend.user.unreadMessages > 0 && (
             <span className="conversation-minimized-unread">{Math.min(activeFriend.user.unreadMessages, 99)}</span>
           )}
@@ -973,6 +982,11 @@ function CommunityPanel({
           <div>
             <p className="eyebrow">Signal community</p>
             <h2 id="community-title">{selectedFriend ? selectedFriend.user.name : "Friends & messages"}</h2>
+            {activeFriend && (
+              <small className={activeFriend.user.isOnline ? "conversation-presence online" : "conversation-presence"}>
+                <i aria-hidden="true" />{formatPresence(activeFriend.user)}
+              </small>
+            )}
           </div>
           <div className="social-panel-controls">
             {selectedFriend && (
@@ -1066,7 +1080,15 @@ function CommunityPanel({
                   {(overview?.friends.length ?? 0) === 0 ? <p className="social-empty">No friends yet. Find someone by email or add them from a comment.</p> : overview!.friends.map((friend) => (
                     <button className="social-person friend" type="button" key={friend.relationshipId} onClick={() => { setEmojiPickerOpen(false); setConversationMinimized(false); setSelectedFriend(friend); }}>
                       <SocialAvatar user={friend.user} />
-                      <span><strong>{friend.user.name}</strong><small>{friend.user.unreadMessages > 0 ? `${friend.user.unreadMessages} unread` : "Open conversation"}</small></span>
+                      <span>
+                        <strong>{friend.user.name}</strong>
+                        <small className={friend.user.isOnline ? "friend-presence online" : "friend-presence"}>
+                          <i aria-hidden="true" />
+                          {friend.user.unreadMessages > 0
+                            ? `${friend.user.unreadMessages} unread · ${friend.user.isOnline ? "Online" : "Offline"}`
+                            : formatPresence(friend.user)}
+                        </small>
+                      </span>
                       <span className="social-person-arrow">→</span>
                     </button>
                   ))}

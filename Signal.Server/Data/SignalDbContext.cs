@@ -23,6 +23,8 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
 
     public DbSet<DirectMessage> DirectMessages => Set<DirectMessage>();
 
+    public DbSet<UserPresence> UserPresences => Set<UserPresence>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
@@ -145,6 +147,18 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
             message.Property(item => item.Body).HasMaxLength(2000).IsRequired();
             message.HasIndex(item => new { item.SenderUserId, item.RecipientUserId, item.CreatedAtUtc });
             message.HasIndex(item => new { item.RecipientUserId, item.ReadAtUtc });
+        });
+
+        builder.Entity<UserPresence>(presence =>
+        {
+            presence.ToTable("UserPresences");
+            presence.HasKey(item => item.UserId);
+            presence.Property(item => item.UserId).HasMaxLength(450);
+            presence.HasIndex(item => item.LastSeenAtUtc);
+            presence.HasOne(item => item.User)
+                .WithOne()
+                .HasForeignKey<UserPresence>(item => item.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }
