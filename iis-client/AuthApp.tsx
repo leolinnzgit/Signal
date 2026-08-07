@@ -764,6 +764,7 @@ function CommunityPanel({
   const [selectedFriend, setSelectedFriend] = useState<FriendSummary | null>(null);
   const [messages, setMessages] = useState<DirectMessage[]>([]);
   const [messagesHaveMore, setMessagesHaveMore] = useState(false);
+  const [conversationMinimized, setConversationMinimized] = useState(false);
   const [email, setEmail] = useState("");
   const [searchResult, setSearchResult] = useState<UserSearchResult | null>(null);
   const [messageBody, setMessageBody] = useState("");
@@ -839,11 +840,11 @@ function CommunityPanel({
   }
 
   useEffect(() => {
-    if (!selectedFriend) return;
+    if (!selectedFriend || conversationMinimized) return;
     void loadMessages(selectedFriend);
     const interval = window.setInterval(() => void loadMessages(selectedFriend, undefined, true), 8_000);
     return () => window.clearInterval(interval);
-  }, [selectedFriend?.user.userId]);
+  }, [selectedFriend?.user.userId, conversationMinimized]);
 
   async function search(event: FormEvent) {
     event.preventDefault();
@@ -888,7 +889,13 @@ function CommunityPanel({
       setSearchResult((current) => current?.relationshipId === relationshipId
         ? { ...current, friendshipState: "none", relationshipId: null }
         : current);
-      setSelectedFriend((current) => current?.relationshipId === relationshipId ? null : current);
+      setSelectedFriend((current) => {
+        if (current?.relationshipId === relationshipId) {
+          setConversationMinimized(false);
+          return null;
+        }
+        return current;
+      });
       setNotice("Friend request removed.");
       await loadOverview();
     } catch (caught) {
@@ -912,22 +919,48 @@ function CommunityPanel({
     } finally { setBusy(false); }
   }
 
+  const activeFriend = selectedFriend
+    ? overview?.friends.find((friend) => friend.user.userId === selectedFriend.user.userId) ?? selectedFriend
+    : null;
+
   return (
     <div
-      className={selectedFriend ? "social-backdrop conversation-floating-backdrop" : "social-backdrop"}
+      className={selectedFriend
+        ? `social-backdrop conversation-floating-backdrop${conversationMinimized ? " conversation-minimized-backdrop" : ""}`
+        : "social-backdrop"}
       onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}
     >
+      {activeFriend && conversationMinimized ? (
+        <button
+          type="button"
+          className="conversation-minimized-button"
+          onClick={() => setConversationMinimized(false)}
+          aria-label={`Restore conversation with ${activeFriend.user.name}`}
+          title={`Open conversation with ${activeFriend.user.name}`}
+        >
+          <SocialAvatar user={activeFriend.user} />
+          <span className="conversation-minimized-glyph" aria-hidden="true">●</span>
+          {activeFriend.user.unreadMessages > 0 && (
+            <span className="conversation-minimized-unread">{Math.min(activeFriend.user.unreadMessages, 99)}</span>
+          )}
+        </button>
+      ) : (
       <section className="community-panel" role="dialog" aria-modal="true" aria-labelledby="community-title">
         <header className="social-panel-header">
           <div>
             <p className="eyebrow">Signal community</p>
             <h2 id="community-title">{selectedFriend ? selectedFriend.user.name : "Friends & messages"}</h2>
           </div>
-          <button className="social-close" type="button" onClick={onClose} aria-label="Close friends and messages">×</button>
+          <div className="social-panel-controls">
+            {selectedFriend && (
+              <button className="social-minimize" type="button" onClick={() => setConversationMinimized(true)} aria-label="Minimize conversation" title="Minimize conversation">−</button>
+            )}
+            <button className="social-close" type="button" onClick={onClose} aria-label="Close friends and messages">×</button>
+          </div>
         </header>
         {selectedFriend ? (
           <div className="conversation-view">
-            <button className="conversation-back" type="button" onClick={() => { setSelectedFriend(null); setMessages([]); }}>← All friends</button>
+            <button className="conversation-back" type="button" onClick={() => { setConversationMinimized(false); setSelectedFriend(null); setMessages([]); }}>← All friends</button>
             {error && <p className="social-error" role="alert">{error}</p>}
             {messagesHaveMore && messages.length > 0 && (
               <button className="social-load-more" type="button" disabled={conversationLoading} onClick={() => void loadMessages(selectedFriend, messages[0].id)}>
@@ -989,7 +1022,7 @@ function CommunityPanel({
                 <section className="social-section">
                   <h3>Friends</h3>
                   {(overview?.friends.length ?? 0) === 0 ? <p className="social-empty">No friends yet. Find someone by email or add them from a comment.</p> : overview!.friends.map((friend) => (
-                    <button className="social-person friend" type="button" key={friend.relationshipId} onClick={() => setSelectedFriend(friend)}>
+                    <button className="social-person friend" type="button" key={friend.relationshipId} onClick={() => { setConversationMinimized(false); setSelectedFriend(friend); }}>
                       <SocialAvatar user={friend.user} />
                       <span><strong>{friend.user.name}</strong><small>{friend.user.unreadMessages > 0 ? `${friend.user.unreadMessages} unread` : "Open conversation"}</small></span>
                       <span className="social-person-arrow">→</span>
@@ -1013,6 +1046,7 @@ function CommunityPanel({
           </div>
         )}
       </section>
+      )}
     </div>
   );
 }
