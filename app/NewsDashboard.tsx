@@ -2628,7 +2628,9 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           {onOpenLatestComments && (
             <button
               type="button"
-              className="community-button latest-comments-button"
+              className={latestCommentUnreadCount > 0
+                ? "community-button latest-comments-button has-new-comments"
+                : "community-button latest-comments-button"}
               onClick={onOpenLatestComments}
               aria-label={latestCommentUnreadCount > 0 ? `Latest comments, ${latestCommentUnreadCount} new` : "Latest comments"}
               title="Latest comments"
