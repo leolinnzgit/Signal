@@ -3718,6 +3718,54 @@ button.local-weather {
 .message-list time { display: block; margin-top: 0.35rem; color: var(--text-faint); font-size: 0.58rem; text-align: right; }
 .message-list .social-empty { align-self: center; margin: auto; }
 .message-composer { position: sticky; bottom: -2rem; flex: 0 0 auto; margin-top: 1rem; background: var(--content-background); }
+.message-emoji-row { position: relative; display: flex; justify-content: flex-start !important; }
+.message-composer .message-emoji-trigger {
+  display: grid;
+  width: 2.25rem;
+  min-height: 2.25rem;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--page-text);
+  padding: 0;
+  font-size: 1.2rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.message-composer .message-emoji-trigger:hover,
+.message-composer .message-emoji-trigger:focus-visible { border-color: var(--red); color: var(--red); }
+.message-emoji-picker {
+  position: absolute;
+  z-index: 3;
+  left: 0;
+  bottom: calc(100% + 0.5rem);
+  display: grid !important;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 0.25rem !important;
+  width: min(22rem, calc(100vw - 4rem));
+  border: 1px solid var(--line);
+  background: var(--content-background);
+  box-shadow: 0 0.8rem 2rem var(--shadow);
+  padding: 0.55rem;
+}
+.message-composer .message-emoji-picker button {
+  display: grid;
+  min-width: 0;
+  min-height: 2.1rem;
+  place-items: center;
+  border: 0;
+  border-radius: 0.3rem;
+  background: transparent;
+  color: var(--page-text);
+  padding: 0;
+  font-size: 1.2rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.message-composer .message-emoji-picker button:hover,
+.message-composer .message-emoji-picker button:focus-visible { background: var(--input-background); transform: scale(1.12); }
+.message-composer-footer { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 
 .latest-comments-list {
   margin: 0;

@@ -82,6 +82,13 @@ type DirectMessage = {
 
 type MessagePage = { messages: DirectMessage[]; hasMore: boolean };
 
+const CHAT_EMOJIS = [
+  "😀", "😂", "😊", "😍", "🥳", "😎", "🤔", "😢",
+  "😮", "😡", "👍", "👎", "👏", "🙌", "🙏", "💪",
+  "❤️", "💯", "🔥", "✨", "🎉", "✅", "👀", "💬",
+  "☕", "🌏", "📰", "🚀", "🤖", "📈", "💡", "🤣",
+];
+
 type AuthView = "login" | "register" | "forgot" | "reset" | "resend";
 
 let csrfToken = "";
@@ -768,11 +775,13 @@ function CommunityPanel({
   const [email, setEmail] = useState("");
   const [searchResult, setSearchResult] = useState<UserSearchResult | null>(null);
   const [messageBody, setMessageBody] = useState("");
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [conversationLoading, setConversationLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const messageInput = useRef<HTMLTextAreaElement | null>(null);
 
   async function loadOverview(showLoading = false) {
     if (showLoading) setLoading(true);
@@ -914,9 +923,23 @@ function CommunityPanel({
       });
       setMessages((current) => [...current, message]);
       setMessageBody("");
+      setEmojiPickerOpen(false);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Your message could not be sent.");
     } finally { setBusy(false); }
+  }
+
+  function insertEmoji(emoji: string) {
+    const input = messageInput.current;
+    const start = input?.selectionStart ?? messageBody.length;
+    const end = input?.selectionEnd ?? start;
+    const next = `${messageBody.slice(0, start)}${emoji}${messageBody.slice(end)}`;
+    if (next.length > 2000) return;
+    setMessageBody(next);
+    window.requestAnimationFrame(() => {
+      input?.focus();
+      input?.setSelectionRange(start + emoji.length, start + emoji.length);
+    });
   }
 
   const activeFriend = selectedFriend
@@ -953,14 +976,14 @@ function CommunityPanel({
           </div>
           <div className="social-panel-controls">
             {selectedFriend && (
-              <button className="social-minimize" type="button" onClick={() => setConversationMinimized(true)} aria-label="Minimize conversation" title="Minimize conversation">−</button>
+              <button className="social-minimize" type="button" onClick={() => { setEmojiPickerOpen(false); setConversationMinimized(true); }} aria-label="Minimize conversation" title="Minimize conversation">−</button>
             )}
             <button className="social-close" type="button" onClick={onClose} aria-label="Close friends and messages">×</button>
           </div>
         </header>
         {selectedFriend ? (
           <div className="conversation-view">
-            <button className="conversation-back" type="button" onClick={() => { setConversationMinimized(false); setSelectedFriend(null); setMessages([]); }}>← All friends</button>
+            <button className="conversation-back" type="button" onClick={() => { setEmojiPickerOpen(false); setConversationMinimized(false); setSelectedFriend(null); setMessages([]); }}>← All friends</button>
             {error && <p className="social-error" role="alert">{error}</p>}
             {messagesHaveMore && messages.length > 0 && (
               <button className="social-load-more" type="button" disabled={conversationLoading} onClick={() => void loadMessages(selectedFriend, messages[0].id)}>
@@ -980,8 +1003,27 @@ function CommunityPanel({
               ))}
             </ol>
             <form className="message-composer" onSubmit={sendMessage}>
-              <textarea value={messageBody} onChange={(event) => setMessageBody(event.target.value)} placeholder={`Message ${selectedFriend.user.name}…`} maxLength={2000} rows={3} aria-label={`Message ${selectedFriend.user.name}`} />
-              <div><span>{messageBody.length}/2000</span><button type="submit" disabled={busy || !messageBody.trim()}>{busy ? "Sending…" : "Send"}</button></div>
+              <textarea ref={messageInput} value={messageBody} onChange={(event) => setMessageBody(event.target.value)} placeholder={`Message ${selectedFriend.user.name}…`} maxLength={2000} rows={3} aria-label={`Message ${selectedFriend.user.name}`} />
+              <div className="message-emoji-row">
+                <button
+                  type="button"
+                  className="message-emoji-trigger"
+                  onClick={() => setEmojiPickerOpen((current) => !current)}
+                  aria-expanded={emojiPickerOpen}
+                  aria-label="Choose an emoji"
+                  title="Add emoji"
+                >
+                  ☺
+                </button>
+                {emojiPickerOpen && (
+                  <div className="message-emoji-picker" role="group" aria-label="Emojis">
+                    {CHAT_EMOJIS.map((emoji) => (
+                      <button type="button" key={emoji} onClick={() => insertEmoji(emoji)} aria-label={`Add ${emoji}`}>{emoji}</button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="message-composer-footer"><span>{messageBody.length}/2000</span><button type="submit" disabled={busy || !messageBody.trim()}>{busy ? "Sending…" : "Send"}</button></div>
             </form>
           </div>
         ) : (
@@ -1022,7 +1064,7 @@ function CommunityPanel({
                 <section className="social-section">
                   <h3>Friends</h3>
                   {(overview?.friends.length ?? 0) === 0 ? <p className="social-empty">No friends yet. Find someone by email or add them from a comment.</p> : overview!.friends.map((friend) => (
-                    <button className="social-person friend" type="button" key={friend.relationshipId} onClick={() => { setConversationMinimized(false); setSelectedFriend(friend); }}>
+                    <button className="social-person friend" type="button" key={friend.relationshipId} onClick={() => { setEmojiPickerOpen(false); setConversationMinimized(false); setSelectedFriend(friend); }}>
                       <SocialAvatar user={friend.user} />
                       <span><strong>{friend.user.name}</strong><small>{friend.user.unreadMessages > 0 ? `${friend.user.unreadMessages} unread` : "Open conversation"}</small></span>
                       <span className="social-person-arrow">→</span>
