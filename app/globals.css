@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 :root {
+  --site-header-height: 82px;
   --ink: #171815;
   --paper: #f4f0e7;
   --paper-deep: #eae3d5;
@@ -74,11 +75,17 @@ main {
 }
 
 .site-header {
-  min-height: 82px;
+  position: sticky;
+  z-index: 32;
+  top: 0;
+  min-height: var(--site-header-height);
   display: flex;
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--page-background) 94%, transparent);
+  box-shadow: 0 0.35rem 1rem color-mix(in srgb, var(--shadow) 32%, transparent);
+  backdrop-filter: blur(12px);
   padding: 0 clamp(1.25rem, 4vw, 5rem);
 }
 
@@ -753,7 +760,7 @@ main {
 .hero.compact {
   position: sticky;
   z-index: 24;
-  top: 0;
+  top: var(--site-header-height);
   padding-top: 1.15rem;
   padding-bottom: 1.3rem;
   border-bottom: 1px solid var(--line);
@@ -3895,6 +3902,7 @@ footer a { color: var(--paper); text-decoration: none; }
 }
 
 @media (max-width: 560px) {
+  :root { --site-header-height: 68px; }
   .social-backdrop { padding: 0; }
   .conversation-floating-backdrop { align-items: flex-end; padding: 0.6rem; }
   .conversation-floating-backdrop .community-panel {
@@ -3922,7 +3930,7 @@ footer a { color: var(--paper); text-decoration: none; }
   .social-person { align-items: flex-start; flex-wrap: wrap; }
   .social-person-actions { width: 100%; padding-left: 3.3rem; }
   .message-list > li:not(.social-empty) { max-width: 90%; }
-  .site-header { min-height: 68px; }
+  .site-header { min-height: var(--site-header-height); }
   .live-status { font-size: 0; }
   .live-status::after { content: "Live"; font-size: 0.64rem; }
   .header-actions { gap: 0; }
