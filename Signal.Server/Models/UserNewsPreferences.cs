@@ -35,5 +35,9 @@ public sealed class UserNewsPreferences
 
     public string SecondaryTimeZoneJson { get; set; } = "{}";
 
+    public string TrendRegionsJson { get; set; } = "[]";
+
+    public int TrendsPerRegion { get; set; } = 5;
+
     public DateTimeOffset UpdatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
 }

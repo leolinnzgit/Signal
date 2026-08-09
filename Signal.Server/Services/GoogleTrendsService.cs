@@ -8,9 +8,9 @@ public sealed class GoogleTrendsService(
     IMemoryCache cache,
     ILogger<GoogleTrendsService> logger)
 {
-    private const string CacheKey = "google-trends-english-mandarin-world-v2";
-    private const int MaximumTrendsPerRegion = 5;
-    private static readonly TrendRegion[] Regions =
+    public const int DefaultTrendsPerRegion = 5;
+    public const int MaximumTrendsPerRegion = 10;
+    private static readonly GoogleTrendRegion[] Regions =
     [
         new("US", "United States"),
         new("CA", "Canada"),
@@ -34,27 +34,54 @@ public sealed class GoogleTrendsService(
         new("FJ", "Fiji"),
     ];
 
-    public async Task<GoogleTrendsResult> GetLatestAsync(CancellationToken cancellationToken)
+    public static IReadOnlyList<GoogleTrendRegion> AvailableRegions { get; } =
+        Array.AsReadOnly(Regions);
+
+    public Task<GoogleTrendsResult> GetLatestAsync(CancellationToken cancellationToken) =>
+        GetLatestAsync(null, DefaultTrendsPerRegion, cancellationToken);
+
+    public async Task<GoogleTrendsResult> GetLatestAsync(
+        IEnumerable<string>? regionCodes,
+        int trendsPerRegion,
+        CancellationToken cancellationToken)
     {
-        if (cache.TryGetValue(CacheKey, out GoogleTrendsResult? cached) && cached is not null)
-            return cached;
+        var requestedCodes = regionCodes?
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Select(code => code.Trim().ToUpperInvariant())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var selectedRegions = requestedCodes is null
+            ? Regions
+            : Regions.Where(region => requestedCodes.Contains(region.Code)).ToArray();
+        if (selectedRegions.Length == 0)
+            throw new ArgumentException("Choose at least one supported Google Trends region.", nameof(regionCodes));
+
+        trendsPerRegion = Math.Clamp(trendsPerRegion, 1, MaximumTrendsPerRegion);
 
         var regionalResults = await Task.WhenAll(
-            Regions.Select(region => GetRegionAsync(region, cancellationToken)));
+            selectedRegions.Select(region => GetRegionAsync(region, cancellationToken)));
         var availableResults = regionalResults.Where(result => result.Terms.Length > 0).ToArray();
         if (availableResults.Length == 0)
             throw new InvalidOperationException("Google Trends returned no current searches.");
 
-        var terms = SelectWorldwideTerms(availableResults, MaximumTrendsPerRegion);
-        var result = new GoogleTrendsResult("WORLD", DateTimeOffset.UtcNow, terms);
-        cache.Set(CacheKey, result, TimeSpan.FromMinutes(15));
-        return result;
+        var terms = SelectWorldwideTerms(availableResults, trendsPerRegion);
+        return new GoogleTrendsResult(
+            "WORLD",
+            DateTimeOffset.UtcNow,
+            terms,
+            AvailableRegions,
+            selectedRegions.Select(region => region.Code).ToArray(),
+            trendsPerRegion);
     }
 
     private async Task<RegionalTrends> GetRegionAsync(
-        TrendRegion region,
+        GoogleTrendRegion region,
         CancellationToken cancellationToken)
     {
+        var cacheKey = $"google-trends-region-v3:{region.Code}";
+        if (cache.TryGetValue(cacheKey, out RegionalTrends? cached) && cached is not null)
+            return cached;
+
         try
         {
             var feedUri = new Uri($"https://trends.google.com/trending/rss?geo={region.Code}");
@@ -65,7 +92,9 @@ public sealed class GoogleTrendsService(
             response.EnsureSuccessStatusCode();
             await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
             var document = await XDocument.LoadAsync(stream, LoadOptions.None, cancellationToken);
-            return new RegionalTrends(region, ParseTerms(document, region.Name));
+            var result = new RegionalTrends(region, ParseTerms(document, region.Name));
+            cache.Set(cacheKey, result, TimeSpan.FromMinutes(15));
+            return result;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -118,13 +147,17 @@ public sealed class GoogleTrendsService(
         return normalized[..Math.Min(normalized.Length, maximumLength)];
     }
 
-    private sealed record TrendRegion(string Code, string Name);
-    private sealed record RegionalTrends(TrendRegion Region, GoogleTrendTerm[] Terms);
+    private sealed record RegionalTrends(GoogleTrendRegion Region, GoogleTrendTerm[] Terms);
 }
 
 public sealed record GoogleTrendsResult(
     string Geo,
     DateTimeOffset FetchedAt,
-    IReadOnlyList<GoogleTrendTerm> Terms);
+    IReadOnlyList<GoogleTrendTerm> Terms,
+    IReadOnlyList<GoogleTrendRegion> AvailableRegions,
+    IReadOnlyList<string> SelectedRegions,
+    int TrendsPerRegion);
 
 public sealed record GoogleTrendTerm(string Keyword, string Traffic, string Region);
+
+public sealed record GoogleTrendRegion(string Code, string Name);

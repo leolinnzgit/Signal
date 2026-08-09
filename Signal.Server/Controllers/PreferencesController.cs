@@ -61,6 +61,8 @@ public sealed class PreferencesController(
         var weatherLocationJson = weatherLocation is null ? "{}" : JsonSerializer.Serialize(weatherLocation);
         var secondaryTimeZone = NormalizeSecondaryTimeZone(request.SecondaryTimeZone);
         var secondaryTimeZoneJson = secondaryTimeZone is null ? "{}" : JsonSerializer.Serialize(secondaryTimeZone);
+        var trendRegions = NormalizeTrendRegions(request.TrendRegions);
+        var trendRegionsJson = JsonSerializer.Serialize(trendRegions);
         var storyLimit = NormalizeStoryLimit(request.Limit);
         var forceRefresh = preferences is null
             || preferences.StoryLimit != storyLimit
@@ -88,6 +90,8 @@ public sealed class PreferencesController(
         preferences.TickerOverridesJson = tickerOverridesJson;
         preferences.WeatherLocationJson = weatherLocationJson;
         preferences.SecondaryTimeZoneJson = secondaryTimeZoneJson;
+        preferences.TrendRegionsJson = trendRegionsJson;
+        preferences.TrendsPerRegion = NormalizeTrendsPerRegion(request.TrendsPerRegion);
         preferences.UpdatedAtUtc = DateTimeOffset.UtcNow;
 
         await SyncTopicRefreshStatesAsync(
@@ -196,6 +200,8 @@ public sealed class PreferencesController(
         DeserializeTickerOverrides(preferences.TickerOverridesJson, DeserializeList(preferences.TopicsJson)),
         DeserializeWeatherLocation(preferences.WeatherLocationJson),
         DeserializeSecondaryTimeZone(preferences.SecondaryTimeZoneJson),
+        NormalizeTrendRegions(DeserializeList(preferences.TrendRegionsJson)),
+        NormalizeTrendsPerRegion(preferences.TrendsPerRegion),
         new NewsSourcesResponse(
             preferences.GoogleEnabled,
             preferences.GdeltEnabled,
@@ -210,6 +216,30 @@ public sealed class PreferencesController(
         value?.ToLowerInvariant() is "small" or "medium" or "large"
             ? value.ToLowerInvariant()
             : "large";
+    internal static int NormalizeTrendsPerRegion(int value) =>
+        value is >= 1 and <= GoogleTrendsService.MaximumTrendsPerRegion
+            ? value
+            : GoogleTrendsService.DefaultTrendsPerRegion;
+
+    private static string[] NormalizeTrendRegions(IEnumerable<string>? values)
+    {
+        var supported = GoogleTrendsService.AvailableRegions
+            .ToDictionary(region => region.Code, StringComparer.OrdinalIgnoreCase);
+        var selected = (values ?? [])
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Select(code => code.Trim())
+            .Where(supported.ContainsKey)
+            .Select(code => supported[code].Code)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        if (selected.Count == 0)
+            return GoogleTrendsService.AvailableRegions.Select(region => region.Code).ToArray();
+        return GoogleTrendsService.AvailableRegions
+            .Where(region => selected.Contains(region.Code))
+            .Select(region => region.Code)
+            .ToArray();
+    }
 
     private static WeatherLocationResponse? NormalizeWeatherLocation(WeatherLocationRequest? location)
     {
@@ -408,6 +438,8 @@ public sealed record NewsPreferencesResponse(
     IReadOnlyDictionary<string, string> TickerOverrides,
     WeatherLocationResponse? WeatherLocation,
     SecondaryTimeZoneResponse? SecondaryTimeZone,
+    string[] TrendRegions,
+    int TrendsPerRegion,
     NewsSourcesResponse Sources)
 {
     public static NewsPreferencesResponse Default { get; } = new(
@@ -421,6 +453,8 @@ public sealed record NewsPreferencesResponse(
         new Dictionary<string, string>(),
         null,
         null,
+        GoogleTrendsService.AvailableRegions.Select(region => region.Code).ToArray(),
+        GoogleTrendsService.DefaultTrendsPerRegion,
         new NewsSourcesResponse(true, true, []));
 }
 
@@ -447,6 +481,8 @@ public sealed record NewsPreferencesRequest(
     IReadOnlyDictionary<string, string>? TickerOverrides,
     WeatherLocationRequest? WeatherLocation,
     SecondaryTimeZoneRequest? SecondaryTimeZone,
+    string[]? TrendRegions,
+    int TrendsPerRegion,
     [Required] NewsSourcesRequest Sources);
 
 public sealed record WeatherLocationRequest(

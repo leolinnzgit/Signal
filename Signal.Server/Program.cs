@@ -233,6 +233,8 @@ await using (var scope = app.Services.CreateAsyncScope())
             "TickerOverridesJson" TEXT NOT NULL DEFAULT '{{}}',
             "WeatherLocationJson" TEXT NOT NULL DEFAULT '{{}}',
             "SecondaryTimeZoneJson" TEXT NOT NULL DEFAULT '{{}}',
+            "TrendRegionsJson" TEXT NOT NULL DEFAULT '[]',
+            "TrendsPerRegion" INTEGER NOT NULL DEFAULT 5,
             "UpdatedAtUtc" TEXT NOT NULL,
             CONSTRAINT "FK_UserNewsPreferences_AspNetUsers_UserId"
                 FOREIGN KEY ("UserId") REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE
@@ -409,6 +411,24 @@ await using (var scope = app.Services.CreateAsyncScope())
         {
             await database.Database.ExecuteSqlRawAsync(
                 "ALTER TABLE \"UserNewsPreferences\" ADD COLUMN \"TopicHeaderSize\" TEXT NOT NULL DEFAULT 'large';");
+        }
+
+        await using var trendRegionsColumnCheck = database.Database.GetDbConnection().CreateCommand();
+        trendRegionsColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('UserNewsPreferences') WHERE name = 'TrendRegionsJson';";
+        var trendRegionsColumnExists = Convert.ToInt32(await trendRegionsColumnCheck.ExecuteScalarAsync()) > 0;
+        if (!trendRegionsColumnExists)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"UserNewsPreferences\" ADD COLUMN \"TrendRegionsJson\" TEXT NOT NULL DEFAULT '[]';");
+        }
+
+        await using var trendsPerRegionColumnCheck = database.Database.GetDbConnection().CreateCommand();
+        trendsPerRegionColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('UserNewsPreferences') WHERE name = 'TrendsPerRegion';";
+        var trendsPerRegionColumnExists = Convert.ToInt32(await trendsPerRegionColumnCheck.ExecuteScalarAsync()) > 0;
+        if (!trendsPerRegionColumnExists)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"UserNewsPreferences\" ADD COLUMN \"TrendsPerRegion\" INTEGER NOT NULL DEFAULT 5;");
         }
 
         await using var articleColumnCheck = database.Database.GetDbConnection().CreateCommand();

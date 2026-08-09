@@ -176,6 +176,13 @@ var requiredTrendRegions = new[]
 if (requiredTrendRegions.Except(worldwideTrends.Terms.Select(term => term.Region)).Any())
     throw new InvalidOperationException("Worldwide Google Trends is missing required English or Mandarin-speaking regions.");
 
+var selectedTrends = await trendsService.GetLatestAsync(["NZ", "US"], 3, CancellationToken.None);
+if (selectedTrends.TrendsPerRegion != 3
+    || !selectedTrends.SelectedRegions.SequenceEqual(["US", "NZ"])
+    || selectedTrends.Terms.Count != 6
+    || selectedTrends.Terms.GroupBy(term => term.Region).Any(group => group.Count() != 3))
+    throw new InvalidOperationException("Google Trends did not honour the selected regions and per-region count.");
+
 await trendsService.GetLatestAsync(CancellationToken.None);
 if (trendsHandler.RequestCount != 20)
     throw new InvalidOperationException("Worldwide Google Trends did not reuse its cached result.");

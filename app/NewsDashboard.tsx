@@ -73,10 +73,18 @@ type GoogleTrendTerm = {
   region: string;
 };
 
+type GoogleTrendRegion = {
+  code: string;
+  name: string;
+};
+
 type GoogleTrendsResponse = {
   geo: string;
   fetchedAt: string;
   terms: GoogleTrendTerm[];
+  availableRegions: GoogleTrendRegion[];
+  selectedRegions: string[];
+  trendsPerRegion: number;
   error?: string;
 };
 
@@ -190,6 +198,8 @@ export type NewsPreferences = {
   tickerOverrides: Record<string, string>;
   weatherLocation: WeatherLocationPreference | null;
   secondaryTimeZone: SecondaryTimeZonePreference | null;
+  trendRegions: string[];
+  trendsPerRegion: number;
   sources: SourcePreferences;
 };
 
@@ -278,6 +288,30 @@ export type PushNotificationStore = {
   sendTest: () => Promise<string>;
 };
 
+const GOOGLE_TREND_REGIONS: GoogleTrendRegion[] = [
+  { code: "US", name: "United States" },
+  { code: "CA", name: "Canada" },
+  { code: "JM", name: "Jamaica" },
+  { code: "GY", name: "Guyana" },
+  { code: "GB", name: "United Kingdom" },
+  { code: "IE", name: "Ireland" },
+  { code: "NG", name: "Nigeria" },
+  { code: "ZA", name: "South Africa" },
+  { code: "KE", name: "Kenya" },
+  { code: "AE", name: "United Arab Emirates" },
+  { code: "IN", name: "India" },
+  { code: "PH", name: "Philippines" },
+  { code: "MY", name: "Malaysia" },
+  { code: "SG", name: "Singapore" },
+  { code: "CN", name: "China" },
+  { code: "TW", name: "Taiwan" },
+  { code: "HK", name: "Hong Kong" },
+  { code: "AU", name: "Australia" },
+  { code: "NZ", name: "New Zealand" },
+  { code: "FJ", name: "Fiji" },
+];
+const GOOGLE_TREND_REGION_CODES = new Set(GOOGLE_TREND_REGIONS.map((region) => region.code));
+
 const DEFAULTS: NewsPreferences = {
   topics: ["Artificial intelligence"],
   limit: 20,
@@ -289,6 +323,8 @@ const DEFAULTS: NewsPreferences = {
   tickerOverrides: {},
   weatherLocation: null,
   secondaryTimeZone: null,
+  trendRegions: GOOGLE_TREND_REGIONS.map((region) => region.code),
+  trendsPerRegion: 5,
   sources: { google: true, gdelt: true, rssFeeds: [] },
 };
 const STORY_LIMIT_OPTIONS = [10, ...Array.from({ length: 25 }, (_, index) => (index + 1) * 20)];
@@ -566,6 +602,15 @@ function normalizePreferences(saved: Partial<NewsPreferences> & { topic?: string
             : "",
         }
       : null;
+  const savedTrendRegions = Array.isArray(saved.trendRegions)
+    ? saved.trendRegions
+      .filter((code): code is string => typeof code === "string")
+      .map((code) => code.trim().toUpperCase())
+      .filter((code, index, codes) => GOOGLE_TREND_REGION_CODES.has(code) && codes.indexOf(code) === index)
+    : [];
+  const selectedTrendRegions = savedTrendRegions.length > 0
+    ? GOOGLE_TREND_REGIONS.filter((region) => savedTrendRegions.includes(region.code)).map((region) => region.code)
+    : DEFAULTS.trendRegions;
 
   return {
     topics,
@@ -588,6 +633,8 @@ function normalizePreferences(saved: Partial<NewsPreferences> & { topic?: string
     tickerOverrides,
     weatherLocation,
     secondaryTimeZone: normalizeSecondaryTimeZone(saved.secondaryTimeZone),
+    trendRegions: selectedTrendRegions,
+    trendsPerRegion: Math.min(10, Math.max(1, Math.round(Number(saved.trendsPerRegion) || DEFAULTS.trendsPerRegion))),
     sources: {
       google: typeof saved.sources?.google === "boolean" ? saved.sources.google : true,
       gdelt: typeof saved.sources?.gdelt === "boolean" ? saved.sources.gdelt : true,
@@ -733,6 +780,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [trendsLoading, setTrendsLoading] = useState(false);
   const [trendsError, setTrendsError] = useState("");
   const [trendsView, setTrendsView] = useState<"bubbles" | "list">("bubbles");
+  const [availableTrendRegions, setAvailableTrendRegions] = useState<GoogleTrendRegion[]>(GOOGLE_TREND_REGIONS);
   const [topicRefreshStates, setTopicRefreshStates] = useState<TopicRefreshStatus[]>([]);
   const [ready, setReady] = useState(false);
   const [heroCompact, setHeroCompact] = useState(false);
@@ -1410,7 +1458,11 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     setTrendsLoading(true);
     setTrendsError("");
     try {
-      const response = await fetch("/api/trends", {
+      const query = new URLSearchParams({
+        regions: preferences.trendRegions.join(","),
+        count: String(preferences.trendsPerRegion),
+      });
+      const response = await fetch(`/api/trends?${query}`, {
         credentials: "same-origin",
         cache: "no-store",
       });
@@ -1418,12 +1470,21 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
       if (!response.ok) throw new Error(data.error || "Could not load Google Trends.");
       setTrendingTerms(data.terms);
       setTrendsFetchedAt(data.fetchedAt);
+      if (Array.isArray(data.availableRegions) && data.availableRegions.length > 0) {
+        setAvailableTrendRegions(data.availableRegions);
+      }
     } catch (caught) {
       setTrendsError(caught instanceof Error ? caught.message : "Could not load Google Trends.");
     } finally {
       setTrendsLoading(false);
     }
-  }, []);
+  }, [preferences.trendRegions, preferences.trendsPerRegion]);
+
+  useEffect(() => {
+    if (!ready || !trendsOpen) return;
+    const timeout = window.setTimeout(() => void loadTrendingTerms(), 300);
+    return () => window.clearTimeout(timeout);
+  }, [loadTrendingTerms, ready, trendsOpen]);
 
   useEffect(() => {
     if (!ready) return;
@@ -2843,10 +2904,12 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                 onClick={() => {
                   const next = !trendsOpen;
                   setTrendsOpen(next);
-                  if (next && trendingTerms.length === 0 && !trendsLoading) void loadTrendingTerms();
                 }}
               >
-                <span><strong>Trending now</strong><small>Up to 5 per English + Mandarin-speaking region</small></span>
+                <span>
+                  <strong>Trending now</strong>
+                  <small>{preferences.trendRegions.length} regions · up to {preferences.trendsPerRegion} per region</small>
+                </span>
                 <span className="trends-picker-action">{trendsOpen ? "Hide" : "Browse"}</span>
               </button>
               {trendsOpen && (
@@ -2854,6 +2917,73 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                   <div className="trends-picker-meta">
                     <span>{trendsFetchedAt ? `Updated ${formatAge(trendsFetchedAt)}` : "Google Trends"}</span>
                     <button type="button" onClick={() => void loadTrendingTerms()} disabled={trendsLoading}>Refresh</button>
+                  </div>
+                  <div className="trends-settings">
+                    <label className="trends-count-setting">
+                      <span>Trends per region</span>
+                      <select
+                        value={preferences.trendsPerRegion}
+                        onChange={(event) => setPreferences((current) => ({
+                          ...current,
+                          trendsPerRegion: Number(event.target.value),
+                        }))}
+                      >
+                        {Array.from({ length: 10 }, (_, index) => index + 1).map((count) => (
+                          <option value={count} key={count}>{count}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <details className="trends-region-setting">
+                      <summary>
+                        <span>Regions</span>
+                        <small>{preferences.trendRegions.length} selected</small>
+                      </summary>
+                      <div className="trends-region-panel">
+                        <div className="trends-region-actions">
+                          <span>English and Mandarin-speaking regions</span>
+                          <button
+                            type="button"
+                            onClick={() => setPreferences((current) => ({
+                              ...current,
+                              trendRegions: availableTrendRegions.map((region) => region.code),
+                            }))}
+                          >
+                            Select all
+                          </button>
+                        </div>
+                        <div className="trends-region-grid">
+                          {availableTrendRegions.map((region) => {
+                            const checked = preferences.trendRegions.includes(region.code);
+                            return (
+                              <label key={region.code}>
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  disabled={checked && preferences.trendRegions.length === 1}
+                                  onChange={() => setPreferences((current) => {
+                                    const selected = new Set(current.trendRegions);
+                                    if (selected.has(region.code)) {
+                                      if (selected.size === 1) return current;
+                                      selected.delete(region.code);
+                                    } else {
+                                      selected.add(region.code);
+                                    }
+                                    return {
+                                      ...current,
+                                      trendRegions: availableTrendRegions
+                                        .filter((candidate) => selected.has(candidate.code))
+                                        .map((candidate) => candidate.code),
+                                    };
+                                  })}
+                                />
+                                <span>{region.name}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                        <small className="trends-region-note">Keep at least one region selected.</small>
+                      </div>
+                    </details>
                   </div>
                   <div className="trends-view-controls">
                     {trendsView === "bubbles" ? (
