@@ -1,4 +1,4 @@
-const STATIC_CACHE = "signal-static-v5";
+const STATIC_CACHE = "signal-static-v6";
 const APP_BADGE_MESSAGE = "signal:update-app-badge";
 const NEWS_NOTIFICATION_TAG = "signal-new-stories";
 const STATIC_ASSETS = [
@@ -122,16 +122,54 @@ self.addEventListener("push", (event) => {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const url = new URL(event.notification.data?.url || "/", self.location.origin).href;
-  event.waitUntil(
-    self.clients.matchAll({ type: "window", includeUncontrolled: true })
-      .then(async (windows) => {
-        const existing = windows.find((client) =>
-          new URL(client.url).origin === self.location.origin);
-        if (existing) {
-          await existing.navigate(url);
-          return existing.focus();
-        }
-        return self.clients.openWindow(url);
-      }),
-  );
+  event.waitUntil(openSignalFromNotification(url));
 });
+
+async function openSignalFromNotification(url) {
+  const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+  const exactWindow = windows.find((client) => client.url === url);
+  if (exactWindow) {
+    try {
+      await exactWindow.focus();
+      return;
+    } catch {
+      // Android can retain a stale window client after the installed app closes.
+    }
+  }
+
+  // On Android, openWindow plus the manifest launch handler routes an in-scope
+  // URL into the installed PWA and reuses its existing window when possible.
+  try {
+    const opened = await self.clients.openWindow(url);
+    if (opened) {
+      try {
+        await opened.focus();
+      } catch {
+        // The newly launched window may already be foregrounded.
+      }
+      return;
+    }
+  } catch {
+    // Fall through to an existing same-origin client if app launch is blocked.
+  }
+
+  const existing = windows.find((client) => {
+    try {
+      return new URL(client.url).origin === self.location.origin;
+    } catch {
+      return false;
+    }
+  });
+  if (!existing) return;
+
+  try {
+    const navigated = await existing.navigate(url);
+    await (navigated || existing).focus();
+  } catch {
+    try {
+      await existing.focus();
+    } catch {
+      // There is no remaining client to foreground.
+    }
+  }
+}
