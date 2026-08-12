@@ -493,6 +493,11 @@ file sealed class NullAccountEmailSender : IAccountEmailSender
 
     public Task SendNewsSummaryAsync(string email, NewsSummaryDigest digest, CancellationToken cancellationToken) =>
         Task.CompletedTask;
+
+    public Task SendSharedArticleAsync(
+        string email,
+        SharedArticleEmail sharedArticle,
+        CancellationToken cancellationToken) => Task.CompletedTask;
 }
 
 file sealed class TestWebHostEnvironment : IWebHostEnvironment

@@ -351,6 +351,9 @@ await using (var scope = app.Services.CreateAsyncScope())
             "SenderUserId" TEXT NOT NULL,
             "RecipientUserId" TEXT NOT NULL,
             "Body" TEXT NOT NULL,
+            "SharedArticleTitle" TEXT NOT NULL DEFAULT '',
+            "SharedArticleUrl" TEXT NOT NULL DEFAULT '',
+            "SharedArticleSource" TEXT NOT NULL DEFAULT '',
             "CreatedAtUtc" TEXT NOT NULL,
             "ReadAtUtc" TEXT NULL,
             CONSTRAINT "FK_DirectMessages_AspNetUsers_SenderUserId"
@@ -429,6 +432,31 @@ await using (var scope = app.Services.CreateAsyncScope())
         {
             await database.Database.ExecuteSqlRawAsync(
                 "ALTER TABLE \"UserNewsPreferences\" ADD COLUMN \"TrendsPerRegion\" INTEGER NOT NULL DEFAULT 5;");
+        }
+
+        await using var directMessageColumnCheck = database.Database.GetDbConnection().CreateCommand();
+        directMessageColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('DirectMessages') WHERE name = 'SharedArticleTitle';";
+        var sharedArticleTitleColumnExists = Convert.ToInt32(await directMessageColumnCheck.ExecuteScalarAsync()) > 0;
+        if (!sharedArticleTitleColumnExists)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"DirectMessages\" ADD COLUMN \"SharedArticleTitle\" TEXT NOT NULL DEFAULT '';");
+        }
+
+        directMessageColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('DirectMessages') WHERE name = 'SharedArticleUrl';";
+        var sharedArticleUrlColumnExists = Convert.ToInt32(await directMessageColumnCheck.ExecuteScalarAsync()) > 0;
+        if (!sharedArticleUrlColumnExists)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"DirectMessages\" ADD COLUMN \"SharedArticleUrl\" TEXT NOT NULL DEFAULT '';");
+        }
+
+        directMessageColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('DirectMessages') WHERE name = 'SharedArticleSource';";
+        var sharedArticleSourceColumnExists = Convert.ToInt32(await directMessageColumnCheck.ExecuteScalarAsync()) > 0;
+        if (!sharedArticleSourceColumnExists)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"DirectMessages\" ADD COLUMN \"SharedArticleSource\" TEXT NOT NULL DEFAULT '';");
         }
 
         await using var articleColumnCheck = database.Database.GetDbConnection().CreateCommand();

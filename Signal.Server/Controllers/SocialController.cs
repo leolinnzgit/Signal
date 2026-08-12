@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Signal.Server.Data;
 using Signal.Server.Models;
+using Signal.Server.Services;
 
 namespace Signal.Server.Controllers;
 
@@ -16,7 +17,9 @@ namespace Signal.Server.Controllers;
 [ResponseCache(Location = ResponseCacheLocation.None, NoStore = true)]
 public sealed class SocialController(
     SignalDbContext database,
-    UserManager<ApplicationUser> userManager) : ControllerBase
+    UserManager<ApplicationUser> userManager,
+    IAccountEmailSender emailSender,
+    ILogger<SocialController> logger) : ControllerBase
 {
     private const string PendingStatus = "Pending";
     private const string AcceptedStatus = "Accepted";
@@ -218,6 +221,85 @@ public sealed class SocialController(
         return Ok(ToMessageResponse(message, userId));
     }
 
+    [HttpPost("shares")]
+    public async Task<IActionResult> ShareArticle(
+        ShareArticleRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = userManager.GetUserId(User);
+        if (userId is null) return Unauthorized();
+        var recipientId = request.RecipientUserId.Trim();
+        if (!await AreFriendsAsync(userId, recipientId, cancellationToken))
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = "You can only share stories with accepted friends." });
+
+        var title = request.Title.Trim();
+        var source = request.Source.Trim();
+        if (title.Length == 0) return BadRequest(new { error = "The story title is required." });
+        if (!Uri.TryCreate(request.Url.Trim(), UriKind.Absolute, out var articleUri)
+            || articleUri.Scheme is not ("http" or "https"))
+            return BadRequest(new { error = "The story link is not valid." });
+
+        var recipient = await userManager.FindByIdAsync(recipientId);
+        var sender = await userManager.FindByIdAsync(userId);
+        if (recipient is null || sender is null) return NotFound(new { error = "That Signal friend could not be found." });
+
+        var now = DateTime.UtcNow;
+        var message = new DirectMessage
+        {
+            SenderUserId = userId,
+            RecipientUserId = recipientId,
+            Body = "Shared a story.",
+            SharedArticleTitle = title,
+            SharedArticleUrl = articleUri.AbsoluteUri,
+            SharedArticleSource = source,
+            CreatedAtUtc = now,
+        };
+        database.DirectMessages.Add(message);
+        await database.SaveChangesAsync(cancellationToken);
+
+        var lastSeenAt = await database.UserPresences
+            .AsNoTracking()
+            .Where(item => item.UserId == recipientId)
+            .Select(item => (DateTime?)item.LastSeenAtUtc)
+            .SingleOrDefaultAsync(cancellationToken);
+        var recipientOnline = lastSeenAt.HasValue && lastSeenAt.Value >= now - OnlineWindow;
+        var emailNotificationSent = false;
+        if (!recipientOnline && recipient.EmailConfirmed && !string.IsNullOrWhiteSpace(recipient.Email))
+        {
+            try
+            {
+                var signalUrl = $"{Request.Scheme}://{Request.Host}{Request.PathBase}/";
+                await emailSender.SendSharedArticleAsync(
+                    recipient.Email,
+                    new SharedArticleEmail(
+                        CommentsController.PublicName(sender),
+                        title,
+                        source,
+                        articleUri.AbsoluteUri,
+                        signalUrl),
+                    cancellationToken);
+                emailNotificationSent = true;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                logger.LogWarning(
+                    exception,
+                    "Story share {MessageId} was delivered to user {RecipientId}, but its offline email failed.",
+                    message.Id,
+                    recipientId);
+            }
+        }
+
+        return Ok(new ShareArticleResponse(
+            ToMessageResponse(message, userId),
+            recipientOnline,
+            emailNotificationSent));
+    }
+
     [HttpGet("users/{userId}/photo")]
     public async Task<IActionResult> UserPhoto(string userId, CancellationToken cancellationToken)
     {
@@ -386,7 +468,13 @@ public sealed class SocialController(
         message.Body,
         AsUtc(message.CreatedAtUtc),
         message.ReadAtUtc.HasValue ? AsUtc(message.ReadAtUtc.Value) : null,
-        message.SenderUserId == currentUserId);
+        message.SenderUserId == currentUserId,
+        string.IsNullOrWhiteSpace(message.SharedArticleUrl)
+            ? null
+            : new SharedStoryResponse(
+                message.SharedArticleTitle,
+                message.SharedArticleUrl,
+                message.SharedArticleSource));
 
     private static DateTime AsUtc(DateTime value) => value.Kind switch
     {
@@ -401,6 +489,12 @@ public sealed record FriendRequestCreateRequest(string? UserId, string? Email);
 public sealed record SendMessageRequest(
     [Required, MaxLength(450)] string RecipientUserId,
     [Required, MaxLength(2000)] string Body);
+
+public sealed record ShareArticleRequest(
+    [Required, MaxLength(450)] string RecipientUserId,
+    [Required, MaxLength(300)] string Title,
+    [Required, MaxLength(2048)] string Url,
+    [MaxLength(200)] string Source);
 
 public sealed record SocialOverviewResponse(
     FriendResponse[] Friends,
@@ -437,4 +531,12 @@ public sealed record DirectMessageResponse(
     string Body,
     DateTime CreatedAt,
     DateTime? ReadAt,
-    bool IsMine);
+    bool IsMine,
+    SharedStoryResponse? SharedArticle);
+
+public sealed record SharedStoryResponse(string Title, string Url, string Source);
+
+public sealed record ShareArticleResponse(
+    DirectMessageResponse Message,
+    bool RecipientOnline,
+    bool EmailNotificationSent);

@@ -146,6 +146,9 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
             message.Property(item => item.SenderUserId).HasMaxLength(450).IsRequired();
             message.Property(item => item.RecipientUserId).HasMaxLength(450).IsRequired();
             message.Property(item => item.Body).HasMaxLength(2000).IsRequired();
+            message.Property(item => item.SharedArticleTitle).HasMaxLength(300).IsRequired();
+            message.Property(item => item.SharedArticleUrl).HasMaxLength(2048).IsRequired();
+            message.Property(item => item.SharedArticleSource).HasMaxLength(200).IsRequired();
             message.HasIndex(item => new { item.SenderUserId, item.RecipientUserId, item.CreatedAtUtc });
             message.HasIndex(item => new { item.RecipientUserId, item.ReadAtUtc });
         });

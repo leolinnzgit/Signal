@@ -288,6 +288,27 @@ export type PushNotificationStore = {
   sendTest: () => Promise<string>;
 };
 
+export type SignalFriend = {
+  userId: string;
+  name: string;
+  profilePhotoUrl: string;
+  isOnline: boolean;
+  lastSeenAt: string | null;
+};
+
+export type FriendShareResult = {
+  recipientOnline: boolean;
+  emailNotificationSent: boolean;
+};
+
+export type FriendShareStore = {
+  loadFriends: () => Promise<SignalFriend[]>;
+  share: (
+    recipientUserId: string,
+    article: { title: string; url: string; source: string },
+  ) => Promise<FriendShareResult>;
+};
+
 const GOOGLE_TREND_REGIONS: GoogleTrendRegion[] = [
   { code: "US", name: "United States" },
   { code: "CA", name: "Canada" },
@@ -737,11 +758,12 @@ type NewsDashboardProps = {
   summarySender?: (summary: NewsSummary) => Promise<string>;
   refreshStore?: TopicRefreshStore;
   pushNotificationStore?: PushNotificationStore;
+  friendShareStore?: FriendShareStore;
 };
 
 type PushNotificationStatus = "checking" | "unsupported" | "off" | "enabling" | "on" | "disabling" | "denied" | "error";
 
-export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAccount, onOpenCommunity, onOpenLatestComments, onOpenDiscussion, communityUnreadCount = 0, latestCommentUnreadCount = 0, preferencesStore, articleStore, summarySender, refreshStore, pushNotificationStore }: NewsDashboardProps) {
+export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAccount, onOpenCommunity, onOpenLatestComments, onOpenDiscussion, communityUnreadCount = 0, latestCommentUnreadCount = 0, preferencesStore, articleStore, summarySender, refreshStore, pushNotificationStore, friendShareStore }: NewsDashboardProps) {
   const [preferences, setPreferences] = useState<NewsPreferences>(DEFAULTS);
   const [topicInput, setTopicInput] = useState("");
   const [rssInput, setRssInput] = useState("");
@@ -770,6 +792,12 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [feedView, setFeedView] = useState<"latest" | "history" | "bookmarks">("latest");
   const [bookmarkingUrls, setBookmarkingUrls] = useState<Set<string>>(() => new Set());
   const [sharingUrls, setSharingUrls] = useState<Set<string>>(() => new Set());
+  const [friendShareArticle, setFriendShareArticle] = useState<FollowedArticle | null>(null);
+  const [friendShareUrl, setFriendShareUrl] = useState("");
+  const [friendShareFriends, setFriendShareFriends] = useState<SignalFriend[]>([]);
+  const [friendShareLoading, setFriendShareLoading] = useState(false);
+  const [friendShareBusy, setFriendShareBusy] = useState("");
+  const [friendShareError, setFriendShareError] = useState("");
   const [fetchedAt, setFetchedAt] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -839,6 +867,8 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const topicRemovalCancelButton = useRef<HTMLButtonElement>(null);
   const topicRemovalTrigger = useRef<HTMLElement | null>(null);
   const installHelpCloseButton = useRef<HTMLButtonElement>(null);
+  const friendShareCloseButton = useRef<HTMLButtonElement>(null);
+  const friendShareTrigger = useRef<HTMLButtonElement | null>(null);
   const installTrigger = useRef<HTMLButtonElement | null>(null);
   const weatherLocationInput = useRef<HTMLInputElement>(null);
   const weatherLocationTrigger = useRef<HTMLElement | null>(null);
@@ -1826,6 +1856,19 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   }, [installHelpOpen]);
 
   useEffect(() => {
+    if (!friendShareArticle) return;
+    const focusFrame = window.requestAnimationFrame(() => friendShareCloseButton.current?.focus());
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !friendShareBusy) closeFriendShare();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [friendShareArticle, friendShareBusy]);
+
+  useEffect(() => {
     if (!weatherLocationOpen) return;
     const focusFrame = window.requestAnimationFrame(() => weatherLocationInput.current?.focus());
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -2592,11 +2635,53 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     }
   }
 
-  async function shareStory(article: FollowedArticle) {
+  function closeFriendShare() {
+    if (friendShareBusy) return;
+    setFriendShareArticle(null);
+    setFriendShareUrl("");
+    setFriendShareFriends([]);
+    setFriendShareError("");
+    window.requestAnimationFrame(() => friendShareTrigger.current?.focus());
+  }
+
+  async function openStoryShare(article: FollowedArticle, trigger: HTMLButtonElement) {
+    if (!friendShareStore) {
+      await shareStoryExternally(article);
+      return;
+    }
+    friendShareTrigger.current = trigger;
+    setFriendShareArticle(article);
+    setFriendShareUrl("");
+    setFriendShareFriends([]);
+    setFriendShareError("");
+    setFriendShareLoading(true);
+    setSharingUrls((current) => new Set(current).add(article.url));
+    try {
+      const [resolvedUrl, friends] = await Promise.all([
+        resolveArticleShareUrl(article.url),
+        friendShareStore.loadFriends(),
+      ]);
+      setFriendShareUrl(resolvedUrl);
+      setFriendShareFriends(friends);
+    } catch (caught) {
+      setFriendShareError(caught instanceof Error
+        ? caught.message
+        : "Signal could not prepare this story for sharing.");
+    } finally {
+      setFriendShareLoading(false);
+      setSharingUrls((current) => {
+        const next = new Set(current);
+        next.delete(article.url);
+        return next;
+      });
+    }
+  }
+
+  async function shareStoryExternally(article: FollowedArticle, preparedUrl = "") {
     if (sharingUrls.has(article.url)) return;
     setSharingUrls((current) => new Set(current).add(article.url));
     try {
-      const resolvedUrl = await resolveArticleShareUrl(article.url);
+      const resolvedUrl = preparedUrl || await resolveArticleShareUrl(article.url);
       const result = await shareArticle({
         title: article.title,
         text: `${article.title} — ${article.source}`,
@@ -2604,8 +2689,11 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
       });
       if (result === "copied") {
         setNotice("Publisher link copied. It is ready to paste.");
+        closeFriendShare();
+      } else if (result === "shared") {
+        closeFriendShare();
       } else if (result === "failed") {
-        setNotice("This browser could not open sharing or copy the story link.");
+        setFriendShareError("This browser could not open sharing or copy the story link.");
       }
     } finally {
       setSharingUrls((current) => {
@@ -2613,6 +2701,32 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         next.delete(article.url);
         return next;
       });
+    }
+  }
+
+  async function shareStoryWithFriend(friend: SignalFriend) {
+    if (!friendShareStore || !friendShareArticle || !friendShareUrl || friendShareBusy) return;
+    setFriendShareBusy(friend.userId);
+    setFriendShareError("");
+    try {
+      const result = await friendShareStore.share(friend.userId, {
+        title: friendShareArticle.title,
+        url: friendShareUrl,
+        source: friendShareArticle.source,
+      });
+      setFriendShareBusy("");
+      setFriendShareArticle(null);
+      setFriendShareUrl("");
+      setFriendShareFriends([]);
+      setNotice(result.emailNotificationSent
+        ? `Shared with ${friend.name}. Signal also emailed them because they are offline.`
+        : result.recipientOnline
+          ? `Shared with ${friend.name}. They are online, so no email was needed.`
+          : `Shared with ${friend.name}. The story is waiting in their Signal messages.`);
+      window.requestAnimationFrame(() => friendShareTrigger.current?.focus());
+    } catch (caught) {
+      setFriendShareError(caught instanceof Error ? caught.message : "The story could not be shared.");
+      setFriendShareBusy("");
     }
   }
 
@@ -3731,7 +3845,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                   <button
                     type="button"
                     className="share-button"
-                    onClick={() => void shareStory(article)}
+                    onClick={(event) => void openStoryShare(article, event.currentTarget)}
                     disabled={sharingUrls.has(article.url)}
                     aria-busy={sharingUrls.has(article.url)}
                     aria-label={`Share ${article.title}`}
@@ -3772,6 +3886,93 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         )}
       </section>
       </div>
+
+      {friendShareArticle && (
+        <div
+          className="topic-confirmation-backdrop friend-share-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeFriendShare();
+          }}
+        >
+          <section
+            className="topic-confirmation friend-share-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="friend-share-title"
+            aria-describedby="friend-share-description"
+          >
+            <p className="topic-confirmation-kicker">Share in Signal</p>
+            <h2 id="friend-share-title">Send this story to a friend.</h2>
+            <p id="friend-share-description">
+              It will appear in your Signal conversation. Friends who are offline will also receive an email notification.
+            </p>
+            <div className="friend-share-story">
+              <small>{friendShareArticle.source}</small>
+              <strong>{friendShareArticle.title}</strong>
+            </div>
+            {friendShareLoading ? (
+              <p className="friend-share-status">Preparing the publisher link and loading your friends…</p>
+            ) : friendShareError ? (
+              <p className="friend-share-status error" role="alert">{friendShareError}</p>
+            ) : friendShareFriends.length > 0 ? (
+              <div className="friend-share-list" role="list" aria-label="Signal friends">
+                {friendShareFriends.map((friend) => (
+                  <button
+                    type="button"
+                    role="listitem"
+                    key={friend.userId}
+                    disabled={Boolean(friendShareBusy)}
+                    onClick={() => void shareStoryWithFriend(friend)}
+                  >
+                    <span className="friend-share-avatar" aria-hidden="true">
+                      <b>{friend.name.trim().charAt(0).toUpperCase()}</b>
+                      <img
+                        src={friend.profilePhotoUrl}
+                        alt=""
+                        onError={(event) => { event.currentTarget.hidden = true; }}
+                      />
+                    </span>
+                    <span>
+                      <strong>{friend.name}</strong>
+                      <small>{friend.isOnline ? "Online now" : "Offline · email notification"}</small>
+                    </span>
+                    <b>{friendShareBusy === friend.userId ? "Sending…" : "Send"}</b>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="friend-share-empty">
+                <p>You do not have any accepted Signal friends yet.</p>
+                {onOpenCommunity && (
+                  <button type="button" onClick={() => {
+                    setFriendShareArticle(null);
+                    onOpenCommunity();
+                  }}>
+                    Find friends
+                  </button>
+                )}
+              </div>
+            )}
+            <div className="topic-confirmation-actions friend-share-actions">
+              <button
+                type="button"
+                disabled={!friendShareUrl || friendShareLoading || Boolean(friendShareBusy)}
+                onClick={() => void shareStoryExternally(friendShareArticle, friendShareUrl)}
+              >
+                More sharing options
+              </button>
+              <button
+                ref={friendShareCloseButton}
+                type="button"
+                disabled={Boolean(friendShareBusy)}
+                onClick={closeFriendShare}
+              >
+                Close
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {topicPendingRemoval && (
         <div

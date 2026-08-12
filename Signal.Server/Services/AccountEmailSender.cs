@@ -43,6 +43,53 @@ public sealed class AccountEmailSender(
         return SendHtmlAsync(email, subject, BuildNewsSummaryBody(digest), cancellationToken);
     }
 
+    public Task SendSharedArticleAsync(
+        string email,
+        SharedArticleEmail sharedArticle,
+        CancellationToken cancellationToken)
+    {
+        var encoder = HtmlEncoder.Default;
+        var sender = encoder.Encode(sharedArticle.SenderName);
+        var title = encoder.Encode(sharedArticle.Title);
+        var source = encoder.Encode(sharedArticle.Source);
+        var articleUrl = encoder.Encode(sharedArticle.ArticleUrl);
+        var signalUrl = encoder.Encode(sharedArticle.SignalUrl);
+        var subject = $"{sharedArticle.SenderName} shared a story with you on Signal";
+        var body = $$"""
+            <!doctype html>
+            <html lang="en"><body style="margin:0;background:#f4f0e7;color:#171815;font-family:Arial,sans-serif">
+              <div style="display:none;max-height:0;overflow:hidden">{{sender}} shared {{title}} with you.</div>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f4f0e7">
+                <tr><td align="center" style="padding:42px 18px">
+                  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:620px">
+                    <tr><td style="padding:0 0 24px;border-bottom:2px solid #171815">
+                      <p style="margin:0 0 18px;color:#c83f32;font-size:12px;font-weight:700;letter-spacing:.24em">SIGNAL</p>
+                      <h1 style="margin:0 0 12px;font-family:Georgia,serif;font-size:38px;font-weight:400;line-height:1.08">{{sender}} shared a story.</h1>
+                      <p style="margin:0;color:#657364;font-size:14px;line-height:1.6">You were offline, so Signal saved it in your conversation and sent this notification.</p>
+                    </td></tr>
+                    <tr><td style="padding:26px 0">
+                      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #ded7ca;background:#fffdf8">
+                        <tr><td style="padding:24px">
+                          <p style="margin:0 0 10px;color:#c83f32;font-size:11px;font-weight:700;letter-spacing:.11em;text-transform:uppercase">{{source}}</p>
+                          <h2 style="margin:0;font-family:Georgia,serif;font-size:25px;font-weight:400;line-height:1.28"><a href="{{articleUrl}}" style="color:#171815;text-decoration:none">{{title}}</a></h2>
+                        </td></tr>
+                      </table>
+                    </td></tr>
+                    <tr><td style="padding:0 0 24px">
+                      <a href="{{signalUrl}}" style="display:inline-block;margin:0 10px 10px 0;background:#171815;color:#f4f0e7;text-decoration:none;padding:14px 20px;border-radius:999px;font-weight:700">Open Signal</a>
+                      <a href="{{articleUrl}}" style="display:inline-block;color:#c83f32;text-decoration:none;padding:14px 4px;font-weight:700">Read original story &rarr;</a>
+                    </td></tr>
+                    <tr><td style="padding-top:18px;border-top:1px solid #d9d2c4;color:#77796f;font-size:12px;line-height:1.6">
+                      This email was sent because a Signal friend shared a story while you were offline.
+                    </td></tr>
+                  </table>
+                </td></tr>
+              </table>
+            </body></html>
+            """;
+        return SendHtmlAsync(email, subject, body, cancellationToken);
+    }
+
     private async Task SendAsync(
         string email,
         string subject,

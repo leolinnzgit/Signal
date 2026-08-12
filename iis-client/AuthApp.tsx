@@ -1,7 +1,7 @@
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import { updateInstalledAppBadge } from "../app/app-badge";
 import { prepareProfilePhoto } from "../app/profile-photo";
-import NewsDashboard, { type ArticleHistoryPage, type ArticleStore, type FollowedArticle, type NewsPreferences, type NewsSummary, type PreferencesStore, type PushNotificationStore, type PushSubscriptionPayload, type TopicBriefing, type TopicRefreshStore } from "../app/NewsDashboard";
+import NewsDashboard, { type ArticleHistoryPage, type ArticleStore, type FollowedArticle, type FriendShareStore, type NewsPreferences, type NewsSummary, type PreferencesStore, type PushNotificationStore, type PushSubscriptionPayload, type TopicBriefing, type TopicRefreshStore } from "../app/NewsDashboard";
 
 type SessionUser = {
   email: string;
@@ -80,6 +80,7 @@ type DirectMessage = {
   createdAt: string;
   readAt: string | null;
   isMine: boolean;
+  sharedArticle: { title: string; url: string; source: string } | null;
 };
 
 type MessagePage = { messages: DirectMessage[]; hasMore: boolean };
@@ -322,6 +323,30 @@ const webPushNotificationStore: PushNotificationStore = {
   },
 };
 
+const friendShareStore: FriendShareStore = {
+  async loadFriends() {
+    const overview = await getJson<SocialOverview>("/api/social");
+    return overview.friends.map((friend) => ({
+      userId: friend.user.userId,
+      name: friend.user.name,
+      profilePhotoUrl: friend.user.profilePhotoUrl,
+      isOnline: friend.user.isOnline,
+      lastSeenAt: friend.user.lastSeenAt,
+    }));
+  },
+  async share(recipientUserId, article) {
+    const response = await postJson<{
+      message: DirectMessage;
+      recipientOnline: boolean;
+      emailNotificationSent: boolean;
+    }>("/api/social/shares", { recipientUserId, ...article });
+    return {
+      recipientOnline: response.recipientOnline,
+      emailNotificationSent: response.emailNotificationSent,
+    };
+  },
+};
+
 async function sendNewsSummary(summary: NewsSummary) {
   const data = await postJson<{ message: string }>("/api/news-summary", summary);
   return data.message;
@@ -553,6 +578,7 @@ export default function AuthApp() {
           summarySender={sendNewsSummary}
           refreshStore={sqliteTopicRefreshStore}
           pushNotificationStore={webPushNotificationStore}
+          friendShareStore={friendShareStore}
         />
         {accountOpen && (
           <AccountPanel
@@ -1086,6 +1112,18 @@ function CommunityPanel({
               ) : messages.map((message) => (
                 <li key={message.id} className={message.isMine ? "mine" : "theirs"}>
                   <p>{message.body}</p>
+                  {message.sharedArticle && (
+                    <a
+                      className="message-shared-story"
+                      href={message.sharedArticle.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <small>{message.sharedArticle.source || "Shared story"}</small>
+                      <strong>{message.sharedArticle.title}</strong>
+                      <span>Open original <span aria-hidden="true">&#8599;</span></span>
+                    </a>
+                  )}
                   <time dateTime={message.createdAt}>{formatSocialTime(message.createdAt)}</time>
                 </li>
               ))}
