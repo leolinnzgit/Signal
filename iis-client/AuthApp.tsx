@@ -15,6 +15,7 @@ type EmailDeliveryStatus = {
   mode: "gmailOAuth" | "localFile" | "smtp";
   connected: boolean;
   email: string | null;
+  error: string | null;
 };
 
 type CommentAuthor = {
@@ -339,10 +340,14 @@ const friendShareStore: FriendShareStore = {
       message: DirectMessage;
       recipientOnline: boolean;
       emailNotificationSent: boolean;
+      emailNotificationAttempted: boolean;
+      emailNotificationError: string | null;
     }>("/api/social/shares", { recipientUserId, ...article });
     return {
       recipientOnline: response.recipientOnline,
       emailNotificationSent: response.emailNotificationSent,
+      emailNotificationAttempted: response.emailNotificationAttempted,
+      emailNotificationError: response.emailNotificationError,
     };
   },
 };
@@ -1720,8 +1725,14 @@ function AccountPanel({
         <div className="email-delivery" aria-live="polite">
           <span className={delivery?.connected ? "delivery-dot connected" : "delivery-dot"} aria-hidden="true" />
           <div>
-            <strong>{delivery?.connected ? "Gmail API connected" : "Local email delivery"}</strong>
-            <p>{delivery?.connected && delivery.email
+            <strong>{delivery?.connected
+              ? "Gmail API connected"
+              : delivery?.mode === "gmailOAuth"
+                ? "Gmail needs reconnecting"
+                : "Local email delivery"}</strong>
+            <p>{delivery?.error
+              ? delivery.error
+              : delivery?.connected && delivery.email
               ? `Account emails are sent securely through ${delivery.email}.`
               : "Account emails are currently written to Signal's local mail-drop."}</p>
           </div>

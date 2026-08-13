@@ -264,8 +264,11 @@ public sealed class SocialController(
             .SingleOrDefaultAsync(cancellationToken);
         var recipientOnline = lastSeenAt.HasValue && lastSeenAt.Value >= now - OnlineWindow;
         var emailNotificationSent = false;
+        var emailNotificationAttempted = false;
+        string? emailNotificationError = null;
         if (!recipientOnline && recipient.EmailConfirmed && !string.IsNullOrWhiteSpace(recipient.Email))
         {
+            emailNotificationAttempted = true;
             try
             {
                 var signalUrl = $"{Request.Scheme}://{Request.Host}{Request.PathBase}/";
@@ -286,6 +289,7 @@ public sealed class SocialController(
             }
             catch (Exception exception)
             {
+                emailNotificationError = "The story was shared, but Signal could not send the offline email notification.";
                 logger.LogWarning(
                     exception,
                     "Story share {MessageId} was delivered to user {RecipientId}, but its offline email failed.",
@@ -297,7 +301,9 @@ public sealed class SocialController(
         return Ok(new ShareArticleResponse(
             ToMessageResponse(message, userId),
             recipientOnline,
-            emailNotificationSent));
+            emailNotificationSent,
+            emailNotificationAttempted,
+            emailNotificationError));
     }
 
     [HttpGet("users/{userId}/photo")]
@@ -539,4 +545,6 @@ public sealed record SharedStoryResponse(string Title, string Url, string Source
 public sealed record ShareArticleResponse(
     DirectMessageResponse Message,
     bool RecipientOnline,
-    bool EmailNotificationSent);
+    bool EmailNotificationSent,
+    bool EmailNotificationAttempted,
+    string? EmailNotificationError);

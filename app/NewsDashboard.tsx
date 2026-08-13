@@ -299,6 +299,8 @@ export type SignalFriend = {
 export type FriendShareResult = {
   recipientOnline: boolean;
   emailNotificationSent: boolean;
+  emailNotificationAttempted: boolean;
+  emailNotificationError: string | null;
 };
 
 export type FriendShareStore = {
@@ -2741,6 +2743,8 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         ? `Shared with ${friend.name}. Signal also emailed them because they are offline.`
         : result.recipientOnline
           ? `Shared with ${friend.name}. They are online, so no email was needed.`
+          : result.emailNotificationError
+            ? `Shared with ${friend.name}, but the email notification failed. ${result.emailNotificationError}`
           : `Shared with ${friend.name}. The story is waiting in their Signal messages.`);
       window.requestAnimationFrame(() => friendShareTrigger.current?.focus());
     } catch (caught) {

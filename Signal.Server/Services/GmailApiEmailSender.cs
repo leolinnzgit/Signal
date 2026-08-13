@@ -19,6 +19,31 @@ public sealed class GmailApiEmailSender(
 
     public string? ConnectedEmail => credentialStore.Load()?.Email;
 
+    public async Task<GmailConnectionStatus> GetConnectionStatusAsync(CancellationToken cancellationToken)
+    {
+        var credential = credentialStore.Load();
+        if (credential is null)
+            return new GmailConnectionStatus(false, null, "Gmail API has not been connected.");
+
+        try
+        {
+            _ = await GetAccessTokenAsync(credential, cancellationToken);
+            return new GmailConnectionStatus(true, credential.Email, null);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "The saved Gmail API connection is no longer usable.");
+            return new GmailConnectionStatus(
+                false,
+                credential.Email,
+                "Gmail authorization has expired or its OAuth client credentials changed. Reconnect Gmail.");
+        }
+    }
+
     public async Task SendAsync(
         string recipient,
         string subject,
@@ -135,3 +160,4 @@ public sealed class GmailApiEmailSender(
         [property: JsonPropertyName("expires_in")] int ExpiresIn);
 }
 
+public sealed record GmailConnectionStatus(bool Connected, string? Email, string? Error);

@@ -177,8 +177,19 @@ public sealed class AccountEmailSender(
     {
         if (gmail.IsConfigured)
         {
-            await gmail.SendAsync(email, subject, body, cancellationToken);
-            return;
+            try
+            {
+                await gmail.SendAsync(email, subject, body, cancellationToken);
+                return;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception) when (HasSmtpConfiguration())
+            {
+                logger.LogWarning(exception, "Gmail API delivery failed; using the configured SMTP fallback.");
+            }
         }
 
         if (_options.Mode.Equals("File", StringComparison.OrdinalIgnoreCase))
@@ -220,5 +231,14 @@ public sealed class AccountEmailSender(
         };
         cancellationToken.ThrowIfCancellationRequested();
         await smtp.SendMailAsync(mail, cancellationToken);
+    }
+
+    private bool HasSmtpConfiguration()
+    {
+        var fromAddress = string.IsNullOrWhiteSpace(_options.FromAddress) ? _options.Username : _options.FromAddress;
+        return !_options.Mode.Equals("File", StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(_options.Username)
+            && !string.IsNullOrWhiteSpace(_options.AppPassword)
+            && !string.IsNullOrWhiteSpace(fromAddress);
     }
 }
