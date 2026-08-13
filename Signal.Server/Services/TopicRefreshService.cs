@@ -328,6 +328,7 @@ public sealed class TopicRefreshService(
                     cancellationToken);
             if (state is null) return false;
 
+            state.ViewedContentVersion = state.LatestContentVersion;
             state.HasUnread = false;
             state.LastViewedAtUtc = DateTime.UtcNow;
             await database.SaveChangesAsync(cancellationToken);
@@ -433,7 +434,11 @@ public sealed class TopicRefreshService(
             state.Topic = topic;
             state.LastAttemptedAtUtc = refreshedAt;
             if (successful) state.LastSuccessfulAtUtc = refreshedAt;
-            if (newlyAvailableTopicKeys.Contains(key)) state.HasUnread = true;
+            if (newlyAvailableTopicKeys.Contains(key))
+            {
+                state.LatestContentVersion = checked(state.LatestContentVersion + 1);
+            }
+            state.HasUnread = state.LatestContentVersion > state.ViewedContentVersion;
             state.NextRefreshAtUtc = refreshMinutes == 0 ? null : refreshedAt.AddMinutes(refreshMinutes);
             state.LastError = failures.Length == 0
                 ? ""
@@ -509,7 +514,7 @@ public sealed class TopicRefreshService(
                 item.LastSuccessfulAtUtc,
                 item.NextRefreshAtUtc,
                 item.LastViewedAtUtc,
-                item.HasUnread,
+                HasUnread = item.LatestContentVersion > item.ViewedContentVersion,
                 item.LastError,
             })
             .ToArrayAsync(cancellationToken);

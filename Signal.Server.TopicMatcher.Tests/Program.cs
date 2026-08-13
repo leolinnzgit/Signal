@@ -323,6 +323,13 @@ await using (var scheduleDatabase = new SignalDbContext(scheduleOptions))
     if (solarState.LastAttemptedAtUtc is not null)
         throw new InvalidOperationException("Refreshing one topic incorrectly changed another topic's schedule.");
 
+    if (robotState.LatestContentVersion <= robotState.ViewedContentVersion)
+        throw new InvalidOperationException("A refresh with new topic stories did not advance the server unread cursor.");
+
+    // The version cursor, rather than the legacy Boolean, is authoritative across devices.
+    robotState.HasUnread = false;
+    await scheduleDatabase.SaveChangesAsync();
+
     var robotBriefing = await refreshService.LoadBriefingAsync(
         "schedule-user",
         CancellationToken.None,
@@ -333,9 +340,24 @@ await using (var scheduleDatabase = new SignalDbContext(scheduleOptions))
     {
         throw new InvalidOperationException("A topic-specific Latest briefing returned stories from another topic.");
     }
+    if (!robotBriefing.Topics.Single(item => item.Topic == "Robots").HasUnread)
+        throw new InvalidOperationException("The briefing did not derive unread state from the server cursor.");
+
+    if (!await refreshService.MarkTopicViewedAsync("schedule-user", "Robots", CancellationToken.None))
+        throw new InvalidOperationException("The topic could not be marked viewed.");
+    await scheduleDatabase.Entry(robotState).ReloadAsync();
+    if (robotState.ViewedContentVersion != robotState.LatestContentVersion)
+        throw new InvalidOperationException("Viewing a topic did not advance its cursor to the latest server version.");
+
+    var secondDeviceBriefing = await refreshService.LoadBriefingAsync(
+        "schedule-user",
+        CancellationToken.None,
+        "Robots");
+    if (secondDeviceBriefing.Topics.Single(item => item.Topic == "Robots").HasUnread)
+        throw new InvalidOperationException("A second device still received the topic as unread after it was viewed.");
 }
 
-Console.WriteLine("Per-topic refresh state and Latest filtering passed independent scheduling checks.");
+Console.WriteLine("Per-topic refresh state, cross-device unread cursors and Latest filtering passed independent scheduling checks.");
 
 static StoredNewsArticle HistoryArticle(
     string title,

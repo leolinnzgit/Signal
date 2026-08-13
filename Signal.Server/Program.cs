@@ -275,6 +275,8 @@ await using (var scope = app.Services.CreateAsyncScope())
             "LastSuccessfulAtUtc" TEXT NULL,
             "NextRefreshAtUtc" TEXT NULL,
             "LastViewedAtUtc" TEXT NULL,
+            "LatestContentVersion" INTEGER NOT NULL DEFAULT 0,
+            "ViewedContentVersion" INTEGER NOT NULL DEFAULT 0,
             "HasUnread" INTEGER NOT NULL DEFAULT 0,
             "LastError" TEXT NOT NULL DEFAULT '',
             CONSTRAINT "PK_TopicRefreshStates" PRIMARY KEY ("UserId", "TopicKey"),
@@ -499,6 +501,31 @@ await using (var scope = app.Services.CreateAsyncScope())
         {
             await database.Database.ExecuteSqlRawAsync(
                 "ALTER TABLE \"TopicRefreshStates\" ADD COLUMN \"HasUnread\" INTEGER NOT NULL DEFAULT 1;");
+        }
+
+        topicStateColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('TopicRefreshStates') WHERE name = 'LatestContentVersion';";
+        var latestContentVersionColumnExists = Convert.ToInt32(await topicStateColumnCheck.ExecuteScalarAsync()) > 0;
+        if (!latestContentVersionColumnExists)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"TopicRefreshStates\" ADD COLUMN \"LatestContentVersion\" INTEGER NOT NULL DEFAULT 0;");
+        }
+
+        topicStateColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('TopicRefreshStates') WHERE name = 'ViewedContentVersion';";
+        var viewedContentVersionColumnExists = Convert.ToInt32(await topicStateColumnCheck.ExecuteScalarAsync()) > 0;
+        if (!viewedContentVersionColumnExists)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"TopicRefreshStates\" ADD COLUMN \"ViewedContentVersion\" INTEGER NOT NULL DEFAULT 0;");
+        }
+
+        if (!latestContentVersionColumnExists || !viewedContentVersionColumnExists)
+        {
+            await database.Database.ExecuteSqlRawAsync("""
+                UPDATE "TopicRefreshStates"
+                SET "LatestContentVersion" = CASE WHEN "HasUnread" = 1 THEN 1 ELSE 0 END,
+                    "ViewedContentVersion" = 0;
+                """);
         }
     }
     finally

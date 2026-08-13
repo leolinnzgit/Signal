@@ -60,7 +60,7 @@ public sealed class PushNotificationService(
         CancellationToken cancellationToken)
     {
         var badgeCount = await database.TopicRefreshStates.CountAsync(
-            item => item.UserId == userId && item.HasUnread,
+            item => item.UserId == userId && item.LatestContentVersion > item.ViewedContentVersion,
             cancellationToken);
         return await SendAsync(
             userId,
@@ -87,7 +87,7 @@ public sealed class PushNotificationService(
             .Select(item => item.Topic)
             .ToArrayAsync(cancellationToken);
         var badgeCount = await database.TopicRefreshStates.CountAsync(
-            item => item.UserId == userId && item.HasUnread,
+            item => item.UserId == userId && item.LatestContentVersion > item.ViewedContentVersion,
             cancellationToken);
         var topicLabel = topics.Length switch
         {

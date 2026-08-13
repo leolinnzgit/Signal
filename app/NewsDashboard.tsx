@@ -1577,6 +1577,25 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     return () => window.clearInterval(interval);
   }, [preferences, ready, enabledSourceCount, loadNews, refreshStore]);
 
+  useEffect(() => {
+    if (!ready || !refreshStore) return;
+    let lastSyncAt = 0;
+    const syncCrossDeviceState = () => {
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - lastSyncAt < 1_000) return;
+      lastSyncAt = now;
+      void loadNews(latestPreferences.current, { quiet: true });
+    };
+
+    window.addEventListener("focus", syncCrossDeviceState);
+    document.addEventListener("visibilitychange", syncCrossDeviceState);
+    return () => {
+      window.removeEventListener("focus", syncCrossDeviceState);
+      document.removeEventListener("visibilitychange", syncCrossDeviceState);
+    };
+  }, [loadNews, ready, refreshStore]);
+
   const viewedArticles = useMemo(
     () => feedView === "latest"
       ? articles
