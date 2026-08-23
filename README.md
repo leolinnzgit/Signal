@@ -214,27 +214,221 @@ npm test
 
 ## Build and deploy to IIS
 
-Create the deployable application:
+The included scripts deploy Signal as an ASP.NET Core application named
+`Signal`, using the `SignalAppPool` application pool and local HTTPS on port
+`8443`. The default physical path is `C:\inetpub\Signal`.
+
+### IIS prerequisites
+
+The included workflow builds and deploys on the IIS machine. Install:
+
+- Node.js 22.13 or newer and npm
+- .NET 10 SDK (needed to build the application)
+- Python 3, used to create transactionally consistent SQLite backups
+- IIS, including the IIS Management Console and PowerShell management tools
+- The .NET 10 Hosting Bundle, which installs ASP.NET Core Module V2 for IIS
+
+Install the Hosting Bundle after IIS is enabled. If IIS was installed after the
+Hosting Bundle, repair or reinstall the Hosting Bundle, then restart the server
+or IIS. An administrator can verify the hosting module in PowerShell:
 
 ```powershell
+Import-Module WebAdministration
+Get-WebGlobalModule | Where-Object Name -eq "AspNetCoreModuleV2"
+```
+
+The setup and deployment scripts currently target this checkout path:
+
+```text
+D:\Backup\My Documents\Development\Signal
+```
+
+If the repository is cloned elsewhere, update `$sourcePath`, `$resultPath`, and
+other repository paths near the top of the scripts in `work/` before running
+them. The IIS destination may also be changed there if required.
+
+### Create and validate the deployment package
+
+From the repository root, install the locked dependencies, type-check the IIS
+client, run the server tests, and publish the application:
+
+```powershell
+npm ci
+npm run iis:typecheck
+dotnet test Signal.Server.TopicMatcher.Tests
 npm run iis:build
 ```
 
-The output is written to `iis-publish`.
+`iis:build` first creates the production React client and then runs
+`dotnet publish`. The complete deployment package is written to `iis-publish`. Confirm
+that `iis-publish\Signal.Server.dll` exists before continuing.
 
-1. Install the .NET 10 Hosting Bundle on the IIS server.
-2. Create an IIS site and an application pool configured with **No Managed
-   Code**.
-3. Copy the contents of `iis-publish` into the site's physical directory.
-4. Grant the application-pool identity **Modify** permission on `App_Data`.
-5. Configure Gmail OAuth, SMTP, or keep file delivery for local testing.
-6. Add an HTTPS binding and redirect HTTP to HTTPS before allowing real users.
-7. Recycle the application pool.
+### First-time IIS installation
 
-Signal creates `App_Data/signal.db` on first startup. Back up the complete
-`App_Data` directory before deployments or schema changes because it also
-contains the data-protection keys required to read existing authentication
-cookies and encrypted Gmail credentials.
+The first-time setup must run from an **Administrator PowerShell** window:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\work\setup-signal-iis.ps1
+```
+
+The setup script stops without overwriting an existing `Signal` IIS site or a
+non-empty `C:\inetpub\Signal` directory. On a clean installation it:
+
+1. Copies the validated `iis-publish` package to `C:\inetpub\Signal`.
+2. Creates `SignalAppPool` with **No Managed Code**, integrated mode, and
+   `AlwaysRunning` enabled.
+3. Creates the `Signal` website.
+4. Creates and trusts a two-year self-signed `localhost` certificate.
+5. Adds the `https://localhost:8443` IIS binding.
+6. Grants the application-pool identity read access to the application and
+   modify access to `App_Data`.
+7. Starts the application pool and website.
+
+The initial production email mode is `File`, which writes messages locally
+instead of sending them. Configure Gmail API OAuth or SMTP before relying on
+account, briefing, or shared-story email delivery.
+
+Signal creates `App_Data\signal.db` on first startup. `App_Data` also contains
+data-protection keys and may contain encrypted Gmail credentials, so the entire
+directory is private operational data and must not be committed.
+
+### Enable routine deployment without UAC
+
+After the site has been created, run this one-time setup:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\work\enable-signal-uac-free-deploy.ps1
+```
+
+Windows asks for administrator approval once. The script grants the current
+Windows account **Modify** permission only on `C:\inetpub\Signal`. Later routine
+deployments can then use application-offline mode without stopping IIS or
+requesting UAC approval.
+
+### Deploy an update
+
+Build and deploy from the repository root:
+
+```powershell
+npm ci
+npm run iis:typecheck
+dotnet test Signal.Server.TopicMatcher.Tests
+npm run iis:build
+npm run iis:deploy
+```
+
+For a previously validated `iis-publish` package, `npm run iis:deploy` is the
+only required deployment command. `Update Signal Website.cmd` provides the same
+deployment path through a double-clickable Windows command file.
+
+During each deployment, `work/deploy-signal-without-uac.ps1`:
+
+- places `app_offline.htm` so IIS shuts the application down cleanly;
+- waits for the server assembly to be released;
+- creates a SQLite-consistent database backup;
+- copies the new package; and
+- removes the maintenance page so IIS starts Signal again.
+
+The deploy preserves these production-owned items:
+
+```text
+App_Data
+appsettings.json
+appsettings.Development.json
+appsettings.Production.json
+```
+
+Database backups are stored in
+`C:\inetpub\Signal\App_Data\backups`. Retention keeps the latest 10 backups plus
+one daily backup for up to 30 days. Do not use `-SkipBackup` for a normal
+deployment.
+
+The deployment result is recorded in `work\full-deploy-result.json`, including
+the backup path or the error that stopped deployment. The script does not retain
+the previous application binaries; keep a known-good release package separately
+if binary rollback is required.
+
+### Verify the deployment
+
+Check the local HTTPS endpoint after setup or deployment:
+
+```powershell
+curl.exe --ssl-no-revoke --insecure --fail --silent --show-error `
+  --output NUL https://localhost:8443/
+if ($LASTEXITCODE -eq 0) { "Signal is healthy" }
+```
+
+`--insecure` is appropriate only for this local self-signed certificate. A
+public endpoint must use a publicly trusted TLS certificate or a secure tunnel
+such as Tailscale Funnel. When Funnel is configured, verify the public URL
+separately as well as the local IIS endpoint.
+
+Also confirm the following in IIS Manager:
+
+- the `Signal` website is **Started**;
+- `SignalAppPool` is **Started**; and
+- the site has an HTTPS binding on port `8443`.
+
+### Keep scheduled refreshes running
+
+Signal's topic scheduler runs inside the IIS process. Install the recovery task
+once so the local endpoint is checked every five minutes and an unhealthy
+application pool is restarted:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File `
+  .\work\configure-signal-keepalive-task.ps1
+```
+
+This command requests administrator approval and registers the
+`Signal IIS Keepalive` scheduled task as `SYSTEM`.
+
+### Production configuration and secrets
+
+Put production-only settings in the preserved
+`C:\inetpub\Signal\appsettings.Production.json` file or in application-pool
+environment variables. Recycle `SignalAppPool` after changing application-pool
+variables. Never place API keys, client secrets, mail credentials, OAuth token
+files, the SQLite database, or data-protection keys in the repository.
+
+For the existing installation:
+
+- run `Configure Signal Google Login.cmd` to store the Google web-client secret;
+- follow the Gmail API OAuth section to configure Gmail sending; or
+- set the SMTP variables documented above.
+
+Send a real test email after configuring mail. A successful UI action only
+proves that the request was accepted; the configured provider and recipient
+mailbox must also accept delivery.
+
+### Troubleshooting
+
+- **`ASP.NET Core Module V2 is not registered with IIS`**: install or repair the
+  .NET 10 Hosting Bundle after enabling IIS.
+- **`The validated IIS package is missing`**: run `npm run iis:build` and confirm
+  that `iis-publish\Signal.Server.dll` exists.
+- **HTTP 503**: check that both the site and `SignalAppPool` are started, then
+  inspect the application pool's recent failures in Windows Event Viewer.
+- **HTTP 500.30 or immediate pool shutdown**: inspect the Windows **Application**
+  log for ASP.NET Core Module errors and verify that the pool identity can modify
+  `C:\inetpub\Signal\App_Data`.
+- **Deployment appears stuck in maintenance mode**: read
+  `work\full-deploy-result.json`. If no deployment process is still running,
+  remove `C:\inetpub\Signal\app_offline.htm` and retry the local health check.
+- **Database-related startup failure**: preserve the failed database, then
+  restore a verified backup from `App_Data\backups` while Signal is offline.
+  Back up the entire `App_Data` directory before any manual recovery.
+- **Local certificate warning**: use `https://localhost:8443`; the self-signed
+  certificate is created for `localhost`, not for a LAN IP or public hostname.
+
+For recovery or binding repair on the existing installation, an administrator
+can run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File `
+  .\work\setup-signal-iis.ps1 -StartOnly
+```
+
 
 ## Operational notes
 
