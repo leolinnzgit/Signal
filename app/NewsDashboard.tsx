@@ -2793,7 +2793,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     <main className="signal-dashboard" id="top">
       <header className="site-header">
         <a className="brand" href="#top" aria-label="Signal home">
-          <span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>
+          <img className="brand-mark" src="/icons/signal-medallion-64.png" alt="" aria-hidden="true" />
           <span>SIGNAL</span>
         </a>
         <div className="header-actions">

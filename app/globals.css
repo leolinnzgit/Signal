@@ -99,11 +99,13 @@ main {
   letter-spacing: 0.28em;
 }
 
-.brand-mark { display: flex; gap: 2px; align-items: end; height: 16px; }
-.brand-mark i { display: block; width: 3px; background: var(--red); border-radius: 2px; }
-.brand-mark i:nth-child(1) { height: 7px; }
-.brand-mark i:nth-child(2) { height: 12px; }
-.brand-mark i:nth-child(3) { height: 16px; }
+.brand-mark {
+  display: block;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  object-fit: contain;
+}
 
 .live-status {
   display: flex;

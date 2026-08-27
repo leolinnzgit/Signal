@@ -648,7 +648,7 @@ export default function AuthApp() {
 function AuthLoading() {
   return (
     <main className="auth-shell auth-loading" aria-label="Checking your session">
-      <span className="brand"><span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>SIGNAL</span>
+      <span className="brand"><img className="brand-mark" src="/icons/signal-medallion-64.png" alt="" aria-hidden="true" />SIGNAL</span>
       <span className="auth-spinner" aria-hidden="true" />
     </main>
   );
@@ -700,7 +700,7 @@ function AuthScreen(props: AuthScreenProps) {
     <main className="auth-shell">
       <section className="auth-intro">
         <a className="brand" href="/" aria-label="Signal home">
-          <span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>
+          <img className="brand-mark" src="/icons/signal-medallion-64.png" alt="" aria-hidden="true" />
           SIGNAL
         </a>
         <div>

@@ -33,7 +33,7 @@ function LocalPreviewSignedOut() {
     <main className="preview-auth-shell">
       <section className="preview-auth-card" aria-labelledby="preview-auth-title">
         <Link className="brand" href="/" aria-label="Signal home">
-          <span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>
+          <img className="brand-mark" src="/icons/signal-medallion-64.png" alt="" aria-hidden="true" />
           SIGNAL
         </Link>
         <p className="preview-auth-eyebrow">Local development</p>
