@@ -1,12 +1,14 @@
-const STATIC_CACHE = "signal-static-v6";
+const STATIC_CACHE = "signal-static-v7";
 const APP_BADGE_MESSAGE = "signal:update-app-badge";
 const NEWS_NOTIFICATION_TAG = "signal-new-stories";
 const STATIC_ASSETS = [
-  "/favicon.svg",
   "/manifest.webmanifest",
-  "/icons/signal-180.png",
-  "/icons/signal-192.png",
-  "/icons/signal-512.png",
+  "/icons/signal-medallion-64.png",
+  "/icons/signal-medallion-180.png",
+  "/icons/signal-medallion-192.png",
+  "/icons/signal-medallion-512.png",
+  "/icons/signal-medallion-maskable-192.png",
+  "/icons/signal-medallion-maskable-512.png",
   "/icons/signal-notification-96.png",
 ];
 
@@ -39,7 +41,6 @@ self.addEventListener("fetch", (event) => {
 
   const isStaticAsset = url.pathname.startsWith("/assets/")
     || url.pathname.startsWith("/icons/")
-    || url.pathname === "/favicon.svg"
     || url.pathname === "/manifest.webmanifest";
   if (!isStaticAsset) return;
 
@@ -103,7 +104,7 @@ self.addEventListener("push", (event) => {
   const operations = [
     self.registration.showNotification(payload.title || "New stories in Signal", {
       body: payload.body || "Fresh coverage is ready in your briefing.",
-      icon: payload.icon || "/icons/signal-192.png",
+      icon: payload.icon || "/icons/signal-medallion-192.png",
       badge: payload.badge || "/icons/signal-notification-96.png",
       tag: NEWS_NOTIFICATION_TAG,
       renotify: false,
