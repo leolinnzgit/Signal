@@ -12,7 +12,7 @@ const serviceWorker = await readFile(
   "utf8",
 );
 const notificationBadge = await readFile(
-  new URL("../public/icons/signal-notification-96.png", import.meta.url),
+  new URL("../public/icons/signal-notification-medallion-96.png", import.meta.url),
 );
 const pushNotificationService = await readFile(
   new URL("../Signal.Server/Services/PushNotificationService.cs", import.meta.url),
@@ -112,8 +112,8 @@ test("handles background push notifications and badge updates", () => {
 });
 
 test("uses a dedicated transparent Android notification badge", () => {
-  assert.match(serviceWorker, /badge: payload\.badge \|\| "\/icons\/signal-notification-96\.png"/);
-  assert.match(pushNotificationService, /badge = "\/icons\/signal-notification-96\.png"/);
+  assert.match(serviceWorker, /badge: payload\.badge \|\| "\/icons\/signal-notification-medallion-96\.png"/);
+  assert.match(pushNotificationService, /badge = "\/icons\/signal-notification-medallion-96\.png"/);
   assert.equal(notificationBadge.readUInt32BE(16), 96);
   assert.equal(notificationBadge.readUInt32BE(20), 96);
   assert.equal(notificationBadge[25], 6);

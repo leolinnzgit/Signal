@@ -125,7 +125,7 @@ public sealed class PushNotificationService(
             url = message.Url,
             badgeCount = Math.Clamp(message.BadgeCount, 0, 99),
             icon = "/icons/signal-medallion-192.png",
-            badge = "/icons/signal-notification-96.png",
+            badge = "/icons/signal-notification-medallion-96.png",
         });
         var delivered = 0;
         var stale = new List<UserPushSubscription>();
