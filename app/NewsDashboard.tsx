@@ -864,7 +864,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const storyListElement = useRef<HTMLOListElement>(null);
   const pendingPinnedTopicScroll = useRef<string | null>(null);
   const readerCloseButton = useRef<HTMLButtonElement>(null);
-  const readerTrigger = useRef<HTMLAnchorElement | null>(null);
+  const readerTrigger = useRef<HTMLElement | null>(null);
   const readerRequestSequence = useRef(0);
   const topicRemovalCancelButton = useRef<HTMLButtonElement>(null);
   const topicRemovalTrigger = useRef<HTMLElement | null>(null);
@@ -2544,7 +2544,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     void loadHistoryPage(feedView, "", 0);
   }
 
-  function openArticleReader(article: FollowedArticle, trigger: HTMLAnchorElement) {
+  function openArticleReader(article: FollowedArticle, trigger: HTMLElement) {
     readerTrigger.current = trigger;
     markArticleRead(article);
     setReaderArticle(article);
@@ -3851,9 +3851,17 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                       onError={(event) => { event.currentTarget.hidden = true; }}
                     />
                   )}
-                  <ArrowIcon />
                 </a>
                 <div className="story-actions">
+                  <button
+                    type="button"
+                    className="open-story-button"
+                    onClick={(event) => openArticleReader(article, event.currentTarget)}
+                    aria-label={`Read ${article.title} in Signal`}
+                    title="Read in Signal"
+                  >
+                    <ArrowIcon />
+                  </button>
                   {onOpenDiscussion && (
                     <button
                       type="button"

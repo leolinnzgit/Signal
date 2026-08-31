@@ -2818,16 +2818,16 @@ button.local-weather {
 
 .story-link {
   display: grid;
-  grid-template-columns: 3.2rem minmax(0, 1fr) 2rem;
+  grid-template-columns: 3.2rem minmax(0, 1fr);
   gap: clamp(1rem, 3vw, 3.2rem);
   align-items: start;
   padding: clamp(1.8rem, 3.2vw, 3.2rem) 0;
-  padding-right: 3.4rem;
+  padding-right: 5.25rem;
   text-decoration: none;
 }
 
 .story-link.has-image {
-  grid-template-columns: 3.2rem minmax(0, 1fr) clamp(8rem, 16vw, 12rem) 2rem;
+  grid-template-columns: 3.2rem minmax(0, 1fr) clamp(8rem, 16vw, 12rem);
 }
 
 .story-image {
@@ -2840,14 +2840,16 @@ button.local-weather {
 
 .story-actions {
   position: absolute;
-  top: clamp(1.8rem, 3.2vw, 3.2rem);
+  top: 50%;
   right: 0;
   z-index: 1;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(2, 2.25rem);
   gap: 0.45rem;
+  transform: translateY(-50%);
 }
 
+.open-story-button,
 .bookmark-button,
 .share-button,
 .comment-button {
@@ -2880,6 +2882,8 @@ button.local-weather {
 .share-button:focus-visible,
 .comment-button:hover,
 .comment-button:focus-visible,
+.open-story-button:hover,
+.open-story-button:focus-visible,
 .bookmark-button:hover,
 .bookmark-button.active { border-color: var(--red); color: var(--red); }
 .bookmark-button:disabled,
@@ -2923,9 +2927,10 @@ button.local-weather {
 }
 
 .story-link p { max-width: 760px; margin: 0.8rem 0 0; font-size: 0.89rem; line-height: 1.6; color: var(--text-body); }
-.arrow { padding-top: 0.1rem; font-size: 1.5rem; color: var(--red); transition: transform 180ms ease; }
+.arrow { font-size: 1.15rem; color: var(--red); transition: transform 180ms ease; }
 .story-link:hover h3 { color: var(--red); }
-.story-link:hover .arrow { transform: translate(3px, -3px); }
+.open-story-button:hover .arrow,
+.open-story-button:focus-visible .arrow { transform: translate(2px, -2px); }
 
 .history-load-more {
   display: flex;
@@ -4292,11 +4297,12 @@ footer a { color: var(--paper); text-decoration: none; }
   .story-link { grid-template-columns: 2rem minmax(0, 1fr); gap: 0.7rem; }
   .story-link.has-image { grid-template-columns: 2rem minmax(0, 1fr) 5.5rem; }
   .story-image { grid-column: 3; grid-row: 1; aspect-ratio: 1; }
-  .story-link { padding-right: 2.8rem; }
+  .story-link { padding-right: 4.6rem; }
+  .story-actions { grid-template-columns: repeat(2, 2rem); }
+  .open-story-button,
   .bookmark-button,
   .share-button,
   .comment-button { width: 2rem; height: 2rem; }
-  .story-link .arrow { display: none; }
   .story-link p { display: none; }
   .story-meta { flex-wrap: wrap; row-gap: 0.3rem; }
   .article-reader-backdrop { padding: 0; }
