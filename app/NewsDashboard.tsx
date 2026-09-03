@@ -192,6 +192,8 @@ export type NewsPreferences = {
   limit: number;
   storyTitleSize: StoryTitleSize;
   topicHeaderSize: StoryTitleSize;
+  showTopicFiltersWhenPinned: boolean;
+  showSourceFiltersWhenPinned: boolean;
   refreshMinutes: number;
   emailSummaryEnabled: boolean;
   articleRetentionDays: number;
@@ -340,6 +342,8 @@ const DEFAULTS: NewsPreferences = {
   limit: 20,
   storyTitleSize: "large",
   topicHeaderSize: "large",
+  showTopicFiltersWhenPinned: true,
+  showSourceFiltersWhenPinned: true,
   refreshMinutes: 15,
   emailSummaryEnabled: false,
   articleRetentionDays: 30,
@@ -646,6 +650,12 @@ function normalizePreferences(saved: Partial<NewsPreferences> & { topic?: string
     topicHeaderSize: saved.topicHeaderSize === "small" || saved.topicHeaderSize === "medium" || saved.topicHeaderSize === "large"
       ? saved.topicHeaderSize
       : DEFAULTS.topicHeaderSize,
+    showTopicFiltersWhenPinned: typeof saved.showTopicFiltersWhenPinned === "boolean"
+      ? saved.showTopicFiltersWhenPinned
+      : DEFAULTS.showTopicFiltersWhenPinned,
+    showSourceFiltersWhenPinned: typeof saved.showSourceFiltersWhenPinned === "boolean"
+      ? saved.showSourceFiltersWhenPinned
+      : DEFAULTS.showSourceFiltersWhenPinned,
     refreshMinutes: [0, 5, 15, 30, 60, 120, 180, 240, 300, 360, 420, 480].includes(Number(saved.refreshMinutes))
       ? Number(saved.refreshMinutes)
       : DEFAULTS.refreshMinutes,
@@ -3322,6 +3332,33 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               ))}
             </div>
           </div>
+          <div className="pinned-filter-settings" role="group" aria-labelledby="pinned-filter-settings-label">
+            <span id="pinned-filter-settings-label">Pinned filters while scrolling</span>
+            <div>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={preferences.showTopicFiltersWhenPinned}
+                  onChange={(event) => setPreferences((current) => ({
+                    ...current,
+                    showTopicFiltersWhenPinned: event.target.checked,
+                  }))}
+                />
+                <span><strong>Topics</strong><small>Keep the topic selector in the pinned area.</small></span>
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={preferences.showSourceFiltersWhenPinned}
+                  onChange={(event) => setPreferences((current) => ({
+                    ...current,
+                    showSourceFiltersWhenPinned: event.target.checked,
+                  }))}
+                />
+                <span><strong>Sources</strong><small>Keep the source selector in the pinned area.</small></span>
+              </label>
+            </div>
+          </div>
           {articleStore && (
             <div className="history-retention-setting">
               <label htmlFor="article-retention">Delete unbookmarked stories after</label>
@@ -3586,7 +3623,14 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         )}
 
         {preferences.topics.length > 0 && (
-          <div className="filter-stack" ref={filterStackElement}>
+          <div
+            className={[
+              "filter-stack",
+              preferences.showTopicFiltersWhenPinned ? "" : "hide-topic-filters-when-pinned",
+              preferences.showSourceFiltersWhenPinned ? "" : "hide-source-filters-when-pinned",
+            ].filter(Boolean).join(" ")}
+            ref={filterStackElement}
+          >
             <div className="filter-sticky-heading">
               <div className="filter-sticky-title">
                 <span>{feedView === "latest" ? "Current topic" : feedView}</span>

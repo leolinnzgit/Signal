@@ -224,6 +224,8 @@ await using (var scope = app.Services.CreateAsyncScope())
             "StoryLimit" INTEGER NOT NULL,
             "StoryTitleSize" TEXT NOT NULL DEFAULT 'large',
             "TopicHeaderSize" TEXT NOT NULL DEFAULT 'large',
+            "ShowTopicFiltersWhenPinned" INTEGER NOT NULL DEFAULT 1,
+            "ShowSourceFiltersWhenPinned" INTEGER NOT NULL DEFAULT 1,
             "RefreshMinutes" INTEGER NOT NULL,
             "EmailSummaryEnabled" INTEGER NOT NULL DEFAULT 0,
             "ArticleRetentionDays" INTEGER NOT NULL DEFAULT 30,
@@ -416,6 +418,24 @@ await using (var scope = app.Services.CreateAsyncScope())
         {
             await database.Database.ExecuteSqlRawAsync(
                 "ALTER TABLE \"UserNewsPreferences\" ADD COLUMN \"TopicHeaderSize\" TEXT NOT NULL DEFAULT 'large';");
+        }
+
+        await using var showTopicFiltersColumnCheck = database.Database.GetDbConnection().CreateCommand();
+        showTopicFiltersColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('UserNewsPreferences') WHERE name = 'ShowTopicFiltersWhenPinned';";
+        var showTopicFiltersColumnExists = Convert.ToInt32(await showTopicFiltersColumnCheck.ExecuteScalarAsync()) > 0;
+        if (!showTopicFiltersColumnExists)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"UserNewsPreferences\" ADD COLUMN \"ShowTopicFiltersWhenPinned\" INTEGER NOT NULL DEFAULT 1;");
+        }
+
+        await using var showSourceFiltersColumnCheck = database.Database.GetDbConnection().CreateCommand();
+        showSourceFiltersColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('UserNewsPreferences') WHERE name = 'ShowSourceFiltersWhenPinned';";
+        var showSourceFiltersColumnExists = Convert.ToInt32(await showSourceFiltersColumnCheck.ExecuteScalarAsync()) > 0;
+        if (!showSourceFiltersColumnExists)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"UserNewsPreferences\" ADD COLUMN \"ShowSourceFiltersWhenPinned\" INTEGER NOT NULL DEFAULT 1;");
         }
 
         await using var trendRegionsColumnCheck = database.Database.GetDbConnection().CreateCommand();

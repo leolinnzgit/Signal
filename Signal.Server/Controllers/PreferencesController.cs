@@ -81,6 +81,8 @@ public sealed class PreferencesController(
         preferences.StoryLimit = storyLimit;
         preferences.StoryTitleSize = NormalizeStoryTitleSize(request.StoryTitleSize);
         preferences.TopicHeaderSize = NormalizeStoryTitleSize(request.TopicHeaderSize);
+        preferences.ShowTopicFiltersWhenPinned = request.ShowTopicFiltersWhenPinned ?? preferences.ShowTopicFiltersWhenPinned;
+        preferences.ShowSourceFiltersWhenPinned = request.ShowSourceFiltersWhenPinned ?? preferences.ShowSourceFiltersWhenPinned;
         preferences.RefreshMinutes = request.RefreshMinutes;
         preferences.EmailSummaryEnabled = request.EmailSummaryEnabled;
         preferences.ArticleRetentionDays = NormalizeRetentionDays(request.ArticleRetentionDays);
@@ -194,6 +196,8 @@ public sealed class PreferencesController(
         NormalizeStoryLimit(preferences.StoryLimit),
         NormalizeStoryTitleSize(preferences.StoryTitleSize),
         NormalizeStoryTitleSize(preferences.TopicHeaderSize),
+        preferences.ShowTopicFiltersWhenPinned,
+        preferences.ShowSourceFiltersWhenPinned,
         AllowedRefreshMinutes.Contains(preferences.RefreshMinutes) ? preferences.RefreshMinutes : 15,
         preferences.EmailSummaryEnabled,
         NormalizeRetentionDays(preferences.ArticleRetentionDays),
@@ -432,6 +436,8 @@ public sealed record NewsPreferencesResponse(
     int Limit,
     string StoryTitleSize,
     string TopicHeaderSize,
+    bool ShowTopicFiltersWhenPinned,
+    bool ShowSourceFiltersWhenPinned,
     int RefreshMinutes,
     bool EmailSummaryEnabled,
     int ArticleRetentionDays,
@@ -447,6 +453,8 @@ public sealed record NewsPreferencesResponse(
         20,
         "large",
         "large",
+        true,
+        true,
         15,
         false,
         30,
@@ -475,6 +483,8 @@ public sealed record NewsPreferencesRequest(
     [Range(10, 500)] int Limit,
     string? StoryTitleSize,
     string? TopicHeaderSize,
+    bool? ShowTopicFiltersWhenPinned,
+    bool? ShowSourceFiltersWhenPinned,
     int RefreshMinutes,
     bool EmailSummaryEnabled,
     int ArticleRetentionDays,
