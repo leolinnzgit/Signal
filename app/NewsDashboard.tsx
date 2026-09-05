@@ -359,6 +359,7 @@ const STORY_LIMIT_OPTIONS = [10, ...Array.from({ length: 25 }, (_, index) => (in
 const STORAGE_KEY = "signal-news-preferences";
 const PENDING_STORAGE_KEY = "signal-news-preferences-pending";
 const CONTROLS_STORAGE_KEY = "signal-briefing-controls-expanded";
+const FLOATING_NAVIGATION_SIDE_KEY = "signal-floating-navigation-side";
 const CONTROLS_HIDDEN_STORAGE_KEY = "signal-briefing-controls-hidden";
 const THEME_STORAGE_KEY = "signal-color-theme";
 const ALL_TOPICS = "all";
@@ -850,6 +851,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [controlsHidden, setControlsHidden] = useState(false);
   const [followingTopicsExpanded, setFollowingTopicsExpanded] = useState(false);
   const [backToTopVisible, setBackToTopVisible] = useState(false);
+  const [floatingNavigationSide, setFloatingNavigationSide] = useState<"left" | "right">("left");
   const [readerArticle, setReaderArticle] = useState<FollowedArticle | null>(null);
   const [readerContent, setReaderContent] = useState<ReaderContent>({ status: "idle" });
   const [topicPendingRemoval, setTopicPendingRemoval] = useState<string | null>(null);
@@ -1023,6 +1025,24 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     setControlsExpanded(localStorage.getItem(CONTROLS_STORAGE_KEY) === "true");
     setControlsHidden(localStorage.getItem(CONTROLS_HIDDEN_STORAGE_KEY) === "true");
   }, []);
+
+  useEffect(() => {
+    try {
+      setFloatingNavigationSide(localStorage.getItem(FLOATING_NAVIGATION_SIDE_KEY) === "right" ? "right" : "left");
+    } catch {
+      // The controls still work when browser storage is unavailable.
+    }
+  }, []);
+
+  function switchFloatingNavigationSide() {
+    const next = floatingNavigationSide === "left" ? "right" : "left";
+    setFloatingNavigationSide(next);
+    try {
+      localStorage.setItem(FLOATING_NAVIGATION_SIDE_KEY, next);
+    } catch {
+      // Keep the chosen side for this session even if it cannot be saved.
+    }
+  }
 
   useEffect(() => {
     if (!pushNotificationStore) return;
@@ -4330,8 +4350,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         </div>
       )}
 
-      {(controlsHidden || previousTopic || nextUnreadTopic || backToTopVisible) && (
-        <nav className="floating-navigation" aria-label="Quick page navigation">
+        <nav className={`floating-navigation floating-navigation-${floatingNavigationSide}`} aria-label="Quick page navigation">
           {controlsHidden && (
             <button
               type="button"
@@ -4375,8 +4394,20 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               <span aria-hidden="true">&#8593;</span>
             </a>
           )}
+          <button
+            type="button"
+            className="floating-switch-side"
+            onClick={switchFloatingNavigationSide}
+            aria-label={`Move floating controls to the ${floatingNavigationSide === "left" ? "right" : "left"}`}
+            title={`Move controls to the ${floatingNavigationSide === "left" ? "right" : "left"}`}
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d={floatingNavigationSide === "left"
+                ? "M20 4v16M4 12h11m-5-5 5 5-5 5"
+                : "M4 4v16M20 12H9m5-5-5 5 5 5"} />
+            </svg>
+          </button>
         </nav>
-      )}
       <footer><p><span className="footer-dot" /> SIGNAL gathers public reporting and sends you to the original publisher.</p></footer>
     </main>
   );

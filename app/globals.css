@@ -2995,9 +2995,10 @@ button.local-weather {
 .history-load-more span { color: var(--text-muted); font-size: 0.68rem; }
 
 .floating-navigation {
+  --floating-navigation-inset: clamp(1rem, 3vw, 2rem);
   position: fixed;
-  left: clamp(1rem, 3vw, 2rem);
-  bottom: clamp(1rem, 3vw, 2rem);
+  left: max(var(--floating-navigation-inset), env(safe-area-inset-left, 0px));
+  bottom: max(var(--floating-navigation-inset), env(safe-area-inset-bottom, 0px));
   z-index: 30;
   display: flex;
   flex-direction: column;
@@ -3005,6 +3006,12 @@ button.local-weather {
   gap: 0.65rem;
 }
 
+.floating-navigation-right {
+  left: auto;
+  right: max(var(--floating-navigation-inset), env(safe-area-inset-right, 0px));
+}
+
+.floating-switch-side,
 .floating-back-to-top,
 .floating-add-topic,
 .floating-previous-topic,
@@ -3025,6 +3032,17 @@ button.local-weather {
   transition: transform 180ms ease, background 180ms ease, border-color 180ms ease, color 180ms ease;
 }
 
+.floating-switch-side { cursor: pointer; background: var(--page-background); color: var(--page-text); }
+.floating-switch-side svg {
+  width: 1.3rem;
+  height: 1.3rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .floating-add-topic {
   border-color: var(--red);
   background: var(--page-background);
@@ -3042,6 +3060,7 @@ button.local-weather {
 }
 
 @keyframes back-to-top-in { from { opacity: 0; } to { opacity: 1; } }
+.floating-switch-side:hover,
 .floating-back-to-top:hover,
 .floating-add-topic:hover,
 .floating-previous-topic:hover,
@@ -3054,6 +3073,7 @@ button.local-weather {
 
 .floating-previous-topic:hover,
 .floating-next-unread:hover { border-color: var(--page-text); background: var(--page-text); }
+.floating-switch-side:focus-visible,
 .floating-add-topic:focus-visible,
 .floating-previous-topic:focus-visible,
 .floating-next-unread:focus-visible,
@@ -4350,7 +4370,8 @@ footer a { color: var(--paper); text-decoration: none; }
   .article-reader-actions a { padding: 0.55rem 0.65rem; }
   .article-reader h2 { font-size: 1.3rem; }
   .article-reader-header > p { display: none; }
-  .floating-navigation { left: 1rem; bottom: 1rem; }
+  .floating-navigation { --floating-navigation-inset: 1rem; }
+  .floating-switch-side,
   .floating-back-to-top,
   .floating-add-topic,
   .floating-previous-topic,
