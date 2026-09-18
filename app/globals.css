@@ -4019,7 +4019,7 @@ button.local-weather {
 .message-list {
   display: flex;
   min-height: 12rem;
-  flex: 1 1 auto;
+  flex: 1 0 auto;
   flex-direction: column;
   justify-content: flex-end;
   gap: 0.75rem;
@@ -4027,6 +4027,7 @@ button.local-weather {
   padding: 0;
   list-style: none;
 }
+.message-list > li { flex-shrink: 0; }
 .message-list > li:not(.social-empty) { max-width: 82%; border: 1px solid var(--line); padding: 0.65rem 0.8rem; }
 .message-list > li.mine { align-self: flex-end; border-color: var(--red); background: rgba(200, 63, 50, 0.09); }
 .message-list > li.theirs { align-self: flex-start; background: var(--input-background); }

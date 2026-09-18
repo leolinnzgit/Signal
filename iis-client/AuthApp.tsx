@@ -941,8 +941,13 @@ function CommunityPanel({
         }
         latestConversationMessageId.current = newestId;
       }
-      setMessages((current) => beforeId ? [...page.messages, ...current] : page.messages);
-      setMessagesHaveMore(page.hasMore);
+      setMessages((current) => {
+        if (!beforeId && !quiet) return page.messages;
+        const merged = new Map(current.map((message) => [message.id, message]));
+        for (const message of page.messages) merged.set(message.id, message);
+        return Array.from(merged.values()).sort((left, right) => left.id - right.id);
+      });
+      if (!quiet) setMessagesHaveMore(page.hasMore);
       if (!beforeId) {
         setOverview((current) => current ? {
           ...current,
