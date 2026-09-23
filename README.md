@@ -14,32 +14,53 @@ IIS for a persistent personal deployment.
 
 ## Highlights
 
-- Follow any number of topics and move quickly to the next unread topic.
+- Follow any number of topics and move quickly to the next unread topic using
+  a floating navigation bar with previous topic, next unread, back-to-top,
+  and add-topic shortcuts that can be switched between sides of the viewport.
 - Collect stories from Google News, GDELT, and up to 20 custom RSS or Atom
-  publisher feeds.
+  publisher feeds with source-balanced selection that prevents aggregators
+  from crowding out direct publisher content.
 - Deduplicate feeds and articles before they enter the briefing.
 - Refresh topics on independent schedules from 5 minutes to 8 hours, or
   refresh them manually.
+- Receive Web Push notifications when scheduled refreshes find new stories,
+  and see unread counts on the OS app badge.
 - Store article history in SQLite with topic and source filters, pagination,
-  and search.
+  and multi-term search.
 - Bookmark stories indefinitely while automatically purging unbookmarked
-  history on a configurable schedule.
+  history on a configurable schedule (from 1 day to 1 year).
 - Track read status and show unread indicators whenever a topic receives new
   stories.
 - Read supported articles inside Signal, with an automatic fallback to the
   publisher's original page when extraction is blocked or paywalled.
 - Display feed images when publishers provide them.
-- Suggest publishers and current Google Trends from English- and
-  Mandarin-speaking regions.
+- Discuss articles with other Signal users through per-article comment
+  threads and a site-wide latest-comments feed.
+- Find friends by email, send and accept friend requests, and see real-time
+  online presence.
+- Send direct messages to friends with an emoji picker, paginated message
+  history, a Web Audio chime on incoming messages, and a minimizable floating
+  chat dock.
+- Share stories directly to a friend's conversation. If the friend is
+  offline, Signal automatically sends an email notification.
+- Upload a profile photo or capture one from a device camera, with
+  client-side square crop to 512×512 JPEG and server-side binary validation.
+- Suggest publishers and current Google Trends from up to 20 English- and
+  Mandarin-speaking regions with configurable trend counts per region.
 - Show current market pricing for matching topics, with manual ticker
   overrides, including qualified NZX symbols such as `AIR:NZX`.
-- Show current conditions and a seven-day forecast for a saved weather
-  location.
+- Show current conditions and a seven-day forecast for a weather location
+  searched by city or region worldwide, or from device GPS.
+- Display a secondary time zone clock searched from cities worldwide via
+  Open-Meteo geocoding.
 - Send a formatted email briefing after scheduled refreshes.
-- Adjust story and topic heading sizes, switch between light and dark themes,
-  and install Signal as a progressive web app.
+- Adjust story and topic heading sizes, independently toggle pinned topic and
+  source filter visibility, switch between light and dark themes, and install
+  Signal as a progressive web app with platform-specific installation help.
+- Automatically detect new deployments and reload the client.
 - Protect each account with confirmed email, secure cookies, CSRF protection,
-  password reset, login lockout, and rate-limited account endpoints.
+  password reset, login lockout, rate-limited account endpoints, and optional
+  Google account sign-in with password linking.
 
 ## Technology
 
@@ -51,6 +72,9 @@ IIS for a persistent personal deployment.
 | Data | Entity Framework Core and SQLite |
 | News | Google News, GDELT, RSS, and Atom |
 | Market data | Twelve Data |
+| Weather & Clocks | Open-Meteo weather and geocoding APIs |
+| Push notifications | VAPID Web Push (RFC 8291/8292) and OS App Badging API |
+| Social & Messaging | Direct messages, friend relationships, presence, and comments |
 | Email | Gmail API OAuth, SMTP, or local mail-drop |
 | Hosting | IIS with optional Tailscale Funnel access |
 | Installability | Web app manifest and service worker |
@@ -60,10 +84,13 @@ IIS for a persistent personal deployment.
 ```text
 iis-client/                         React client used by the IIS application
 Signal.Server/                      ASP.NET Core API, scheduler, and web host
-Signal.Server.TopicMatcher.Tests/   Server-side topic matching tests
+Signal.Server.TopicMatcher.Tests/   Server-side integration and unit tests
 Signal.GmailSetup/                  Windows Gmail OAuth setup utility
 public/                             Shared images, icons, manifest, service worker
-tests/                              Front-end and rendered HTML tests
+tests/                              Client unit and rendered HTML tests
+scripts/                            Configuration helper scripts (Google Login)
+work/                               IIS deployment, backup, and operational scripts
+build/                              Build plugins for earlier Sites/Vinext platform
 app/                                Earlier OpenAI Sites/Vinext implementation
 ```
 
@@ -156,7 +183,8 @@ prompt. The script stores it only in the preserved IIS
 
 Existing password accounts must sign in first and use **Connect Google** in
 Account settings. Signal deliberately does not link accounts solely because
-their email addresses match.
+their email addresses match. Accounts created via Google sign-in can also set
+an account password in settings to enable direct password login.
 
 ### Gmail API OAuth
 
@@ -173,6 +201,13 @@ The utility expects a Google OAuth client JSON file of type **Desktop app**. It
 uses a loopback browser authorization flow, requests Gmail send-only access,
 sends a test message, and stores the refresh token encrypted with the same
 machine-protected ASP.NET Core Data Protection keys used by Signal.
+
+To launch the setup utility easily on Windows, run `Configure Signal Gmail.cmd`
+with the path to your client secret JSON file:
+
+```cmd
+"Configure Signal Gmail.cmd" "C:\path\to\client_secret.json"
+```
 
 The included setup utility is intended for an IIS installation at
 `C:\inetpub\Signal`. Its generated credential file belongs in `App_Data` and
@@ -194,17 +229,40 @@ Smtp__FromAddress=your-address@example.com
 Smtp__FromName=Signal
 ```
 
+For Gmail accounts using an App Password, helper scripts are provided in `work/`:
+- `work/configure-signal-gmail.ps1` (command line)
+- `work/configure-signal-gmail-gui.ps1` (Windows graphical interface)
+
 Recycle the application pool after changing its environment variables.
 
 ## Validation
 
-Run the client type check, production build, and automated tests:
+Run the client type check, production build, client unit tests, and server integration tests:
 
 ```powershell
 npm run iis:typecheck
 npm run iis:client:build
-dotnet test Signal.Server.TopicMatcher.Tests
+npm run test:client
+npm run test:server
 ```
+
+Or run all verification tests in a single command:
+
+```powershell
+npm run iis:test
+```
+
+- **Client unit tests** (`npm run test:client`): Verify app badge normalization,
+  Web Share link resolution and HTTPS enforcement, profile photo square crop
+  geometry and file type limits, IANA timezone validation, publisher suggestion
+  matching, and token/phrase matching.
+- **Server test suite** (`npm run test:server` or `dotnet run --project Signal.Server.TopicMatcher.Tests`): Integration and unit
+  tests covering core subsystems: topic relevance matching, feed URL
+  canonicalization and tracking stripping, profile photo binary validation,
+  market ticker parsing and Twelve Data quote handling, Google Trends regional
+  caching, article reader extraction and redirects, SQLite multi-term history
+  search, and background topic refresh scheduling with cross-device version cursors.
+  (`dotnet test Signal.Server.TopicMatcher.Tests` is also supported to verify compilation).
 
 The earlier Sites/Vinext implementation also has its own validation command:
 
@@ -227,6 +285,7 @@ The included workflow builds and deploys on the IIS machine. Install:
 - Python 3, used to create transactionally consistent SQLite backups
 - IIS, including the IIS Management Console and PowerShell management tools
 - The .NET 10 Hosting Bundle, which installs ASP.NET Core Module V2 for IIS
+- 7-Zip (`C:\Program Files\7-Zip\7z.exe`), used for encrypted disaster-recovery backups
 
 Install the Hosting Bundle after IIS is enabled. If IIS was installed after the
 Hosting Bundle, repair or reinstall the Hosting Bundle, then restart the server
@@ -318,10 +377,14 @@ npm run iis:deploy
 ```
 
 For a previously validated `iis-publish` package, `npm run iis:deploy` is the
-only required deployment command. `Update Signal Website.cmd` provides the same
-deployment path through a double-clickable Windows command file.
+recommended routine deployment command. It runs `work/deploy-signal-without-uac.ps1`
+using `app_offline.htm` without requiring administrative elevation.
 
-During each deployment, `work/deploy-signal-without-uac.ps1`:
+Alternatively, `Update Signal Website.cmd` provides a double-clickable Windows command
+file that invokes `work\setup-signal-iis.ps1 -DeployUpdate` (which stops and restarts
+the application pool and requests administrator elevation).
+
+During each deployment, the update script:
 
 - places `app_offline.htm` so IIS shuts the application down cleanly;
 - waits for the server assembly to be released;
@@ -383,6 +446,62 @@ powershell -NoProfile -ExecutionPolicy Bypass -File `
 This command requests administrator approval and registers the
 `Signal IIS Keepalive` scheduled task as `SYSTEM`.
 
+To ensure the IIS application pool stays running continuously without idle timeouts
+and starts automatically when IIS boots:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File `
+  .\work\configure-signal-background-refresh.ps1
+```
+
+This sets `startMode: AlwaysRunning`, `processModel.idleTimeout: 00:00:00`, and
+`preloadEnabled: true` on the `Signal/` IIS application.
+
+### Disaster recovery backups
+
+Routine deployments create automatic unencrypted SQLite database backups in
+`C:\inetpub\Signal\App_Data\backups`. For full-system disaster recovery, run
+`New-SignalDisasterRecoveryBackup.ps1` from an elevated prompt:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File `
+  .\work\New-SignalDisasterRecoveryBackup.ps1
+```
+
+This script prompts for an encryption passphrase (minimum 16 characters) and
+creates a transactionally consistent, AES-256 encrypted 7-Zip archive containing
+the entire `App_Data` folder—including the SQLite database, machine-wide Data
+Protection keys, and OAuth credentials. Archives are stored in:
+
+```text
+D:\Backup\Signal\DisasterRecovery
+```
+
+### Security and permissions hardening
+
+To harden permissions on the operational data directory, an administrator can run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File `
+  .\work\Set-SignalDataAcl.ps1
+```
+
+This script restricts access to `C:\inetpub\Signal\App_Data` and its backups folder
+so that only `IIS AppPool\SignalAppPool`, `NT AUTHORITY\SYSTEM`, `Administrators`,
+and the designated deployment user have access, removing inheritance and any broader
+user access.
+
+### Tailscale Funnel and tunnel recovery
+
+When hosting Signal publicly via Tailscale Funnel (`https://signal.tail445c22.ts.net/`),
+routing issues may occasionally occur after Windows network or adapter changes. Helper
+scripts in `work/` assist with diagnosing and fixing tunnel connectivity:
+
+- `work/Repair-SignalTunnelRouting.ps1`: Configures the Tailscale Windows service with
+  `TS_BIND_TO_INTERFACE_BY_ROUTE=true` and restarts the service.
+- `work/Restore-SignalTunnel.ps1`: Restarts the Tailscale service, inspects funnel status,
+  and tests HTTPS responses from the public funnel domain.
+
 ### Production configuration and secrets
 
 Put production-only settings in the preserved
@@ -429,7 +548,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File `
   .\work\setup-signal-iis.ps1 -StartOnly
 ```
 
-
 ## Operational notes
 
 - Scheduled refresh state is stored separately for each user and topic.
@@ -437,9 +555,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File `
 - Article reader availability depends on the publisher. When a publisher
   blocks extraction or does not expose enough readable content, Signal opens
   the original article instead.
-- Weather location and market ticker overrides are saved per user.
-- HTTPS is required for production authentication cookies and installable PWA
-  behavior.
+- User preferences are saved per user in SQLite, including weather location,
+  secondary time zone, market ticker overrides, pinned filter visibility,
+  trend regions, and story limits.
+- Web Push notifications and subscriptions are stored per user and endpoint,
+  automatically pruning expired endpoints.
+- Direct messages and friend relationships are persisted in SQLite, with
+  automatic offline email dispatch when sharing stories with inactive friends.
+- HTTPS is required for production authentication cookies, Web Push, and installable
+  PWA behavior.
 
 ## Original Sites build
 
