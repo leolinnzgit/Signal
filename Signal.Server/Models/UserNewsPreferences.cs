@@ -25,6 +25,8 @@ public sealed class UserNewsPreferences
 
     public bool EmailSummaryEnabled { get; set; }
 
+    public bool PushNewsTitlesEnabled { get; set; } = true;
+
     public int ArticleRetentionDays { get; set; } = 30;
 
     public bool GoogleEnabled { get; set; } = true;

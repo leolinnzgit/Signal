@@ -95,7 +95,7 @@ public sealed class TopicRefreshService(
             var outcomes = await FetchAsync(preferences, topics, cancellationToken);
             var refreshedAt = DateTime.UtcNow;
             var selectedArticles = SelectArticles(outcomes, topics, preferences.StoryLimit);
-            var newlyAvailableTopicKeys = await StoreArticlesAsync(
+            var (newlyAvailableTopicKeys, newArticles) = await StoreArticlesAsync(
                 userId,
                 selectedArticles,
                 refreshedAt,
@@ -115,6 +115,8 @@ public sealed class TopicRefreshService(
                     await pushNotificationService.SendNewStoriesAsync(
                         userId,
                         newlyAvailableTopicKeys,
+                        newArticles,
+                        preferences.PushNewsTitlesEnabled,
                         cancellationToken);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -340,7 +342,7 @@ public sealed class TopicRefreshService(
         }
     }
 
-    private async Task<HashSet<string>> StoreArticlesAsync(
+    internal async Task<(HashSet<string> TopicKeys, List<StoredNewsArticle> NewArticles)> StoreArticlesAsync(
         string userId,
         IReadOnlyCollection<TopicBriefingArticle> articles,
         DateTime refreshedAt,
@@ -356,6 +358,7 @@ public sealed class TopicRefreshService(
         }
         var byUrl = existing.ToDictionary(item => item.Url, StringComparer.OrdinalIgnoreCase);
         var newlyAvailableTopicKeys = new HashSet<string>(StringComparer.Ordinal);
+        var newArticles = new List<StoredNewsArticle>();
 
         foreach (var article in articles)
         {
@@ -369,6 +372,7 @@ public sealed class TopicRefreshService(
                     FirstSeenAtUtc = refreshedAt,
                 };
                 database.StoredNewsArticles.Add(stored);
+                newArticles.Add(stored);
                 byUrl[article.Url] = stored;
                 existingTopics = [];
             }
@@ -395,7 +399,7 @@ public sealed class TopicRefreshService(
             stored.LastSeenAtUtc = refreshedAt;
         }
         await database.SaveChangesAsync(cancellationToken);
-        return newlyAvailableTopicKeys;
+        return (newlyAvailableTopicKeys, newArticles);
     }
 
     private async Task UpdateStatesAsync(

@@ -73,8 +73,11 @@ self.addEventListener("message", (event) => {
   }
   if (count === 0) {
     operations.push(
-      self.registration.getNotifications({ tag: NEWS_NOTIFICATION_TAG })
-        .then((notifications) => notifications.forEach((notification) => notification.close())),
+      self.registration.getNotifications()
+        .then((notifications) => notifications
+          .filter((notification) => notification.tag === NEWS_NOTIFICATION_TAG
+            || notification.tag.startsWith(`${NEWS_NOTIFICATION_TAG}-`))
+          .forEach((notification) => notification.close())),
     );
   }
 
@@ -106,7 +109,9 @@ self.addEventListener("push", (event) => {
       body: payload.body || "Fresh coverage is ready in your briefing.",
       icon: payload.icon || "/icons/signal-medallion-192.png",
       badge: payload.badge || "/icons/signal-notification-medallion-96.png",
-      tag: NEWS_NOTIFICATION_TAG,
+      tag: typeof payload.tag === "string" && payload.tag.startsWith(`${NEWS_NOTIFICATION_TAG}-`)
+        ? payload.tag
+        : NEWS_NOTIFICATION_TAG,
       renotify: false,
       data: { url },
     }),

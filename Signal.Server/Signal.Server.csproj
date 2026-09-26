@@ -16,6 +16,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Signal.Server.TopicMatcher.Tests" />
     <Content Update="App_Data\.gitkeep" CopyToPublishDirectory="PreserveNewest" />
     <None Update="App_Data\README.txt" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>

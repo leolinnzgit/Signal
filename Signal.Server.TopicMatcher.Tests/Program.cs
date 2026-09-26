@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -8,6 +9,7 @@ using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Signal.Server.Data;
+using Signal.Server.Controllers;
 using Signal.Server.Models;
 using Signal.Server.Services;
 
@@ -256,6 +258,45 @@ await using (var historyDatabase = new SignalDbContext(historyOptions))
 
 Console.WriteLine("Article history search and filters passed cross-field, topic and source checks.");
 
+if (!new UserNewsPreferences().PushNewsTitlesEnabled || !NewsPreferencesResponse.Default.PushNewsTitlesEnabled)
+    throw new InvalidOperationException("News titles must be enabled by default for new accounts.");
+var oldPreferencesRequest = JsonSerializer.Deserialize<NewsPreferencesRequest>("""
+    {"Topics":[],"Sources":{"Google":true,"Gdelt":true,"RssFeeds":[]}}
+    """);
+if (oldPreferencesRequest?.PushNewsTitlesEnabled is not null)
+    throw new InvalidOperationException("Older clients must not overwrite the saved news title preference.");
+
+var notificationStories = new[]
+{
+    new StoredNewsArticle { Id = 101, Title = "Robots learn a new skill", Source = "Robot News" },
+    new StoredNewsArticle { Id = 102, Title = "Solar output rises", Source = "Energy News" },
+};
+var headlineMessages = PushNotificationService.BuildNewsMessages(
+    ["Robots", "Solar"], [.. notificationStories, notificationStories[0]], true, 2);
+if (headlineMessages.Length != 2
+    || headlineMessages[0].Title != notificationStories[0].Title
+    || headlineMessages[1].Title != notificationStories[1].Title
+    || headlineMessages[0].Body != "Robot News"
+    || headlineMessages.Select(message => message.Tag).Distinct().Count() != 2
+    || headlineMessages.Any(message => message.BadgeCount != 2 || message.Url != "/#top"))
+    throw new InvalidOperationException("Headline notifications lost titles, publisher, distinct tags or topic badge counts.");
+var summaryMessages = PushNotificationService.BuildNewsMessages(["Robots"], notificationStories, false, 1);
+if (summaryMessages.Length != 1
+    || summaryMessages[0].Title != "New stories about Robots"
+    || summaryMessages[0].Body != "Fresh coverage is available for Robots."
+    || summaryMessages[0].Tag != "signal-new-stories")
+    throw new InvalidOperationException("Disabling news titles did not retain topic summary notifications.");
+if (PushNotificationService.BuildNewsMessages(["Robots"], [], true, 1).Length != 0)
+    throw new InvalidOperationException("Headline mode sent a notification without a new story.");
+var largeMessage = PushNotificationService.BuildNewsMessages(["Robots"],
+    [new StoredNewsArticle { Id = long.MaxValue, Title = new string('新', 500), Source = new string('聞', 256) }], true, 100)[0];
+var largePayload = PushNotificationService.SerializeMessage(largeMessage);
+if (Encoding.UTF8.GetByteCount(largePayload) > 3993
+    || JsonDocument.Parse(largePayload).RootElement.GetProperty("title").GetString() != new string('新', 500))
+    throw new InvalidOperationException("A maximum-length Unicode headline exceeded the Web Push payload budget or lost its title.");
+
+Console.WriteLine("News notification titles, summary mode, defaults and payload size checks passed.");
+
 await using var scheduleConnection = new SqliteConnection("Data Source=:memory:");
 await scheduleConnection.OpenAsync();
 var scheduleOptions = new DbContextOptionsBuilder<SignalDbContext>()
@@ -312,6 +353,23 @@ await using (var scheduleDatabase = new SignalDbContext(scheduleOptions))
         new NullAccountEmailSender(),
         pushService,
         NullLogger<TopicRefreshService>.Instance);
+    var storedPreference = await scheduleDatabase.UserNewsPreferences.SingleAsync();
+    storedPreference.PushNewsTitlesEnabled = false;
+    await scheduleDatabase.SaveChangesAsync();
+    if (await scheduleDatabase.UserNewsPreferences.AsNoTracking().Select(item => item.PushNewsTitlesEnabled).SingleAsync())
+        throw new InvalidOperationException("The disabled news-title preference did not persist.");
+
+    var storedArticle = new TopicBriefingArticle("New headline", "https://example.com/new-headline", "Publisher",
+        DateTimeOffset.UtcNow, "", "", ["Robots", "Solar"], ["Google News"], false, false);
+    var firstStored = await refreshService.StoreArticlesAsync("schedule-user", [storedArticle, storedArticle], DateTime.UtcNow, CancellationToken.None);
+    if (firstStored.NewArticles.Count != 1 || firstStored.NewArticles[0].Id <= 0 || firstStored.TopicKeys.Count != 2)
+        throw new InvalidOperationException("A new story matched to multiple topics was not deduplicated for notifications.");
+    var repeatedStored = await refreshService.StoreArticlesAsync("schedule-user", [storedArticle], DateTime.UtcNow, CancellationToken.None);
+    if (repeatedStored.NewArticles.Count != 0 || repeatedStored.TopicKeys.Count != 0)
+        throw new InvalidOperationException("Refreshing existing stories produced duplicate notifications.");
+    var newTopicStored = await refreshService.StoreArticlesAsync("schedule-user", [storedArticle with { Topics = ["Robots", "Solar", "Energy"] }], DateTime.UtcNow, CancellationToken.None);
+    if (newTopicStored.NewArticles.Count != 0 || !newTopicStored.TopicKeys.SetEquals(["ENERGY"]))
+        throw new InvalidOperationException("Adding a topic to an existing story repeated its headline notification.");
     await refreshService.RefreshAsync("schedule-user", ["Robots"], false, CancellationToken.None);
 
     var robotState = await scheduleDatabase.TopicRefreshStates.SingleAsync(

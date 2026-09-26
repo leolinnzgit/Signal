@@ -228,6 +228,7 @@ await using (var scope = app.Services.CreateAsyncScope())
             "ShowSourceFiltersWhenPinned" INTEGER NOT NULL DEFAULT 1,
             "RefreshMinutes" INTEGER NOT NULL,
             "EmailSummaryEnabled" INTEGER NOT NULL DEFAULT 0,
+            "PushNewsTitlesEnabled" INTEGER NOT NULL DEFAULT 1,
             "ArticleRetentionDays" INTEGER NOT NULL DEFAULT 30,
             "GoogleEnabled" INTEGER NOT NULL,
             "GdeltEnabled" INTEGER NOT NULL,
@@ -385,6 +386,13 @@ await using (var scope = app.Services.CreateAsyncScope())
     try
     {
         await using var tickerColumnCheck = database.Database.GetDbConnection().CreateCommand();
+        tickerColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('UserNewsPreferences') WHERE name = 'PushNewsTitlesEnabled';";
+        if (Convert.ToInt32(await tickerColumnCheck.ExecuteScalarAsync()) == 0)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"UserNewsPreferences\" ADD COLUMN \"PushNewsTitlesEnabled\" INTEGER NOT NULL DEFAULT 1;");
+        }
+
         tickerColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('UserNewsPreferences') WHERE name = 'TickerOverridesJson';";
         var tickerColumnExists = Convert.ToInt32(await tickerColumnCheck.ExecuteScalarAsync()) > 0;
         if (!tickerColumnExists)

@@ -196,6 +196,7 @@ export type NewsPreferences = {
   showSourceFiltersWhenPinned: boolean;
   refreshMinutes: number;
   emailSummaryEnabled: boolean;
+  pushNewsTitlesEnabled: boolean;
   articleRetentionDays: number;
   tickerOverrides: Record<string, string>;
   weatherLocation: WeatherLocationPreference | null;
@@ -346,6 +347,7 @@ const DEFAULTS: NewsPreferences = {
   showSourceFiltersWhenPinned: true,
   refreshMinutes: 15,
   emailSummaryEnabled: false,
+  pushNewsTitlesEnabled: true,
   articleRetentionDays: 30,
   tickerOverrides: {},
   weatherLocation: null,
@@ -661,6 +663,7 @@ function normalizePreferences(saved: Partial<NewsPreferences> & { topic?: string
       ? Number(saved.refreshMinutes)
       : DEFAULTS.refreshMinutes,
     emailSummaryEnabled: saved.emailSummaryEnabled === true,
+    pushNewsTitlesEnabled: saved.pushNewsTitlesEnabled !== false,
     articleRetentionDays: [1, 7, 14, 30, 90, 180, 365].includes(Number(saved.articleRetentionDays))
       ? Number(saved.articleRetentionDays)
       : DEFAULTS.articleRetentionDays,
@@ -3465,6 +3468,22 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                           : "Enable"}
               </button>
             </div>
+          )}
+          {pushNotificationStore && (
+            <label className="email-summary-toggle">
+              <input
+                type="checkbox"
+                checked={preferences.pushNewsTitlesEnabled}
+                onChange={(event) => setPreferences((current) => ({
+                  ...current,
+                  pushNewsTitlesEnabled: event.target.checked,
+                }))}
+              />
+              <span>
+                <strong>Show each news title</strong>
+                <small>Send a separate phone notification for each new story, showing its title and publisher. Turn off for topic summaries. Applies to all your devices with notifications enabled.</small>
+              </span>
+            </label>
           )}
           <p className="settings-note" aria-live="polite">
             {!preferencesStore

@@ -64,17 +64,19 @@ public sealed class PushNotificationService(
             cancellationToken);
         return await SendAsync(
             userId,
-            new PushMessage(
+            [new PushMessage(
                 "Signal notifications are on",
                 "New stories will now appear here, even while Signal is closed.",
                 "/#top",
-                badgeCount),
+                badgeCount)],
             cancellationToken);
     }
 
     public async Task<int> SendNewStoriesAsync(
         string userId,
         IReadOnlySet<string> newTopicKeys,
+        IReadOnlyCollection<StoredNewsArticle> newArticles,
+        bool showNewsTitles,
         CancellationToken cancellationToken)
     {
         if (newTopicKeys.Count == 0) return 0;
@@ -89,6 +91,30 @@ public sealed class PushNotificationService(
         var badgeCount = await database.TopicRefreshStates.CountAsync(
             item => item.UserId == userId && item.LatestContentVersion > item.ViewedContentVersion,
             cancellationToken);
+        return await SendAsync(
+            userId,
+            BuildNewsMessages(topics, newArticles, showNewsTitles, badgeCount),
+            cancellationToken);
+    }
+
+    internal static PushMessage[] BuildNewsMessages(
+        string[] topics,
+        IReadOnlyCollection<StoredNewsArticle> newArticles,
+        bool showNewsTitles,
+        int badgeCount)
+    {
+        if (showNewsTitles)
+        {
+            // Stored titles are limited to 500 characters. Keep the publisher short
+            // so even escaped Unicode fits in a single Web Push payload.
+            return newArticles.DistinctBy(article => article.Id).Select(article => new PushMessage(
+                article.Title,
+                article.Source.Length > 0 ? article.Source[..Math.Min(article.Source.Length, 80)] : "New story in Signal",
+                "/#top",
+                badgeCount,
+                $"signal-new-stories-{article.Id}")).ToArray();
+        }
+
         var topicLabel = topics.Length switch
         {
             0 => "your followed topics",
@@ -96,21 +122,19 @@ public sealed class PushNotificationService(
             2 => string.Join(" and ", topics),
             _ => $"{topics[0]}, {topics[1]} and {topics.Length - 2} more",
         };
-        return await SendAsync(
-            userId,
-            new PushMessage(
-                topics.Length == 1 ? $"New stories about {topics[0]}" : "New stories in Signal",
-                $"Fresh coverage is available for {topicLabel}.",
-                "/#top",
-                badgeCount),
-            cancellationToken);
+        return [new PushMessage(
+            topics.Length == 1 ? $"New stories about {topics[0]}" : "New stories in Signal",
+            $"Fresh coverage is available for {topicLabel}.",
+            "/#top",
+            badgeCount)];
     }
 
     private async Task<int> SendAsync(
         string userId,
-        PushMessage message,
+        IReadOnlyList<PushMessage> messages,
         CancellationToken cancellationToken)
     {
+        if (messages.Count == 0) return 0;
         var subscriptions = await database.UserPushSubscriptions
             .Where(item => item.UserId == userId)
             .ToArrayAsync(cancellationToken);
@@ -118,45 +142,41 @@ public sealed class PushNotificationService(
 
         var keys = await keyStore.GetAsync(cancellationToken);
         var vapid = new VapidDetails(keys.Subject, keys.PublicKey, keys.PrivateKey);
-        var payload = JsonSerializer.Serialize(new
-        {
-            title = message.Title,
-            body = message.Body,
-            url = message.Url,
-            badgeCount = Math.Clamp(message.BadgeCount, 0, 99),
-            icon = "/icons/signal-medallion-192.png",
-            badge = "/icons/signal-notification-medallion-96.png",
-        });
+        var payloads = messages.Select(SerializeMessage).ToArray();
         var delivered = 0;
         var stale = new List<UserPushSubscription>();
         var client = new WebPushClient();
         foreach (var saved in subscriptions)
         {
-            try
+            foreach (var payload in payloads)
             {
-                var subscription = new PushSubscription(saved.Endpoint, saved.P256Dh, saved.Auth);
-                await client.SendNotificationAsync(
-                    subscription,
-                    payload,
-                    vapid,
-                    cancellationToken: cancellationToken);
-                delivered += 1;
-            }
-            catch (WebPushException exception)
-                when (exception.StatusCode is HttpStatusCode.Gone or HttpStatusCode.NotFound)
-            {
-                stale.Add(saved);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception exception)
-            {
-                logger.LogWarning(
-                    exception,
-                    "Could not deliver a Signal Web Push notification for user {UserId}.",
-                    userId);
+                try
+                {
+                    var subscription = new PushSubscription(saved.Endpoint, saved.P256Dh, saved.Auth);
+                    await client.SendNotificationAsync(
+                        subscription,
+                        payload,
+                        vapid,
+                        cancellationToken: cancellationToken);
+                    delivered += 1;
+                }
+                catch (WebPushException exception)
+                    when (exception.StatusCode is HttpStatusCode.Gone or HttpStatusCode.NotFound)
+                {
+                    stale.Add(saved);
+                    break;
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    logger.LogWarning(
+                        exception,
+                        "Could not deliver a Signal Web Push notification for user {UserId}.",
+                        userId);
+                }
             }
         }
 
@@ -168,11 +188,23 @@ public sealed class PushNotificationService(
         return delivered;
     }
 
-    private sealed record PushMessage(
+    internal static string SerializeMessage(PushMessage message) => JsonSerializer.Serialize(new
+    {
+        title = message.Title,
+        body = message.Body,
+        url = message.Url,
+        tag = message.Tag,
+        badgeCount = Math.Clamp(message.BadgeCount, 0, 99),
+        icon = "/icons/signal-medallion-192.png",
+        badge = "/icons/signal-notification-medallion-96.png",
+    });
+
+    internal sealed record PushMessage(
         string Title,
         string Body,
         string Url,
-        int BadgeCount);
+        int BadgeCount,
+        string Tag = "signal-new-stories");
 }
 
 public sealed record PushSubscriptionDetails(

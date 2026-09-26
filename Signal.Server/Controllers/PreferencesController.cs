@@ -85,6 +85,7 @@ public sealed class PreferencesController(
         preferences.ShowSourceFiltersWhenPinned = request.ShowSourceFiltersWhenPinned ?? preferences.ShowSourceFiltersWhenPinned;
         preferences.RefreshMinutes = request.RefreshMinutes;
         preferences.EmailSummaryEnabled = request.EmailSummaryEnabled;
+        preferences.PushNewsTitlesEnabled = request.PushNewsTitlesEnabled ?? preferences.PushNewsTitlesEnabled;
         preferences.ArticleRetentionDays = NormalizeRetentionDays(request.ArticleRetentionDays);
         preferences.GoogleEnabled = request.Sources.Google;
         preferences.GdeltEnabled = request.Sources.Gdelt;
@@ -200,6 +201,7 @@ public sealed class PreferencesController(
         preferences.ShowSourceFiltersWhenPinned,
         AllowedRefreshMinutes.Contains(preferences.RefreshMinutes) ? preferences.RefreshMinutes : 15,
         preferences.EmailSummaryEnabled,
+        preferences.PushNewsTitlesEnabled,
         NormalizeRetentionDays(preferences.ArticleRetentionDays),
         DeserializeTickerOverrides(preferences.TickerOverridesJson, DeserializeList(preferences.TopicsJson)),
         DeserializeWeatherLocation(preferences.WeatherLocationJson),
@@ -440,6 +442,7 @@ public sealed record NewsPreferencesResponse(
     bool ShowSourceFiltersWhenPinned,
     int RefreshMinutes,
     bool EmailSummaryEnabled,
+    bool PushNewsTitlesEnabled,
     int ArticleRetentionDays,
     IReadOnlyDictionary<string, string> TickerOverrides,
     WeatherLocationResponse? WeatherLocation,
@@ -457,6 +460,7 @@ public sealed record NewsPreferencesResponse(
         true,
         15,
         false,
+        true,
         30,
         new Dictionary<string, string>(),
         null,
@@ -493,7 +497,8 @@ public sealed record NewsPreferencesRequest(
     SecondaryTimeZoneRequest? SecondaryTimeZone,
     string[]? TrendRegions,
     int TrendsPerRegion,
-    [Required] NewsSourcesRequest Sources);
+    [Required] NewsSourcesRequest Sources,
+    bool? PushNewsTitlesEnabled = null);
 
 public sealed record WeatherLocationRequest(
     [Required, MaxLength(120)] string Name,

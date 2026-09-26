@@ -25,6 +25,10 @@ IIS for a persistent personal deployment.
   refresh them manually.
 - Receive Web Push notifications when scheduled refreshes find new stories,
   and see unread counts on the OS app badge.
+  In Settings, **Show each news title** is on by default and sends a separate
+  notification with each new story's title and publisher. Turn it off for topic
+  summaries. This preference applies to all notification-enabled devices on
+  your account; notification permission is still enabled separately per device.
 - Store article history in SQLite with topic and source filters, pagination,
   and multi-term search.
 - Bookmark stories indefinitely while automatically purging unbookmarked
