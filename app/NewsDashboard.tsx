@@ -3481,7 +3481,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               />
               <span>
                 <strong>Show each news title</strong>
-                <small>Send a separate phone notification for each new story, showing its title and publisher. Turn off for topic summaries. Applies to all your devices with notifications enabled.</small>
+                <small>Send a separate phone notification for each new story, showing its title, publisher and a short summary when available. Turn off for topic summaries. Applies to all your devices with notifications enabled.</small>
               </span>
             </label>
           )}

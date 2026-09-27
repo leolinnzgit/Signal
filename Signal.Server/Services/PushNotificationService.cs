@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Signal.Server.Data;
@@ -105,14 +106,8 @@ public sealed class PushNotificationService(
     {
         if (showNewsTitles)
         {
-            // Stored titles are limited to 500 characters. Keep the publisher short
-            // so even escaped Unicode fits in a single Web Push payload.
-            return newArticles.DistinctBy(article => article.Id).Select(article => new PushMessage(
-                article.Title,
-                article.Source.Length > 0 ? article.Source[..Math.Min(article.Source.Length, 80)] : "New story in Signal",
-                "/#top",
-                badgeCount,
-                $"signal-new-stories-{article.Id}")).ToArray();
+            return newArticles.DistinctBy(article => article.Id)
+                .Select(article => BuildStoryMessage(article, badgeCount)).ToArray();
         }
 
         var topicLabel = topics.Length switch
@@ -127,6 +122,36 @@ public sealed class PushNotificationService(
             $"Fresh coverage is available for {topicLabel}.",
             "/#top",
             badgeCount)];
+    }
+
+    private static PushMessage BuildStoryMessage(StoredNewsArticle article, int badgeCount)
+    {
+        var publisher = ShortPreview(article.Source, 80);
+        var message = new PushMessage(
+            article.Title,
+            publisher.Length > 0 ? publisher : "New story in Signal",
+            "/#top",
+            badgeCount,
+            $"signal-new-stories-{article.Id}");
+
+        // Reserve two JSON bytes for the newline and up to six per UTF-16
+        // character, including escaped Unicode. Preserve the full stored title.
+        var remainingBytes = 3993 - Encoding.UTF8.GetByteCount(SerializeMessage(message)) - 2;
+        var summary = ShortPreview(article.Summary, Math.Clamp(remainingBytes / 6, 0, 180));
+        return summary.Length == 0 ? message : message with { Body = $"{message.Body}\n{summary}" };
+    }
+
+    private static string ShortPreview(string text, int maximumLength)
+    {
+        if (maximumLength < 2) return "";
+        var normalized = string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        if (normalized.Length <= maximumLength) return normalized;
+
+        var end = maximumLength - 1;
+        var wordBreak = normalized.LastIndexOf(' ', end - 1, end);
+        if (wordBreak >= end / 2) end = wordBreak;
+        if (end > 0 && char.IsHighSurrogate(normalized[end - 1])) end--;
+        return normalized[..end].TrimEnd() + "…";
     }
 
     private async Task<int> SendAsync(

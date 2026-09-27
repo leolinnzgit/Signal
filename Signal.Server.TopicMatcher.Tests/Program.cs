@@ -268,7 +268,7 @@ if (oldPreferencesRequest?.PushNewsTitlesEnabled is not null)
 
 var notificationStories = new[]
 {
-    new StoredNewsArticle { Id = 101, Title = "Robots learn a new skill", Source = "Robot News" },
+    new StoredNewsArticle { Id = 101, Title = "Robots learn a new skill", Source = "Robot News", Summary = "Researchers  taught robots\n to sort household items." },
     new StoredNewsArticle { Id = 102, Title = "Solar output rises", Source = "Energy News" },
 };
 var headlineMessages = PushNotificationService.BuildNewsMessages(
@@ -276,7 +276,8 @@ var headlineMessages = PushNotificationService.BuildNewsMessages(
 if (headlineMessages.Length != 2
     || headlineMessages[0].Title != notificationStories[0].Title
     || headlineMessages[1].Title != notificationStories[1].Title
-    || headlineMessages[0].Body != "Robot News"
+    || headlineMessages[0].Body != "Robot News\nResearchers taught robots to sort household items."
+    || headlineMessages[1].Body != "Energy News"
     || headlineMessages.Select(message => message.Tag).Distinct().Count() != 2
     || headlineMessages.Any(message => message.BadgeCount != 2 || message.Url != "/#top"))
     throw new InvalidOperationException("Headline notifications lost titles, publisher, distinct tags or topic badge counts.");
@@ -289,13 +290,36 @@ if (summaryMessages.Length != 1
 if (PushNotificationService.BuildNewsMessages(["Robots"], [], true, 1).Length != 0)
     throw new InvalidOperationException("Headline mode sent a notification without a new story.");
 var largeMessage = PushNotificationService.BuildNewsMessages(["Robots"],
-    [new StoredNewsArticle { Id = long.MaxValue, Title = new string('新', 500), Source = new string('聞', 256) }], true, 100)[0];
+    [new StoredNewsArticle { Id = long.MaxValue, Title = new string('新', 500), Source = new string('聞', 256), Summary = new string('文', 4000) }], true, 100)[0];
 var largePayload = PushNotificationService.SerializeMessage(largeMessage);
 if (Encoding.UTF8.GetByteCount(largePayload) > 3993
-    || JsonDocument.Parse(largePayload).RootElement.GetProperty("title").GetString() != new string('新', 500))
+    || JsonDocument.Parse(largePayload).RootElement.GetProperty("title").GetString() != new string('新', 500)
+    || !largeMessage.Body.Contains("\n文", StringComparison.Ordinal)
+    || !largeMessage.Body.EndsWith('…'))
     throw new InvalidOperationException("A maximum-length Unicode headline exceeded the Web Push payload budget or lost its title.");
 
-Console.WriteLine("News notification titles, summary mode, defaults and payload size checks passed.");
+var longSummaryMessage = PushNotificationService.BuildNewsMessages([], [new StoredNewsArticle
+{
+    Id = 103, Title = "Headline", Source = "Publisher", Summary = string.Concat(Enumerable.Repeat("A short sentence. ", 40)),
+}], true, 1)[0];
+var shortSummary = longSummaryMessage.Body.Split('\n')[1];
+if (shortSummary.Length > 180 || !shortSummary.EndsWith("A short…", StringComparison.Ordinal))
+    throw new InvalidOperationException("A long news summary was not shortened at a word boundary with an ellipsis.");
+var emojiSummaryMessage = PushNotificationService.BuildNewsMessages([], [new StoredNewsArticle
+{
+    Id = 104, Title = "Headline", Summary = new string('a', 178) + "🌞 extra text",
+}], true, 1)[0];
+var emojiSummary = emojiSummaryMessage.Body.Split('\n')[1];
+if (emojiSummary != new string('a', 178) + "…")
+    throw new InvalidOperationException("Truncating a news preview split an emoji surrogate pair.");
+var blankSummaryMessage = PushNotificationService.BuildNewsMessages([], [new StoredNewsArticle
+{
+    Id = 105, Title = "Headline", Source = "Publisher", Summary = " \n\t ",
+}], true, 1)[0];
+if (blankSummaryMessage.Body != "Publisher")
+    throw new InvalidOperationException("A blank news summary left an empty notification preview line.");
+
+Console.WriteLine("News notification titles, previews, summary mode, defaults and payload size checks passed.");
 
 await using var scheduleConnection = new SqliteConnection("Data Source=:memory:");
 await scheduleConnection.OpenAsync();

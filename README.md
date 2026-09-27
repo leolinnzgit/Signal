@@ -26,7 +26,8 @@ IIS for a persistent personal deployment.
 - Receive Web Push notifications when scheduled refreshes find new stories,
   and see unread counts on the OS app badge.
   In Settings, **Show each news title** is on by default and sends a separate
-  notification with each new story's title and publisher. Turn it off for topic
+  notification with each new story's title, publisher, and a short summary from
+  the news feed when available (up to 180 characters). Turn it off for topic
   summaries. This preference applies to all notification-enabled devices on
   your account; notification permission is still enabled separately per device.
 - Store article history in SQLite with topic and source filters, pagination,
