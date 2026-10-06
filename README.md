@@ -36,6 +36,10 @@ IIS for a persistent personal deployment.
   history on a configurable schedule (from 1 day to 1 year).
 - Track read status and show unread indicators whenever a topic receives new
   stories.
+- Play unread headlines across all topics with the floating play button. The
+  full-screen, title-only briefing advances every six seconds, with pause,
+  previous/next, and speed controls. Displayed headlines are marked as read;
+  closing early leaves unseen stories unread.
 - Read supported articles inside Signal, with an automatic fallback to the
   publisher's original page when extraction is blocked or paywalled.
 - Display feed images when publishers provide them.

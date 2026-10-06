@@ -4,6 +4,7 @@ import { type CSSProperties, FormEvent, useCallback, useEffect, useMemo, useRef,
 
 import { updateInstalledAppBadge } from "./app-badge";
 import { resolveArticleShareUrl, shareArticle } from "./article-share";
+import HeadlinePlayer from "./HeadlinePlayer";
 import {
   normalizeSecondaryTimeZone,
   type SecondaryTimeZonePreference,
@@ -856,6 +857,8 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [backToTopVisible, setBackToTopVisible] = useState(false);
   const [floatingNavigationSide, setFloatingNavigationSide] = useState<"left" | "right">("left");
   const [readerArticle, setReaderArticle] = useState<FollowedArticle | null>(null);
+  const [headlineQueue, setHeadlineQueue] = useState<FollowedArticle[] | null>(null);
+  const headlineFullscreenRequested = useRef(false);
   const [readerContent, setReaderContent] = useState<ReaderContent>({ status: "idle" });
   const [topicPendingRemoval, setTopicPendingRemoval] = useState<string | null>(null);
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
@@ -1637,6 +1640,36 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
       : historyArticles,
     [articles, feedView, historyArticles],
   );
+
+  const unreadArticles = useMemo(
+    () => articles.filter((article) => !article.isRead),
+    [articles],
+  );
+
+  const closeHeadlinePlayer = useCallback(() => {
+    setHeadlineQueue(null);
+    if (headlineFullscreenRequested.current && document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => {});
+    }
+    headlineFullscreenRequested.current = false;
+  }, []);
+
+  function startHeadlinePlayback() {
+    if (unreadArticles.length === 0) return;
+    // Snapshot the queue so refreshes and read-status updates cannot skip titles.
+    setHeadlineQueue([...unreadArticles]);
+    if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+      headlineFullscreenRequested.current = true;
+      void document.documentElement.requestFullscreen().then(() => {
+        if (!headlineFullscreenRequested.current && document.fullscreenElement) {
+          void document.exitFullscreen().catch(() => {});
+        }
+      }).catch(() => {
+        // The player still fills the viewport when native full screen is unavailable.
+        headlineFullscreenRequested.current = false;
+      });
+    }
+  }
 
   const topicFilteredArticles = useMemo(
     () => selectedTopic === ALL_TOPICS
@@ -2600,10 +2633,10 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
       });
   }
 
-  function markArticleRead(article: FollowedArticle) {
+  function markArticleRead(article: FollowedArticle, fromLatest = feedView === "latest") {
     if (article.isRead) return;
     const readAt = new Date().toISOString();
-    const caughtUpTopics = feedView === "latest"
+    const caughtUpTopics = fromLatest
       ? article.topics.filter((topic) => !articles.some((candidate) =>
           candidate.url !== article.url
           && !candidate.isRead
@@ -4369,7 +4402,25 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         </div>
       )}
 
+      {headlineQueue && (
+        <HeadlinePlayer
+          articles={headlineQueue}
+          onArticleRead={(article) => markArticleRead(article, true)}
+          onClose={closeHeadlinePlayer}
+        />
+      )}
+
         <nav className={`floating-navigation floating-navigation-${floatingNavigationSide}`} aria-label="Quick page navigation">
+          <button
+            type="button"
+            className="floating-play-headlines"
+            disabled={unreadArticles.length === 0}
+            onClick={startHeadlinePlayback}
+            aria-label={unreadArticles.length > 0 ? `Play ${unreadArticles.length} unread headlines in full screen` : "No unread headlines to play"}
+            title={unreadArticles.length > 0 ? `Play unread headlines (${unreadArticles.length})` : "All headlines are read"}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+          </button>
           {controlsHidden && (
             <button
               type="button"
