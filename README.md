@@ -37,9 +37,13 @@ IIS for a persistent personal deployment.
 - Track read status and show unread indicators whenever a topic receives new
   stories.
 - Play unread headlines across all topics with the floating play button. The
-  full-screen, title-only briefing advances every six seconds, with pause,
+  full-screen, title-only briefing shows each title for at least six seconds, with pause,
   previous/next, and speed controls. Read-aloud is on by default in supported
   browsers and finishes each title before advancing; the voice toggle mutes it.
+  Automatic voice selection prefers voices labelled Natural, Neural, Enhanced,
+  Premium, or Google when available, with a relaxed default speaking speed and
+  a brief pause between titles. Choose a reading voice and speaking speed in
+  the player; choices are remembered on that device, with a voice saved for each language.
   Pause also pauses speech, and skipping or closing stops it. Displayed
   headlines are marked as read; closing early leaves unseen stories unread.
 - Read supported articles inside Signal, with an automatic fallback to the

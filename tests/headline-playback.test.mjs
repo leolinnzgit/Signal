@@ -7,9 +7,11 @@ const source = await readFile(new URL("../app/headline-playback.ts", import.meta
 const compiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 },
 }).outputText;
-const { createHeadlinePlayback, headlineSpeechLanguage } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
+const { createHeadlinePlayback, headlineSpeechLanguage, selectHeadlineVoice, rankHeadlineVoices, normalizeHeadlineSpeechPreferences, prepareHeadlineSpeechText } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
 
-function harness({ readAloud = true, supported = true, throwOnSpeak = false } = {}) {
+const voice = (name, lang, extra = {}) => ({ name, lang, voiceURI: name, default: false, ...extra });
+
+function harness({ readAloud = true, supported = true, throwOnSpeak = false, voices = [voice("English", "en-NZ"), voice("Chinese", "zh-CN")], rate, preferredVoiceURI } = {}) {
   let now = 0;
   let sequence = 0;
   let advances = 0;
@@ -25,7 +27,7 @@ function harness({ readAloud = true, supported = true, throwOnSpeak = false } = 
       if (throwOnSpeak) throw new Error("Voice service unavailable");
       utterances.push(utterance);
     },
-    getVoices: () => [{ lang: "en-NZ" }, { lang: "zh-CN" }],
+    getVoices: () => voices,
   };
   const runtime = {
     language: "en-NZ",
@@ -43,6 +45,8 @@ function harness({ readAloud = true, supported = true, throwOnSpeak = false } = 
     title: "A new telescope reveals distant galaxies",
     seconds: 6,
     readAloud,
+    rate,
+    preferredVoiceURI,
     onAdvance: () => { advances++; },
     onSpeechError: () => { errors++; },
   }, runtime);
@@ -68,11 +72,15 @@ test("speaks only the current title and waits for long narration before advancin
   const player = harness();
   assert.equal(player.utterances.length, 0);
   player.playback.setPaused(false);
-  assert.equal(player.utterances[0].text, "A new telescope reveals distant galaxies");
+  assert.equal(player.utterances[0].text, "A new telescope reveals distant galaxies.");
   assert.equal(player.utterances[0].lang, "en-NZ");
+  assert.equal(player.utterances[0].rate, 0.95);
   player.tick(10_000);
   assert.equal(player.advances, 0);
   player.utterances[0].onend();
+  player.tick(649);
+  assert.equal(player.advances, 0);
+  player.tick(1);
   assert.equal(player.advances, 1);
 });
 
@@ -113,6 +121,9 @@ test("speech ending while paused cannot advance the briefing", () => {
   player.utterances[0].onend();
   assert.equal(player.advances, 0);
   player.playback.setPaused(false);
+  player.tick(649);
+  assert.equal(player.advances, 0);
+  player.tick(1);
   assert.equal(player.advances, 1);
 });
 
@@ -200,4 +211,70 @@ test("selects English or Chinese voices according to the headline", () => {
   assert.equal(headlineSpeechLanguage("Science news", "zh-TW"), "en");
   assert.equal(headlineSpeechLanguage("科學新聞", "zh-TW"), "zh-TW");
   assert.equal(headlineSpeechLanguage("科學新聞", "en-NZ"), "zh-CN");
+});
+
+test("prefers enhanced voices over the first matching basic system voice", () => {
+  const voices = [voice("Basic", "en-NZ", { default: true }), voice("Google UK English", "en-GB"), voice("Microsoft Jenny Online (Natural)", "en-US"), voice("Chinese Natural", "zh-CN")];
+  assert.equal(selectHeadlineVoice(voices, "en-NZ").name, "Microsoft Jenny Online (Natural)");
+  assert.equal(selectHeadlineVoice(voices.slice(0, 2), "en-NZ").name, "Google UK English");
+  assert.equal(selectHeadlineVoice(voices, "en-NZ", "Basic").name, "Basic");
+  assert.equal(selectHeadlineVoice(voices, "en-NZ", "Removed voice").name, "Microsoft Jenny Online (Natural)");
+  assert.equal(voices[0].name, "Basic", "ranking must not mutate the browser voice list");
+});
+
+test("uses regional matches between equal-quality voices and respects language", () => {
+  const voices = [voice("Natural US", "en-US"), voice("Natural UK", "en-GB"), voice("Natural NZ", "en-NZ"), voice("Natural AU", "en-AU"), voice("Mandarin", "zh-CN"), voice("Cantonese Natural", "zh-HK")];
+  assert.equal(selectHeadlineVoice(voices, "en-NZ").name, "Natural NZ");
+  assert.equal(selectHeadlineVoice(voices, "en_NZ").name, "Natural NZ");
+  assert.equal(selectHeadlineVoice(voices, "en-NZ", "Mandarin").name, "Natural NZ");
+  assert.deepEqual(rankHeadlineVoices(voices, "zh-CN").map((item) => item.name), ["Mandarin"]);
+  assert.deepEqual(rankHeadlineVoices(voices, "zh-HK").map((item) => item.name), ["Cantonese Natural"]);
+  assert.equal(selectHeadlineVoice(voices, "fr-FR"), undefined);
+  assert.equal(selectHeadlineVoice([], "en-NZ"), undefined);
+});
+
+test("passes a saved voice and speaking speed to the speech engine", () => {
+  const voices = [voice("Basic", "en-NZ"), voice("Natural", "en-US")];
+  const player = harness({ voices, preferredVoiceURI: "Basic", rate: 1.1 });
+  player.playback.setPaused(false);
+  assert.equal(player.utterances[0].voice, voices[0]);
+  assert.equal(player.utterances[0].rate, 1.1);
+  assert.equal(player.utterances[0].pitch, 1);
+  const fallback = harness({ voices: [] });
+  fallback.playback.setPaused(false);
+  assert.equal(fallback.utterances.length, 1);
+  assert.equal(fallback.utterances[0].voice, undefined);
+});
+
+test("handles invalid saved settings and limits speaking speeds", () => {
+  assert.deepEqual(normalizeHeadlineSpeechPreferences(null), { rate: 0.95, voices: {} });
+  assert.deepEqual(normalizeHeadlineSpeechPreferences({ rate: "fast", voices: ["bad"] }), { rate: 0.95, voices: {} });
+  assert.equal(normalizeHeadlineSpeechPreferences({ rate: Infinity }).rate, 0.95);
+  assert.equal(normalizeHeadlineSpeechPreferences({ rate: 5 }).rate, 1.25);
+  assert.equal(normalizeHeadlineSpeechPreferences({ rate: 0 }).rate, 0.7);
+  assert.deepEqual(normalizeHeadlineSpeechPreferences({ rate: 1.1, voices: { en: "English", zh: "Chinese", "en-US": "bad key", fr: 42, de: "" } }), { rate: 1.1, voices: { en: "English", zh: "Chinese" } });
+});
+
+test("adds sentence endings for smoother delivery without changing existing punctuation", () => {
+  assert.equal(prepareHeadlineSpeechText("  A   science headline\n"), "A science headline.");
+  assert.equal(prepareHeadlineSpeechText("What comes next?"), "What comes next?");
+  assert.equal(prepareHeadlineSpeechText('He said “Welcome!”'), 'He said “Welcome!”');
+  assert.equal(prepareHeadlineSpeechText("科學新聞"), "科學新聞。");
+  assert.equal(prepareHeadlineSpeechText("科學新聞！"), "科學新聞！");
+  assert.equal(prepareHeadlineSpeechText(" "), "");
+});
+
+test("pausing during the gap between spoken headlines preserves the remaining gap", () => {
+  const player = harness();
+  player.playback.setPaused(false);
+  player.tick(8_000);
+  player.utterances[0].onend();
+  player.tick(300);
+  player.playback.setPaused(true);
+  player.tick(60_000);
+  player.playback.setPaused(false);
+  player.tick(349);
+  assert.equal(player.advances, 0);
+  player.tick(1);
+  assert.equal(player.advances, 1);
 });

@@ -1,9 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { FollowedArticle } from "./NewsDashboard";
-import { createHeadlinePlayback } from "./headline-playback";
+import {
+  createHeadlinePlayback,
+  HEADLINE_SPEECH_PREFERENCES_KEY,
+  headlineSpeechLanguage,
+  normalizeHeadlineSpeechPreferences,
+  rankHeadlineVoices,
+  selectHeadlineVoice,
+} from "./headline-playback";
 
 type HeadlinePlayerProps = {
   articles: FollowedArticle[];
@@ -19,6 +26,12 @@ export default function HeadlinePlayer({ articles, onArticleRead, onClose }: Hea
   const [speechSupported] = useState(() => "speechSynthesis" in window && "SpeechSynthesisUtterance" in window);
   const [readAloud, setReadAloud] = useState(speechSupported);
   const [speechError, setSpeechError] = useState(false);
+  const [speechPreferences, setSpeechPreferences] = useState(() => {
+    try { return normalizeHeadlineSpeechPreferences(JSON.parse(localStorage.getItem(HEADLINE_SPEECH_PREFERENCES_KEY) ?? "null")); }
+    catch { return normalizeHeadlineSpeechPreferences(null); }
+  });
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>(() => speechSupported ? window.speechSynthesis.getVoices() : []);
+  const [voicesReady, setVoicesReady] = useState(!speechSupported);
   const playback = useRef<ReturnType<typeof createHeadlinePlayback> | null>(null);
   const dialog = useRef<HTMLElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
@@ -26,6 +39,26 @@ export default function HeadlinePlayer({ articles, onArticleRead, onClose }: Hea
   const completed = index >= articles.length;
   const article = articles[index];
   const title = article?.title;
+  const speechLanguage = headlineSpeechLanguage(title ?? "", navigator.language);
+  const languageKey = speechLanguage.split("-")[0].toLowerCase();
+  const preferredVoiceURI = speechPreferences.voices[languageKey] ?? "";
+  const availableVoices = useMemo(() => rankHeadlineVoices(voices, speechLanguage), [voices, speechLanguage]);
+  const automaticVoice = selectHeadlineVoice(voices, speechLanguage);
+
+  useEffect(() => {
+    if (!speechSupported) return;
+    const synth = window.speechSynthesis;
+    const updateVoices = () => setVoices(synth.getVoices());
+    synth.addEventListener("voiceschanged", updateVoices);
+    // Give asynchronously loaded browser voices a chance to arrive before choosing.
+    const timeout = window.setTimeout(() => { updateVoices(); setVoicesReady(true); }, 500);
+    return () => { window.clearTimeout(timeout); synth.removeEventListener("voiceschanged", updateVoices); };
+  }, [speechSupported]);
+
+  useEffect(() => {
+    try { localStorage.setItem(HEADLINE_SPEECH_PREFERENCES_KEY, JSON.stringify(speechPreferences)); }
+    catch { /* Voice controls remain usable when device storage is unavailable. */ }
+  }, [speechPreferences]);
 
   useEffect(() => {
     if (!article || readUrls.current.has(article.url)) return;
@@ -39,6 +72,8 @@ export default function HeadlinePlayer({ articles, onArticleRead, onClose }: Hea
       title,
       seconds: 6,
       readAloud,
+      preferredVoiceURI,
+      rate: speechPreferences.rate,
       onAdvance: () => setIndex((currentIndex) => currentIndex + 1),
       onSpeechError: () => { setSpeechError(true); setReadAloud(false); },
     }, {
@@ -51,12 +86,12 @@ export default function HeadlinePlayer({ articles, onArticleRead, onClose }: Hea
     });
     playback.current = current;
     return () => { current.dispose(); playback.current = null; };
-  }, [completed, index, readAloud, speechSupported, title]);
+  }, [completed, index, preferredVoiceURI, readAloud, speechPreferences.rate, speechSupported, title]);
 
   useEffect(() => {
-    playback.current?.setPaused(paused || !pageVisible);
+    playback.current?.setPaused(paused || !pageVisible || !voicesReady);
     playback.current?.setSeconds(seconds);
-  }, [completed, index, readAloud, seconds, paused, pageVisible, title]);
+  }, [completed, index, preferredVoiceURI, readAloud, seconds, speechPreferences.rate, paused, pageVisible, title, voicesReady]);
 
   useEffect(() => {
     const updateVisibility = () => setPageVisible(!document.hidden);
@@ -101,7 +136,7 @@ export default function HeadlinePlayer({ articles, onArticleRead, onClose }: Hea
         setIndex((current) => Math.max(0, current - 1));
       }
       if (event.key === "Tab") {
-        const controls = Array.from(dialog.current?.querySelectorAll<HTMLElement>("button:not(:disabled), select") ?? []);
+        const controls = Array.from(dialog.current?.querySelectorAll<HTMLElement>("button:not(:disabled), select:not(:disabled)") ?? []);
         const first = controls[0];
         const last = controls[controls.length - 1];
         if (event.shiftKey && document.activeElement === first) {
@@ -182,9 +217,35 @@ export default function HeadlinePlayer({ articles, onArticleRead, onClose }: Hea
                 {speechSupported ? readAloud ? "Voice on" : "Voice off" : "Voice unavailable"}
               </button>
               <span className="headline-player-status" role="status">
-                {paused ? "Paused" : speechError ? "Voice unavailable · continuing silently" : readAloud ? "Reading aloud" : "Auto-playing"}
+                {paused ? "Paused" : speechError ? "Voice unavailable · continuing silently" : readAloud && !voicesReady ? "Preparing voice" : readAloud ? "Reading aloud" : "Auto-playing"}
               </span>
             </div>
+          </div>
+          <div className="headline-player-voice-settings">
+            <label>Reading voice
+              <select
+                value={availableVoices.some((voice) => voice.voiceURI === preferredVoiceURI) ? preferredVoiceURI : ""}
+                disabled={!speechSupported || !voicesReady}
+                onChange={(event) => {
+                  const uri = event.target.value;
+                  setSpeechError(false);
+                  setSpeechPreferences((current) => ({ ...current, voices: { ...current.voices, [languageKey]: uri } }));
+                }}
+              >
+                <option value="">Automatic{automaticVoice ? ` — ${automaticVoice.name}` : " — browser default"}</option>
+                {availableVoices.map((voice) => <option key={voice.voiceURI} value={voice.voiceURI}>{voice.name} ({voice.lang})</option>)}
+              </select>
+            </label>
+            <label>Speaking speed
+              <select
+                value={speechPreferences.rate}
+                disabled={!speechSupported}
+                onChange={(event) => setSpeechPreferences((current) => ({ ...current, rate: Number(event.target.value) }))}
+              >
+                {Array.from(new Set([0.8, 0.95, 1, 1.1, 1.2, speechPreferences.rate])).sort((left, right) => left - right)
+                  .map((rate) => <option key={rate} value={rate}>{rate}×{rate === 0.95 ? " — relaxed" : rate === 1 ? " — normal" : ""}</option>)}
+              </select>
+            </label>
           </div>
         </div>
       )}
