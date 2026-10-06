@@ -3087,6 +3087,7 @@ button.local-weather {
 .headline-player-title,
 .headline-player-complete h2 { max-width: 22ch; margin: 0; font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif; font-size: clamp(1.75rem, 5vw, 5rem); font-weight: 600; line-height: 1.15; letter-spacing: -0.035em; overflow-wrap: anywhere; }
 .headline-player-title { animation: headline-title-in 240ms ease-out both; }
+.headline-player-title-long { font-size: clamp(1.5rem, min(3.5vw, 4.5vh), 3.5rem); }
 .headline-player-complete { display: grid; justify-items: center; gap: 1.5rem; }
 .headline-player-complete > span { display: grid; width: 4rem; height: 4rem; place-items: center; border-radius: 50%; background: var(--red); color: white; font-size: 2rem; }
 .headline-player-complete p { max-width: 35ch; margin: 0; color: var(--text-faint); line-height: 1.6; }
@@ -3099,14 +3100,17 @@ button.local-weather {
 .headline-player .headline-player-toggle { min-width: 6rem; background: var(--page-text); color: var(--page-background); border-color: var(--page-text); font-weight: 700; }
 .headline-player .headline-player-toggle:hover { background: var(--red); border-color: var(--red); color: white; }
 .headline-player-status { text-align: right; color: var(--text-faint); font-size: 0.75rem; }
+.headline-player-audio { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 0.65rem; font-size: 0.75rem; }
+.headline-player-audio button[aria-pressed="true"] { border-color: var(--red); color: var(--red); }
 @keyframes headline-title-in { from { opacity: 0; transform: translateY(0.5rem); } to { opacity: 1; transform: translateY(0); } }
 @media (max-width: 640px) {
   .headline-player-header { gap: 0.5rem; }
   .headline-player-header-actions { gap: 0.65rem; }
-  .headline-player-controls { grid-template-columns: 1fr auto; }
+  .headline-player-controls { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .headline-player-transport { grid-column: 1 / -1; grid-row: 1; justify-content: center; }
   .headline-player-controls label { font-size: 0.65rem; }
   .headline-player-status { font-size: 0.65rem; }
+  .headline-player-audio { font-size: 0.65rem; }
 }
 @media (prefers-reduced-motion: reduce) {
   .headline-player-title { animation: none; }

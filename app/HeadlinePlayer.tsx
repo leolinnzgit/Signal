@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { FollowedArticle } from "./NewsDashboard";
+import { createHeadlinePlayback } from "./headline-playback";
 
 type HeadlinePlayerProps = {
   articles: FollowedArticle[];
@@ -15,11 +16,16 @@ export default function HeadlinePlayer({ articles, onArticleRead, onClose }: Hea
   const [paused, setPaused] = useState(false);
   const [seconds, setSeconds] = useState(6);
   const [pageVisible, setPageVisible] = useState(() => !document.hidden);
+  const [speechSupported] = useState(() => "speechSynthesis" in window && "SpeechSynthesisUtterance" in window);
+  const [readAloud, setReadAloud] = useState(speechSupported);
+  const [speechError, setSpeechError] = useState(false);
+  const playback = useRef<ReturnType<typeof createHeadlinePlayback> | null>(null);
   const dialog = useRef<HTMLElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
   const readUrls = useRef(new Set<string>());
   const completed = index >= articles.length;
   const article = articles[index];
+  const title = article?.title;
 
   useEffect(() => {
     if (!article || readUrls.current.has(article.url)) return;
@@ -28,10 +34,29 @@ export default function HeadlinePlayer({ articles, onArticleRead, onClose }: Hea
   }, [article, onArticleRead]);
 
   useEffect(() => {
-    if (completed || paused || !pageVisible) return;
-    const timeout = window.setTimeout(() => setIndex((current) => current + 1), seconds * 1_000);
-    return () => window.clearTimeout(timeout);
-  }, [completed, index, paused, pageVisible, seconds]);
+    if (completed || !title) return;
+    const current = createHeadlinePlayback({
+      title,
+      seconds: 6,
+      readAloud,
+      onAdvance: () => setIndex((currentIndex) => currentIndex + 1),
+      onSpeechError: () => { setSpeechError(true); setReadAloud(false); },
+    }, {
+      speech: speechSupported ? window.speechSynthesis : undefined,
+      createUtterance: speechSupported ? (text) => new SpeechSynthesisUtterance(text) : undefined,
+      language: navigator.language,
+      now: () => performance.now(),
+      schedule: (callback, milliseconds) => window.setTimeout(callback, milliseconds),
+      clear: (id) => window.clearTimeout(id),
+    });
+    playback.current = current;
+    return () => { current.dispose(); playback.current = null; };
+  }, [completed, index, readAloud, speechSupported, title]);
+
+  useEffect(() => {
+    playback.current?.setPaused(paused || !pageVisible);
+    playback.current?.setSeconds(seconds);
+  }, [completed, index, readAloud, seconds, paused, pageVisible, title]);
 
   useEffect(() => {
     const updateVisibility = () => setPageVisible(!document.hidden);
@@ -117,7 +142,7 @@ export default function HeadlinePlayer({ articles, onArticleRead, onClose }: Hea
           <button ref={closeButton} type="button" onClick={onClose} aria-label="Close headline playback" title="Close (Esc)">&#215;</button>
         </div>
       </header>
-      <div className="headline-player-stage" aria-live="polite" aria-atomic="true">
+      <div className="headline-player-stage" aria-live={readAloud && !speechError ? "off" : "polite"} aria-atomic="true">
         {completed ? (
           <div className="headline-player-complete">
             <span aria-hidden="true">&#10003;</span>
@@ -125,7 +150,7 @@ export default function HeadlinePlayer({ articles, onArticleRead, onClose }: Hea
             <p>You’ve seen all {articles.length} unread {articles.length === 1 ? "headline" : "headlines"} in this briefing.</p>
             <button type="button" onClick={onClose}>Back to news</button>
           </div>
-        ) : <h2 key={article.url} className="headline-player-title">{article.title}</h2>}
+        ) : <h2 key={article.url} className={`headline-player-title${article.title.length > 100 ? " headline-player-title-long" : ""}`}>{article.title}</h2>}
       </div>
       {!completed && (
         <div className="headline-player-footer">
@@ -146,7 +171,20 @@ export default function HeadlinePlayer({ articles, onArticleRead, onClose }: Hea
               <button type="button" className="headline-player-toggle" onClick={() => setPaused((current) => !current)} aria-label={paused ? "Resume headline playback" : "Pause headline playback"}>{paused ? "Resume" : "Pause"}</button>
               <button type="button" onClick={() => setIndex((current) => current + 1)} aria-label={index === articles.length - 1 ? "Finish headline playback" : "Next headline"} title="Next (→)">&#8594;</button>
             </div>
-            <span className="headline-player-status">{paused ? "Paused" : "Auto-playing"}</span>
+            <div className="headline-player-audio">
+              <button
+                type="button"
+                disabled={!speechSupported}
+                aria-pressed={readAloud}
+                aria-label={readAloud ? "Mute headline read-aloud" : "Enable headline read-aloud"}
+                onClick={() => { setSpeechError(false); setReadAloud((current) => !current); }}
+              >
+                {speechSupported ? readAloud ? "Voice on" : "Voice off" : "Voice unavailable"}
+              </button>
+              <span className="headline-player-status" role="status">
+                {paused ? "Paused" : speechError ? "Voice unavailable · continuing silently" : readAloud ? "Reading aloud" : "Auto-playing"}
+              </span>
+            </div>
           </div>
         </div>
       )}
