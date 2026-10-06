@@ -1,4 +1,4 @@
-type SpeechTarget = Pick<SpeechSynthesis, "cancel" | "speak" | "pause" | "resume" | "getVoices">;
+type SpeechTarget = Pick<SpeechSynthesis, "cancel" | "speak" | "pause" | "resume" | "getVoices"> & Partial<Pick<SpeechSynthesis, "speaking" | "pending">>;
 
 export const HEADLINE_SPEECH_PREFERENCES_KEY = "signal-headline-speech-preferences";
 export const DEFAULT_HEADLINE_SPEECH_RATE = 0.95;
@@ -22,6 +22,18 @@ function normalizeVoiceLanguage(language: string) {
   return language.toLowerCase().replaceAll("_", "-");
 }
 
+export function headlineVoiceId(voice: SpeechSynthesisVoice) {
+  // Some engines expose several named voices through the same service URI.
+  return JSON.stringify([voice.voiceURI, voice.name, normalizeVoiceLanguage(voice.lang)]);
+}
+
+export function findPreferredHeadlineVoice(voices: SpeechSynthesisVoice[], preferredVoiceId: string) {
+  if (!preferredVoiceId) return undefined;
+  return voices.find((voice) => headlineVoiceId(voice) === preferredVoiceId)
+    // Keep previously saved URI-only preferences usable.
+    ?? voices.find((voice) => voice.voiceURI === preferredVoiceId);
+}
+
 export function rankHeadlineVoices(voices: SpeechSynthesisVoice[], language: string) {
   const desired = normalizeVoiceLanguage(language);
   const base = desired.split("-")[0];
@@ -43,9 +55,9 @@ export function rankHeadlineVoices(voices: SpeechSynthesisVoice[], language: str
   }).sort((left, right) => score(right) - score(left) || left.name.localeCompare(right.name));
 }
 
-export function selectHeadlineVoice(voices: SpeechSynthesisVoice[], language: string, preferredVoiceURI = "") {
+export function selectHeadlineVoice(voices: SpeechSynthesisVoice[], language: string, preferredVoiceId = "") {
   const ranked = rankHeadlineVoices(voices, language);
-  return ranked.find((voice) => voice.voiceURI === preferredVoiceURI) ?? ranked[0];
+  return findPreferredHeadlineVoice(ranked, preferredVoiceId) ?? ranked[0];
 }
 
 export function prepareHeadlineSpeechText(title: string) {
@@ -71,7 +83,7 @@ export function headlineSpeechLanguage(title: string, preferredLanguage: string)
 }
 
 export function createHeadlinePlayback(
-  options: { title: string; seconds: number; readAloud: boolean; preferredVoiceURI?: string; rate?: number; onAdvance: () => void; onSpeechError: () => void },
+  options: { title: string; seconds: number; readAloud: boolean; preferredVoiceId?: string; rate?: number; onAdvance: () => void; onSpeechError: () => void },
   runtime: HeadlinePlaybackRuntime,
 ) {
   let paused = true;
@@ -83,9 +95,12 @@ export function createHeadlinePlayback(
   let startedAt = 0;
   let displayTimer: number | undefined;
   let speechTimer: number | undefined;
+  let speechPollTimer: number | undefined;
   let utterance: SpeechSynthesisUtterance | undefined;
   let speechFinished = !options.readAloud || !runtime.speech || !runtime.createUtterance;
   let speechEndedAt: number | undefined;
+  let speechObserved = false;
+  let idleChecks = 0;
 
   function elapsed() {
     return playedMilliseconds + (paused ? 0 : runtime.now() - startedAt);
@@ -94,6 +109,7 @@ export function createHeadlinePlayback(
   function advanceIfReady() {
     if (disposed || paused || advanced || elapsed() < advanceAt() || !speechFinished) return;
     advanced = true;
+    clearTimers();
     options.onAdvance();
   }
 
@@ -103,7 +119,40 @@ export function createHeadlinePlayback(
 
   function scheduleAdvance() {
     if (displayTimer !== undefined) runtime.clear(displayTimer);
-    displayTimer = runtime.schedule(advanceIfReady, Math.max(0, advanceAt() - elapsed()));
+    displayTimer = runtime.schedule(() => {
+      displayTimer = undefined;
+      if (disposed || paused || advanced) return;
+      // Browser timeouts round fractional delays and may fire before the deadline.
+      if (elapsed() < advanceAt()) scheduleAdvance();
+      else advanceIfReady();
+    }, Math.max(1, Math.ceil(advanceAt() - elapsed())));
+  }
+
+  function clearTimers() {
+    for (const timer of [displayTimer, speechTimer, speechPollTimer]) {
+      if (timer !== undefined) runtime.clear(timer);
+    }
+    displayTimer = speechTimer = speechPollTimer = undefined;
+  }
+
+  function observeSpeech() {
+    speechObserved = true;
+    idleChecks = 0;
+  }
+
+  function pollSpeech() {
+    speechPollTimer = undefined;
+    if (disposed || paused || speechFinished) return;
+    const speech = runtime.speech;
+    if (typeof speech?.speaking !== "boolean" || typeof speech.pending !== "boolean") return;
+    if (speech.speaking) observeSpeech();
+    else if (speech.pending) idleChecks = 0;
+    else if (speechObserved && ++idleChecks >= 2) {
+      // Recover when the engine finishes audio but loses its utterance end event.
+      finishSpeech();
+      return;
+    }
+    speechPollTimer = runtime.schedule(pollSpeech, 250);
   }
 
   function finishSpeech(failed = false) {
@@ -111,7 +160,8 @@ export function createHeadlinePlayback(
     speechFinished = true;
     if (!failed) speechEndedAt = elapsed();
     if (speechTimer !== undefined) runtime.clear(speechTimer);
-    if (utterance) { utterance.onend = null; utterance.onerror = null; }
+    if (speechPollTimer !== undefined) runtime.clear(speechPollTimer);
+    if (utterance) { utterance.onend = null; utterance.onerror = null; utterance.onstart = null; utterance.onboundary = null; }
     if (failed) {
       runtime.speech?.cancel();
       options.onSpeechError();
@@ -126,6 +176,7 @@ export function createHeadlinePlayback(
     if (!speechFinished) {
       // A failed or silent voice service must not leave the briefing stuck.
       speechTimer = runtime.schedule(() => finishSpeech(true), Math.max(0, speechDuration - playedMilliseconds));
+      speechPollTimer = runtime.schedule(pollSpeech, 250);
     }
   }
 
@@ -135,8 +186,8 @@ export function createHeadlinePlayback(
       if (nextPaused) {
         playedMilliseconds = elapsed();
         paused = true;
-        if (displayTimer !== undefined) runtime.clear(displayTimer);
-        if (speechTimer !== undefined) runtime.clear(speechTimer);
+        clearTimers();
+        idleChecks = 0;
         if (utterance && !speechFinished) runtime.speech?.pause();
         return;
       }
@@ -152,8 +203,10 @@ export function createHeadlinePlayback(
             utterance.rate = normalizeHeadlineSpeechPreferences({ rate: options.rate }).rate;
             utterance.pitch = 1;
             const voices = runtime.speech.getVoices();
-            const voice = selectHeadlineVoice(voices, utterance.lang, options.preferredVoiceURI);
-            if (voice) utterance.voice = voice;
+            const voice = selectHeadlineVoice(voices, utterance.lang, options.preferredVoiceId);
+            if (voice) { utterance.voice = voice; utterance.lang = voice.lang; }
+            utterance.onstart = observeSpeech;
+            utterance.onboundary = observeSpeech;
             utterance.onend = () => finishSpeech();
             utterance.onerror = () => finishSpeech(true);
             runtime.speech.cancel();
@@ -176,11 +229,12 @@ export function createHeadlinePlayback(
     },
     dispose() {
       disposed = true;
-      if (displayTimer !== undefined) runtime.clear(displayTimer);
-      if (speechTimer !== undefined) runtime.clear(speechTimer);
+      clearTimers();
       if (utterance) {
         utterance.onend = null;
         utterance.onerror = null;
+        utterance.onstart = null;
+        utterance.onboundary = null;
         runtime.speech?.cancel();
       }
     },

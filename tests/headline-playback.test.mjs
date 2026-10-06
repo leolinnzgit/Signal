@@ -7,11 +7,11 @@ const source = await readFile(new URL("../app/headline-playback.ts", import.meta
 const compiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 },
 }).outputText;
-const { createHeadlinePlayback, headlineSpeechLanguage, selectHeadlineVoice, rankHeadlineVoices, normalizeHeadlineSpeechPreferences, prepareHeadlineSpeechText } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
+const { createHeadlinePlayback, headlineSpeechLanguage, headlineVoiceId, selectHeadlineVoice, rankHeadlineVoices, normalizeHeadlineSpeechPreferences, prepareHeadlineSpeechText } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
 
 const voice = (name, lang, extra = {}) => ({ name, lang, voiceURI: name, default: false, ...extra });
 
-function harness({ readAloud = true, supported = true, throwOnSpeak = false, voices = [voice("English", "en-NZ"), voice("Chinese", "zh-CN")], rate, preferredVoiceURI } = {}) {
+function harness({ readAloud = true, supported = true, throwOnSpeak = false, voices = [voice("English", "en-NZ"), voice("Chinese", "zh-CN")], rate, preferredVoiceId, timerEarlyBy = 0, speechState = false } = {}) {
   let now = 0;
   let sequence = 0;
   let advances = 0;
@@ -20,12 +20,14 @@ function harness({ readAloud = true, supported = true, throwOnSpeak = false, voi
   const calls = [];
   const utterances = [];
   const speech = {
-    cancel() { calls.push("cancel"); },
+    ...(speechState ? { speaking: false, pending: false } : {}),
+    cancel() { calls.push("cancel"); if (speechState) speech.speaking = false; },
     pause() { calls.push("pause"); },
     resume() { calls.push("resume"); },
     speak(utterance) {
       if (throwOnSpeak) throw new Error("Voice service unavailable");
       utterances.push(utterance);
+      if (speechState) speech.speaking = true;
     },
     getVoices: () => voices,
   };
@@ -36,7 +38,7 @@ function harness({ readAloud = true, supported = true, throwOnSpeak = false, voi
     now: () => now,
     schedule(callback, milliseconds) {
       const id = ++sequence;
-      timers.set(id, { callback, at: now + milliseconds });
+      timers.set(id, { callback, at: now + Math.max(0, milliseconds - timerEarlyBy) });
       return id;
     },
     clear: (id) => timers.delete(id),
@@ -46,12 +48,12 @@ function harness({ readAloud = true, supported = true, throwOnSpeak = false, voi
     seconds: 6,
     readAloud,
     rate,
-    preferredVoiceURI,
+    preferredVoiceId,
     onAdvance: () => { advances++; },
     onSpeechError: () => { errors++; },
   }, runtime);
   return {
-    playback, runtime, calls, utterances, timers,
+    playback, runtime, calls, utterances, timers, speech,
     get advances() { return advances; },
     get errors() { return errors; },
     tick(milliseconds) {
@@ -235,7 +237,7 @@ test("uses regional matches between equal-quality voices and respects language",
 
 test("passes a saved voice and speaking speed to the speech engine", () => {
   const voices = [voice("Basic", "en-NZ"), voice("Natural", "en-US")];
-  const player = harness({ voices, preferredVoiceURI: "Basic", rate: 1.1 });
+  const player = harness({ voices, preferredVoiceId: "Basic", rate: 1.1 });
   player.playback.setPaused(false);
   assert.equal(player.utterances[0].voice, voices[0]);
   assert.equal(player.utterances[0].rate, 1.1);
@@ -276,5 +278,89 @@ test("pausing during the gap between spoken headlines preserves the remaining ga
   player.tick(349);
   assert.equal(player.advances, 0);
   player.tick(1);
+  assert.equal(player.advances, 1);
+});
+
+test("a timer firing slightly early cannot strand a finished headline", () => {
+  const player = harness({ timerEarlyBy: 0.5 });
+  player.playback.setPaused(false);
+  player.tick(8_000.2);
+  player.utterances[0].onend();
+  player.tick(651);
+  assert.equal(player.advances, 1);
+  player.tick(60_000);
+  assert.equal(player.advances, 1);
+});
+
+test("an early minimum-display timer is rearmed after a short narration", () => {
+  const player = harness({ timerEarlyBy: 0.5 });
+  player.playback.setPaused(false);
+  player.tick(1_000);
+  player.utterances[0].onend();
+  player.tick(5_001);
+  assert.equal(player.advances, 1);
+});
+
+test("voices sharing a service URI can each be selected by name and language", () => {
+  const voices = [voice("First voice", "en-US", { voiceURI: "shared-service" }), voice("Second voice", "en-GB", { voiceURI: "shared-service" })];
+  assert.notEqual(headlineVoiceId(voices[0]), headlineVoiceId(voices[1]));
+  for (const selected of voices) {
+    assert.equal(selectHeadlineVoice(voices, "en-NZ", headlineVoiceId(selected)), selected);
+    const player = harness({ voices, preferredVoiceId: headlineVoiceId(selected) });
+    player.playback.setPaused(false);
+    assert.equal(player.utterances[0].voice, selected);
+    assert.equal(player.utterances[0].lang, selected.lang);
+  }
+  assert.equal(selectHeadlineVoice(voices, "en-NZ", "shared-service"), voices[1], "legacy saved service URIs remain readable");
+});
+
+test("an engine going idle without an end event still advances the briefing", () => {
+  const player = harness({ speechState: true });
+  player.playback.setPaused(false);
+  player.tick(8_000);
+  player.speech.speaking = false;
+  player.tick(1_149);
+  assert.equal(player.advances, 0);
+  player.tick(1);
+  assert.equal(player.advances, 1);
+  assert.equal(player.errors, 0);
+  assert.equal(player.timers.size, 0);
+});
+
+test("idle checks cannot complete a voice that is still waiting to start", () => {
+  const player = harness({ speechState: true });
+  player.playback.setPaused(false);
+  player.speech.speaking = false;
+  player.speech.pending = true;
+  player.tick(8_000);
+  assert.equal(player.advances, 0);
+  player.speech.pending = false;
+  player.tick(1_000);
+  assert.equal(player.advances, 0);
+  player.utterances[0].onstart();
+  player.speech.speaking = true;
+  player.tick(1_000);
+  assert.equal(player.advances, 0);
+});
+
+test("missing end-event recovery remains paused until the user resumes", () => {
+  const player = harness({ speechState: true });
+  player.playback.setPaused(false);
+  player.tick(8_000);
+  player.playback.setPaused(true);
+  player.speech.speaking = false;
+  player.tick(60_000);
+  assert.equal(player.advances, 0);
+  player.playback.setPaused(false);
+  player.tick(1_150);
+  assert.equal(player.advances, 1);
+});
+
+test("short audio finishing between polls is detected through its start event", () => {
+  const player = harness({ speechState: true });
+  player.playback.setPaused(false);
+  player.utterances[0].onstart();
+  player.speech.speaking = false;
+  player.tick(6_000);
   assert.equal(player.advances, 1);
 });

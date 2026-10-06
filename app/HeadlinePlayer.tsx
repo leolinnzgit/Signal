@@ -5,8 +5,10 @@ import { createPortal } from "react-dom";
 import type { FollowedArticle } from "./NewsDashboard";
 import {
   createHeadlinePlayback,
+  findPreferredHeadlineVoice,
   HEADLINE_SPEECH_PREFERENCES_KEY,
   headlineSpeechLanguage,
+  headlineVoiceId,
   normalizeHeadlineSpeechPreferences,
   rankHeadlineVoices,
   selectHeadlineVoice,
@@ -41,9 +43,10 @@ export default function HeadlinePlayer({ articles, onArticleRead, onClose }: Hea
   const title = article?.title;
   const speechLanguage = headlineSpeechLanguage(title ?? "", navigator.language);
   const languageKey = speechLanguage.split("-")[0].toLowerCase();
-  const preferredVoiceURI = speechPreferences.voices[languageKey] ?? "";
+  const preferredVoiceId = speechPreferences.voices[languageKey] ?? "";
   const availableVoices = useMemo(() => rankHeadlineVoices(voices, speechLanguage), [voices, speechLanguage]);
   const automaticVoice = selectHeadlineVoice(voices, speechLanguage);
+  const preferredVoice = findPreferredHeadlineVoice(availableVoices, preferredVoiceId);
 
   useEffect(() => {
     if (!speechSupported) return;
@@ -72,7 +75,7 @@ export default function HeadlinePlayer({ articles, onArticleRead, onClose }: Hea
       title,
       seconds: 6,
       readAloud,
-      preferredVoiceURI,
+      preferredVoiceId,
       rate: speechPreferences.rate,
       onAdvance: () => setIndex((currentIndex) => currentIndex + 1),
       onSpeechError: () => { setSpeechError(true); setReadAloud(false); },
@@ -86,12 +89,12 @@ export default function HeadlinePlayer({ articles, onArticleRead, onClose }: Hea
     });
     playback.current = current;
     return () => { current.dispose(); playback.current = null; };
-  }, [completed, index, preferredVoiceURI, readAloud, speechPreferences.rate, speechSupported, title]);
+  }, [completed, index, preferredVoiceId, readAloud, speechPreferences.rate, speechSupported, title]);
 
   useEffect(() => {
     playback.current?.setPaused(paused || !pageVisible || !voicesReady);
     playback.current?.setSeconds(seconds);
-  }, [completed, index, preferredVoiceURI, readAloud, seconds, speechPreferences.rate, paused, pageVisible, title, voicesReady]);
+  }, [completed, index, preferredVoiceId, readAloud, seconds, speechPreferences.rate, paused, pageVisible, title, voicesReady]);
 
   useEffect(() => {
     const updateVisibility = () => setPageVisible(!document.hidden);
@@ -224,16 +227,16 @@ export default function HeadlinePlayer({ articles, onArticleRead, onClose }: Hea
           <div className="headline-player-voice-settings">
             <label>Reading voice
               <select
-                value={availableVoices.some((voice) => voice.voiceURI === preferredVoiceURI) ? preferredVoiceURI : ""}
+                value={preferredVoice ? headlineVoiceId(preferredVoice) : ""}
                 disabled={!speechSupported || !voicesReady}
                 onChange={(event) => {
-                  const uri = event.target.value;
+                  const voiceId = event.target.value;
                   setSpeechError(false);
-                  setSpeechPreferences((current) => ({ ...current, voices: { ...current.voices, [languageKey]: uri } }));
+                  setSpeechPreferences((current) => ({ ...current, voices: { ...current.voices, [languageKey]: voiceId } }));
                 }}
               >
                 <option value="">Automatic{automaticVoice ? ` — ${automaticVoice.name}` : " — browser default"}</option>
-                {availableVoices.map((voice) => <option key={voice.voiceURI} value={voice.voiceURI}>{voice.name} ({voice.lang})</option>)}
+                {availableVoices.map((voice) => <option key={headlineVoiceId(voice)} value={headlineVoiceId(voice)}>{voice.name} ({voice.lang})</option>)}
               </select>
             </label>
             <label>Speaking speed
