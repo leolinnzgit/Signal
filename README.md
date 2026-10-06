@@ -46,6 +46,9 @@ IIS for a persistent personal deployment.
   the player; choices are remembered on that device, with a voice saved for each language.
   Pause also pauses speech, and skipping or closing stops it. Displayed
   headlines are marked as read; closing early leaves unseen stories unread.
+  Choose a headline to jump to a story and pause playback. **Read article** opens
+  Signal Reader, **Open original** opens the publisher in a new tab and pauses
+  the briefing, and **Back to news** returns to the feed at any time.
 - Read supported articles inside Signal, with an automatic fallback to the
   publisher's original page when extraction is blocked or paywalled.
 - Display feed images when publishers provide them.

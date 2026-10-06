@@ -859,6 +859,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [readerArticle, setReaderArticle] = useState<FollowedArticle | null>(null);
   const [headlineQueue, setHeadlineQueue] = useState<FollowedArticle[] | null>(null);
   const headlineFullscreenRequested = useRef(false);
+  const headlinePlaybackTrigger = useRef<HTMLElement | null>(null);
   const [readerContent, setReaderContent] = useState<ReaderContent>({ status: "idle" });
   const [topicPendingRemoval, setTopicPendingRemoval] = useState<string | null>(null);
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
@@ -1656,6 +1657,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
 
   function startHeadlinePlayback() {
     if (unreadArticles.length === 0) return;
+    headlinePlaybackTrigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     // Snapshot the queue so refreshes and read-status updates cannot skip titles.
     setHeadlineQueue([...unreadArticles]);
     if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
@@ -4406,6 +4408,10 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         <HeadlinePlayer
           articles={headlineQueue}
           onArticleRead={(article) => markArticleRead(article, true)}
+          onOpenArticle={(article) => {
+            closeHeadlinePlayer();
+            openArticleReader(article, headlinePlaybackTrigger.current ?? document.body);
+          }}
           onClose={closeHeadlinePlayer}
         />
       )}

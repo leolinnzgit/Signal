@@ -17,10 +17,11 @@ import {
 type HeadlinePlayerProps = {
   articles: FollowedArticle[];
   onArticleRead: (article: FollowedArticle) => void;
+  onOpenArticle: (article: FollowedArticle) => void;
   onClose: () => void;
 };
 
-export default function HeadlinePlayer({ articles, onArticleRead, onClose }: HeadlinePlayerProps) {
+export default function HeadlinePlayer({ articles, onArticleRead, onOpenArticle, onClose }: HeadlinePlayerProps) {
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const [seconds, setSeconds] = useState(6);
@@ -47,6 +48,11 @@ export default function HeadlinePlayer({ articles, onArticleRead, onClose }: Hea
   const availableVoices = useMemo(() => rankHeadlineVoices(voices, speechLanguage), [voices, speechLanguage]);
   const automaticVoice = selectHeadlineVoice(voices, speechLanguage);
   const preferredVoice = findPreferredHeadlineVoice(availableVoices, preferredVoiceId);
+
+  function pausePlayback() {
+    playback.current?.setPaused(true);
+    setPaused(true);
+  }
 
   useEffect(() => {
     if (!speechSupported) return;
@@ -125,7 +131,7 @@ export default function HeadlinePlayer({ articles, onArticleRead, onClose }: Hea
         onClose();
       }
       const target = event.target;
-      const isControl = target instanceof HTMLElement && target.matches("button, select, input, textarea");
+      const isControl = target instanceof HTMLElement && target.matches("button, a, select, input, textarea");
       if (event.key === " " && !isControl) {
         event.preventDefault();
         setPaused((current) => !current);
@@ -139,7 +145,7 @@ export default function HeadlinePlayer({ articles, onArticleRead, onClose }: Hea
         setIndex((current) => Math.max(0, current - 1));
       }
       if (event.key === "Tab") {
-        const controls = Array.from(dialog.current?.querySelectorAll<HTMLElement>("button:not(:disabled), select:not(:disabled)") ?? []);
+        const controls = Array.from(dialog.current?.querySelectorAll<HTMLElement>("button:not(:disabled), a[href], select:not(:disabled)") ?? []);
         const first = controls[0];
         const last = controls[controls.length - 1];
         if (event.shiftKey && document.activeElement === first) {
@@ -177,6 +183,7 @@ export default function HeadlinePlayer({ articles, onArticleRead, onClose }: Hea
         <span className="headline-player-label"><span className="pulse" aria-hidden="true" /> Unread headlines</span>
         <div className="headline-player-header-actions">
           <span>{completed ? `${articles.length} / ${articles.length}` : `${index + 1} / ${articles.length}`}</span>
+          <button type="button" className="headline-player-back" onClick={onClose}>Back to news</button>
           <button ref={closeButton} type="button" onClick={onClose} aria-label="Close headline playback" title="Close (Esc)">&#215;</button>
         </div>
       </header>
@@ -188,8 +195,29 @@ export default function HeadlinePlayer({ articles, onArticleRead, onClose }: Hea
             <p>You’ve seen all {articles.length} unread {articles.length === 1 ? "headline" : "headlines"} in this briefing.</p>
             <button type="button" onClick={onClose}>Back to news</button>
           </div>
-        ) : <h2 key={article.url} className={`headline-player-title${article.title.length > 100 ? " headline-player-title-long" : ""}`}>{article.title}</h2>}
+        ) : (
+          <div className="headline-player-story">
+            <h2 key={article.url} className={`headline-player-title${article.title.length > 100 ? " headline-player-title-long" : ""}`}>{article.title}</h2>
+            <p className="headline-player-source">{article.source}</p>
+            <div className="headline-player-story-actions">
+              <button type="button" onClick={() => { pausePlayback(); onOpenArticle(article); }}>Read article</button>
+              <a href={article.url} target="_blank" rel="noreferrer" onClick={pausePlayback}>Open original <span aria-hidden="true">&#8599;</span></a>
+            </div>
+          </div>
+        )}
       </div>
+      <label className="headline-player-picker">Choose a headline
+        <select
+          value={index}
+          onFocus={pausePlayback}
+          onChange={(event) => { pausePlayback(); setIndex(Number(event.target.value)); }}
+        >
+          {articles.map((item, articleIndex) => (
+            <option key={item.url} value={articleIndex}>{articleIndex + 1}. {item.title} — {item.source}</option>
+          ))}
+          {completed && <option value={articles.length} disabled>All caught up</option>}
+        </select>
+      </label>
       {!completed && (
         <div className="headline-player-footer">
           <div className="headline-player-progress" role="progressbar" aria-label="Briefing progress" aria-valuemin={0} aria-valuemax={articles.length} aria-valuenow={index + 1}>
