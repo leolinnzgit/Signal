@@ -80,8 +80,12 @@ IIS for a persistent personal deployment.
   voice before a reading. Previewing pauses current narration; switching voices
   or closing the reader cancels the sample. Samples reuse the private clip cache.
   This mode uses the server's voices; **Use browser voice** returns to the usual
-  voice picker. Recordings are kept in the browser for the current briefing and
-  are released when you close it. Long briefings are prepared in small batches,
+  voice picker. Ready recordings and playback positions are kept in this app
+  session when a reader or player closes. Returning to the same reading reuses
+  its audio; remaining unread headlines can reuse clips from a previous queue.
+  The cache holds at most 96 MiB of source WAV data and 512 clips, with least-used
+  clips removed first, and clears on sign-out or a page reload. Changed text,
+  voices, language or headline interval require matching new audio. Long briefings are prepared in small batches,
   with progress shown, then joined into one recording before playback. There is
   no 200-headline limit on the briefing. Preparation requires Windows server
   speech voices. Individual narration clips are cached privately on the server

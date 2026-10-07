@@ -1,6 +1,7 @@
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import { updateInstalledAppBadge } from "../app/app-badge";
 import { prepareProfilePhoto } from "../app/profile-photo";
+import { preparedAudioCache } from "../app/headline-audio";
 import NewsDashboard, { type ArticleHistoryPage, type ArticleStore, type FollowedArticle, type FriendShareStore, type NewsPreferences, type NewsSummary, type PreferencesStore, type PushNotificationStore, type PushSubscriptionPayload, type TopicBriefing, type TopicRefreshStore } from "../app/NewsDashboard";
 
 type SessionUser = {
@@ -547,6 +548,7 @@ export default function AuthApp() {
       await postJson<void>("/api/auth/logout");
     } finally {
       csrfToken = "";
+      preparedAudioCache.clear();
       void updateInstalledAppBadge(0);
       setUser(null);
       setAccountOpen(false);

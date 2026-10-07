@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { audioHeadlineIndex, prepareArticleAudio, type ReadingVoicePreferences } from "./headline-audio";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { articleNarrationParts, audioHeadlineIndex, preparedAudioCache, prepareArticleAudio, type PreparedHeadlineAudio, type ReadingVoicePreferences } from "./headline-audio";
 import ReadingVoiceSelector, { useReadingVoices } from "./ReadingVoiceSelector";
 
 type Props = { title: string; source: string; paragraphs: string[]; autoPrepare?: boolean };
 
 export default function ArticleAudioPlayer({ title, source, paragraphs, autoPrepare = false }: Props) {
-  const [attempt, setAttempt] = useState(autoPrepare ? 1 : 0);
+  const readingVoices = useReadingVoices();
+  const parts = useMemo(() => { try { return articleNarrationParts(title, paragraphs); } catch { return null; } }, [title, paragraphs]);
+  const [attempt, setAttempt] = useState(() => autoPrepare || (parts && preparedAudioCache.get(parts, 3, navigator.language, readingVoices.preferences)) ? 1 : 0);
   const [url, setUrl] = useState("");
   const [starts, setStarts] = useState<number[]>([]);
   const [preparing, setPreparing] = useState(autoPrepare);
@@ -19,44 +21,53 @@ export default function ArticleAudioPlayer({ title, source, paragraphs, autoPrep
   const audio = useRef<HTMLAudioElement>(null);
   const preparation = useRef<AbortController | null>(null);
   const resumePart = useRef(0);
-  const resumePlayback = useRef(true);
-  const readingVoices = useReadingVoices();
+  const resumePlayback = useRef(autoPrepare);
+  const resumeTime = useRef<number | null>(null);
+  const restorePosition = useRef(true);
+  const recordingKey = useRef("");
 
   useEffect(() => {
     if (!attempt) return;
     const abort = new AbortController();
     preparation.current = abort;
     let recordingUrl = "";
+    recordingKey.current = preparedAudioCache.key(parts ?? [], 3, navigator.language, readingVoices.preferences);
+    const ready = parts ? preparedAudioCache.get(parts, 3, navigator.language, readingVoices.preferences) : undefined;
     setUrl("");
     setError("");
     setMessage("");
     setProgress(0);
-    setPreparing(true);
-    void prepareArticleAudio(title, paragraphs, navigator.language, abort.signal, undefined,
-      (done, total) => { if (!abort.signal.aborted) setProgress(Math.round(done / total * 100)); }, readingVoices.preferences)
-      .then((recording) => {
+    setPreparing(!ready);
+    const useRecording = (recording: PreparedHeadlineAudio) => {
         if (abort.signal.aborted) return;
+        resumeTime.current = restorePosition.current ? preparedAudioCache.position(recordingKey.current) ?? null : null;
+        restorePosition.current = true;
         recordingUrl = URL.createObjectURL(recording.blob);
         setUrl(recordingUrl);
         setStarts(recording.starts);
         setPreparing(false);
-        setMessage("Ready. Tap Play if the audio does not start automatically.");
-      })
+        setMessage(ready ? "Audio ready. Tap Play to resume reading." : "Ready. Tap Play if the audio does not start automatically.");
+    };
+    if (ready) useRecording(ready);
+    else void Promise.resolve().then(() => prepareArticleAudio(title, paragraphs, navigator.language, abort.signal, undefined,
+      (done, total) => { if (!abort.signal.aborted) setProgress(Math.round(done / total * 100)); }, readingVoices.preferences))
+      .then(useRecording)
       .catch((reason: unknown) => {
         if (abort.signal.aborted) return;
         setPreparing(false);
         setError(reason instanceof Error ? reason.message : "The full article audio could not be prepared.");
       });
     return () => { abort.abort(); if (recordingUrl) URL.revokeObjectURL(recordingUrl); };
-  }, [attempt, title, paragraphs, readingVoices.preferences.en, readingVoices.preferences.zh]);
+  }, [attempt, title, paragraphs, parts, readingVoices.preferences.en, readingVoices.preferences.zh]);
 
   useEffect(() => {
     if (!url || !audio.current) return;
     const element = audio.current;
+    const key = recordingKey.current;
     // The user requested narration. Phones that require a fresh gesture still
     // have the native Play control after asynchronous preparation.
     if (resumePlayback.current) void element.play().catch(() => setMessage("Ready. Tap Play to read the full news aloud."));
-    return () => { element.pause(); };
+    return () => { preparedAudioCache.savePosition(key, element.ended ? 0 : element.currentTime); element.pause(); };
   }, [url]);
 
   useEffect(() => { if (audio.current) audio.current.playbackRate = rate; }, [rate, url]);
@@ -87,6 +98,7 @@ export default function ArticleAudioPlayer({ title, source, paragraphs, autoPrep
 
   function updatePosition() {
     const element = audio.current;
+    if (element) preparedAudioCache.savePosition(recordingKey.current, element.ended ? 0 : element.currentTime);
     if (!element || !Number.isFinite(element.duration) || !("mediaSession" in navigator) || !navigator.mediaSession.setPositionState) return;
     try { navigator.mediaSession.setPositionState({ duration: element.duration, position: Math.min(element.currentTime, element.duration), playbackRate: element.playbackRate }); }
     catch { /* Native audio remains usable without position controls. */ }
@@ -108,6 +120,7 @@ export default function ArticleAudioPlayer({ title, source, paragraphs, autoPrep
       audio.current.pause();
     }
     preparation.current?.abort();
+    restorePosition.current = false;
     readingVoices.selectVoice(language, id);
   }
 
@@ -122,7 +135,7 @@ export default function ArticleAudioPlayer({ title, source, paragraphs, autoPrep
     </>}
     {url && <>
       <audio ref={audio} src={url} controls preload="auto" aria-label={`Read ${title} aloud`}
-        onLoadedMetadata={() => { if (audio.current) audio.current.currentTime = starts[resumePart.current] ?? 0; }}
+        onLoadedMetadata={() => { if (audio.current) audio.current.currentTime = Math.min(resumeTime.current ?? starts[resumePart.current] ?? 0, audio.current.duration); }}
         onPlay={() => updatePlayback(true)} onPause={() => updatePlayback(false)}
         onTimeUpdate={updatePosition} onSeeking={updatePosition}
         onEnded={() => { setPlaying(false); setMessage("Finished reading this article."); }}

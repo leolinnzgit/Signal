@@ -2,7 +2,7 @@
 
 import { type Ref, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { FollowedArticle } from "./NewsDashboard";
-import { audioHeadlineIndex, prepareHeadlineAudio, type ReadingVoicePreferences } from "./headline-audio";
+import { audioHeadlineIndex, preparedAudioCache, prepareHeadlineAudio, type PreparedHeadlineAudio, type ReadingVoicePreferences } from "./headline-audio";
 import ReadingVoiceSelector, { useReadingVoices } from "./ReadingVoiceSelector";
 
 export type ScreenOffAudioControls = { pause: () => void; toggle: () => void; move: (direction: number) => void };
@@ -32,6 +32,9 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, articles, initi
   const audio = useRef<HTMLAudioElement>(null);
   const lastIndex = useRef(initialIndex);
   const initialPosition = useRef(initialIndex);
+  const resumeTime = useRef<number | null>(null);
+  const restorePosition = useRef(true);
+  const recordingKey = useRef("");
   const actions = useRef<ScreenOffAudioControls | null>(null);
   const completed = index >= articles.length;
   const article = articles[index];
@@ -40,16 +43,23 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, articles, initi
   useEffect(() => {
     const abort = new AbortController();
     let url = "";
+    const titles = articles.map((item) => item.title);
+    recordingKey.current = preparedAudioCache.key(titles, seconds, navigator.language, readingVoices.preferences);
+    const ready = preparedAudioCache.get(titles, seconds, navigator.language, readingVoices.preferences);
     setError("");
     setTrack(null);
     setPreparedCount(0);
-    void prepareHeadlineAudio(articles.map((item) => item.title), seconds, navigator.language, abort.signal, undefined,
-      (prepared) => { if (!abort.signal.aborted) setPreparedCount(prepared); }, 15_000, readingVoices.preferences)
-      .then((prepared) => {
+    const useRecording = (prepared: PreparedHeadlineAudio) => {
         if (abort.signal.aborted) return;
+        resumeTime.current = restorePosition.current ? preparedAudioCache.position(recordingKey.current) ?? null : null;
+        restorePosition.current = true;
         url = URL.createObjectURL(prepared.blob);
         setTrack({ url, starts: prepared.starts });
-      })
+    };
+    if (ready) useRecording(ready);
+    else void prepareHeadlineAudio(titles, seconds, navigator.language, abort.signal, undefined,
+      (prepared) => { if (!abort.signal.aborted) setPreparedCount(prepared); }, 15_000, readingVoices.preferences)
+      .then(useRecording)
       .catch((reason: unknown) => {
         if (!abort.signal.aborted) setError(reason instanceof Error ? reason.message : "Audio could not be prepared.");
       });
@@ -60,6 +70,7 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, articles, initi
     if (readingVoices.preferences[language] === id) return;
     pause();
     initialPosition.current = Math.min(index, articles.length - 1);
+    restorePosition.current = false;
     readingVoices.selectVoice(language, id);
   }
 
@@ -69,7 +80,8 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, articles, initi
 
   useEffect(() => {
     const element = audio.current;
-    return () => { element?.pause(); };
+    const key = recordingKey.current;
+    return () => { if (element) preparedAudioCache.savePosition(key, element.ended ? 0 : element.currentTime); element?.pause(); };
   }, [track]);
 
   function pause() { audio.current?.pause(); setPaused(true); }
@@ -94,6 +106,7 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, articles, initi
 
   function syncPosition(seeking = false) {
     if (!track || !audio.current) return;
+    preparedAudioCache.savePosition(recordingKey.current, audio.current.ended ? 0 : audio.current.currentTime);
     const next = audioHeadlineIndex(track.starts, audio.current.currentTime);
     const first = seeking || next < lastIndex.current ? next : lastIndex.current;
     for (let heard = first; heard <= next; heard++) onArticleRead(articles[heard]);
@@ -171,7 +184,7 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, articles, initi
       {track && <>
         <p>Tap Play, then turn off the screen. Your phone’s media controls can pause or resume the briefing.</p>
         <audio ref={audio} src={track.url} controls preload="auto" aria-label="Screen-off audio briefing"
-          onLoadedMetadata={() => { if (audio.current) audio.current.currentTime = track.starts[initialPosition.current]; }}
+          onLoadedMetadata={() => { if (audio.current) audio.current.currentTime = Math.min(resumeTime.current ?? track.starts[initialPosition.current] ?? 0, audio.current.duration); }}
           onPlay={() => { setPaused(false); setError(""); syncPosition(); }} onPause={() => setPaused(true)}
           onTimeUpdate={() => syncPosition()} onSeeking={() => syncPosition(true)}
           onEnded={() => { syncPosition(); setIndex(articles.length); onIndexChange(articles.length); setPaused(true); }}

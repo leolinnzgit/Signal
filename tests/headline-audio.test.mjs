@@ -5,9 +5,81 @@ import ts from "typescript";
 
 const source = await readFile(new URL("../app/headline-audio.ts", import.meta.url), "utf8");
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } }).outputText;
-const { prepareHeadlineAudio, prepareArticleAudio, prepareReadingVoicePreview, articleNarrationParts, audioHeadlineIndex, preferScreenOffAudio, normalizeReadingVoices } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
+const { PreparedAudioCache, prepareHeadlineAudio, prepareArticleAudio, prepareReadingVoicePreview, articleNarrationParts, audioHeadlineIndex, preferScreenOffAudio, normalizeReadingVoices } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
 const titles = ["English headline", "中文新聞"];
 const signal = new AbortController().signal;
+
+test("returning to a full article reuses the ready recording without any network requests", async () => {
+  const cache = new PreparedAudioCache();
+  const voices = { en: "Susan", zh: "Yating" };
+  const paragraphs = ["A complete news article. ".repeat(180), "最後一段。"];
+  let requests = 0;
+  const fetcher = async (url, options) => {
+    requests++;
+    if (url === "/api/auth/csrf") return Response.json({ token: "token" });
+    const { titles } = JSON.parse(options.body);
+    return waveResponse(titles.map((_, index) => index * 3), titles.length * 3);
+  };
+  const first = await prepareArticleAudio("Article", paragraphs, "en-NZ", signal, fetcher, undefined, voices, cache);
+  assert.ok(requests > 1);
+  requests = 0;
+  const second = await prepareArticleAudio("Article", [...paragraphs], "en-NZ", signal, fetcher, undefined, voices, cache);
+  assert.equal(requests, 0);
+  assert.deepEqual(second.starts, first.starts);
+  assert.deepEqual(await second.blob.arrayBuffer(), await first.blob.arrayBuffer());
+});
+
+test("remaining unread headlines reuse existing audio with correct WAV timing and PCM", async () => {
+  const cache = new PreparedAudioCache();
+  const all = ["First story", "Second story", "Third story"];
+  const recording = { blob: await waveResponse([0, 3, 6], 9).blob(), starts: [0, 3, 6] };
+  cache.remember(all, 6, "en", undefined, recording);
+  const remaining = await prepareHeadlineAudio(all.slice(1), 6, "en", signal, () => { throw new Error("Must not fetch"); }, undefined, 15_000, undefined, cache);
+  assert.deepEqual(remaining.starts, [0, 3]);
+  const raw = await remaining.blob.arrayBuffer();
+  assert.equal(new DataView(raw).getUint32(40, true), 6 * 32_000);
+  assert.deepEqual(raw.slice(44), (await recording.blob.arrayBuffer()).slice(44 + 3 * 32_000));
+  assert.equal(cache.get(["Different title"], 6, "en"), undefined);
+  assert.equal(cache.get(all, 15, "en"), undefined);
+  assert.equal(cache.get(all, 6, "en-GB"), undefined);
+  assert.equal(cache.get(all, 6, "en", { en: "George", zh: "" }), undefined);
+});
+
+test("cached PCM has bounded source memory, LRU eviction and a full sign-out reset", async () => {
+  const recording = { blob: await waveResponse([0], 3).blob(), starts: [0] };
+  const cache = new PreparedAudioCache(recording.blob.size * 2, 2);
+  for (const title of ["A", "B"]) cache.remember([title], 6, "en", undefined, { ...recording });
+  assert.ok(cache.get(["A"], 6, "en"));
+  cache.remember(["C"], 6, "en", undefined, { ...recording });
+  assert.equal(cache.get(["B"], 6, "en"), undefined);
+  assert.ok(cache.get(["A", "C"], 6, "en"));
+  const key = cache.key(["A"], 6, "en");
+  cache.savePosition(key, 1.75);
+  cache.savePosition(key, NaN);
+  assert.equal(cache.position(key), 1.75);
+  cache.clear();
+  assert.equal(cache.get(["A"], 6, "en"), undefined);
+  assert.equal(cache.position(key), undefined);
+  const tooSmall = new PreparedAudioCache(recording.blob.size - 1);
+  tooSmall.remember(["A"], 6, "en", undefined, recording);
+  assert.equal(tooSmall.get(["A"], 6, "en"), undefined);
+  const grouped = { blob: await waveResponse([0, 3, 6], 9).blob(), starts: [0, 3, 6] };
+  const sourceBound = new PreparedAudioCache(grouped.blob.size);
+  sourceBound.remember(["A", "B", "C"], 6, "en", undefined, grouped);
+  sourceBound.remember(["D"], 6, "en", undefined, recording);
+  for (const title of ["A", "B", "C"]) assert.equal(sourceBound.get([title], 6, "en"), undefined);
+  assert.ok(sourceBound.get(["D"], 6, "en"));
+});
+
+test("failed and cancelled preparations do not become ready cached recordings", async () => {
+  const cache = new PreparedAudioCache();
+  const fetcher = async (url) => url === "/api/auth/csrf" ? Response.json({ token: "token" }) : Response.json({ error: "Failed" }, { status: 503 });
+  await assert.rejects(prepareHeadlineAudio(["A"], 6, "en", signal, fetcher, undefined, 15_000, undefined, cache), /Failed/);
+  assert.equal(cache.get(["A"], 6, "en"), undefined);
+  const abort = new AbortController();
+  abort.abort();
+  await assert.rejects(prepareHeadlineAudio(["A"], 6, "en", abort.signal, fetcher, undefined, 15_000, undefined, cache), { name: "AbortError" });
+});
 
 test("voice previews use the selected language and voice without preparing a whole article", async () => {
   const preferences = { en: "Susan", zh: "Yating" };
