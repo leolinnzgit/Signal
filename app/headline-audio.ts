@@ -8,6 +8,7 @@ export async function prepareHeadlineAudio(
   titles: string[], seconds: number, language: string, signal: AbortSignal,
   fetcher: typeof fetch = fetch,
   onProgress?: (prepared: number, total: number) => void,
+  maximumBatchCharacters = 15_000,
 ): Promise<PreparedHeadlineAudio> {
   signal.throwIfAborted();
   if (!titles.length || titles.some((title) => !title.trim() || title.length > 1_000)) {
@@ -19,7 +20,7 @@ export async function prepareHeadlineAudio(
   let batch: string[] = [];
   let characters = 0;
   for (const title of titles) {
-    if (batch.length === 50 || characters + title.length > 15_000) {
+    if (batch.length === 50 || (batch.length > 0 && characters + title.length > maximumBatchCharacters)) {
       batches.push(batch);
       batch = [];
       characters = 0;
@@ -67,6 +68,42 @@ export async function prepareHeadlineAudio(
   headerView.setUint32(4, totalBytes + 36, true);
   headerView.setUint32(40, totalBytes, true);
   return { blob: new Blob([header!, ...pcm], { type: "audio/wav" }), starts };
+}
+
+export function articleNarrationParts(title: string, paragraphs: string[]) {
+  const body = paragraphs.map((paragraph) => paragraph.replace(/\s+/gu, " ").trim()).filter(Boolean);
+  if (!body.length) throw new Error("The full article text is unavailable for reading aloud.");
+  if (body.reduce((length, paragraph) => length + paragraph.length, title.length) > 40_000) {
+    throw new Error("This article is too long to prepare as audio.");
+  }
+  return [title, ...body].flatMap((paragraph) => {
+    let remaining = paragraph.replace(/\s+/gu, " ").trim();
+    const parts: string[] = [];
+    while (remaining.length > 900) {
+      const window = remaining.slice(0, 900);
+      const sentences = [...window.matchAll(/(?:[.!?](?=\s)|[。！？])["'”’]?/gu)];
+      const lastSentence = sentences.at(-1);
+      let end = lastSentence ? lastSentence.index + lastSentence[0].length : 0;
+      if (end < 300) end = window.lastIndexOf(" ") + 1;
+      if (end < 300) end = 900;
+      // A hard split of a long word must preserve surrogate pairs, including emoji.
+      if (/[\uD800-\uDBFF]/u.test(remaining[end - 1])) end--;
+      parts.push(remaining.slice(0, end).trim());
+      remaining = remaining.slice(end).trim();
+    }
+    if (remaining) parts.push(remaining);
+    return parts;
+  });
+}
+
+export function prepareArticleAudio(
+  title: string, paragraphs: string[], language: string, signal: AbortSignal,
+  fetcher: typeof fetch = fetch,
+  onProgress?: (prepared: number, total: number) => void,
+) {
+  // Smaller batches keep full articles inside the worker deadline. All parts
+  // become one recording before playback, including when the phone is locked.
+  return prepareHeadlineAudio(articleNarrationParts(title, paragraphs), 3, language, signal, fetcher, onProgress, 4_000);
 }
 
 async function prepareBatch(titles: string[], seconds: number, language: string, signal: AbortSignal, token: string, fetcher: typeof fetch): Promise<PreparedHeadlineAudio> {

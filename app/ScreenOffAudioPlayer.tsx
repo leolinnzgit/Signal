@@ -16,11 +16,12 @@ type Props = {
   onArticleRead: (article: FollowedArticle) => void;
   onIndexChange: (index: number) => void;
   onOpenArticle: (article: FollowedArticle) => void;
+  onListenArticle: (article: FollowedArticle) => void;
   onClose: () => void;
   onExit: () => void;
 };
 
-export default function ScreenOffAudioPlayer({ ref, closeButton, articles, initialIndex, seconds, rate, onRateChange, onArticleRead, onIndexChange, onOpenArticle, onClose, onExit }: Props) {
+export default function ScreenOffAudioPlayer({ ref, closeButton, articles, initialIndex, seconds, rate, onRateChange, onArticleRead, onIndexChange, onOpenArticle, onListenArticle, onClose, onExit }: Props) {
   const [track, setTrack] = useState<{ url: string; starts: number[] } | null>(null);
   const [error, setError] = useState("");
   const [paused, setPaused] = useState(true);
@@ -150,6 +151,7 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, articles, initi
         <p className="headline-player-source">{article.source}</p>
         <div className="headline-player-story-actions">
           <button type="button" onClick={() => { pause(); onOpenArticle(article); }}>Read article</button>
+          <button type="button" onClick={() => { pause(); onListenArticle(article); }}>Read full news aloud</button>
           <a href={article.url} target="_blank" rel="noreferrer" onClick={pause}>Open original &#8599;</a>
         </div>
       </div>}

@@ -60,6 +60,14 @@ internal static class HeadlineAudioChecks
             using var compressed = new MemoryStream();
             using (var gzip = new GZipStream(compressed, CompressionLevel.Fastest, leaveOpen: true)) gzip.Write(batch.Wave);
             Console.WriteLine($"Actual 50-headline WAV transfer: {batch.Wave.Length:N0} bytes to {compressed.Length:N0} bytes with gzip.");
+            var article = await service.GenerateAsync(new HeadlineAudioRequest([
+                "A full news article about clean energy.",
+                string.Concat(Enumerable.Repeat("Scientists are testing a cleaner way to store renewable energy. ", 12)),
+                string.Concat(Enumerable.Repeat("科學家正在測試新的乾淨能源技術，讓更多家庭在夜間使用太陽能。", 20)),
+            ], 3), CancellationToken.None);
+            if (!HeadlineAudioHealthCheck.IsCompleteRecording(article, 3, 3))
+                throw new Exception("Full article paragraphs were missing or silent in the native recording.");
+            Console.WriteLine("Full article title and long English/Chinese paragraphs produced audible continuous narration.");
             if (Environment.GetEnvironmentVariable("SIGNAL_AUDIO_TEST_OUTPUT") is { Length: > 0 } output)
             {
                 await File.WriteAllBytesAsync(output, wave);

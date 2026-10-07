@@ -21,10 +21,11 @@ type HeadlinePlayerProps = {
   startWithScreenOffAudio?: boolean;
   onArticleRead: (article: FollowedArticle) => void;
   onOpenArticle: (article: FollowedArticle) => void;
+  onListenArticle: (article: FollowedArticle) => void;
   onClose: () => void;
 };
 
-export default function HeadlinePlayer({ articles, startWithScreenOffAudio = false, onArticleRead, onOpenArticle, onClose }: HeadlinePlayerProps) {
+export default function HeadlinePlayer({ articles, startWithScreenOffAudio = false, onArticleRead, onOpenArticle, onListenArticle, onClose }: HeadlinePlayerProps) {
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const [seconds, setSeconds] = useState(6);
@@ -186,7 +187,7 @@ export default function HeadlinePlayer({ articles, startWithScreenOffAudio = fal
         initialIndex={Math.min(index, articles.length - 1)} seconds={seconds} rate={speechPreferences.rate}
         onRateChange={(rate) => setSpeechPreferences((current) => ({ ...current, rate }))}
         onArticleRead={(item) => { if (!readUrls.current.has(item.url)) { readUrls.current.add(item.url); onArticleRead(item); } }}
-        onIndexChange={setIndex} onOpenArticle={onOpenArticle} onClose={onClose}
+        onIndexChange={setIndex} onOpenArticle={onOpenArticle} onListenArticle={onListenArticle} onClose={onClose}
         onExit={() => { pausePlayback(); setScreenOffAudio(false); }} />
     </section>, document.body,
   );
@@ -215,6 +216,7 @@ export default function HeadlinePlayer({ articles, startWithScreenOffAudio = fal
             <p className="headline-player-source">{article.source}</p>
             <div className="headline-player-story-actions">
               <button type="button" onClick={() => { pausePlayback(); onOpenArticle(article); }}>Read article</button>
+              <button type="button" onClick={() => { pausePlayback(); onListenArticle(article); }}>Read full news aloud</button>
               <a href={article.url} target="_blank" rel="noreferrer" onClick={pausePlayback}>Open original <span aria-hidden="true">&#8599;</span></a>
             </div>
           </div>

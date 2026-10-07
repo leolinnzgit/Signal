@@ -49,6 +49,13 @@ IIS for a persistent personal deployment.
   Choose a headline to jump to a story and pause playback. **Read article** opens
   Signal Reader, **Open original** opens the publisher in a new tab and pauses
   the briefing, and **Back to news** returns to the feed at any time.
+  **Read full news aloud** pauses headline playback, opens the article reader,
+  and prepares the article title and all available extracted paragraphs with
+  the server's female voices. The reader also has this button for articles opened
+  from the feed. Full article audio has play/pause, seeking, speaking speed and
+  lock-screen media controls; tap Play if the browser blocks automatic playback.
+  Closing the reader cancels preparation and stops its narration. Publishers that
+  block extraction show an explanation and a link to read the original article.
   With voice on, narration continues when you switch tabs or minimize the
   browser. Muted playback pauses while hidden, and manual Pause always applies.
   Leaving native fullscreen keeps the briefing running; use **Close** or

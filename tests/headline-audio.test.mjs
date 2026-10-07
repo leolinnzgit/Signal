@@ -5,9 +5,56 @@ import ts from "typescript";
 
 const source = await readFile(new URL("../app/headline-audio.ts", import.meta.url), "utf8");
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } }).outputText;
-const { prepareHeadlineAudio, audioHeadlineIndex, preferScreenOffAudio } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
+const { prepareHeadlineAudio, prepareArticleAudio, articleNarrationParts, audioHeadlineIndex, preferScreenOffAudio } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
 const titles = ["English headline", "中文新聞"];
 const signal = new AbortController().signal;
+
+test("full article narration includes every paragraph and preserves long English/Chinese text and emoji", () => {
+  const paragraphs = ["A sentence with news. ".repeat(100), "完整新聞內容。".repeat(300), "😀".repeat(901)];
+  const parts = articleNarrationParts("Full news title", paragraphs);
+  assert.equal(parts[0], "Full news title");
+  assert.ok(parts.every((part) => part.length > 0 && part.length <= 900 && part.isWellFormed()));
+  assert.equal(parts.join("").replace(/\s/g, ""), ["Full news title", ...paragraphs].join("").replace(/\s/g, ""));
+  assert.throws(() => articleNarrationParts("Title only", [" "]), /full article text is unavailable/);
+  assert.throws(() => articleNarrationParts("Title", ["x".repeat(40_001)]), /too long/);
+});
+
+test("full news is prepared in bounded batches and joined into one authenticated recording", async () => {
+  const paragraphs = ["A complete paragraph about science. ".repeat(220), "這是最後一段新聞。"];
+  const parts = articleNarrationParts("Article headline", paragraphs);
+  const batches = [];
+  const progress = [];
+  const fetcher = async (url, options) => {
+    if (url === "/api/auth/csrf") return Response.json({ token: "article-token" });
+    const body = JSON.parse(options.body);
+    assert.equal(options.headers["X-XSRF-TOKEN"], "article-token");
+    assert.equal(options.signal, signal);
+    assert.equal(body.seconds, 3);
+    assert.ok(body.titles.join("").length <= 4_000);
+    batches.push(body.titles);
+    return waveResponse(body.titles.map((_, index) => index * 3), body.titles.length * 3, batches.length);
+  };
+  const recording = await prepareArticleAudio("Article headline", paragraphs, "en-NZ", signal, fetcher, (done, total) => progress.push([done, total]));
+  assert.ok(batches.length > 1);
+  assert.deepEqual(batches.flat(), parts);
+  assert.equal(recording.starts.length, parts.length);
+  assert.equal(recording.blob.size, 44 + parts.length * 3 * 32_000);
+  assert.deepEqual(progress.at(-1), [parts.length, parts.length]);
+});
+
+test("closing full news preparation cancels remaining batches", async () => {
+  const abort = new AbortController();
+  let count = 0;
+  const fetcher = async (url, options) => {
+    if (url === "/api/auth/csrf") return Response.json({ token: "token" });
+    count++;
+    const { titles } = JSON.parse(options.body);
+    abort.abort();
+    return waveResponse(titles.map((_, index) => index * 3), titles.length * 3);
+  };
+  await assert.rejects(prepareArticleAudio("Title", ["Long article sentence. ".repeat(400)], "en", abort.signal, fetcher), { name: "AbortError" });
+  assert.equal(count, 1);
+});
 
 test("installed Android apps start with recorded audio, including Samsung and Chrome", () => {
   assert.equal(preferScreenOffAudio("Mozilla/5.0 (Linux; Android 14; SM-S918B) Chrome/128.0", true), true);

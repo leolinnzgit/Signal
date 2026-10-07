@@ -5,6 +5,7 @@ import { type CSSProperties, FormEvent, useCallback, useEffect, useMemo, useRef,
 import { updateInstalledAppBadge } from "./app-badge";
 import { resolveArticleShareUrl, shareArticle } from "./article-share";
 import HeadlinePlayer from "./HeadlinePlayer";
+import ArticleAudioPlayer from "./ArticleAudioPlayer";
 import { preferScreenOffAudio } from "./headline-audio";
 import {
   normalizeSecondaryTimeZone,
@@ -39,6 +40,7 @@ type ExtractedReaderArticle = {
 
 type ReaderContent =
   | { status: "idle" | "loading" }
+  | { status: "unavailable"; reason: string }
   | { status: "ready"; article: ExtractedReaderArticle };
 
 type ArticleReaderResponse = {
@@ -858,6 +860,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [backToTopVisible, setBackToTopVisible] = useState(false);
   const [floatingNavigationSide, setFloatingNavigationSide] = useState<"left" | "right">("left");
   const [readerArticle, setReaderArticle] = useState<FollowedArticle | null>(null);
+  const [readerAudioRequested, setReaderAudioRequested] = useState(false);
   const [headlineQueue, setHeadlineQueue] = useState<FollowedArticle[] | null>(null);
   const headlineFullscreenRequested = useRef(false);
   const headlinePlaybackTrigger = useRef<HTMLElement | null>(null);
@@ -2613,10 +2616,11 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     void loadHistoryPage(feedView, "", 0);
   }
 
-  function openArticleReader(article: FollowedArticle, trigger: HTMLElement) {
+  function openArticleReader(article: FollowedArticle, trigger: HTMLElement, listen = false) {
     readerTrigger.current = trigger;
     markArticleRead(article);
     setReaderArticle(article);
+    setReaderAudioRequested(listen);
     setReaderContent({ status: "loading" });
     const requestId = ++readerRequestSequence.current;
     const params = new URLSearchParams({ url: article.url });
@@ -2628,11 +2632,13 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           setReaderContent({ status: "ready", article: data.article });
           return;
         }
-        openOriginalAfterReaderFailure(article.url, requestId);
+        if (listen) setReaderContent({ status: "unavailable", reason: data.reason || "The publisher did not provide the full article text for reading aloud." });
+        else openOriginalAfterReaderFailure(article.url, requestId);
       })
       .catch(() => {
         if (requestId !== readerRequestSequence.current) return;
-        openOriginalAfterReaderFailure(article.url, requestId);
+        if (listen) setReaderContent({ status: "unavailable", reason: "The full article could not be loaded. You can read it on the publisher’s website." });
+        else openOriginalAfterReaderFailure(article.url, requestId);
       });
   }
 
@@ -4361,10 +4367,16 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               <p>
                 {readerContent.status === "loading"
                   ? "Preparing a clean reading view…"
-                  : "Reader view prepared from the publisher’s public article."}
+                  : readerContent.status === "unavailable" ? "Full article text unavailable."
+                    : "Reader view prepared from the publisher’s public article."}
               </p>
             </header>
             <div className="article-reader-body">
+              {readerContent.status === "unavailable" && <div className="article-reader-state" role="status">
+                <strong>Full news audio unavailable</strong>
+                <p>{readerContent.reason}</p>
+                <a href={readerOriginalUrl} target="_blank" rel="noreferrer">Read on the publisher’s website &#8599;</a>
+              </div>}
               {readerContent.status === "loading" && (
                 <div className="article-reader-state" role="status">
                   <span className="article-reader-loader" aria-hidden="true" />
@@ -4374,6 +4386,8 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               )}
               {readerContent.status === "ready" && (
                 <article className="article-reader-content">
+                  <ArticleAudioPlayer key={readerArticle.url} title={readerArticle.title} source={readerArticle.source}
+                    paragraphs={readerContent.article.paragraphs} autoPrepare={readerAudioRequested} />
                   {readerArticle.imageUrl && (
                     <img
                       className="article-reader-image"
@@ -4413,6 +4427,10 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           onOpenArticle={(article) => {
             closeHeadlinePlayer();
             openArticleReader(article, headlinePlaybackTrigger.current ?? document.body);
+          }}
+          onListenArticle={(article) => {
+            closeHeadlinePlayer();
+            openArticleReader(article, headlinePlaybackTrigger.current ?? document.body, true);
           }}
           onClose={closeHeadlinePlayer}
         />
