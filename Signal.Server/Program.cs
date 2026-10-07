@@ -13,6 +13,12 @@ using Signal.Server.Data;
 using Signal.Server.Models;
 using Signal.Server.Services;
 
+if (args.Length == 1 && args[0] == HeadlineAudioWorker.Argument)
+{
+    Environment.ExitCode = await HeadlineAudioWorker.RunAsync();
+    return;
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
 var dataDirectory = Path.Combine(builder.Environment.ContentRootPath, "App_Data");
@@ -133,6 +139,7 @@ builder.Services.AddRateLimiter(options =>
 });
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<HeadlineAudioService>();
+builder.Services.AddHostedService<HeadlineAudioHealthCheck>();
 builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection(SmtpOptions.SectionName));
 builder.Services.Configure<MarketDataOptions>(builder.Configuration.GetSection(MarketDataOptions.SectionName));
 builder.Services.AddSingleton<GmailOAuthStore>();

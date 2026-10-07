@@ -68,6 +68,19 @@ IIS for a persistent personal deployment.
   with progress shown, then joined into one recording before playback. There is
   no 200-headline limit on the briefing. Preparation requires Windows server
   speech voices.
+  Speech generation uses native Windows SAPI on a dedicated STA thread in a
+  disposable child process with a 45-second deadline
+  per batch. Closing preparation cancels that worker, and a timeout releases the
+  queue for later attempts. A startup check records English/Chinese synthesis
+  results privately in `App_Data/headline-audio-health.json` under the server's
+  actual account.
+  On IIS, Windows may restrict the profile's `Speech_OneCore/Isolated` registry
+  key to interactive users. If the private startup check reports a registry
+  error, run `scripts/Repair-SignalSpeechProfile.ps1` once from elevated Windows
+  PowerShell, then restart Signal. The script backs up the original permissions
+  and grants only the specified pool read/write access to that key in its own
+  loaded user profile. It temporarily takes ownership to update the permissions
+  and restores the original owner.
   Phone screen-lock and background playback depend on the browser and operating
   system keeping the page active; browser speech cannot guarantee uninterrupted
   playback when the page is suspended.

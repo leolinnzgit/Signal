@@ -31,6 +31,12 @@ public sealed class HeadlineAudioController(HeadlineAudioService audio, ILogger<
         {
             return StatusCode(499);
         }
+        catch (HeadlineAudioUnavailableException exception)
+        {
+            logger.LogWarning(exception, "Headline audio preparation was interrupted: {Code}.", exception.Code);
+            Response.Headers.RetryAfter = "3";
+            return StatusCode(503, new { error = exception.Message, code = exception.Code });
+        }
         catch (Exception exception)
         {
             logger.LogWarning(exception, "Could not prepare headline audio.");
