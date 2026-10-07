@@ -2,7 +2,8 @@
 
 import { type Ref, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { FollowedArticle } from "./NewsDashboard";
-import { audioHeadlineIndex, prepareHeadlineAudio } from "./headline-audio";
+import { audioHeadlineIndex, prepareHeadlineAudio, type ReadingVoicePreferences } from "./headline-audio";
+import ReadingVoiceSelector, { useReadingVoices } from "./ReadingVoiceSelector";
 
 export type ScreenOffAudioControls = { pause: () => void; toggle: () => void; move: (direction: number) => void };
 type Props = {
@@ -34,14 +35,16 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, articles, initi
   const actions = useRef<ScreenOffAudioControls | null>(null);
   const completed = index >= articles.length;
   const article = articles[index];
+  const readingVoices = useReadingVoices();
 
   useEffect(() => {
     const abort = new AbortController();
     let url = "";
     setError("");
+    setTrack(null);
     setPreparedCount(0);
     void prepareHeadlineAudio(articles.map((item) => item.title), seconds, navigator.language, abort.signal, undefined,
-      (prepared) => { if (!abort.signal.aborted) setPreparedCount(prepared); })
+      (prepared) => { if (!abort.signal.aborted) setPreparedCount(prepared); }, 15_000, readingVoices.preferences)
       .then((prepared) => {
         if (abort.signal.aborted) return;
         url = URL.createObjectURL(prepared.blob);
@@ -51,7 +54,14 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, articles, initi
         if (!abort.signal.aborted) setError(reason instanceof Error ? reason.message : "Audio could not be prepared.");
       });
     return () => { abort.abort(); if (url) URL.revokeObjectURL(url); };
-  }, [articles, seconds, preparationAttempt]);
+  }, [articles, seconds, preparationAttempt, readingVoices.preferences.en, readingVoices.preferences.zh]);
+
+  function selectVoice(language: keyof ReadingVoicePreferences, id: string) {
+    if (readingVoices.preferences[language] === id) return;
+    pause();
+    initialPosition.current = Math.min(index, articles.length - 1);
+    readingVoices.selectVoice(language, id);
+  }
 
   useEffect(() => {
     if (audio.current) audio.current.playbackRate = rate;
@@ -157,6 +167,7 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, articles, initi
       </div>}
     </div>
     <div className="screen-off-audio-controls">
+      <ReadingVoiceSelector {...readingVoices} selectVoice={selectVoice} active />
       {track && <>
         <p>Tap Play, then turn off the screen. Your phone’s media controls can pause or resume the briefing.</p>
         <audio ref={audio} src={track.url} controls preload="auto" aria-label="Screen-off audio briefing"

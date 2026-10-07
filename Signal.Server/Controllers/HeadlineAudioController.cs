@@ -13,6 +13,20 @@ namespace Signal.Server.Controllers;
 [ResponseCache(Location = ResponseCacheLocation.None, NoStore = true)]
 public sealed class HeadlineAudioController(HeadlineAudioService audio, ILogger<HeadlineAudioController> logger) : ControllerBase
 {
+    [HttpGet("voices")]
+    public IActionResult Voices()
+    {
+        try
+        {
+            return Ok(OperatingSystem.IsWindows() ? HeadlineAudioVoiceCatalog.GetInstalled() : []);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Could not list installed narration voices.");
+            return StatusCode(503, new { error = "Reading voice choices are temporarily unavailable." });
+        }
+    }
+
     [HttpPost]
     [RequestSizeLimit(150_000)]
     public async Task<IActionResult> Create(HeadlineAudioRequest request, CancellationToken cancellationToken)

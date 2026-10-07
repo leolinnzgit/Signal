@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { prepareArticleAudio } from "./headline-audio";
+import { audioHeadlineIndex, prepareArticleAudio, type ReadingVoicePreferences } from "./headline-audio";
+import ReadingVoiceSelector, { useReadingVoices } from "./ReadingVoiceSelector";
 
 type Props = { title: string; source: string; paragraphs: string[]; autoPrepare?: boolean };
 
 export default function ArticleAudioPlayer({ title, source, paragraphs, autoPrepare = false }: Props) {
   const [attempt, setAttempt] = useState(autoPrepare ? 1 : 0);
   const [url, setUrl] = useState("");
+  const [starts, setStarts] = useState<number[]>([]);
   const [preparing, setPreparing] = useState(autoPrepare);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
@@ -15,6 +17,9 @@ export default function ArticleAudioPlayer({ title, source, paragraphs, autoPrep
   const [rate, setRate] = useState(1);
   const audio = useRef<HTMLAudioElement>(null);
   const preparation = useRef<AbortController | null>(null);
+  const resumePart = useRef(0);
+  const resumePlayback = useRef(true);
+  const readingVoices = useReadingVoices();
 
   useEffect(() => {
     if (!attempt) return;
@@ -27,11 +32,12 @@ export default function ArticleAudioPlayer({ title, source, paragraphs, autoPrep
     setProgress(0);
     setPreparing(true);
     void prepareArticleAudio(title, paragraphs, navigator.language, abort.signal, undefined,
-      (done, total) => { if (!abort.signal.aborted) setProgress(Math.round(done / total * 100)); })
+      (done, total) => { if (!abort.signal.aborted) setProgress(Math.round(done / total * 100)); }, readingVoices.preferences)
       .then((recording) => {
         if (abort.signal.aborted) return;
         recordingUrl = URL.createObjectURL(recording.blob);
         setUrl(recordingUrl);
+        setStarts(recording.starts);
         setPreparing(false);
         setMessage("Ready. Tap Play if the audio does not start automatically.");
       })
@@ -41,14 +47,14 @@ export default function ArticleAudioPlayer({ title, source, paragraphs, autoPrep
         setError(reason instanceof Error ? reason.message : "The full article audio could not be prepared.");
       });
     return () => { abort.abort(); if (recordingUrl) URL.revokeObjectURL(recordingUrl); };
-  }, [attempt, title, paragraphs]);
+  }, [attempt, title, paragraphs, readingVoices.preferences.en, readingVoices.preferences.zh]);
 
   useEffect(() => {
     if (!url || !audio.current) return;
     const element = audio.current;
     // The user requested narration. Phones that require a fresh gesture still
     // have the native Play control after asynchronous preparation.
-    void element.play().catch(() => setMessage("Ready. Tap Play to read the full news aloud."));
+    if (resumePlayback.current) void element.play().catch(() => setMessage("Ready. Tap Play to read the full news aloud."));
     return () => { element.pause(); };
   }, [url]);
 
@@ -92,8 +98,20 @@ export default function ArticleAudioPlayer({ title, source, paragraphs, autoPrep
     setUrl("");
   }
 
+  function selectVoice(language: keyof ReadingVoicePreferences, id: string) {
+    if (readingVoices.preferences[language] === id) return;
+    if (audio.current) {
+      resumePart.current = audio.current.ended ? 0 : audioHeadlineIndex(starts, audio.current.currentTime);
+      resumePlayback.current = !audio.current.paused;
+      audio.current.pause();
+    }
+    preparation.current?.abort();
+    readingVoices.selectVoice(language, id);
+  }
+
   return <section className="article-audio-player" aria-label="Full article narration">
-    {!url && !preparing && <button type="button" onClick={() => setAttempt((current) => current + 1)}>{error ? "Try audio again" : "Read full news aloud"}</button>}
+    <ReadingVoiceSelector {...readingVoices} selectVoice={selectVoice} active={attempt > 0} />
+    {!url && !preparing && <button type="button" onClick={() => { resumePlayback.current = true; setAttempt((current) => current + 1); }}>{error ? "Try audio again" : "Read full news aloud"}</button>}
     {preparing && <>
       <p role="status">Preparing full article audio… {progress}%</p>
       <p>Keep Signal open until the recording is ready.</p>
@@ -101,6 +119,7 @@ export default function ArticleAudioPlayer({ title, source, paragraphs, autoPrep
     </>}
     {url && <>
       <audio ref={audio} src={url} controls preload="auto" aria-label={`Read ${title} aloud`}
+        onLoadedMetadata={() => { if (audio.current) audio.current.currentTime = starts[resumePart.current] ?? 0; }}
         onPlay={() => updatePlayback(true)} onPause={() => updatePlayback(false)}
         onTimeUpdate={updatePosition} onSeeking={updatePosition}
         onEnded={() => setMessage("Finished reading this article.")}

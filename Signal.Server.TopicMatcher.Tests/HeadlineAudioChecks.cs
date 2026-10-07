@@ -32,6 +32,7 @@ internal static class HeadlineAudioChecks
         if (OperatingSystem.IsWindows())
         {
             await CheckQueueRecoveryAsync();
+            await CheckInstalledVoiceChoicesAsync();
             var service = new HeadlineAudioService();
             var audio = await service.GenerateAsync(new HeadlineAudioRequest(["Science news from New Zealand.", "今天的科學新聞。"], 3), CancellationToken.None);
             var wave = audio.Wave;
@@ -91,7 +92,43 @@ internal static class HeadlineAudioChecks
             || HeadlineAudioService.ChooseVoice(voices.Take(1), "en-NZ", false)?.Id != "male-nz"
             || HeadlineAudioService.ChooseVoice(voices.Take(2), "zh-TW", true) is not null)
             throw new Exception("Female voice preference or language fallback failed.");
+        if (HeadlineAudioService.ChooseVoice(voices, "en-NZ", false, "male-nz")?.Id != "male-nz"
+            || HeadlineAudioService.ChooseVoice(voices, "zh-TW", true, "male-cn")?.Id != "male-cn"
+            || HeadlineAudioService.ChooseVoice(voices, "en-NZ", false, "female-tw")?.Id != "female-gb"
+            || HeadlineAudioService.ChooseVoice(voices, "en-NZ", false, "removed-voice")?.Id != "female-gb"
+            || HeadlineAudioVoiceCatalog.VoiceKey(@"HKEY_LOCAL_MACHINE\Voices\Tokens\female-gb") != "female-gb")
+            throw new Exception("Explicit voice choices did not respect language or safely fall back when unavailable.");
         Console.WriteLine("Female voices are preferred independently for English and Chinese.");
+    }
+
+    private static async Task CheckInstalledVoiceChoicesAsync()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var voices = HeadlineAudioVoiceCatalog.GetInstalled();
+        if (voices.Count == 0 || voices.Any(voice => string.IsNullOrWhiteSpace(voice.Id) || string.IsNullOrWhiteSpace(voice.Name)))
+            throw new Exception("Installed reading voices did not have usable choices.");
+        var service = new HeadlineAudioService();
+        var recordings = new Dictionary<string, List<byte[]>>();
+        foreach (var voice in voices)
+        {
+            var language = voice.Language.Split('-')[0];
+            var request = new HeadlineAudioRequest([language == "zh" ? "這是一段新聞語音測試。" : "This is a test of the selected news reading voice."], 3,
+                voice.Language, new Dictionary<string, string> { [language] = voice.Id });
+            var recording = await service.GenerateAsync(request, CancellationToken.None);
+            if (!HeadlineAudioHealthCheck.IsCompleteRecording(recording, 1, 3)) throw new Exception($"Selected voice {voice.Name} was silent.");
+            if (!recordings.TryGetValue(language, out var sameLanguage)) recordings[language] = sameLanguage = [];
+            if (sameLanguage.Any(wave => wave.SequenceEqual(recording.Wave))) throw new Exception("Different selected voices produced the same recording.");
+            sameLanguage.Add(recording.Wave);
+        }
+        foreach (var request in new[] {
+            new HeadlineAudioRequest(["Test"], Voices: new Dictionary<string, string> { ["unknown"] = "voice" }),
+            new HeadlineAudioRequest(["Test"], Voices: new Dictionary<string, string> { ["en"] = new string('a', 161) }),
+        })
+        {
+            try { HeadlineAudioService.Validate(request); throw new Exception("An invalid voice preference was accepted."); }
+            catch (ArgumentException) { }
+        }
+        Console.WriteLine($"All {voices.Count} installed English/Chinese voice choices rendered distinct audible recordings through the isolated worker.");
     }
 
     private static void CheckHealthTiming()

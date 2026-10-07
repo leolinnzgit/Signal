@@ -1,4 +1,11 @@
 export type PreparedHeadlineAudio = { blob: Blob; starts: number[] };
+export type ReadingVoicePreferences = { en: string; zh: string };
+
+export function normalizeReadingVoices(value: unknown): ReadingVoicePreferences {
+  const saved = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const voice = (language: string) => typeof saved[language] === "string" && saved[language].length <= 160 ? saved[language].trim() : "";
+  return { en: voice("en"), zh: voice("zh") };
+}
 
 export function preferScreenOffAudio(userAgent: string, standalone: boolean) {
   return standalone && /Android/i.test(userAgent);
@@ -9,6 +16,7 @@ export async function prepareHeadlineAudio(
   fetcher: typeof fetch = fetch,
   onProgress?: (prepared: number, total: number) => void,
   maximumBatchCharacters = 15_000,
+  voices?: ReadingVoicePreferences,
 ): Promise<PreparedHeadlineAudio> {
   signal.throwIfAborted();
   if (!titles.length || titles.some((title) => !title.trim() || title.length > 1_000)) {
@@ -40,7 +48,7 @@ export async function prepareHeadlineAudio(
   onProgress?.(0, titles.length);
   for (const batchTitles of batches) {
     signal.throwIfAborted();
-    const prepared = await prepareBatch(batchTitles, seconds, language, signal, token, fetcher);
+    const prepared = await prepareBatch(batchTitles, seconds, language, signal, token, fetcher, voices);
     const raw = await prepared.blob.arrayBuffer();
     signal.throwIfAborted();
     const view = new DataView(raw);
@@ -100,17 +108,18 @@ export function prepareArticleAudio(
   title: string, paragraphs: string[], language: string, signal: AbortSignal,
   fetcher: typeof fetch = fetch,
   onProgress?: (prepared: number, total: number) => void,
+  voices?: ReadingVoicePreferences,
 ) {
   // Smaller batches keep full articles inside the worker deadline. All parts
   // become one recording before playback, including when the phone is locked.
-  return prepareHeadlineAudio(articleNarrationParts(title, paragraphs), 3, language, signal, fetcher, onProgress, 4_000);
+  return prepareHeadlineAudio(articleNarrationParts(title, paragraphs), 3, language, signal, fetcher, onProgress, 4_000, voices);
 }
 
-async function prepareBatch(titles: string[], seconds: number, language: string, signal: AbortSignal, token: string, fetcher: typeof fetch): Promise<PreparedHeadlineAudio> {
+async function prepareBatch(titles: string[], seconds: number, language: string, signal: AbortSignal, token: string, fetcher: typeof fetch, voices?: ReadingVoicePreferences): Promise<PreparedHeadlineAudio> {
   const response = await fetcher("/api/headline-audio", {
     method: "POST", credentials: "same-origin", cache: "no-store", signal,
     headers: { "Content-Type": "application/json", "X-XSRF-TOKEN": token },
-    body: JSON.stringify({ titles, seconds, language }),
+    body: JSON.stringify({ titles, seconds, language, ...(voices && (voices.en || voices.zh) ? { voices } : {}) }),
   });
   if (!response.ok) {
     const data = await response.json().catch(() => null) as { error?: string } | null;

@@ -6,7 +6,7 @@ using System.Text.RegularExpressions;
 
 namespace Signal.Server.Services;
 
-public sealed record HeadlineAudioRequest(string[] Titles, int Seconds = 6, string Language = "en-NZ");
+public sealed record HeadlineAudioRequest(string[] Titles, int Seconds = 6, string Language = "en-NZ", IReadOnlyDictionary<string, string>? Voices = null);
 public sealed record HeadlineAudio(byte[] Wave, double[] Starts);
 internal sealed record HeadlineAudioVoice(string Id, CultureInfo Culture, string Gender);
 public sealed class HeadlineAudioUnavailableException(string code, string message) : Exception(message)
@@ -35,6 +35,9 @@ public sealed class HeadlineAudioService
 
     internal static string[] Validate(HeadlineAudioRequest request)
     {
+        if (request.Voices is { } preferences && (preferences.Count > 2
+            || preferences.Any(pair => pair.Key is not ("en" or "zh") || pair.Value is null || pair.Value.Length > 160)))
+            throw new ArgumentException("Choose an available English or Chinese reading voice.");
         if (request.Titles is not { Length: > 0 and <= 200 }
             || request.Seconds is not (3 or 6 or 10 or 15)
             || request.Titles.Any(title => string.IsNullOrWhiteSpace(title) || title.Length > 1_000)
@@ -67,7 +70,7 @@ public sealed class HeadlineAudioService
     }
 
     [SupportedOSPlatform("windows")]
-    internal static HeadlineAudio GenerateWindows(string[] titles, int seconds, string language, CancellationToken cancellationToken)
+    internal static HeadlineAudio GenerateWindows(string[] titles, int seconds, string language, CancellationToken cancellationToken, IReadOnlyDictionary<string, string>? preferences = null)
     {
         using var pcm = new MemoryStream();
         var clips = new HeadlineAudioClipCache(Path.Combine(AppContext.BaseDirectory, "App_Data", "HeadlineAudioClips"));
@@ -104,7 +107,8 @@ public sealed class HeadlineAudioService
                 cancellationToken.ThrowIfCancellationRequested();
                 var title = titles[index];
                 var chinese = title.Any(character => character is >= '\u3400' and <= '\u9fff');
-                var selected = ChooseVoice(voices.Select(voice => voice.Info), language, chinese)
+                var selected = ChooseVoice(voices.Select(voice => voice.Info), language, chinese,
+                    preferences?.GetValueOrDefault(chinese ? "zh" : "en"))
                     ?? throw new InvalidOperationException($"A {(chinese ? "zh" : "en")} voice is unavailable for this briefing.");
                 var voice = voices.First(voice => voice.Info.Id == selected.Id);
                 var startBytes = pcm.Length;
@@ -180,10 +184,12 @@ public sealed class HeadlineAudioService
         }
     }
 
-    internal static HeadlineAudioVoice? ChooseVoice(IEnumerable<HeadlineAudioVoice> voices, string language, bool chinese)
+    internal static HeadlineAudioVoice? ChooseVoice(IEnumerable<HeadlineAudioVoice> voices, string language, bool chinese, string? preferredId = null)
     {
         var desired = chinese ? "zh" : "en";
-        return voices.Where(voice => voice.Culture.TwoLetterISOLanguageName == desired)
+        var candidates = voices.Where(voice => voice.Culture.TwoLetterISOLanguageName == desired).ToArray();
+        var preferred = candidates.FirstOrDefault(voice => HeadlineAudioVoiceCatalog.VoiceKey(voice.Id).Equals(preferredId, StringComparison.OrdinalIgnoreCase));
+        return preferred ?? candidates
             .OrderByDescending(voice => voice.Gender.Equals("Female", StringComparison.OrdinalIgnoreCase))
             .ThenByDescending(voice => voice.Culture.Name.Equals(language, StringComparison.OrdinalIgnoreCase))
             .ThenByDescending(voice => desired == "en" && voice.Culture.Name is "en-GB" or "en-AU" or "en-NZ")

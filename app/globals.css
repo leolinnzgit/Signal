@@ -3604,6 +3604,11 @@ button.local-weather {
 .article-audio-player p { margin: 0; color: var(--text-muted); font-size: 0.85rem; line-height: 1.5; }
 .article-audio-player label { display: flex; flex-wrap: wrap; align-items: center; gap: 0.7rem; font-size: 0.85rem; }
 .article-audio-player select { padding: 0.35rem; border: 1px solid var(--line); border-radius: 0.4rem; background: var(--content-background); color: var(--page-text); }
+.reading-voice-selector { display: grid; gap: 0.7rem; min-width: 0; width: min(100%, 40rem); margin: 0; padding: 0.8rem; border: 1px solid var(--line); border-radius: 0.65rem; text-align: left; }
+.reading-voice-selector legend { padding: 0 0.3rem; color: var(--page-text); font-size: 0.85rem; font-weight: 700; }
+.reading-voice-selector label { display: grid; gap: 0.35rem; min-width: 0; color: var(--text-muted); font-size: 0.8rem; }
+.reading-voice-selector select { width: 100%; min-width: 0; max-width: 100%; padding: 0.45rem; border: 1px solid var(--line); border-radius: 0.35rem; background: var(--content-background); color: var(--page-text); font-size: 0.8rem; }
+.reading-voice-selector p { margin: 0; color: var(--text-muted); font-size: 0.75rem; line-height: 1.4; }
 
 .article-reader-content > p:not(.article-reader-byline) {
   margin: 0 0 1.35em;

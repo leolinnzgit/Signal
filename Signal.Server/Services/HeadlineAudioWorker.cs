@@ -22,7 +22,7 @@ internal static class HeadlineAudioWorker
                 try
                 {
                     if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
-                    completion.SetResult(HeadlineAudioService.GenerateWindows(titles, request.Seconds, request.Language, CancellationToken.None));
+                    completion.SetResult(HeadlineAudioService.GenerateWindows(titles, request.Seconds, request.Language, CancellationToken.None, request.Voices));
                 }
                 catch (Exception exception) { completion.SetException(exception); }
             }) { IsBackground = true, Name = "Headline SAPI renderer" };

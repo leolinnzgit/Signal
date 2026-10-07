@@ -52,8 +52,14 @@ IIS for a persistent personal deployment.
   **Read full news aloud** pauses headline playback, opens the article reader,
   and prepares the article title and all available extracted paragraphs with
   the server's female voices. The reader also has this button for articles opened
-  from the feed. Full article audio has play/pause, seeking, speaking speed and
-  lock-screen media controls; tap Play if the browser blocks automatic playback.
+  from the feed. Full article audio has play/pause, seeking, speaking speed,
+  lock-screen media controls and separate English and Chinese reading voice
+  selectors. Available server voices
+  show their names, gender and language; choices are saved on the device and
+  shared with screen-off headline audio. Changing a voice prepares a new
+  recording from the current article section or headline. Automatic selection
+  still prefers female voices if a saved voice is no longer installed.
+  Tap Play if the browser blocks automatic playback.
   Closing the reader cancels preparation and stops its narration. Publishers that
   block extraction show an explanation and a link to read the original article.
   With voice on, narration continues when you switch tabs or minimize the

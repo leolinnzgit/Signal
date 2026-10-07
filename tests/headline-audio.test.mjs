@@ -5,9 +5,43 @@ import ts from "typescript";
 
 const source = await readFile(new URL("../app/headline-audio.ts", import.meta.url), "utf8");
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } }).outputText;
-const { prepareHeadlineAudio, prepareArticleAudio, articleNarrationParts, audioHeadlineIndex, preferScreenOffAudio } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
+const { prepareHeadlineAudio, prepareArticleAudio, articleNarrationParts, audioHeadlineIndex, preferScreenOffAudio, normalizeReadingVoices } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
 const titles = ["English headline", "中文新聞"];
 const signal = new AbortController().signal;
+
+test("saved English and Chinese voice choices handle invalid device preferences", () => {
+  assert.deepEqual(normalizeReadingVoices(null), { en: "", zh: "" });
+  assert.deepEqual(normalizeReadingVoices({ en: " Hazel ", zh: "Yating", unrelated: "ignored" }), { en: "Hazel", zh: "Yating" });
+  assert.deepEqual(normalizeReadingVoices({ en: 5, zh: "x".repeat(161) }), { en: "", zh: "" });
+});
+
+test("chosen reading voices reach every full article batch", async () => {
+  const preferences = { en: "Susan", zh: "Yating" };
+  let count = 0;
+  const fetcher = async (url, options) => {
+    if (url === "/api/auth/csrf") return Response.json({ token: "token" });
+    const body = JSON.parse(options.body);
+    count++;
+    assert.deepEqual(body.voices, preferences);
+    return waveResponse(body.titles.map((_, index) => index * 3), body.titles.length * 3);
+  };
+  await prepareArticleAudio("News title", ["A complete sentence about a selected reading voice. ".repeat(170)], "en-NZ", signal, fetcher, undefined, preferences);
+  assert.ok(count > 1);
+});
+
+test("chosen headline voices are preserved across all briefing batches", async () => {
+  const preferences = { en: "George", zh: "" };
+  let count = 0;
+  const fetcher = async (url, options) => {
+    if (url === "/api/auth/csrf") return Response.json({ token: "token" });
+    const body = JSON.parse(options.body);
+    count++;
+    assert.deepEqual(body.voices, preferences);
+    return waveResponse(body.titles.map((_, index) => index * 3), body.titles.length * 3);
+  };
+  await prepareHeadlineAudio(Array(51).fill("A headline"), 6, "en-NZ", signal, fetcher, undefined, 15_000, preferences);
+  assert.equal(count, 2);
+});
 
 test("full article narration includes every paragraph and preserves long English/Chinese text and emoji", () => {
   const paragraphs = ["A sentence with news. ".repeat(100), "完整新聞內容。".repeat(300), "😀".repeat(901)];
