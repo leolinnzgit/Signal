@@ -139,6 +139,7 @@ builder.Services.AddRateLimiter(options =>
 });
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<HeadlineAudioService>();
+builder.Services.AddHeadlineAudioCompression();
 builder.Services.AddHostedService<HeadlineAudioHealthCheck>();
 builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection(SmtpOptions.SectionName));
 builder.Services.Configure<MarketDataOptions>(builder.Configuration.GetSection(MarketDataOptions.SectionName));
@@ -212,6 +213,7 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseDefaultFiles();
+app.UseResponseCompression();
 app.UseStaticFiles();
 app.UseRouting();
 app.UseAuthentication();

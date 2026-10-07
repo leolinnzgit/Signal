@@ -60,14 +60,20 @@ IIS for a persistent personal deployment.
   stops after pressing Home; exclude Signal (or its installing browser) from
   sleeping apps. The player includes a link to Samsung's guidance.
   Signal creates one continuous audio track with English and Chinese voices installed
-  on the Windows server, including the pauses between headlines. Supported
+  on the Windows server, preferring female voices in both languages and including
+  the pauses between headlines. Supported
   browsers expose lock-screen play/pause and headline navigation controls.
   This mode uses the server's voices; **Use browser voice** returns to the usual
   voice picker. Recordings are kept in the browser for the current briefing and
   are released when you close it. Long briefings are prepared in small batches,
   with progress shown, then joined into one recording before playback. There is
   no 200-headline limit on the briefing. Preparation requires Windows server
-  speech voices.
+  speech voices. Individual narration clips are cached privately on the server
+  in `App_Data/HeadlineAudioClips` for seven days, with a 256 MiB cache limit.
+  Repeat headlines reuse their clips across briefings and display intervals.
+  Recordings use HTTP Brotli/gzip compression to reduce download time, including
+  the silent gaps. New headlines still require speech preparation; these Windows
+  voices are older speech voices rather than modern neural narration.
   Speech generation uses native Windows SAPI on a dedicated STA thread in a
   disposable child process with a 45-second deadline
   per batch. Closing preparation cancels that worker, and a timeout releases the

@@ -8,6 +8,7 @@ namespace Signal.Server.Services;
 
 public sealed record HeadlineAudioRequest(string[] Titles, int Seconds = 6, string Language = "en-NZ");
 public sealed record HeadlineAudio(byte[] Wave, double[] Starts);
+internal sealed record HeadlineAudioVoice(string Id, CultureInfo Culture, string Gender);
 public sealed class HeadlineAudioUnavailableException(string code, string message) : Exception(message)
 {
     public string Code { get; } = code;
@@ -69,6 +70,8 @@ public sealed class HeadlineAudioService
     internal static HeadlineAudio GenerateWindows(string[] titles, int seconds, string language, CancellationToken cancellationToken)
     {
         using var pcm = new MemoryStream();
+        var clips = new HeadlineAudioClipCache(Path.Combine(AppContext.BaseDirectory, "App_Data", "HeadlineAudioClips"));
+        clips.Prune();
         // Use SAPI directly on the worker's STA thread. System.Speech can deadlock
         // while dispatching synthesis events under an IIS application-pool identity.
         dynamic synth = Activator.CreateInstance(Type.GetTypeFromProgID("SAPI.SpVoice", throwOnError: true)!)!;
@@ -80,7 +83,7 @@ public sealed class HeadlineAudioService
             tokens = category.EnumerateTokens("", "");
         }
         catch (COMException) { tokens = synth.GetVoices(); }
-        var voices = new List<(object Token, CultureInfo Culture)>();
+        var voices = new List<(object Token, HeadlineAudioVoice Info)>();
         try
         {
             for (var index = 0; index < (int)tokens.Count; index++)
@@ -89,7 +92,8 @@ public sealed class HeadlineAudioService
                 try
                 {
                     var languageId = ((string)token.GetAttribute("Language")).Split(';')[0];
-                    voices.Add(((object)token, CultureInfo.GetCultureInfo(int.Parse(languageId, NumberStyles.HexNumber, CultureInfo.InvariantCulture))));
+                    voices.Add(((object)token, new HeadlineAudioVoice((string)token.Id,
+                        CultureInfo.GetCultureInfo(int.Parse(languageId, NumberStyles.HexNumber, CultureInfo.InvariantCulture)), (string)token.GetAttribute("Gender"))));
                 }
                 catch { Marshal.FinalReleaseComObject((object)token); throw; }
             }
@@ -100,42 +104,39 @@ public sealed class HeadlineAudioService
                 cancellationToken.ThrowIfCancellationRequested();
                 var title = titles[index];
                 var chinese = title.Any(character => character is >= '\u3400' and <= '\u9fff');
-                var desired = chinese ? "zh" : "en";
-                var voice = voices.Where(candidate => candidate.Culture.TwoLetterISOLanguageName == desired)
-                    .OrderByDescending(candidate => candidate.Culture.Name.Equals(language, StringComparison.OrdinalIgnoreCase))
-                    .ThenByDescending(candidate => desired == "en" && candidate.Culture.Name is "en-GB" or "en-AU" or "en-NZ")
-                    .FirstOrDefault();
-                if (voice.Token is null)
-                    throw new InvalidOperationException($"A {desired} voice is unavailable for this briefing.");
-                synth.Voice = voice.Token;
+                var selected = ChooseVoice(voices.Select(voice => voice.Info), language, chinese)
+                    ?? throw new InvalidOperationException($"A {(chinese ? "zh" : "en")} voice is unavailable for this briefing.");
+                var voice = voices.First(voice => voice.Info.Id == selected.Id);
                 var startBytes = pcm.Length;
                 starts[index] = startBytes / (double)BytesPerSecond;
                 var text = Regex.IsMatch(title, @"[.!?。！？][""'”’]*$") ? title : title + (chinese ? "。" : ".");
-                dynamic stream = Activator.CreateInstance(Type.GetTypeFromProgID("SAPI.SpMemoryStream", throwOnError: true)!)!;
-                dynamic format = stream.Format;
-                try
+                var spoken = clips.GetOrCreate(selected.Id, text, () =>
                 {
-                    format.Type = 18; // SAFT16kHz16BitMono: raw PCM, matching the WAV header below.
-                    synth.AllowAudioOutputFormatChangesOnNextSet = false;
-                    synth.AudioOutputStream = stream;
-                    try { synth.Speak(text, 16); } // SVSFIsNotXML: headlines are always plain text.
-                    catch (COMException exception)
+                    synth.Voice = voice.Token;
+                    dynamic stream = Activator.CreateInstance(Type.GetTypeFromProgID("SAPI.SpMemoryStream", throwOnError: true)!)!;
+                    dynamic format = stream.Format;
+                    try
                     {
-                        var hint = exception.HResult == unchecked((int)0x80045040)
-                            ? " Check the IIS account's Speech_OneCore/Isolated registry permissions."
-                            : "";
-                        throw new InvalidOperationException($"Windows speech could not render {voice.Culture.Name}.{hint}", exception);
+                        format.Type = 18; // SAFT16kHz16BitMono: raw PCM, matching the WAV header below.
+                        synth.AllowAudioOutputFormatChangesOnNextSet = false;
+                        synth.AudioOutputStream = stream;
+                        try { synth.Speak(text, 16); } // SVSFIsNotXML: headlines are always plain text.
+                        catch (COMException exception)
+                        {
+                            var hint = exception.HResult == unchecked((int)0x80045040)
+                                ? " Check the IIS account's Speech_OneCore/Isolated registry permissions."
+                                : "";
+                            throw new InvalidOperationException($"Windows speech could not render {selected.Culture.Name}.{hint}", exception);
+                        }
+                        return (byte[])stream.GetData();
                     }
-                    byte[] spoken = stream.GetData();
-                    if (spoken.Length == 0 || spoken.Length % 2 != 0)
-                        throw new InvalidOperationException("The speech engine returned invalid audio.");
-                    pcm.Write(spoken);
-                }
-                finally
-                {
-                    Marshal.FinalReleaseComObject((object)format);
-                    Marshal.FinalReleaseComObject((object)stream);
-                }
+                    finally
+                    {
+                        Marshal.FinalReleaseComObject((object)format);
+                        Marshal.FinalReleaseComObject((object)stream);
+                    }
+                });
+                pcm.Write(spoken);
                 // Keep the display interval and the gap inside the track, so neither needs a background timer.
                 var spokenBytes = pcm.Length - startBytes;
                 var remainingSilence = Math.Max((long)seconds * BytesPerSecond - spokenBytes, (long)(0.65 * BytesPerSecond));
@@ -175,7 +176,18 @@ public sealed class HeadlineAudioService
             Marshal.FinalReleaseComObject((object)tokens);
             Marshal.FinalReleaseComObject((object)category);
             Marshal.FinalReleaseComObject((object)synth);
+            clips.Prune();
         }
+    }
+
+    internal static HeadlineAudioVoice? ChooseVoice(IEnumerable<HeadlineAudioVoice> voices, string language, bool chinese)
+    {
+        var desired = chinese ? "zh" : "en";
+        return voices.Where(voice => voice.Culture.TwoLetterISOLanguageName == desired)
+            .OrderByDescending(voice => voice.Gender.Equals("Female", StringComparison.OrdinalIgnoreCase))
+            .ThenByDescending(voice => voice.Culture.Name.Equals(language, StringComparison.OrdinalIgnoreCase))
+            .ThenByDescending(voice => desired == "en" && voice.Culture.Name is "en-GB" or "en-AU" or "en-NZ")
+            .FirstOrDefault();
     }
 
 }
