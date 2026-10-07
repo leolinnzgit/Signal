@@ -71,16 +71,17 @@ IIS for a persistent personal deployment.
   Speech generation uses native Windows SAPI on a dedicated STA thread in a
   disposable child process with a 45-second deadline
   per batch. Closing preparation cancels that worker, and a timeout releases the
-  queue for later attempts. A startup check records English/Chinese synthesis
+  queue for later attempts. A startup check verifies a full 50-headline English/Chinese batch and records synthesis
   results privately in `App_Data/headline-audio-health.json` under the server's
   actual account.
   On IIS, Windows may restrict the profile's `Speech_OneCore/Isolated` registry
   key to interactive users. If the private startup check reports a registry
-  error, run `scripts/Repair-SignalSpeechProfile.ps1` once from elevated Windows
-  PowerShell, then restart Signal. The script backs up the original permissions
-  and grants only the specified pool read/write access to that key in its own
+  error, run `scripts/Repair-SignalSpeechProfile.ps1 -Permission FullControl -VerifyProductionAudio`
+  once from elevated Windows PowerShell. The script backs up the original permissions
+  and grants only the specified pool full access to that single key in its own
   loaded user profile. It temporarily takes ownership to update the permissions
-  and restores the original owner.
+  and restores the original owner. It restarts that pool and tests production audio;
+  a failed test restores the permissions from before the repair attempt.
   Phone screen-lock and background playback depend on the browser and operating
   system keeping the page active; browser speech cannot guarantee uninterrupted
   playback when the page is suspended.
