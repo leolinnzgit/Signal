@@ -53,6 +53,15 @@ IIS for a persistent personal deployment.
   browser. Muted playback pauses while hidden, and manual Pause always applies.
   Leaving native fullscreen keeps the briefing running; use **Close** or
   **Back to news** to end playback.
+  For screen-off listening, choose **Screen-off audio**, wait for the entire
+  recording to be prepared, and tap **Play** before locking the device. Signal
+  creates one continuous audio track with English and Chinese voices installed
+  on the Windows server, including the pauses between headlines. Supported
+  browsers expose lock-screen play/pause and headline navigation controls.
+  This mode uses the server's voices; **Use browser voice** returns to the usual
+  voice picker. Recordings are kept in the browser for the current briefing and
+  are released when you close it. Preparation supports up to 200 titles and
+  20,000 characters and requires Windows server speech voices.
   Phone screen-lock and background playback depend on the browser and operating
   system keeping the page active; browser speech cannot guarantee uninterrupted
   playback when the page is suspended.

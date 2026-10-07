@@ -132,6 +132,7 @@ builder.Services.AddRateLimiter(options =>
         }));
 });
 builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<HeadlineAudioService>();
 builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection(SmtpOptions.SectionName));
 builder.Services.Configure<MarketDataOptions>(builder.Configuration.GetSection(MarketDataOptions.SectionName));
 builder.Services.AddSingleton<GmailOAuthStore>();

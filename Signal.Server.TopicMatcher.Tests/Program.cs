@@ -13,6 +13,8 @@ using Signal.Server.Controllers;
 using Signal.Server.Models;
 using Signal.Server.Services;
 
+await HeadlineAudioChecks.RunAsync();
+
 var cases = new (string Text, string Topic, bool Expected)[]
 {
     ("New Zealand economy faces a slower recovery", "New Zealand economy", true),

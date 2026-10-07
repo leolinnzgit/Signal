@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { FollowedArticle } from "./NewsDashboard";
+import ScreenOffAudioPlayer, { type ScreenOffAudioControls } from "./ScreenOffAudioPlayer";
 import {
   createHeadlinePlayback,
   findPreferredHeadlineVoice,
@@ -30,6 +31,8 @@ export default function HeadlinePlayer({ articles, onArticleRead, onOpenArticle,
   const [speechSupported] = useState(() => "speechSynthesis" in window && "SpeechSynthesisUtterance" in window);
   const [readAloud, setReadAloud] = useState(speechSupported);
   const [speechError, setSpeechError] = useState(false);
+  const [screenOffAudio, setScreenOffAudio] = useState(false);
+  const screenOffControls = useRef<ScreenOffAudioControls>(null);
   const [speechPreferences, setSpeechPreferences] = useState(() => {
     try { return normalizeHeadlineSpeechPreferences(JSON.parse(localStorage.getItem(HEADLINE_SPEECH_PREFERENCES_KEY) ?? "null")); }
     catch { return normalizeHeadlineSpeechPreferences(null); }
@@ -51,6 +54,7 @@ export default function HeadlinePlayer({ articles, onArticleRead, onOpenArticle,
   const preferredVoice = findPreferredHeadlineVoice(availableVoices, preferredVoiceId);
 
   function pausePlayback() {
+    screenOffControls.current?.pause();
     playback.current?.setPaused(true);
     setPaused(true);
   }
@@ -77,7 +81,7 @@ export default function HeadlinePlayer({ articles, onArticleRead, onOpenArticle,
   }, [article, onArticleRead]);
 
   useEffect(() => {
-    if (completed || !title) return;
+    if (screenOffAudio || completed || !title) return;
     const current = createHeadlinePlayback({
       title,
       seconds: 6,
@@ -96,7 +100,7 @@ export default function HeadlinePlayer({ articles, onArticleRead, onOpenArticle,
     });
     playback.current = current;
     return () => { current.dispose(); playback.current = null; };
-  }, [completed, index, preferredVoiceId, readAloud, speechPreferences.rate, speechSupported, title]);
+  }, [completed, index, preferredVoiceId, readAloud, screenOffAudio, speechPreferences.rate, speechSupported, title]);
 
   useEffect(() => {
     playback.current?.setPaused(shouldPauseHeadlinePlayback({ paused, pageVisible, readAloud, voicesReady }));
@@ -132,21 +136,24 @@ export default function HeadlinePlayer({ articles, onArticleRead, onOpenArticle,
         onClose();
       }
       const target = event.target;
-      const isControl = target instanceof HTMLElement && target.matches("button, a, select, input, textarea");
+      const isControl = target instanceof HTMLElement && target.matches("button, a, select, input, textarea, audio");
       if (event.key === " " && !isControl) {
         event.preventDefault();
-        setPaused((current) => !current);
+        if (screenOffControls.current) screenOffControls.current.toggle();
+        else setPaused((current) => !current);
       }
       if (event.key === "ArrowRight" && !(target instanceof HTMLSelectElement)) {
         event.preventDefault();
-        setIndex((current) => Math.min(articles.length, current + 1));
+        if (screenOffControls.current) screenOffControls.current.move(1);
+        else setIndex((current) => Math.min(articles.length, current + 1));
       }
       if (event.key === "ArrowLeft" && !(target instanceof HTMLSelectElement)) {
         event.preventDefault();
-        setIndex((current) => Math.max(0, current - 1));
+        if (screenOffControls.current) screenOffControls.current.move(-1);
+        else setIndex((current) => Math.max(0, current - 1));
       }
       if (event.key === "Tab") {
-        const controls = Array.from(dialog.current?.querySelectorAll<HTMLElement>("button:not(:disabled), a[href], select:not(:disabled)") ?? []);
+        const controls = Array.from(dialog.current?.querySelectorAll<HTMLElement>("button:not(:disabled), a[href], select:not(:disabled), audio[controls]") ?? []);
         const first = controls[0];
         const last = controls[controls.length - 1];
         if (event.shiftKey && document.activeElement === first) {
@@ -171,6 +178,17 @@ export default function HeadlinePlayer({ articles, onArticleRead, onOpenArticle,
       trigger?.focus();
     };
   }, [articles.length, onClose]);
+
+  if (screenOffAudio) return createPortal(
+    <section ref={dialog} className="headline-player" role="dialog" aria-modal="true" aria-label="Unread headline playback">
+      <ScreenOffAudioPlayer ref={screenOffControls} closeButton={closeButton} articles={articles}
+        initialIndex={Math.min(index, articles.length - 1)} seconds={seconds} rate={speechPreferences.rate}
+        onRateChange={(rate) => setSpeechPreferences((current) => ({ ...current, rate }))}
+        onArticleRead={(item) => { if (!readUrls.current.has(item.url)) { readUrls.current.add(item.url); onArticleRead(item); } }}
+        onIndexChange={setIndex} onOpenArticle={onOpenArticle} onClose={onClose}
+        onExit={() => { pausePlayback(); setScreenOffAudio(false); }} />
+    </section>, document.body,
+  );
 
   return createPortal(
     <section ref={dialog} className="headline-player" role="dialog" aria-modal="true" aria-label="Unread headline playback">
@@ -233,6 +251,7 @@ export default function HeadlinePlayer({ articles, onArticleRead, onOpenArticle,
               <button type="button" onClick={() => setIndex((current) => current + 1)} aria-label={index === articles.length - 1 ? "Finish headline playback" : "Next headline"} title="Next (→)">&#8594;</button>
             </div>
             <div className="headline-player-audio">
+              <button type="button" onClick={() => { pausePlayback(); setScreenOffAudio(true); }}>Screen-off audio</button>
               <button
                 type="button"
                 disabled={!speechSupported}
