@@ -49,6 +49,11 @@ IIS for a persistent personal deployment.
   Choose a headline to jump to a story and pause playback. **Read article** opens
   Signal Reader, **Open original** opens the publisher in a new tab and pauses
   the briefing, and **Back to news** returns to the feed at any time.
+  With voice on, narration continues when you switch tabs or minimize the
+  browser. Muted playback pauses while hidden, and manual Pause always applies.
+  Phone screen-lock and background playback depend on the browser and operating
+  system keeping the page active; browser speech cannot guarantee uninterrupted
+  playback when the page is suspended.
 - Read supported articles inside Signal, with an automatic fallback to the
   publisher's original page when extraction is blocked or paywalled.
 - Display feed images when publishers provide them.

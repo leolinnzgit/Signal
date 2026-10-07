@@ -6,6 +6,16 @@ export const HEADLINE_SPEECH_PAUSE_MS = 650;
 
 export type HeadlineSpeechPreferences = { rate: number; voices: Record<string, string> };
 
+export function shouldPauseHeadlinePlayback({ paused, pageVisible, readAloud, voicesReady }: {
+  paused: boolean;
+  pageVisible: boolean;
+  readAloud: boolean;
+  voicesReady: boolean;
+}) {
+  // Spoken briefings can continue out of view; silent ones should not consume unseen stories.
+  return paused || !voicesReady || (!pageVisible && !readAloud);
+}
+
 export function normalizeHeadlineSpeechPreferences(value: unknown): HeadlineSpeechPreferences {
   const saved = value && typeof value === "object" ? value as Partial<HeadlineSpeechPreferences> : {};
   const rate = typeof saved.rate === "number" && Number.isFinite(saved.rate)

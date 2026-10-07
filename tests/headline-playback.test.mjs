@@ -7,7 +7,7 @@ const source = await readFile(new URL("../app/headline-playback.ts", import.meta
 const compiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 },
 }).outputText;
-const { createHeadlinePlayback, headlineSpeechLanguage, headlineVoiceId, selectHeadlineVoice, rankHeadlineVoices, normalizeHeadlineSpeechPreferences, prepareHeadlineSpeechText } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
+const { createHeadlinePlayback, headlineSpeechLanguage, headlineVoiceId, selectHeadlineVoice, rankHeadlineVoices, normalizeHeadlineSpeechPreferences, prepareHeadlineSpeechText, shouldPauseHeadlinePlayback } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
 
 const voice = (name, lang, extra = {}) => ({ name, lang, voiceURI: name, default: false, ...extra });
 
@@ -69,6 +69,72 @@ function harness({ readAloud = true, supported = true, throwOnSpeak = false, voi
     },
   };
 }
+
+test("a narrated briefing keeps playing when the page becomes hidden", () => {
+  const player = harness();
+  const state = { paused: false, pageVisible: true, readAloud: true, voicesReady: true };
+  player.playback.setPaused(shouldPauseHeadlinePlayback(state));
+  player.tick(2_000);
+  state.pageVisible = false;
+  player.playback.setPaused(shouldPauseHeadlinePlayback(state));
+  assert.equal(player.calls.includes("pause"), false);
+  assert.equal(player.utterances.length, 1, "switching away must not restart the narration");
+  player.utterances[0].onend();
+  player.tick(4_000);
+  assert.equal(player.advances, 1);
+  const next = harness();
+  next.playback.setPaused(shouldPauseHeadlinePlayback(state));
+  assert.equal(next.utterances.length, 1, "the next headline starts even while hidden");
+  next.playback.dispose();
+});
+
+test("manual pause still stops background narration until resumed", () => {
+  const player = harness();
+  const state = { paused: false, pageVisible: false, readAloud: true, voicesReady: true };
+  player.playback.setPaused(shouldPauseHeadlinePlayback(state));
+  player.tick(2_000);
+  state.paused = true;
+  player.playback.setPaused(shouldPauseHeadlinePlayback(state));
+  assert.equal(player.calls.at(-1), "pause");
+  player.tick(60_000);
+  assert.equal(player.advances, 0);
+  state.pageVisible = true;
+  player.playback.setPaused(shouldPauseHeadlinePlayback(state));
+  assert.equal(player.calls.at(-1), "pause", "returning to the page must respect manual pause");
+  state.paused = false;
+  player.playback.setPaused(shouldPauseHeadlinePlayback(state));
+  assert.equal(player.calls.at(-1), "resume");
+  assert.equal(player.utterances.length, 1);
+  player.playback.dispose();
+});
+
+test("muted background playback preserves unseen headlines until the page is visible", () => {
+  const player = harness({ readAloud: false });
+  const state = { paused: false, pageVisible: true, readAloud: false, voicesReady: true };
+  player.playback.setPaused(shouldPauseHeadlinePlayback(state));
+  player.tick(2_000);
+  state.pageVisible = false;
+  player.playback.setPaused(shouldPauseHeadlinePlayback(state));
+  player.tick(60_000);
+  assert.equal(player.advances, 0);
+  state.pageVisible = true;
+  player.playback.setPaused(shouldPauseHeadlinePlayback(state));
+  player.tick(4_000);
+  assert.equal(player.advances, 1);
+});
+
+test("background narration waits until voices are ready", () => {
+  const player = harness();
+  const state = { paused: false, pageVisible: false, readAloud: true, voicesReady: false };
+  player.playback.setPaused(shouldPauseHeadlinePlayback(state));
+  player.tick(60_000);
+  assert.equal(player.utterances.length, 0);
+  assert.equal(player.advances, 0);
+  state.voicesReady = true;
+  player.playback.setPaused(shouldPauseHeadlinePlayback(state));
+  assert.equal(player.utterances.length, 1);
+  player.playback.dispose();
+});
 
 test("speaks only the current title and waits for long narration before advancing", () => {
   const player = harness();

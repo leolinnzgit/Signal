@@ -12,6 +12,7 @@ import {
   normalizeHeadlineSpeechPreferences,
   rankHeadlineVoices,
   selectHeadlineVoice,
+  shouldPauseHeadlinePlayback,
 } from "./headline-playback";
 
 type HeadlinePlayerProps = {
@@ -98,7 +99,7 @@ export default function HeadlinePlayer({ articles, onArticleRead, onOpenArticle,
   }, [completed, index, preferredVoiceId, readAloud, speechPreferences.rate, speechSupported, title]);
 
   useEffect(() => {
-    playback.current?.setPaused(paused || !pageVisible || !voicesReady);
+    playback.current?.setPaused(shouldPauseHeadlinePlayback({ paused, pageVisible, readAloud, voicesReady }));
     playback.current?.setSeconds(seconds);
   }, [completed, index, preferredVoiceId, readAloud, seconds, speechPreferences.rate, paused, pageVisible, title, voicesReady]);
 
@@ -161,7 +162,8 @@ export default function HeadlinePlayer({ articles, onArticleRead, onOpenArticle,
     // Escape can be consumed by the browser when leaving native full screen.
     let wasFullscreen = Boolean(document.fullscreenElement);
     const handleFullscreen = () => {
-      if (wasFullscreen && !document.fullscreenElement) onClose();
+      // Switching tabs may leave native full screen; keep the briefing alive while hidden.
+      if (wasFullscreen && !document.fullscreenElement && !document.hidden) onClose();
       wasFullscreen = Boolean(document.fullscreenElement);
     };
     document.addEventListener("fullscreenchange", handleFullscreen);
