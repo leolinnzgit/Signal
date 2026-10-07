@@ -76,6 +76,9 @@ IIS for a persistent personal deployment.
   on the Windows server, preferring female voices in both languages and including
   the pauses between headlines. Supported
   browsers expose lock-screen play/pause and headline navigation controls.
+  **Preview voice** plays a short sample of the selected English or Chinese
+  voice before a reading. Previewing pauses current narration; switching voices
+  or closing the reader cancels the sample. Samples reuse the private clip cache.
   This mode uses the server's voices; **Use browser voice** returns to the usual
   voice picker. Recordings are kept in the browser for the current briefing and
   are released when you close it. Long briefings are prepared in small batches,

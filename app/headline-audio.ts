@@ -11,6 +11,17 @@ export function preferScreenOffAudio(userAgent: string, standalone: boolean) {
   return standalone && /Android/i.test(userAgent);
 }
 
+export function prepareReadingVoicePreview(
+  language: keyof ReadingVoicePreferences, voices: ReadingVoicePreferences,
+  signal: AbortSignal, fetcher: typeof fetch = fetch,
+) {
+  const sample = language === "en"
+    ? "Hello, this is your Signal reading voice. I can read the latest news while you listen."
+    : "您好，這是您的 Signal 新聞朗讀聲音。讓我為您朗讀最新新聞。";
+  return prepareHeadlineAudio([sample], 3, language, signal, fetcher, undefined, 15_000,
+    { en: language === "en" ? voices.en : "", zh: language === "zh" ? voices.zh : "" });
+}
+
 export async function prepareHeadlineAudio(
   titles: string[], seconds: number, language: string, signal: AbortSignal,
   fetcher: typeof fetch = fetch,

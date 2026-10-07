@@ -167,7 +167,7 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, articles, initi
       </div>}
     </div>
     <div className="screen-off-audio-controls">
-      <ReadingVoiceSelector {...readingVoices} selectVoice={selectVoice} active />
+      <ReadingVoiceSelector {...readingVoices} selectVoice={selectVoice} active playbackActive={!paused} onPreviewStart={pause} />
       {track && <>
         <p>Tap Play, then turn off the screen. Your phone’s media controls can pause or resume the briefing.</p>
         <audio ref={audio} src={track.url} controls preload="auto" aria-label="Screen-off audio briefing"

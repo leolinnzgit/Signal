@@ -15,6 +15,7 @@ export default function ArticleAudioPlayer({ title, source, paragraphs, autoPrep
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [rate, setRate] = useState(1);
+  const [playing, setPlaying] = useState(false);
   const audio = useRef<HTMLAudioElement>(null);
   const preparation = useRef<AbortController | null>(null);
   const resumePart = useRef(0);
@@ -79,6 +80,7 @@ export default function ArticleAudioPlayer({ title, source, paragraphs, autoPrep
   }, [url, title, source]);
 
   function updatePlayback(playing: boolean) {
+    setPlaying(playing);
     setMessage(playing ? "Reading full news aloud. You can turn off the screen." : "Reading paused.");
     if ("mediaSession" in navigator) navigator.mediaSession.playbackState = playing ? "playing" : "paused";
   }
@@ -110,7 +112,8 @@ export default function ArticleAudioPlayer({ title, source, paragraphs, autoPrep
   }
 
   return <section className="article-audio-player" aria-label="Full article narration">
-    <ReadingVoiceSelector {...readingVoices} selectVoice={selectVoice} active={attempt > 0} />
+    <ReadingVoiceSelector {...readingVoices} selectVoice={selectVoice} active={attempt > 0} playbackActive={playing}
+      onPreviewStart={() => { resumePlayback.current = false; audio.current?.pause(); setPlaying(false); }} />
     {!url && !preparing && <button type="button" onClick={() => { resumePlayback.current = true; setAttempt((current) => current + 1); }}>{error ? "Try audio again" : "Read full news aloud"}</button>}
     {preparing && <>
       <p role="status">Preparing full article audio… {progress}%</p>
@@ -122,7 +125,7 @@ export default function ArticleAudioPlayer({ title, source, paragraphs, autoPrep
         onLoadedMetadata={() => { if (audio.current) audio.current.currentTime = starts[resumePart.current] ?? 0; }}
         onPlay={() => updatePlayback(true)} onPause={() => updatePlayback(false)}
         onTimeUpdate={updatePosition} onSeeking={updatePosition}
-        onEnded={() => setMessage("Finished reading this article.")}
+        onEnded={() => { setPlaying(false); setMessage("Finished reading this article."); }}
         onError={() => { setError("The recording could not be played. Try preparing the audio again."); setUrl(""); }} />
       <label>Speaking speed <select value={rate} onChange={(event) => setRate(Number(event.target.value))}>{[0.8, 1, 1.1, 1.2].map((value) => <option key={value} value={value}>{value}×</option>)}</select></label>
       <p role="status">{message}</p>

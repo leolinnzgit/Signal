@@ -5,9 +5,45 @@ import ts from "typescript";
 
 const source = await readFile(new URL("../app/headline-audio.ts", import.meta.url), "utf8");
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } }).outputText;
-const { prepareHeadlineAudio, prepareArticleAudio, articleNarrationParts, audioHeadlineIndex, preferScreenOffAudio, normalizeReadingVoices } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
+const { prepareHeadlineAudio, prepareArticleAudio, prepareReadingVoicePreview, articleNarrationParts, audioHeadlineIndex, preferScreenOffAudio, normalizeReadingVoices } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
 const titles = ["English headline", "中文新聞"];
 const signal = new AbortController().signal;
+
+test("voice previews use the selected language and voice without preparing a whole article", async () => {
+  const preferences = { en: "Susan", zh: "Yating" };
+  const requests = [];
+  const fetcher = async (url, options) => {
+    if (url === "/api/auth/csrf") return Response.json({ token: "preview-token" });
+    assert.equal(options.headers["X-XSRF-TOKEN"], "preview-token");
+    assert.equal(options.signal, signal);
+    const body = JSON.parse(options.body);
+    requests.push(body);
+    assert.equal(body.titles.length, 1);
+    assert.ok(body.titles[0].length < 150);
+    return waveResponse([0], 3);
+  };
+  await prepareReadingVoicePreview("en", preferences, signal, fetcher);
+  await prepareReadingVoicePreview("zh", preferences, signal, fetcher);
+  assert.equal(requests[0].language, "en");
+  assert.deepEqual(requests[0].voices, { en: "Susan", zh: "" });
+  assert.match(requests[0].titles[0], /Hello/);
+  assert.equal(requests[1].language, "zh");
+  assert.deepEqual(requests[1].voices, { en: "", zh: "Yating" });
+  assert.match(requests[1].titles[0], /您好/);
+  assert.deepEqual(preferences, { en: "Susan", zh: "Yating" });
+});
+
+test("automatic voice preview keeps the server default and can be cancelled before preparation", async () => {
+  const fetcher = async (url, options) => {
+    if (url === "/api/auth/csrf") return Response.json({ token: "token" });
+    assert.equal(JSON.parse(options.body).voices, undefined);
+    return waveResponse([0], 3);
+  };
+  await prepareReadingVoicePreview("en", { en: "", zh: "Yating" }, signal, fetcher);
+  const abort = new AbortController();
+  abort.abort();
+  await assert.rejects(prepareReadingVoicePreview("zh", { en: "", zh: "" }, abort.signal, () => { throw new Error("Must not fetch"); }), { name: "AbortError" });
+});
 
 test("saved English and Chinese voice choices handle invalid device preferences", () => {
   assert.deepEqual(normalizeReadingVoices(null), { en: "", zh: "" });

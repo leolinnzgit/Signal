@@ -3609,6 +3609,10 @@ button.local-weather {
 .reading-voice-selector label { display: grid; gap: 0.35rem; min-width: 0; color: var(--text-muted); font-size: 0.8rem; }
 .reading-voice-selector select { width: 100%; min-width: 0; max-width: 100%; padding: 0.45rem; border: 1px solid var(--line); border-radius: 0.35rem; background: var(--content-background); color: var(--page-text); font-size: 0.8rem; }
 .reading-voice-selector p { margin: 0; color: var(--text-muted); font-size: 0.75rem; line-height: 1.4; }
+.reading-voice-choice { display: grid; gap: 0.4rem; min-width: 0; }
+.reading-voice-choice button { justify-self: start; padding: 0.45rem 0.75rem; font-size: 0.8rem; }
+.reading-voice-preview { display: grid; gap: 0.4rem; min-width: 0; }
+.reading-voice-preview audio { width: 100%; min-width: 0; }
 
 .article-reader-content > p:not(.article-reader-byline) {
   margin: 0 0 1.35em;
