@@ -51,6 +51,8 @@ IIS for a persistent personal deployment.
   the briefing, and **Back to news** returns to the feed at any time.
   With voice on, narration continues when you switch tabs or minimize the
   browser. Muted playback pauses while hidden, and manual Pause always applies.
+  Leaving native fullscreen keeps the briefing running; use **Close** or
+  **Back to news** to end playback.
   Phone screen-lock and background playback depend on the browser and operating
   system keeping the page active; browser speech cannot guarantee uninterrupted
   playback when the page is suspended.

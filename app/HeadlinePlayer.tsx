@@ -159,18 +159,11 @@ export default function HeadlinePlayer({ articles, onArticleRead, onOpenArticle,
       }
     };
     window.addEventListener("keydown", handleKey);
-    // Escape can be consumed by the browser when leaving native full screen.
-    let wasFullscreen = Boolean(document.fullscreenElement);
-    const handleFullscreen = () => {
-      // Switching tabs may leave native full screen; keep the briefing alive while hidden.
-      if (wasFullscreen && !document.fullscreenElement && !document.hidden) onClose();
-      wasFullscreen = Boolean(document.fullscreenElement);
-    };
-    document.addEventListener("fullscreenchange", handleFullscreen);
+    // Minimizing can exit native fullscreen before visibilitychange arrives.
+    // Fullscreen changes must never close the player or dispose its narration.
     return () => {
       window.cancelAnimationFrame(frame);
       window.removeEventListener("keydown", handleKey);
-      document.removeEventListener("fullscreenchange", handleFullscreen);
       background.forEach(({ element, inert }) => { element.inert = inert; });
       document.documentElement.style.overflow = previousRootOverflow;
       Object.assign(document.body.style, previousBodyStyle);
