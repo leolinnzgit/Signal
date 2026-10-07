@@ -60,8 +60,10 @@ IIS for a persistent personal deployment.
   browsers expose lock-screen play/pause and headline navigation controls.
   This mode uses the server's voices; **Use browser voice** returns to the usual
   voice picker. Recordings are kept in the browser for the current briefing and
-  are released when you close it. Preparation supports up to 200 titles and
-  20,000 characters and requires Windows server speech voices.
+  are released when you close it. Long briefings are prepared in small batches,
+  with progress shown, then joined into one recording before playback. There is
+  no 200-headline limit on the briefing. Preparation requires Windows server
+  speech voices.
   Phone screen-lock and background playback depend on the browser and operating
   system keeping the page active; browser speech cannot guarantee uninterrupted
   playback when the page is suspended.

@@ -24,6 +24,8 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, articles, initi
   const [track, setTrack] = useState<{ url: string; starts: number[] } | null>(null);
   const [error, setError] = useState("");
   const [paused, setPaused] = useState(true);
+  const [preparedCount, setPreparedCount] = useState(0);
+  const [preparationAttempt, setPreparationAttempt] = useState(0);
   const [index, setIndex] = useState(initialIndex);
   const audio = useRef<HTMLAudioElement>(null);
   const lastIndex = useRef(initialIndex);
@@ -35,7 +37,10 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, articles, initi
   useEffect(() => {
     const abort = new AbortController();
     let url = "";
-    void prepareHeadlineAudio(articles.map((item) => item.title), seconds, navigator.language, abort.signal)
+    setError("");
+    setPreparedCount(0);
+    void prepareHeadlineAudio(articles.map((item) => item.title), seconds, navigator.language, abort.signal, undefined,
+      (prepared) => { if (!abort.signal.aborted) setPreparedCount(prepared); })
       .then((prepared) => {
         if (abort.signal.aborted) return;
         url = URL.createObjectURL(prepared.blob);
@@ -45,7 +50,7 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, articles, initi
         if (!abort.signal.aborted) setError(reason instanceof Error ? reason.message : "Audio could not be prepared.");
       });
     return () => { abort.abort(); if (url) URL.revokeObjectURL(url); };
-  }, [articles, seconds]);
+  }, [articles, seconds, preparationAttempt]);
 
   useEffect(() => {
     if (audio.current) audio.current.playbackRate = rate;
@@ -137,7 +142,9 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, articles, initi
       {!track ? <div className="article-reader-state" role="status">
         {!error && <span className="article-reader-loader" aria-hidden="true" />}
         <strong>{error ? "Audio unavailable" : "Preparing your audio briefing"}</strong>
+        {!error && <p>{preparedCount} of {articles.length} headlines prepared</p>}
         <p>{error || "Keep Signal open while the full briefing is prepared. You can turn off the screen after tapping Play."}</p>
+        {error && <button type="button" onClick={() => setPreparationAttempt((attempt) => attempt + 1)}>Try again</button>}
       </div> : completed ? <div className="headline-player-complete"><h2>All caught up.</h2><p>You’ve reached the end of this audio briefing.</p></div> : <div className="headline-player-story">
         <h2 className={`headline-player-title${article.title.length > 100 ? " headline-player-title-long" : ""}`}>{article.title}</h2>
         <p className="headline-player-source">{article.source}</p>
