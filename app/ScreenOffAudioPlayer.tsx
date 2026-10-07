@@ -171,6 +171,11 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, articles, initi
           <label>Speaking speed <select value={rate} onChange={(event) => onRateChange(Number(event.target.value))}>{Array.from(new Set([0.8, 0.95, 1, 1.1, 1.2, rate])).sort().map((value) => <option key={value} value={value}>{value}×</option>)}</select></label>
         </div>
       </>}
+      {/Android/i.test(navigator.userAgent) && <details className="screen-off-audio-help">
+        <summary>Audio stops after pressing Home?</summary>
+        <p>On Samsung phones, check Settings → Battery → Background usage limits. Remove Signal from Sleeping apps or Deep sleeping apps, and add it to Never sleeping apps. If Signal isn’t listed, check the browser you used to install it.</p>
+        <a href="https://developer.samsung.com/mobile/app-management.html" target="_blank" rel="noreferrer">Samsung’s background app guidance &#8599;</a>
+      </details>}
       <button type="button" onClick={onExit}>Use browser voice</button>
     </div>
   </>;

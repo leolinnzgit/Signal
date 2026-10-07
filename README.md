@@ -55,7 +55,11 @@ IIS for a persistent personal deployment.
   **Back to news** to end playback.
   For screen-off listening, choose **Screen-off audio**, wait for the entire
   recording to be prepared, and tap **Play** before locking the device. Signal
-  creates one continuous audio track with English and Chinese voices installed
+  opens this mode by default in the installed Android app. On Samsung phones,
+  check **Settings → Battery → Background usage limits** if recorded audio
+  stops after pressing Home; exclude Signal (or its installing browser) from
+  sleeping apps. The player includes a link to Samsung's guidance.
+  Signal creates one continuous audio track with English and Chinese voices installed
   on the Windows server, including the pauses between headlines. Supported
   browsers expose lock-screen play/pause and headline navigation controls.
   This mode uses the server's voices; **Use browser voice** returns to the usual

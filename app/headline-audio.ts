@@ -1,5 +1,9 @@
 export type PreparedHeadlineAudio = { blob: Blob; starts: number[] };
 
+export function preferScreenOffAudio(userAgent: string, standalone: boolean) {
+  return standalone && /Android/i.test(userAgent);
+}
+
 export async function prepareHeadlineAudio(
   titles: string[], seconds: number, language: string, signal: AbortSignal,
   fetcher: typeof fetch = fetch,

@@ -5,6 +5,7 @@ import { type CSSProperties, FormEvent, useCallback, useEffect, useMemo, useRef,
 import { updateInstalledAppBadge } from "./app-badge";
 import { resolveArticleShareUrl, shareArticle } from "./article-share";
 import HeadlinePlayer from "./HeadlinePlayer";
+import { preferScreenOffAudio } from "./headline-audio";
 import {
   normalizeSecondaryTimeZone,
   type SecondaryTimeZonePreference,
@@ -4407,6 +4408,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
       {headlineQueue && (
         <HeadlinePlayer
           articles={headlineQueue}
+          startWithScreenOffAudio={preferScreenOffAudio(navigator.userAgent, appInstalled)}
           onArticleRead={(article) => markArticleRead(article, true)}
           onOpenArticle={(article) => {
             closeHeadlinePlayer();

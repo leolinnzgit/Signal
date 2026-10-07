@@ -18,12 +18,13 @@ import {
 
 type HeadlinePlayerProps = {
   articles: FollowedArticle[];
+  startWithScreenOffAudio?: boolean;
   onArticleRead: (article: FollowedArticle) => void;
   onOpenArticle: (article: FollowedArticle) => void;
   onClose: () => void;
 };
 
-export default function HeadlinePlayer({ articles, onArticleRead, onOpenArticle, onClose }: HeadlinePlayerProps) {
+export default function HeadlinePlayer({ articles, startWithScreenOffAudio = false, onArticleRead, onOpenArticle, onClose }: HeadlinePlayerProps) {
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const [seconds, setSeconds] = useState(6);
@@ -31,7 +32,7 @@ export default function HeadlinePlayer({ articles, onArticleRead, onOpenArticle,
   const [speechSupported] = useState(() => "speechSynthesis" in window && "SpeechSynthesisUtterance" in window);
   const [readAloud, setReadAloud] = useState(speechSupported);
   const [speechError, setSpeechError] = useState(false);
-  const [screenOffAudio, setScreenOffAudio] = useState(false);
+  const [screenOffAudio, setScreenOffAudio] = useState(startWithScreenOffAudio);
   const screenOffControls = useRef<ScreenOffAudioControls>(null);
   const [speechPreferences, setSpeechPreferences] = useState(() => {
     try { return normalizeHeadlineSpeechPreferences(JSON.parse(localStorage.getItem(HEADLINE_SPEECH_PREFERENCES_KEY) ?? "null")); }

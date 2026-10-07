@@ -5,9 +5,17 @@ import ts from "typescript";
 
 const source = await readFile(new URL("../app/headline-audio.ts", import.meta.url), "utf8");
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } }).outputText;
-const { prepareHeadlineAudio, audioHeadlineIndex } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
+const { prepareHeadlineAudio, audioHeadlineIndex, preferScreenOffAudio } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
 const titles = ["English headline", "中文新聞"];
 const signal = new AbortController().signal;
+
+test("installed Android apps start with recorded audio, including Samsung and Chrome", () => {
+  assert.equal(preferScreenOffAudio("Mozilla/5.0 (Linux; Android 14; SM-S918B) Chrome/128.0", true), true);
+  assert.equal(preferScreenOffAudio("Mozilla/5.0 (Linux; Android 14; SM-S918B) SamsungBrowser/27.0 Chrome/125.0", true), true);
+  assert.equal(preferScreenOffAudio("Mozilla/5.0 (Linux; Android 14; SM-S918B) Chrome/128.0", false), false);
+  assert.equal(preferScreenOffAudio("Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/128.0", true), false);
+  assert.equal(preferScreenOffAudio("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)", true), false);
+});
 
 function waveResponse(starts, duration, sample = 7) {
   const bytes = Buffer.alloc(44 + Math.round(duration * 32_000 / 2) * 2, sample);
