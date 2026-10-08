@@ -64,6 +64,8 @@ IIS for a persistent personal deployment.
   block extraction show an explanation and a link to read the original article.
   With voice on, narration continues when you switch tabs or minimize the
   browser. Muted playback pauses while hidden, and manual Pause always applies.
+  On PC, playback opens in a windowed player. Choose **Full screen** to expand it,
+  and **Exit full screen** to return to the window without interrupting audio.
   Leaving native fullscreen keeps the briefing running; use **Close** or
   **Back to news** to end playback.
   For screen-off listening, choose **Screen-off audio**, wait for the entire

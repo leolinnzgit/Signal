@@ -1,6 +1,6 @@
 "use client";
 
-import { type Ref, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { type ReactNode, type Ref, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { FollowedArticle } from "./NewsDashboard";
 import { audioHeadlineIndex, preparedAudioCache, prepareHeadlineAudio, type PreparedHeadlineAudio, type ReadingVoicePreferences } from "./headline-audio";
 import ReadingVoiceSelector, { useReadingVoices } from "./ReadingVoiceSelector";
@@ -9,6 +9,7 @@ export type ScreenOffAudioControls = { pause: () => void; toggle: () => void; mo
 type Props = {
   ref: Ref<ScreenOffAudioControls>;
   closeButton: Ref<HTMLButtonElement>;
+  fullscreenControl: ReactNode;
   articles: FollowedArticle[];
   initialIndex: number;
   seconds: number;
@@ -22,7 +23,7 @@ type Props = {
   onExit: () => void;
 };
 
-export default function ScreenOffAudioPlayer({ ref, closeButton, articles, initialIndex, seconds, rate, onRateChange, onArticleRead, onIndexChange, onOpenArticle, onListenArticle, onClose, onExit }: Props) {
+export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenControl, articles, initialIndex, seconds, rate, onRateChange, onArticleRead, onIndexChange, onOpenArticle, onListenArticle, onClose, onExit }: Props) {
   const [track, setTrack] = useState<{ url: string; starts: number[] } | null>(null);
   const [error, setError] = useState("");
   const [paused, setPaused] = useState(true);
@@ -158,6 +159,7 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, articles, initi
       <span className="headline-player-label"><span className="pulse" aria-hidden="true" /> Screen-off audio</span>
       <div className="headline-player-header-actions">
         <span>{Math.min(index + 1, articles.length)} / {articles.length}</span>
+        {fullscreenControl}
         <button type="button" className="headline-player-back" onClick={onClose}>Back to news</button>
         <button ref={closeButton} type="button" onClick={onClose} aria-label="Close headline playback" title="Close (Esc)">&#215;</button>
       </div>

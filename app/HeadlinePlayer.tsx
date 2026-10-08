@@ -34,6 +34,9 @@ export default function HeadlinePlayer({ articles, startWithScreenOffAudio = fal
   const [readAloud, setReadAloud] = useState(speechSupported);
   const [speechError, setSpeechError] = useState(false);
   const [screenOffAudio, setScreenOffAudio] = useState(startWithScreenOffAudio);
+  const [fullscreen, setFullscreen] = useState(() => !!document.fullscreenElement);
+  const [expanded, setExpanded] = useState(false);
+  const mounted = useRef(true);
   const screenOffControls = useRef<ScreenOffAudioControls>(null);
   const [speechPreferences, setSpeechPreferences] = useState(() => {
     try { return normalizeHeadlineSpeechPreferences(JSON.parse(localStorage.getItem(HEADLINE_SPEECH_PREFERENCES_KEY) ?? "null")); }
@@ -59,6 +62,28 @@ export default function HeadlinePlayer({ articles, startWithScreenOffAudio = fal
     screenOffControls.current?.pause();
     playback.current?.setPaused(true);
     setPaused(true);
+  }
+
+  useEffect(() => {
+    mounted.current = true;
+    const element = dialog.current;
+    const updateFullscreen = () => setFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", updateFullscreen);
+    return () => {
+      mounted.current = false;
+      document.removeEventListener("fullscreenchange", updateFullscreen);
+      if (element && document.fullscreenElement === element) void document.exitFullscreen().catch(() => {});
+    };
+  }, []);
+
+  function toggleFullscreen() {
+    if (document.fullscreenElement) { void document.exitFullscreen().catch(() => {}); return; }
+    if (expanded) { setExpanded(false); return; }
+    const element = dialog.current;
+    if (!element?.requestFullscreen || !document.fullscreenEnabled) { setExpanded(true); return; }
+    void element.requestFullscreen().then(() => {
+      if (!mounted.current && document.fullscreenElement === element) void document.exitFullscreen().catch(() => {});
+    }).catch(() => { if (mounted.current) setExpanded(true); });
   }
 
   useEffect(() => {
@@ -134,6 +159,13 @@ export default function HeadlinePlayer({ articles, startWithScreenOffAudio = fal
     const frame = window.requestAnimationFrame(() => closeButton.current?.focus());
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        // Escape first returns to the windowed player; narration keeps running.
+        if (document.fullscreenElement) return;
+        if (dialog.current?.classList.contains("headline-player-expanded")) {
+          event.preventDefault();
+          setExpanded(false);
+          return;
+        }
         event.preventDefault();
         onClose();
       }
@@ -181,23 +213,33 @@ export default function HeadlinePlayer({ articles, startWithScreenOffAudio = fal
     };
   }, [articles.length, onClose]);
 
+  const fullscreenControl = <button type="button" className="headline-player-fullscreen" aria-pressed={fullscreen || expanded}
+    aria-label={fullscreen || expanded ? "Exit full screen" : "Enter full screen"} onClick={toggleFullscreen}>
+    {fullscreen || expanded ? "Exit full screen" : "Full screen"}
+  </button>;
+  const playerClass = `headline-player${fullscreen || expanded ? " headline-player-expanded" : ""}`;
+
   if (screenOffAudio) return createPortal(
-    <section ref={dialog} className="headline-player" role="dialog" aria-modal="true" aria-label="Unread headline playback">
+    <><div className="headline-player-backdrop" aria-hidden="true" />
+    <section ref={dialog} className={playerClass} role="dialog" aria-modal="true" aria-label="Unread headline playback">
       <ScreenOffAudioPlayer ref={screenOffControls} closeButton={closeButton} articles={articles}
+        fullscreenControl={fullscreenControl}
         initialIndex={Math.min(index, articles.length - 1)} seconds={seconds} rate={speechPreferences.rate}
         onRateChange={(rate) => setSpeechPreferences((current) => ({ ...current, rate }))}
         onArticleRead={(item) => { if (!readUrls.current.has(item.url)) { readUrls.current.add(item.url); onArticleRead(item); } }}
         onIndexChange={setIndex} onOpenArticle={onOpenArticle} onListenArticle={onListenArticle} onClose={onClose}
         onExit={() => { pausePlayback(); setScreenOffAudio(false); }} />
-    </section>, document.body,
+    </section></>, document.body,
   );
 
   return createPortal(
-    <section ref={dialog} className="headline-player" role="dialog" aria-modal="true" aria-label="Unread headline playback">
+    <><div className="headline-player-backdrop" aria-hidden="true" />
+    <section ref={dialog} className={playerClass} role="dialog" aria-modal="true" aria-label="Unread headline playback">
       <header className="headline-player-header">
         <span className="headline-player-label"><span className="pulse" aria-hidden="true" /> Unread headlines</span>
         <div className="headline-player-header-actions">
           <span>{completed ? `${articles.length} / ${articles.length}` : `${index + 1} / ${articles.length}`}</span>
+          {fullscreenControl}
           <button type="button" className="headline-player-back" onClick={onClose}>Back to news</button>
           <button ref={closeButton} type="button" onClick={onClose} aria-label="Close headline playback" title="Close (Esc)">&#215;</button>
         </div>
@@ -297,7 +339,7 @@ export default function HeadlinePlayer({ articles, startWithScreenOffAudio = fal
           </div>
         </div>
       )}
-    </section>,
+    </section></>,
     document.body,
   );
 }

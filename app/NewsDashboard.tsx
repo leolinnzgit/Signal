@@ -1664,7 +1664,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     headlinePlaybackTrigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     // Snapshot the queue so refreshes and read-status updates cannot skip titles.
     setHeadlineQueue([...unreadArticles]);
-    if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+    if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent) && !document.fullscreenElement && document.documentElement.requestFullscreen) {
       headlineFullscreenRequested.current = true;
       void document.documentElement.requestFullscreen().then(() => {
         if (!headlineFullscreenRequested.current && document.fullscreenElement) {
