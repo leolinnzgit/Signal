@@ -5,7 +5,7 @@ import ts from "typescript";
 
 const source = await readFile(new URL("../app/headline-audio.ts", import.meta.url), "utf8");
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } }).outputText;
-const { PreparedAudioCache, prepareHeadlineAudio, prepareArticleAudio, prepareReadingVoicePreview, articleNarrationParts, audioHeadlineIndex, preferScreenOffAudio, normalizeReadingVoices } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
+const { PreparedAudioCache, prepareHeadlineAudio, prepareArticleAudio, prepareReadingVoicePreview, articleNarrationParts, audioHeadlineIndex, preferScreenOffAudio, preferBrowserArticleAudio, normalizeReadingVoices } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
 const titles = ["English headline", "中文新聞"];
 const signal = new AbortController().signal;
 
@@ -335,4 +335,23 @@ test("maps playback position to headlines across gaps, seeking and delayed backg
   assert.equal(audioHeadlineIndex(starts, 120), 3);
   assert.equal(audioHeadlineIndex(starts, -1), 0);
   assert.equal(audioHeadlineIndex([], 10), 0);
+});
+
+test("desktop article narration prefers browser speech while phones retain recorded audio", () => {
+  for (const agent of ["Mozilla/5.0 (Windows NT 10.0; Win64; x64)", "Mozilla/5.0 (Macintosh; Intel Mac OS X)", "Mozilla/5.0 (X11; Linux x86_64)"]) {
+    assert.equal(preferBrowserArticleAudio(agent, true), true);
+    assert.equal(preferBrowserArticleAudio(agent, false), false);
+  }
+  for (const agent of ["Mozilla/5.0 (Linux; Android 14)", "Mozilla/5.0 (iPhone; CPU iPhone OS)", "Mozilla/5.0 (iPad; CPU OS)"]) {
+    assert.equal(preferBrowserArticleAudio(agent, true), false);
+  }
+});
+
+test("browser narration uses short complete chunks and preserves long words, Chinese and emoji", () => {
+  const paragraphs = ["Detailed sentence about the news. ".repeat(50), "中文新聞。".repeat(100), "🚀".repeat(300), "a".repeat(500)];
+  const parts = articleNarrationParts("News title", paragraphs, 240);
+  assert.ok(parts.every(part => part.length <= 240));
+  assert.equal(parts.join("").replace(/\s/gu, ""), ["News title", ...paragraphs].join("").replace(/\s/gu, ""));
+  assert.ok(parts.every(part => !/[\uD800-\uDBFF]$/u.test(part)));
+  assert.deepEqual(articleNarrationParts("", ["Headline only"], 240), ["Headline only"]);
 });

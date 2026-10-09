@@ -1,14 +1,28 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { articleNarrationParts, audioHeadlineIndex, preparedAudioCache, prepareArticleAudio, type PreparedHeadlineAudio, type ReadingVoicePreferences } from "./headline-audio";
+import { articleNarrationParts, audioHeadlineIndex, preferBrowserArticleAudio, preparedAudioCache, prepareArticleAudio, type PreparedHeadlineAudio, type ReadingVoicePreferences } from "./headline-audio";
 import ReadingVoiceSelector, { useReadingVoices } from "./ReadingVoiceSelector";
+import BrowserArticleAudioPlayer from "./BrowserArticleAudioPlayer";
 
-type Props = { title: string; source: string; paragraphs: string[]; autoPrepare?: boolean };
+export type ArticleAudioPlayerProps = { title: string; source: string; paragraphs: string[]; autoPrepare?: boolean; summaryOnly?: boolean };
 
-export default function ArticleAudioPlayer({ title, source, paragraphs, autoPrepare = false }: Props) {
+export default function ArticleAudioPlayer(props: ArticleAudioPlayerProps) {
+  const [speechSupported] = useState(() => typeof window !== "undefined" && "speechSynthesis" in window && "SpeechSynthesisUtterance" in window);
+  const [mode, setMode] = useState(() => preferBrowserArticleAudio(typeof navigator === "undefined" ? "" : navigator.userAgent, speechSupported) ? "browser" : "recorded");
+  return <div className="article-narration">
+    <div className="article-audio-mode" role="group" aria-label="Article audio mode">
+      <button type="button" aria-pressed={mode === "browser"} disabled={!speechSupported} onClick={() => setMode("browser")}>Browser voice</button>
+      <button type="button" aria-pressed={mode === "recorded"} onClick={() => setMode("recorded")}>Recorded audio</button>
+    </div>
+    {mode === "browser" ? <BrowserArticleAudioPlayer {...props} /> : <RecordedArticleAudioPlayer {...props} />}
+  </div>;
+}
+
+function RecordedArticleAudioPlayer({ title, source, paragraphs, autoPrepare = false, summaryOnly = false }: ArticleAudioPlayerProps) {
   const readingVoices = useReadingVoices();
-  const parts = useMemo(() => { try { return articleNarrationParts(title, paragraphs); } catch { return null; } }, [title, paragraphs]);
+  const narrationTitle = summaryOnly && paragraphs.length === 1 && paragraphs[0] === title ? "" : title;
+  const parts = useMemo(() => { try { return articleNarrationParts(narrationTitle, paragraphs); } catch { return null; } }, [narrationTitle, paragraphs]);
   const [attempt, setAttempt] = useState(() => autoPrepare || (parts && preparedAudioCache.get(parts, 3, navigator.language, readingVoices.preferences)) ? 1 : 0);
   const [url, setUrl] = useState("");
   const [starts, setStarts] = useState<number[]>([]);
@@ -49,7 +63,7 @@ export default function ArticleAudioPlayer({ title, source, paragraphs, autoPrep
         setMessage(ready ? "Audio ready. Tap Play to resume reading." : "Ready. Tap Play if the audio does not start automatically.");
     };
     if (ready) useRecording(ready);
-    else void Promise.resolve().then(() => prepareArticleAudio(title, paragraphs, navigator.language, abort.signal, undefined,
+    else void Promise.resolve().then(() => prepareArticleAudio(narrationTitle, paragraphs, navigator.language, abort.signal, undefined,
       (done, total) => { if (!abort.signal.aborted) setProgress(Math.round(done / total * 100)); }, readingVoices.preferences))
       .then(useRecording)
       .catch((reason: unknown) => {
@@ -58,7 +72,7 @@ export default function ArticleAudioPlayer({ title, source, paragraphs, autoPrep
         setError(reason instanceof Error ? reason.message : "The full article audio could not be prepared.");
       });
     return () => { abort.abort(); if (recordingUrl) URL.revokeObjectURL(recordingUrl); };
-  }, [attempt, title, paragraphs, parts, readingVoices.preferences.en, readingVoices.preferences.zh]);
+  }, [attempt, narrationTitle, paragraphs, parts, readingVoices.preferences.en, readingVoices.preferences.zh]);
 
   useEffect(() => {
     if (!url || !audio.current) return;
@@ -124,10 +138,10 @@ export default function ArticleAudioPlayer({ title, source, paragraphs, autoPrep
     readingVoices.selectVoice(language, id);
   }
 
-  return <section className="article-audio-player" aria-label="Full article narration">
+  return <section className="article-audio-player" aria-label={summaryOnly ? "Headline and summary narration" : "Full article narration"}>
     <ReadingVoiceSelector {...readingVoices} selectVoice={selectVoice} active={attempt > 0} playbackActive={playing}
       onPreviewStart={() => { resumePlayback.current = false; audio.current?.pause(); setPlaying(false); }} />
-    {!url && !preparing && <button type="button" onClick={() => { resumePlayback.current = true; setAttempt((current) => current + 1); }}>{error ? "Try audio again" : "Read full news aloud"}</button>}
+    {!url && !preparing && <button type="button" onClick={() => { resumePlayback.current = true; setAttempt((current) => current + 1); }}>{error ? "Try audio again" : summaryOnly ? "Read headline and summary aloud" : "Read full news aloud"}</button>}
     {preparing && <>
       <p role="status">Preparing full article audio… {progress}%</p>
       <p>Keep Signal open until the recording is ready.</p>

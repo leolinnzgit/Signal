@@ -94,6 +94,10 @@ export function preferScreenOffAudio(userAgent: string, standalone: boolean) {
   return standalone && /Android/i.test(userAgent);
 }
 
+export function preferBrowserArticleAudio(userAgent: string, speechSupported: boolean) {
+  return speechSupported && !/Android|iPhone|iPad|iPod|Mobile/i.test(userAgent);
+}
+
 export function prepareReadingVoicePreview(
   language: keyof ReadingVoicePreferences, voices: ReadingVoicePreferences,
   signal: AbortSignal, fetcher: typeof fetch = fetch,
@@ -177,7 +181,9 @@ export async function prepareHeadlineAudio(
   return recording;
 }
 
-export function articleNarrationParts(title: string, paragraphs: string[]) {
+export function articleNarrationParts(title: string, paragraphs: string[], maximumPartLength = 900) {
+  const partLength = Math.max(80, Math.min(900, Math.floor(maximumPartLength) || 900));
+  const minimumBreak = Math.floor(partLength / 3);
   const body = paragraphs.map((paragraph) => paragraph.replace(/\s+/gu, " ").trim()).filter(Boolean);
   if (!body.length) throw new Error("The full article text is unavailable for reading aloud.");
   if (body.reduce((length, paragraph) => length + paragraph.length, title.length) > 40_000) {
@@ -186,13 +192,13 @@ export function articleNarrationParts(title: string, paragraphs: string[]) {
   return [title, ...body].flatMap((paragraph) => {
     let remaining = paragraph.replace(/\s+/gu, " ").trim();
     const parts: string[] = [];
-    while (remaining.length > 900) {
-      const window = remaining.slice(0, 900);
+    while (remaining.length > partLength) {
+      const window = remaining.slice(0, partLength);
       const sentences = [...window.matchAll(/(?:[.!?](?=\s)|[。！？])["'”’]?/gu)];
       const lastSentence = sentences.at(-1);
       let end = lastSentence ? lastSentence.index + lastSentence[0].length : 0;
-      if (end < 300) end = window.lastIndexOf(" ") + 1;
-      if (end < 300) end = 900;
+      if (end < minimumBreak) end = window.lastIndexOf(" ") + 1;
+      if (end < minimumBreak) end = partLength;
       // A hard split of a long word must preserve surrogate pairs, including emoji.
       if (/[\uD800-\uDBFF]/u.test(remaining[end - 1])) end--;
       parts.push(remaining.slice(0, end).trim());

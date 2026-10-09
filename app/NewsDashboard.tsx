@@ -387,6 +387,10 @@ function ArrowIcon() {
   return <span aria-hidden="true" className="arrow">&#8599;</span>;
 }
 
+function SpeakerIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4V5Z" /><path d="M15 8a6 6 0 0 1 0 8M18 5a10 10 0 0 1 0 14" /></svg>;
+}
+
 function ShareIcon() {
   return (
     <svg aria-hidden="true" viewBox="0 0 24 24">
@@ -2653,6 +2657,9 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     void loadHistoryPage(feedView, "", 0);
   }
 
+  const readerSummaryParagraphs = useMemo(() => [readerArticle?.summary || readerArticle?.title || ""],
+    [readerArticle?.summary, readerArticle?.title]);
+
   function openArticleReader(article: FollowedArticle, trigger: HTMLElement, listen = false) {
     readerTrigger.current = trigger;
     markArticleRead(article);
@@ -4024,6 +4031,15 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                   >
                     <ArrowIcon />
                   </button>
+                  <button
+                    type="button"
+                    className="listen-story-button"
+                    onClick={(event) => openArticleReader(article, event.currentTarget, true)}
+                    aria-label={`Listen to ${article.title}`}
+                    title="Listen to this news"
+                  >
+                    <SpeakerIcon />
+                  </button>
                   {onOpenDiscussion && (
                     <button
                       type="button"
@@ -4410,8 +4426,11 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
             </header>
             <div className="article-reader-body">
               {readerContent.status === "unavailable" && <div className="article-reader-state" role="status">
-                <strong>Full news audio unavailable</strong>
+                <strong>Full article text unavailable</strong>
                 <p>{readerContent.reason}</p>
+                <p>{readerArticle.summary ? "You can still listen to the headline and feed summary." : "You can still listen to the headline."}</p>
+                <ArticleAudioPlayer key={readerArticle.url} title={readerArticle.title} source={readerArticle.source}
+                  paragraphs={readerSummaryParagraphs} autoPrepare={readerAudioRequested} summaryOnly />
                 <a href={readerOriginalUrl} target="_blank" rel="noreferrer">Read on the publisher’s website &#8599;</a>
               </div>}
               {readerContent.status === "loading" && (
