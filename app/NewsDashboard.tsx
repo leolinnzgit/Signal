@@ -793,6 +793,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [topicsExpanded, setTopicsExpanded] = useState(false);
   const [topicPickerOpen, setTopicPickerOpen] = useState(false);
   const [topicPickerQuery, setTopicPickerQuery] = useState("");
+  const [quickTopicSearchOpen, setQuickTopicSearchOpen] = useState(false);
   const [sourcePickerOpen, setSourcePickerOpen] = useState(false);
   const [sourcePickerQuery, setSourcePickerQuery] = useState("");
   const [sourcesExpanded, setSourcesExpanded] = useState(false);
@@ -883,6 +884,9 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const historyRequestSequence = useRef(0);
   const heroElement = useRef<HTMLElement>(null);
   const controlPanelElement = useRef<HTMLDivElement>(null);
+  const quickTopicSearchDialog = useRef<HTMLDialogElement>(null);
+  const quickTopicSearchInput = useRef<HTMLInputElement>(null);
+  const quickTopicSearchButton = useRef<HTMLButtonElement>(null);
   const filterStackElement = useRef<HTMLDivElement>(null);
   const storyListElement = useRef<HTMLOListElement>(null);
   const pendingPinnedTopicScroll = useRef<string | null>(null);
@@ -1923,6 +1927,20 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   }, [readerArticle]);
 
   useEffect(() => {
+    if (!quickTopicSearchOpen) return;
+    const dialog = quickTopicSearchDialog.current;
+    if (!dialog) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    dialog.showModal();
+    quickTopicSearchInput.current?.focus({ preventScroll: true });
+    return () => {
+      dialog.close();
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [quickTopicSearchOpen]);
+
+  useEffect(() => {
     if (!topicPendingRemoval) return;
     const focusFrame = window.requestAnimationFrame(() => topicRemovalCancelButton.current?.focus());
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -2537,6 +2555,25 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         ? { ...state, hasUnread: false, lastViewedAt: viewedAt }
         : state));
     return refreshStore.markViewed(topic);
+  }
+
+  function openQuickTopicSearch() {
+    setTopicPickerOpen(false);
+    setTopicPickerQuery("");
+    setSourcePickerOpen(false);
+    setSourcePickerQuery("");
+    setQuickTopicSearchOpen(true);
+  }
+
+  function closeQuickTopicSearch() {
+    setQuickTopicSearchOpen(false);
+    setTopicPickerQuery("");
+    window.requestAnimationFrame(() => quickTopicSearchButton.current?.focus({ preventScroll: true }));
+  }
+
+  function selectQuickTopic(topic: string) {
+    closeQuickTopicSearch();
+    selectTopicFilter(topic);
   }
 
   function selectTopicFilter(topic: string) {
@@ -4419,6 +4456,69 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         </div>
       )}
 
+      {quickTopicSearchOpen && (
+        <dialog
+          ref={quickTopicSearchDialog}
+          className="topic-filter-picker quick-topic-search"
+          id="quick-topic-search"
+          aria-labelledby="quick-topic-search-title"
+          onCancel={(event) => {
+            event.preventDefault();
+            closeQuickTopicSearch();
+          }}
+          onClick={(event) => {
+            if (event.target !== event.currentTarget) return;
+            const bounds = event.currentTarget.getBoundingClientRect();
+            if (event.clientX < bounds.left || event.clientX > bounds.right
+                || event.clientY < bounds.top || event.clientY > bounds.bottom) {
+              closeQuickTopicSearch();
+            }
+          }}
+        >
+          <div className="topic-filter-picker-heading">
+            <div>
+              <strong id="quick-topic-search-title">Search topics</strong>
+              <span aria-live="polite">{pickerTopics.length} of {preferences.topics.length} followed</span>
+            </div>
+            <button type="button" onClick={closeQuickTopicSearch} aria-label="Close topic search">&#215;</button>
+          </div>
+          <input
+            ref={quickTopicSearchInput}
+            type="search"
+            value={topicPickerQuery}
+            onChange={(event) => setTopicPickerQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.nativeEvent.isComposing && pickerTopics.length === 1) {
+                event.preventDefault();
+                selectQuickTopic(pickerTopics[0]);
+              }
+            }}
+            placeholder="Find a followed topic"
+            aria-label="Find a followed topic"
+          />
+          <div className="topic-filter-picker-grid">
+            {!topicPickerQuery.trim() && (
+              <button type="button" className={selectedTopic === ALL_TOPICS ? "active" : ""}
+                aria-pressed={selectedTopic === ALL_TOPICS} onClick={() => selectQuickTopic(ALL_TOPICS)}>
+                <span>All topics</span>
+              </button>
+            )}
+            {pickerTopics.map((topic) => (
+              <button type="button" key={topic} className={selectedTopic === topic ? "active" : ""}
+                aria-pressed={selectedTopic === topic}
+                aria-label={`${topic}, ${topicCounts[topic] ?? 0} stories${topicHasUnread[topic] ? ", unread news" : ""}`}
+                onClick={() => selectQuickTopic(topic)}>
+                <span>{topic}{topicHasUnread[topic] && <i className="topic-unread-indicator" aria-hidden="true" />}</span>
+                <b>{topicCounts[topic] ?? 0}</b>
+              </button>
+            ))}
+            {pickerTopics.length === 0 && <p>{preferences.topics.length === 0
+              ? "Follow a topic using Add or manage topics to start your briefing."
+              : "No followed topics match that search."}</p>}
+          </div>
+        </dialog>
+      )}
+
       {headlineQueue && (
         <HeadlinePlayer
           articles={headlineQueue}
@@ -4446,6 +4546,22 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
             title={unreadArticles.length > 0 ? `Play unread headlines (${unreadArticles.length})` : "All headlines are read"}
           >
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+          </button>
+          <button
+            ref={quickTopicSearchButton}
+            type="button"
+            className="floating-topic-search"
+            onClick={openQuickTopicSearch}
+            aria-label="Search topics"
+            aria-haspopup="dialog"
+            aria-controls="quick-topic-search"
+            aria-expanded={quickTopicSearchOpen}
+            title="Search topics"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="10.5" cy="10.5" r="6.5" />
+              <path d="m16 16 4.5 4.5" />
+            </svg>
           </button>
           {controlsHidden && (
             <button

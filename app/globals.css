@@ -2603,6 +2603,25 @@ button.local-weather {
 
 .topic-filter-picker-grid button.active b { color: #f08b76; }
 .topic-filter-picker-grid p { grid-column: 1 / -1; margin: 0.25rem 0; color: var(--text-muted); font-size: 0.7rem; }
+.quick-topic-search {
+  width: min(34rem, calc(100% - 2rem));
+  max-height: calc(100dvh - 2rem);
+  margin: auto;
+  padding: 1.25rem;
+  color: var(--page-text);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.quick-topic-search::backdrop { background: var(--overlay); }
+.quick-topic-search > input { font-size: 1rem; }
+.quick-topic-search .topic-filter-picker-grid { grid-template-columns: 1fr; }
+.quick-topic-search .topic-filter-picker-grid button { min-height: 2.75rem; font-size: 0.8rem; }
+.quick-topic-search .topic-filter-picker-grid button:focus-visible,
+.quick-topic-search .topic-filter-picker-heading > button:focus-visible {
+  outline: 2px solid var(--red);
+  outline-offset: 2px;
+}
+
 .source-filter-picker .topic-filter-picker-grid {
   grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
 }
@@ -3014,6 +3033,7 @@ button.local-weather {
 .floating-switch-side,
 .floating-back-to-top,
 .floating-add-topic,
+.floating-topic-search,
 .floating-previous-topic,
 .floating-play-headlines,
 .floating-next-unread {
@@ -3033,8 +3053,10 @@ button.local-weather {
   transition: transform 180ms ease, background 180ms ease, border-color 180ms ease, color 180ms ease;
 }
 
-.floating-switch-side { cursor: pointer; background: var(--page-background); color: var(--page-text); }
-.floating-switch-side svg {
+.floating-switch-side,
+.floating-topic-search { cursor: pointer; background: var(--page-background); color: var(--page-text); }
+.floating-switch-side svg,
+.floating-topic-search svg {
   width: 1.3rem;
   height: 1.3rem;
   fill: none;
@@ -3173,6 +3195,7 @@ button.local-weather {
 .floating-switch-side:hover,
 .floating-back-to-top:hover,
 .floating-add-topic:hover,
+.floating-topic-search:hover,
 .floating-previous-topic:hover,
 .floating-next-unread:hover {
   border-color: var(--red);
@@ -3185,6 +3208,7 @@ button.local-weather {
 .floating-next-unread:hover { border-color: var(--page-text); background: var(--page-text); }
 .floating-switch-side:focus-visible,
 .floating-add-topic:focus-visible,
+.floating-topic-search:focus-visible,
 .floating-previous-topic:focus-visible,
 .floating-next-unread:focus-visible,
 .floating-back-to-top:focus-visible { outline: 2px solid var(--red); outline-offset: 3px; }
@@ -4502,6 +4526,7 @@ footer a { color: var(--paper); text-decoration: none; }
   .floating-switch-side,
   .floating-back-to-top,
   .floating-add-topic,
+  .floating-topic-search,
   .floating-previous-topic,
   .floating-play-headlines,
   .floating-next-unread { width: 2.75rem; height: 2.75rem; }
