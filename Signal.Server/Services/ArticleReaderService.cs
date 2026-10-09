@@ -4,6 +4,8 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Caching.Memory;
+using AngleSharp.Dom;
+using AngleSharp.Html.Parser;
 
 namespace Signal.Server.Services;
 
@@ -19,40 +21,19 @@ public sealed record ArticleReaderResult(bool Available, string Reason, ReaderAr
 public sealed class ArticleReaderService(
     HttpClient httpClient,
     IMemoryCache cache,
-    ILogger<ArticleReaderService> logger)
+    ILogger<ArticleReaderService> logger,
+    IArticlePageRenderer? pageRenderer = null)
 {
+    internal const string InsufficientTextReason = "Signal Reader could not find enough article text on this page.";
+
     private const int MaximumArticleBytes = 2_000_000;
     private const int MaximumParagraphs = 80;
     private const int MaximumTextLength = 30_000;
     private const int MaximumRedirects = 5;
 
-    private static readonly Regex ScriptBlock = new(
-        @"<script\b[^>]*>[\s\S]*?</script\s*>",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled,
-        TimeSpan.FromSeconds(1));
     private static readonly Regex JsonLdBlock = new(
         @"<script\b[^>]*type\s*=\s*[""']application/ld\+json[""'][^>]*>([\s\S]*?)</script\s*>",
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
-        TimeSpan.FromSeconds(1));
-    private static readonly Regex ParagraphBlock = new(
-        @"<p\b[^>]*>([\s\S]*?)</p\s*>",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled,
-        TimeSpan.FromSeconds(1));
-    private static readonly Regex ArticleBlock = new(
-        @"<article\b[^>]*>([\s\S]*?)</article\s*>",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled,
-        TimeSpan.FromSeconds(1));
-    private static readonly Regex MainBlock = new(
-        @"<main\b[^>]*>([\s\S]*?)</main\s*>",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled,
-        TimeSpan.FromSeconds(1));
-    private static readonly Regex UnwantedBlock = new(
-        @"<(nav|header|footer|aside|form|button|style|svg|noscript)\b[^>]*>[\s\S]*?</\1\s*>",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled,
-        TimeSpan.FromSeconds(1));
-    private static readonly Regex HtmlTag = new(
-        @"<[^>]+>",
-        RegexOptions.Compiled,
         TimeSpan.FromSeconds(1));
     private static readonly Regex WhiteSpace = new(
         @"\s+",
@@ -170,20 +151,38 @@ public sealed class ArticleReaderService(
 
             var html = await ReadLimitedHtmlAsync(response.Content, cancellationToken);
             var extracted = ExtractArticle(html, currentUri);
+            if (!extracted.Available && extracted.Reason == InsufficientTextReason && pageRenderer is not null)
+            {
+                var rendered = await pageRenderer.RenderAsync(currentUri, html, cancellationToken);
+                if (rendered is not null)
+                    return ExtractArticle(rendered.Html, rendered.Url);
+            }
             return extracted;
         }
 
         return Unavailable("The publisher did not make this article available to Signal Reader.");
     }
 
-    private ArticleReaderResult ExtractArticle(string html, Uri finalUri)
+    internal ArticleReaderResult ExtractArticle(string html, Uri finalUri)
     {
         try
         {
             var structured = ExtractStructuredArticle(html);
-            var paragraphs = structured.Paragraphs.Count > 0
+            // Paid metadata is authoritative even if hidden text is present in the HTML.
+            if (structured.IsPaywalled)
+                return Unavailable("This story appears to require a subscription or publisher login.");
+
+            var readable = ExtractReadableArticle(html, finalUri);
+            var paragraphs = structured.Paragraphs.Sum(paragraph => paragraph.Length)
+                > readable.Paragraphs.Sum(paragraph => paragraph.Length)
                 ? structured.Paragraphs
-                : ExtractParagraphs(html);
+                : readable.Paragraphs;
+            if (paragraphs.Sum(paragraph => paragraph.Length) < 300)
+            {
+                var fallback = ExtractParagraphs(html);
+                if (fallback.Sum(paragraph => paragraph.Length) > paragraphs.Sum(paragraph => paragraph.Length))
+                    paragraphs = fallback;
+            }
             var textLength = paragraphs.Sum(paragraph => paragraph.Length);
             var paywallDetected = structured.IsPaywalled
                 || PaywallMarkers.Any(marker => html.Contains(marker, StringComparison.OrdinalIgnoreCase));
@@ -192,16 +191,16 @@ public sealed class ArticleReaderService(
                 return Unavailable("This story appears to require a subscription or publisher login.");
 
             if (paragraphs.Count == 0 || textLength < 300)
-                return Unavailable("The publisher blocked extraction or did not expose enough readable text.");
+                return Unavailable(InsufficientTextReason);
 
             return new ArticleReaderResult(
                 true,
                 "",
                 new ReaderArticle(
                     finalUri.AbsoluteUri,
-                    structured.Byline,
-                    structured.SiteName,
-                    structured.PublishedAt,
+                    FirstNonEmpty(structured.Byline, readable.Byline),
+                    FirstNonEmpty(structured.SiteName, readable.SiteName),
+                    FirstNonEmpty(structured.PublishedAt, readable.PublishedAt),
                     paragraphs));
         }
         catch (Exception exception) when (exception is JsonException or RegexMatchTimeoutException)
@@ -216,7 +215,7 @@ public sealed class ArticleReaderService(
         var best = new StructuredArticle();
         foreach (Match match in JsonLdBlock.Matches(html))
         {
-            var json = WebUtility.HtmlDecode(match.Groups[1].Value.Trim());
+            var json = match.Groups[1].Value.Trim();
             if (string.IsNullOrWhiteSpace(json)) continue;
 
             try
@@ -225,6 +224,9 @@ public sealed class ArticleReaderService(
                 VisitJson(document.RootElement, candidate =>
                 {
                     if (!IsArticle(candidate)) return;
+                    best.Byline = FirstNonEmpty(best.Byline, ReadAuthor(candidate));
+                    best.SiteName = FirstNonEmpty(best.SiteName, ReadPublisher(candidate));
+                    best.PublishedAt = FirstNonEmpty(best.PublishedAt, JsonString(candidate, "datePublished"));
                     var body = JsonString(candidate, "articleBody");
                     var paragraphs = SplitStructuredBody(body);
                     if (paragraphs.Sum(paragraph => paragraph.Length)
@@ -254,53 +256,82 @@ public sealed class ArticleReaderService(
         return best;
     }
 
+    private StructuredArticle ExtractReadableArticle(string html, Uri uri)
+    {
+        try
+        {
+            // Supplying HTML prevents SmartReader from fetching URLs itself.
+            var reader = new SmartReader.Reader(uri.AbsoluteUri, html)
+            {
+                CharThreshold = 300,
+                MaxElemsToParse = 50_000,
+            };
+            var article = reader.GetArticle();
+            return new StructuredArticle
+            {
+                Paragraphs = SplitStructuredBody(article.TextContent ?? ""),
+                Byline = article.Byline ?? article.Author ?? "",
+                SiteName = article.SiteName ?? "",
+                PublishedAt = article.PublicationDate?.ToString("o") ?? "",
+            };
+        }
+        catch (Exception exception)
+        {
+            logger.LogDebug(exception, "Readability could not parse {ArticleUrl}; trying HTML paragraphs.", uri);
+            return new StructuredArticle();
+        }
+    }
+
     private static List<string> ExtractParagraphs(string html)
     {
-        var candidates = ArticleBlock.Matches(html)
-            .Select(match => match.Groups[1].Value)
-            .OrderByDescending(value => value.Length)
-            .ToArray();
-        if (candidates.Length == 0)
-        {
-            candidates = MainBlock.Matches(html)
-                .Select(match => match.Groups[1].Value)
-                .OrderByDescending(value => value.Length)
-                .ToArray();
-        }
+        var document = new HtmlParser().ParseDocument(html);
+        foreach (var unwanted in document.QuerySelectorAll("script, style, nav, header, footer, aside, form, button, svg, noscript"))
+            unwanted.Remove();
 
-        var content = candidates.FirstOrDefault() ?? ScriptBlock.Replace(html, " ");
-        content = UnwantedBlock.Replace(content, " ");
-        var paragraphs = new List<string>();
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        var totalLength = 0;
-
-        foreach (Match match in ParagraphBlock.Matches(content))
-        {
-            var paragraph = CleanText(match.Groups[1].Value);
-            if (paragraph.Length < 40 || !seen.Add(paragraph)) continue;
-            if (totalLength + paragraph.Length > MaximumTextLength) break;
-            paragraphs.Add(paragraph);
-            totalLength += paragraph.Length;
-            if (paragraphs.Count == MaximumParagraphs) break;
-        }
-
-        return paragraphs;
+        // Evaluate actual text, rather than picking the largest HTML container.
+        var candidates = document.QuerySelectorAll("article, main")
+            .Select(element => LimitParagraphs(element.QuerySelectorAll("p").Select(p => p.TextContent)))
+            .OrderByDescending(paragraphs => paragraphs.Sum(paragraph => paragraph.Length))
+            .ToList();
+        var best = candidates.FirstOrDefault() ?? [];
+        return best.Sum(paragraph => paragraph.Length) >= 300
+            ? best
+            : LimitParagraphs(document.QuerySelectorAll("p").Select(p => p.TextContent));
     }
 
     private static List<string> SplitStructuredBody(string body)
     {
         if (string.IsNullOrWhiteSpace(body)) return [];
-        var cleaned = CleanText(body);
-        if (cleaned.Length > MaximumTextLength)
-            cleaned = cleaned[..MaximumTextLength].TrimEnd();
-        return cleaned.Length < 40 ? [] : [cleaned];
+        if (body.Contains('<'))
+        {
+            var document = new HtmlParser().ParseDocument(body);
+            var blocks = document.QuerySelectorAll("p, li");
+            if (blocks.Length > 0) return LimitParagraphs(blocks.Select(block => block.TextContent));
+            body = document.Body?.TextContent ?? body;
+        }
+        return LimitParagraphs(Regex.Split(body, @"[\r\n]+"));
     }
 
-    private static string CleanText(string value)
+    private static List<string> LimitParagraphs(IEnumerable<string> values)
     {
-        var withoutTags = HtmlTag.Replace(value, " ");
-        return WhiteSpace.Replace(WebUtility.HtmlDecode(withoutTags), " ").Trim();
+        var paragraphs = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var remaining = MaximumTextLength;
+        foreach (var value in values)
+        {
+            var paragraph = WhiteSpace.Replace(WebUtility.HtmlDecode(value), " ").Trim();
+            if (paragraph.Length < 20 || !seen.Add(paragraph)) continue;
+            if (paragraph.Length > remaining) paragraph = paragraph[..remaining].TrimEnd();
+            if (paragraph.Length == 0) break;
+            paragraphs.Add(paragraph);
+            remaining -= paragraph.Length;
+            if (remaining == 0 || paragraphs.Count == MaximumParagraphs) break;
+        }
+        return paragraphs;
     }
+
+    private static string FirstNonEmpty(string first, string second) =>
+        string.IsNullOrWhiteSpace(first) ? second : first;
 
     private static void VisitJson(JsonElement element, Action<JsonElement> visitor)
     {
@@ -361,7 +392,7 @@ public sealed class ArticleReaderService(
             .Distinct(StringComparer.OrdinalIgnoreCase));
     }
 
-    private static async Task<string> ReadLimitedHtmlAsync(
+    internal static async Task<string> ReadLimitedHtmlAsync(
         HttpContent content,
         CancellationToken cancellationToken)
     {
@@ -379,7 +410,7 @@ public sealed class ArticleReaderService(
         return Encoding.UTF8.GetString(buffer.ToArray());
     }
 
-    private static async Task<Uri> ValidatePublicArticleUriAsync(
+    internal static async Task<Uri> ValidatePublicArticleUriAsync(
         string value,
         CancellationToken cancellationToken)
     {
@@ -416,6 +447,29 @@ public sealed class ArticleReaderService(
         return uri;
     }
 
+    internal static async ValueTask<Stream> ConnectPublicAsync(
+        SocketsHttpConnectionContext context,
+        CancellationToken cancellationToken)
+    {
+        // Validate the addresses used for the socket too, so DNS cannot change
+        // from a public address to an internal one between validation and fetch.
+        var addresses = await Dns.GetHostAddressesAsync(context.DnsEndPoint.Host, cancellationToken);
+        if (context.DnsEndPoint.Port != 443 || addresses.Length == 0 || addresses.Any(IsPrivateAddress))
+            throw new HttpRequestException("Articles must use a public HTTPS address.");
+        foreach (var address in addresses)
+        {
+            var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+            try
+            {
+                await socket.ConnectAsync(new IPEndPoint(address, context.DnsEndPoint.Port), cancellationToken);
+                return new NetworkStream(socket, ownsSocket: true);
+            }
+            catch (SocketException) { socket.Dispose(); }
+            catch { socket.Dispose(); throw; }
+        }
+        throw new HttpRequestException("The publisher address could not be reached.");
+    }
+
     private static bool IsPrivateAddress(IPAddress address)
     {
         if (IPAddress.IsLoopback(address)
@@ -424,6 +478,8 @@ public sealed class ArticleReaderService(
             || address.IsIPv6SiteLocal)
             return true;
 
+        if (address.IsIPv4MappedToIPv6) return IsPrivateAddress(address.MapToIPv4());
+        if (address.Equals(IPAddress.IPv6Any)) return true;
         if (address.AddressFamily == AddressFamily.InterNetworkV6)
             return (address.GetAddressBytes()[0] & 0xfe) == 0xfc;
 
@@ -432,6 +488,7 @@ public sealed class ArticleReaderService(
             || (bytes[0] == 169 && bytes[1] == 254)
             || (bytes[0] == 172 && bytes[1] is >= 16 and <= 31)
             || (bytes[0] == 192 && bytes[1] == 168)
+            || (bytes[0] == 100 && bytes[1] is >= 64 and <= 127)
             || bytes[0] >= 224;
     }
 

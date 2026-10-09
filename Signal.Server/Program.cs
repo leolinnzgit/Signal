@@ -173,6 +173,18 @@ builder.Services.AddHttpClient<MarketDataService>(client =>
     client.DefaultRequestHeaders.UserAgent.ParseAdd("Signal-News-Monitor/2.0");
     client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
 });
+builder.Services.AddSingleton<IArticlePageRenderer, ArticlePageRenderer>();
+builder.Services.AddHttpClient(ArticlePageRenderer.HttpClientName, client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(8);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (compatible; SignalReader/2.0)");
+}).ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+{
+    AllowAutoRedirect = false,
+    ConnectCallback = ArticleReaderService.ConnectPublicAsync,
+    AutomaticDecompression = System.Net.DecompressionMethods.All,
+    UseCookies = false,
+});
 builder.Services.AddHttpClient<ArticleReaderService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(20);
@@ -181,6 +193,7 @@ builder.Services.AddHttpClient<ArticleReaderService>(client =>
 }).ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
 {
     AllowAutoRedirect = false,
+    ConnectCallback = ArticleReaderService.ConnectPublicAsync,
     AutomaticDecompression = System.Net.DecompressionMethods.All,
 });
 builder.Services.AddScoped<TopicRefreshService>();

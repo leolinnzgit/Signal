@@ -13,6 +13,14 @@ using Signal.Server.Controllers;
 using Signal.Server.Models;
 using Signal.Server.Services;
 
+if (args.Contains("--article-reader-browser"))
+{
+    await ArticleReaderChecks.RunBrowserAsync();
+    return;
+}
+await ArticleReaderChecks.RunAsync();
+if (args.Contains("--article-reader-only")) return;
+
 await HeadlineAudioChecks.RunAsync();
 
 var cases = new (string Text, string Topic, bool Expected)[]
