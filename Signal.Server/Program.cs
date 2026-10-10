@@ -157,6 +157,9 @@ builder.Services.AddSingleton(service => new KokoroAudioRenderer(
 builder.Services.AddSingleton<HeadlineAudioService>();
 builder.Services.AddHeadlineAudioCompression();
 builder.Services.AddHostedService<HeadlineAudioHealthCheck>();
+builder.Services.AddSingleton<ArticleAudioPreparationService>();
+builder.Services.AddSingleton<IArticleAudioPrewarmer>(service => service.GetRequiredService<ArticleAudioPreparationService>());
+builder.Services.AddHostedService(service => service.GetRequiredService<ArticleAudioPreparationService>());
 builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection(SmtpOptions.SectionName));
 builder.Services.Configure<MarketDataOptions>(builder.Configuration.GetSection(MarketDataOptions.SectionName));
 builder.Services.AddSingleton<GmailOAuthStore>();

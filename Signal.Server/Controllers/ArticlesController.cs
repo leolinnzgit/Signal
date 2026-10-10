@@ -16,7 +16,8 @@ namespace Signal.Server.Controllers;
 [ResponseCache(Location = ResponseCacheLocation.None, NoStore = true)]
 public sealed class ArticlesController(
     SignalDbContext database,
-    UserManager<ApplicationUser> userManager) : ControllerBase
+    UserManager<ApplicationUser> userManager,
+    IArticleAudioPrewarmer? audioPrewarmer = null) : ControllerBase
 {
     private const int DefaultRetentionDays = 30;
     private const int MaximumSyncItems = 500;
@@ -72,6 +73,7 @@ public sealed class ArticlesController(
                 .ToListAsync(cancellationToken);
         var byUrl = existing.ToDictionary(item => item.Url, StringComparer.OrdinalIgnoreCase);
         var now = DateTime.UtcNow;
+        var newArticles = new List<StoredNewsArticle>();
 
         foreach (var item in normalized)
         {
@@ -84,6 +86,7 @@ public sealed class ArticlesController(
                     FirstSeenAtUtc = now,
                 };
                 database.StoredNewsArticles.Add(stored);
+                newArticles.Add(stored);
                 byUrl[item.Url] = stored;
             }
 
@@ -98,6 +101,7 @@ public sealed class ArticlesController(
         }
 
         await database.SaveChangesAsync(cancellationToken);
+        foreach (var article in newArticles) audioPrewarmer?.Enqueue(article.Url, article.Title, article.Summary);
         await PurgeExpiredAsync(userId, cancellationToken);
         var bookmarkedUrls = urls.Length == 0
             ? []

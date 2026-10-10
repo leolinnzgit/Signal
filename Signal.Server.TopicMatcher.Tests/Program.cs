@@ -13,6 +13,8 @@ using Signal.Server.Controllers;
 using Signal.Server.Models;
 using Signal.Server.Services;
 
+ArticleAudioPreparationChecks.Run();
+await ArticleAudioPreparationChecks.RunHostedAsync();
 await KokoroSpeechChecks.RunAsync();
 if (args.Contains("--kokoro-live")) { await KokoroSpeechChecks.RunLiveAsync(); return; }
 if (args.Contains("--kokoro-only")) return;
@@ -388,12 +390,14 @@ await using (var scheduleDatabase = new SignalDbContext(scheduleOptions))
             new TestWebHostEnvironment(),
             NullLogger<VapidKeyStore>.Instance),
         NullLogger<PushNotificationService>.Instance);
+    var prewarmer = new CapturingArticlePrewarmer(scheduleDatabase);
     var refreshService = new TopicRefreshService(
         scheduleDatabase,
         new NewsService(scheduleClient),
         new NullAccountEmailSender(),
         pushService,
-        NullLogger<TopicRefreshService>.Instance);
+        NullLogger<TopicRefreshService>.Instance,
+        prewarmer);
     var storedPreference = await scheduleDatabase.UserNewsPreferences.SingleAsync();
     storedPreference.PushNewsTitlesEnabled = false;
     await scheduleDatabase.SaveChangesAsync();
@@ -405,9 +409,11 @@ await using (var scheduleDatabase = new SignalDbContext(scheduleOptions))
     var firstStored = await refreshService.StoreArticlesAsync("schedule-user", [storedArticle, storedArticle], DateTime.UtcNow, CancellationToken.None);
     if (firstStored.NewArticles.Count != 1 || firstStored.NewArticles[0].Id <= 0 || firstStored.TopicKeys.Count != 2)
         throw new InvalidOperationException("A new story matched to multiple topics was not deduplicated for notifications.");
+    if (prewarmer.Calls != 1) throw new InvalidOperationException("New news did not schedule background audio after saving.");
     var repeatedStored = await refreshService.StoreArticlesAsync("schedule-user", [storedArticle], DateTime.UtcNow, CancellationToken.None);
     if (repeatedStored.NewArticles.Count != 0 || repeatedStored.TopicKeys.Count != 0)
         throw new InvalidOperationException("Refreshing existing stories produced duplicate notifications.");
+    if (prewarmer.Calls != 1) throw new InvalidOperationException("An existing news item scheduled duplicate background audio.");
     var newTopicStored = await refreshService.StoreArticlesAsync("schedule-user", [storedArticle with { Topics = ["Robots", "Solar", "Energy"] }], DateTime.UtcNow, CancellationToken.None);
     if (newTopicStored.NewArticles.Count != 0 || !newTopicStored.TopicKeys.SetEquals(["ENERGY"]))
         throw new InvalidOperationException("Adding a topic to an existing story repeated its headline notification.");
@@ -634,4 +640,16 @@ file sealed class TestWebHostEnvironment : IWebHostEnvironment
     public string ContentRootPath { get; set; } = Path.GetTempPath();
 
     public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
+}
+
+
+file sealed class CapturingArticlePrewarmer(SignalDbContext database) : IArticleAudioPrewarmer
+{
+    public int Calls;
+    public void Enqueue(string url, string title, string summary)
+    {
+        if (!database.StoredNewsArticles.AsNoTracking().Any(article => article.Url == url && article.Id > 0 && article.Title == title))
+            throw new InvalidOperationException("Audio was queued before the news transaction was saved.");
+        Calls++;
+    }
 }

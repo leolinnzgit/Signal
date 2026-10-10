@@ -34,17 +34,31 @@ public sealed class KokoroAudioRenderer
         return voices;
     }
 
-    public async Task<HeadlineAudio> GenerateAsync(HeadlineAudioRequest request, CancellationToken token)
+    private KokoroClip[] GetClips(HeadlineAudioRequest request)
     {
         var titles = HeadlineAudioService.Validate(request);
         var installed = GetVoices();
-        var clips = titles.Select(title =>
+        return titles.Select(title =>
         {
             var chinese = title.Any(character => character is >= '\u3400' and <= '\u9fff');
             var voice = RecordedNarration.ChooseVoice(installed, request.Language, chinese, request.Voices?.GetValueOrDefault(chinese ? "zh" : "en"), "kokoro/" + (chinese ? settings.KokoroChineseVoice : settings.KokoroEnglishVoice));
             var text = Regex.IsMatch(title, @"[.!?。！？][""'”’]*$") ? title : title + (chinese ? "。" : ".");
             return new KokoroClip(voice.Id[7..], text);
         }).ToArray();
+    }
+
+    internal HeadlineAudio? GetCached(HeadlineAudioRequest request)
+    {
+        var clips = GetClips(request);
+        var pcm = clips.Select(clip => cache.TryGet("kokoro-fp32-v1/" + clip.Voice, clip.Text)).ToArray();
+        return pcm.All(clip => clip is not null) ? RecordedNarration.Assemble(pcm.Select(clip => clip!).ToArray(), request.Seconds) : null;
+    }
+
+    public Task<HeadlineAudio> GenerateAsync(HeadlineAudioRequest request, CancellationToken token) => RenderAsync(request, token, false);
+    internal Task<HeadlineAudio> PrepareAsync(HeadlineAudioRequest request, CancellationToken token) => RenderAsync(request, token, true);
+    private async Task<HeadlineAudio> RenderAsync(HeadlineAudioRequest request, CancellationToken token, bool background)
+    {
+        var clips = GetClips(request);
         var pcm = new Dictionary<KokoroClip, byte[]>();
         var missing = new List<KokoroClip>();
         cache.Prune();
@@ -63,7 +77,7 @@ public sealed class KokoroAudioRenderer
                 if (batch.Count == 50 || (batch.Count > 0 && characters + clip.Text.Length > 1000)) break;
                 batch.Add(clip); characters += clip.Text.Length;
             }
-            var audio = await worker.GenerateAsync(batch, token);
+            var audio = await worker.GenerateAsync(batch, token, background);
             if (audio.Length != batch.Count) throw new InvalidOperationException("Kokoro omitted narration clips.");
             for (var index = 0; index < batch.Count; index++)
             {

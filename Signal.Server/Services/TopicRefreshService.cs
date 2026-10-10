@@ -11,7 +11,8 @@ public sealed class TopicRefreshService(
     NewsService newsService,
     IAccountEmailSender emailSender,
     PushNotificationService pushNotificationService,
-    ILogger<TopicRefreshService> logger)
+    ILogger<TopicRefreshService> logger,
+    IArticleAudioPrewarmer? audioPrewarmer = null)
 {
     private const int ProviderConcurrency = 8;
     private const int TopicsPerProviderBatch = 8;
@@ -399,6 +400,7 @@ public sealed class TopicRefreshService(
             stored.LastSeenAtUtc = refreshedAt;
         }
         await database.SaveChangesAsync(cancellationToken);
+        foreach (var article in newArticles) audioPrewarmer?.Enqueue(article.Url, article.Title, article.Summary);
         return (newlyAvailableTopicKeys, newArticles);
     }
 

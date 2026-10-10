@@ -386,3 +386,9 @@ test("local voice metadata keeps complete articles within small CPU batches and 
     assert.ok(recordedArticleNarrationParts("News", paragraphs).some(part => part.length > 300));
   } finally { configureRecordedAudio("isolated-process", "15000"); }
 });
+
+
+test("article chunk boundaries match the shared background preparation fixture", async () => {
+  const fixture = JSON.parse(await readFile(new URL("./fixtures/article-narration.json", import.meta.url), "utf8"));
+  assert.deepEqual(articleNarrationParts(fixture.title, fixture.paragraphs, 300), fixture.parts);
+});

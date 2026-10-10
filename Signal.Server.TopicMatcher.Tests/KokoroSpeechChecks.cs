@@ -55,9 +55,42 @@ internal static class KokoroSpeechChecks
             catch (InvalidOperationException exception) when (exception.Message == "Local model failed") { }
             worker.Failure = null;
             await service.GenerateAsync(new HeadlineAudioRequest(["Failed recording"], 3), default);
+            await CheckBackgroundPriorityAsync(azure, renderer, worker, titles[0]);
+            var blockedCache = Path.Combine(root, "blocked-cache");
+            File.WriteAllText(blockedCache, "A file cannot contain cache files.");
+            var cannotSave = new HeadlineAudioService(azure, new KokoroAudioRenderer(settings, worker, root, blockedCache));
+            try { await cannotSave.TryPrepareInBackgroundAsync(new HeadlineAudioRequest(["Unsaved background recording"], 3), default); throw new Exception("An unsaved recording was reported as prepared."); }
+            catch (HeadlineAudioUnavailableException exception) when (exception.Code == "cache") { }
         }
         finally { Directory.Delete(root, recursive: true); }
         Console.WriteLine("Kokoro passed voice selection, language fallback, complete text, PCM timing, batching, persistent cache, cancellation and error recovery checks.");
+    }
+
+    private static async Task CheckBackgroundPriorityAsync(AzureSpeechAudioRenderer azure, KokoroAudioRenderer renderer, FakeWorker worker, string cachedTitle)
+    {
+        var service = new HeadlineAudioService(azure, renderer);
+        worker.Hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var background = service.TryPrepareInBackgroundAsync(new HeadlineAudioRequest(["Prefetch a new story"], 3), default);
+        await worker.Hold.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert(worker.BackgroundFlags.Last(), "Background synthesis did not request reduced CPU priority.");
+        worker.Hold = null;
+        var foreground = await service.GenerateAsync(new HeadlineAudioRequest(["A user requested this story"], 3), default);
+        Assert(!await background && HeadlineAudioHealthCheck.IsCompleteRecording(foreground, 1, 3) && !worker.BackgroundFlags.Last(), "Playback did not preempt background synthesis and restore normal priority.");
+        Assert(!await service.TryPrepareInBackgroundAsync(new HeadlineAudioRequest(["Between HTTP batches"], 3), default), "Background synthesis restarted between foreground HTTP batches.");
+
+        service = new HeadlineAudioService(azure, renderer);
+        worker.Hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var stop = new CancellationTokenSource();
+        background = service.TryPrepareInBackgroundAsync(new HeadlineAudioRequest(["Another background story"], 3), stop.Token);
+        await worker.Hold.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        var before = worker.Calls;
+        var cached = await service.GenerateAsync(new HeadlineAudioRequest([cachedTitle], 6), default);
+        Assert(!background.IsCompleted && worker.Calls == before && HeadlineAudioHealthCheck.IsCompleteRecording(cached, 1, 6), "Cached playback waited for or cancelled background work.");
+        stop.Cancel();
+        try { await background; throw new Exception("Background preparation ignored shutdown."); } catch (OperationCanceledException) { }
+        worker.Hold = null;
+        Assert(await service.TryPrepareInBackgroundAsync(new HeadlineAudioRequest([cachedTitle], 3), default), "A cached clip could not be reused by background preparation.");
+        Console.WriteLine("Background speech passed foreground preemption, CPU priority, cached playback bypass, batch cooldown and shutdown checks.");
     }
 
     public static async Task RunLiveAsync()
@@ -66,7 +99,7 @@ internal static class KokoroSpeechChecks
         var settings = Options.Create(new KokoroSpeechOptions { Provider = "Kokoro", KokoroDirectory = root });
         using var worker = new KokoroSpeechWorker(settings, new HostEnvironment());
         using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(3));
-        var clips = await worker.GenerateAsync([new("bf_emma", "Signal is ready."), new("zf_xiaobei", "Signal 新聞已準備好。")], deadline.Token);
+        var clips = await worker.GenerateAsync([new("bf_emma", "Signal is ready."), new("zf_xiaobei", "Signal 新聞已準備好。")], deadline.Token, background: true);
         Assert(clips.Length == 2 && clips.All(clip => clip.Length > 3200 && clip.Length % 2 == 0 && clip.Any(value => value != 0)), "Real English/Mandarin PCM was empty.");
         using var cancel = new CancellationTokenSource(TimeSpan.FromMilliseconds(250));
         try { await worker.GenerateAsync([new("bf_emma", "Cancel a long recording. " + new string('a', 500))], cancel.Token); throw new Exception("The Python worker ignored cancellation."); }
@@ -80,10 +113,12 @@ internal static class KokoroSpeechChecks
     {
         public int Calls, LargestBatch;
         public readonly List<KokoroClip> Clips = [];
+        public readonly List<bool> BackgroundFlags = [];
         public TaskCompletionSource? Hold;
         public Exception? Failure;
-        public async Task<byte[][]> GenerateAsync(IReadOnlyList<KokoroClip> clips, CancellationToken token)
+        public async Task<byte[][]> GenerateAsync(IReadOnlyList<KokoroClip> clips, CancellationToken token, bool background = false)
         {
+            BackgroundFlags.Add(background);
             Calls++; Clips.AddRange(clips); LargestBatch = Math.Max(LargestBatch, clips.Sum(clip => clip.Text.Length));
             if (Hold is { } entered) { entered.SetResult(); await Task.Delay(Timeout.Infinite, token); }
             if (Failure is not null) throw Failure;

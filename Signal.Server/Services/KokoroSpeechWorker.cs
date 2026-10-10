@@ -8,7 +8,7 @@ namespace Signal.Server.Services;
 internal sealed record KokoroClip(string Voice, string Text);
 internal interface IKokoroSpeechWorker
 {
-    Task<byte[][]> GenerateAsync(IReadOnlyList<KokoroClip> clips, CancellationToken token);
+    Task<byte[][]> GenerateAsync(IReadOnlyList<KokoroClip> clips, CancellationToken token, bool background = false);
 }
 
 internal sealed class KokoroSpeechWorker(IOptions<KokoroSpeechOptions> options, IWebHostEnvironment environment) : IKokoroSpeechWorker, IDisposable
@@ -43,7 +43,7 @@ internal sealed class KokoroSpeechWorker(IOptions<KokoroSpeechOptions> options, 
         diagnostics = Task.Run(async () => { var buffer = new char[2048]; try { while (await stderr.ReadAsync(buffer) > 0) { } } catch (IOException) { } catch (ObjectDisposedException) { } });
     }
 
-    public async Task<byte[][]> GenerateAsync(IReadOnlyList<KokoroClip> clips, CancellationToken token)
+    public async Task<byte[][]> GenerateAsync(IReadOnlyList<KokoroClip> clips, CancellationToken token, bool background = false)
     {
         await gate.WaitAsync(token);
         try
@@ -51,7 +51,7 @@ internal sealed class KokoroSpeechWorker(IOptions<KokoroSpeechOptions> options, 
             token.ThrowIfCancellationRequested();
             Start();
             using var cancel = token.Register(StopProcess);
-            await process!.StandardInput.WriteLineAsync(JsonSerializer.Serialize(clips).AsMemory(), token);
+            await process!.StandardInput.WriteLineAsync(JsonSerializer.Serialize(clips.Select(clip => new { clip.Voice, clip.Text, Background = background })).AsMemory(), token);
             await process.StandardInput.FlushAsync(token);
             var output = process.StandardOutput.BaseStream;
             var prefix = new byte[4];

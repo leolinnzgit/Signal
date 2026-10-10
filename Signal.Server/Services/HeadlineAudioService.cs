@@ -26,6 +26,10 @@ public sealed class HeadlineAudioService
     private readonly AzureSpeechAudioRenderer? azure;
     private readonly bool windowsOnly;
     private readonly KokoroAudioRenderer? kokoro;
+    private readonly object backgroundLock = new();
+    private CancellationTokenSource? backgroundRendering;
+    private int foregroundRequests;
+    private DateTime lastForegroundActivity;
 
     public string EngineName => kokoro?.Enabled == true ? "kokoro-local" : azure?.Enabled == true ? "azure-neural" : "isolated-process";
     public int MaximumBatchCharacters => kokoro?.Enabled == true ? 300 : 15_000;
@@ -78,25 +82,76 @@ public sealed class HeadlineAudioService
     public async Task<HeadlineAudio> GenerateAsync(HeadlineAudioRequest request, CancellationToken cancellationToken)
     {
         var titles = Validate(request);
+        cancellationToken.ThrowIfCancellationRequested();
+        request = request with { Titles = titles };
         if (windowsOnly && !OperatingSystem.IsWindows())
             throw new PlatformNotSupportedException("Screen-off audio is unavailable on this server.");
-        if (!await generation.WaitAsync(queueTimeout, cancellationToken))
-            throw new HeadlineAudioUnavailableException("busy", "The audio server is busy preparing another briefing. Please try again shortly.");
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        deadline.CancelAfter(renderTimeout);
+        lock (backgroundLock) lastForegroundActivity = DateTime.UtcNow;
+        // Ready recordings bypass synthesis and never interrupt background work.
+        if (kokoro?.Enabled == true && kokoro.GetCached(request) is { } cached) return cached;
+        lock (backgroundLock)
+        {
+            foregroundRequests++;
+            backgroundRendering?.Cancel();
+        }
+        var entered = false;
         try
         {
-            var rendering = render(request with { Titles = titles }, deadline.Token);
-            // Local and cloud workers close their connection before releasing the queue.
-            return azure?.Enabled == true || kokoro?.Enabled == true ? await rendering : await rendering.WaitAsync(deadline.Token);
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            throw new HeadlineAudioUnavailableException("timeout", "The speech engine took too long to prepare audio. Please try again or use Browser voice.");
+            entered = await generation.WaitAsync(queueTimeout, cancellationToken);
+            if (!entered)
+                throw new HeadlineAudioUnavailableException("busy", "The audio server is busy preparing another briefing. Please try again shortly.");
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            deadline.CancelAfter(renderTimeout);
+            try
+            {
+                var rendering = render(request, deadline.Token);
+                // Local and cloud workers close their connection before releasing the queue.
+                return azure?.Enabled == true || kokoro?.Enabled == true ? await rendering : await rendering.WaitAsync(deadline.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw new HeadlineAudioUnavailableException("timeout", "The speech engine took too long to prepare audio. Please try again or use Browser voice.");
+            }
         }
         finally
         {
+            lock (backgroundLock) { foregroundRequests--; lastForegroundActivity = DateTime.UtcNow; }
+            if (entered) generation.Release();
+        }
+    }
+
+    internal async Task<bool> TryPrepareInBackgroundAsync(HeadlineAudioRequest request, CancellationToken token)
+    {
+        if (kokoro?.Enabled != true) return false;
+        token.ThrowIfCancellationRequested();
+        if (kokoro.GetCached(request) is not null) return true;
+        CancellationTokenSource deadline;
+        lock (backgroundLock)
+        {
+            // Leave time for the next HTTP batch in a user's article preparation.
+            if (foregroundRequests > 0 || DateTime.UtcNow - lastForegroundActivity < TimeSpan.FromSeconds(5)
+                || backgroundRendering is not null || !generation.Wait(0)) return false;
+            deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+            deadline.CancelAfter(renderTimeout);
+            backgroundRendering = deadline;
+        }
+        try
+        {
+            await kokoro.PrepareAsync(request, deadline.Token);
+            if (kokoro.GetCached(request) is null)
+                throw new HeadlineAudioUnavailableException("cache", "Background audio could not be saved in the recording cache.");
+            return true;
+        }
+        catch (OperationCanceledException) when (!token.IsCancellationRequested)
+        {
+            lock (backgroundLock) { if (foregroundRequests > 0) return false; }
+            throw new HeadlineAudioUnavailableException("timeout", "Background audio preparation took too long.");
+        }
+        finally
+        {
+            lock (backgroundLock) backgroundRendering = null;
             generation.Release();
+            deadline.Dispose();
         }
     }
 

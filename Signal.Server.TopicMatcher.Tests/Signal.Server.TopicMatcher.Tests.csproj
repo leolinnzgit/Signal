@@ -6,6 +6,7 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <Content Include="..\tests\fixtures\article-narration.json" Link="article-narration.json" CopyToOutputDirectory="PreserveNewest" />
     <ProjectReference Include="..\Signal.Server\Signal.Server.csproj" />
   </ItemGroup>
 </Project>

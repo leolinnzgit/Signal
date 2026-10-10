@@ -2,11 +2,25 @@
 import argparse
 import contextlib
 import json
+import itertools
 import logging
 import re
 import struct
 import sys
 from pathlib import Path
+
+
+def set_priority(clips):
+    # The venv executable launches another Python process on Windows. Set priority
+    # inside inference itself, using its own process handle rather than the launcher.
+    if sys.platform != "win32": return
+    import ctypes
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.GetCurrentProcess.restype = ctypes.c_void_p
+    kernel.SetPriorityClass.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    background = isinstance(clips, list) and clips and clips[0].get("Background", False) is True
+    if not kernel.SetPriorityClass(kernel.GetCurrentProcess(), 0x4000 if background else 0x20):
+        raise ctypes.WinError(ctypes.get_last_error())
 
 
 def load_model(root, threads):
@@ -59,13 +73,18 @@ def main():
     sys.stdin.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
     output = sys.stdout.buffer
+    first_line = sys.stdin.readline()
+    if not first_line: return
+    if len(first_line) > 150000: raise ValueError("Request too large")
+    set_priority(json.loads(first_line))
     # Library diagnostics must never corrupt the binary stdout protocol.
     with contextlib.redirect_stdout(sys.stderr):
         logging.getLogger("jieba").setLevel(logging.ERROR)
         model, chinese, np = load_model(args.root, args.threads)
-    for line in sys.stdin:
+    for line in itertools.chain((first_line,), sys.stdin):
         if len(line) > 150000: raise ValueError("Request too large")
         clips = json.loads(line)
+        set_priority(clips)
         with contextlib.redirect_stdout(sys.stderr):
             audio = render(clips, model, chinese, np)
         lengths = json.dumps([len(clip) for clip in audio]).encode("utf-8")

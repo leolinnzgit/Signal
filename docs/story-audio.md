@@ -111,3 +111,31 @@ folder for listening. Pass `-SitePath`, `-EnglishVoice`, `-ChineseVoice`, or
 References: [Kokoro model](https://huggingface.co/hexgrad/Kokoro-82M),
 [ONNX runtime adapter](https://github.com/thewh1teagle/kokoro-onnx),
 [pinned model release](https://github.com/thewh1teagle/kokoro-onnx/releases/tag/model-files-v1.1).
+
+### Prepare audio when news arrives
+
+With Kokoro enabled, newly saved news automatically queues background recordings.
+Headlines are prepared first; Signal then extracts each readable full article and
+prepares the same 300-character parts used by Listen. When extraction is
+unavailable, it prepares the title and feed summary. Saving news and refreshing
+topics do not wait for synthesis. The default English/Chinese voices are used;
+choosing another voice prepares that recording when requested.
+
+Kokoro already uses four CPU threads inside one synthesis process. Background
+work runs at reduced Windows process priority. A playback request with missing
+clips cancels background inference and takes priority; ready cached playback
+bypasses synthesis entirely. Background work waits five seconds after a foreground
+request so consecutive article batches can finish without repeated interruptions.
+Cancelled background parts remain queued for retry. Clips completed earlier are
+retained in the shared seven-day, 256 MB cache.
+
+The queue holds up to 128 stories, deduplicates identical news across users and
+repeated saves, and discards older pending work when full. Restarting Signal
+restores up to 128 recent stories seen in the last day. An article can still show
+preparation progress if its background job has not finished, its cache expired,
+or the user selects another voice. Background preparation requires the server to
+remain running and uses CPU while work is pending.
+
+Set `Speech:KokoroPrewarm` to `false` to disable automatic preparation. Private
+progress counters are saved in `App_Data/article-audio-preparation.json`; article
+text and URLs are excluded from that status file.
