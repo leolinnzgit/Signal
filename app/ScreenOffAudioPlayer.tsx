@@ -42,6 +42,7 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
   const readingVoices = useReadingVoices();
 
   useEffect(() => {
+    if (readingVoices.loading) return;
     const abort = new AbortController();
     let url = "";
     const titles = articles.map((item) => item.title);
@@ -65,7 +66,7 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
         if (!abort.signal.aborted) setError(reason instanceof Error ? reason.message : "Audio could not be prepared.");
       });
     return () => { abort.abort(); if (url) URL.revokeObjectURL(url); };
-  }, [articles, seconds, preparationAttempt, readingVoices.preferences.en, readingVoices.preferences.zh]);
+  }, [articles, seconds, preparationAttempt, readingVoices.loading, readingVoices.preferences.en, readingVoices.preferences.zh]);
 
   function selectVoice(language: keyof ReadingVoicePreferences, id: string) {
     if (readingVoices.preferences[language] === id) return;

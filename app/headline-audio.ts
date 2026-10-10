@@ -73,6 +73,19 @@ export class PreparedAudioCache {
 }
 
 export const preparedAudioCache = new PreparedAudioCache();
+let recordedEngine = "";
+let maximumRecordedBatchCharacters = 15_000;
+
+export function configureRecordedAudio(engine: string | null, batchCharacters: string | null) {
+  if (engine && recordedEngine && recordedEngine !== engine) preparedAudioCache.clear();
+  recordedEngine = engine ?? "";
+  const value = Number(batchCharacters);
+  maximumRecordedBatchCharacters = Number.isInteger(value) && value >= 240 && value <= 15_000 ? value : 15_000;
+}
+
+export function recordedArticleNarrationParts(title: string, paragraphs: string[]) {
+  return articleNarrationParts(title, paragraphs, Math.min(900, maximumRecordedBatchCharacters));
+}
 
 function pcmWave(pcm: Blob[], bytes: number) {
   const header = new ArrayBuffer(44);
@@ -123,6 +136,7 @@ export async function prepareHeadlineAudio(
   }
   const ready = cache?.get(titles, seconds, language, voices);
   if (ready) { onProgress?.(titles.length, titles.length); return ready; }
+  maximumBatchCharacters = Math.min(maximumBatchCharacters, maximumRecordedBatchCharacters);
   // Prepare bounded requests, then join their PCM into one recording. Switching
   // audio sources at batch boundaries would depend on a running background page.
   const batches: string[][] = [];
@@ -218,7 +232,7 @@ export function prepareArticleAudio(
 ) {
   // Smaller batches keep full articles inside the worker deadline. All parts
   // become one recording before playback, including when the phone is locked.
-  return prepareHeadlineAudio(articleNarrationParts(title, paragraphs), 3, language, signal, fetcher, onProgress, 4_000, voices, cache);
+  return prepareHeadlineAudio(recordedArticleNarrationParts(title, paragraphs), 3, language, signal, fetcher, onProgress, 4_000, voices, cache);
 }
 
 async function prepareBatch(titles: string[], seconds: number, language: string, signal: AbortSignal, token: string, fetcher: typeof fetch, voices?: ReadingVoicePreferences): Promise<PreparedHeadlineAudio> {

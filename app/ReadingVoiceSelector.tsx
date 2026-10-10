@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { normalizeReadingVoices, prepareReadingVoicePreview, type ReadingVoicePreferences } from "./headline-audio";
+import { configureRecordedAudio, normalizeReadingVoices, prepareReadingVoicePreview, type ReadingVoicePreferences } from "./headline-audio";
 
 type ReadingVoice = { id: string; name: string; language: string; gender: string };
 const storageKey = "signal.recorded-reading-voices.v1";
@@ -24,6 +24,7 @@ export function useReadingVoices() {
           throw new Error("Voice choices could not be loaded. Automatic narration is still available.");
         }
         if (abort.signal.aborted) return;
+        configureRecordedAudio(response.headers.get("X-Signal-Audio-Engine"), response.headers.get("X-Signal-Audio-Batch-Characters"));
         setVoices(data);
         setPreferences((saved) => ({
           en: data.some((voice) => voice.id === saved.en && voice.language.startsWith("en")) ? saved.en : "",

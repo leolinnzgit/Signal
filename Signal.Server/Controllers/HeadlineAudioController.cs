@@ -8,7 +8,7 @@ namespace Signal.Server.Controllers;
 
 [ApiController]
 [Authorize]
-[EnableRateLimiting("account")]
+[EnableRateLimiting("audio")]
 [Route("api/headline-audio")]
 [ResponseCache(Location = ResponseCacheLocation.None, NoStore = true)]
 public sealed class HeadlineAudioController(HeadlineAudioService audio, ILogger<HeadlineAudioController> logger) : ControllerBase
@@ -18,7 +18,10 @@ public sealed class HeadlineAudioController(HeadlineAudioService audio, ILogger<
     {
         try
         {
-            return Ok(await audio.GetVoicesAsync(cancellationToken));
+            var voices = await audio.GetVoicesAsync(cancellationToken);
+            Response.Headers["X-Signal-Audio-Engine"] = audio.EngineName;
+            Response.Headers["X-Signal-Audio-Batch-Characters"] = audio.MaximumBatchCharacters.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            return Ok(voices);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { return StatusCode(499); }
         catch (HeadlineAudioUnavailableException exception) { return StatusCode(503, new { error = exception.Message, code = exception.Code }); }

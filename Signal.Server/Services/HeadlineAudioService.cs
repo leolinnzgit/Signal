@@ -25,8 +25,18 @@ public sealed class HeadlineAudioService
     private readonly TimeSpan queueTimeout;
     private readonly AzureSpeechAudioRenderer? azure;
     private readonly bool windowsOnly;
+    private readonly KokoroAudioRenderer? kokoro;
 
-    public string EngineName => azure?.Enabled == true ? "azure-neural" : "isolated-process";
+    public string EngineName => kokoro?.Enabled == true ? "kokoro-local" : azure?.Enabled == true ? "azure-neural" : "isolated-process";
+    public int MaximumBatchCharacters => kokoro?.Enabled == true ? 300 : 15_000;
+
+    public HeadlineAudioService(AzureSpeechAudioRenderer azure, KokoroAudioRenderer kokoro)
+        : this(kokoro.Enabled ? kokoro.GenerateAsync : azure.Enabled ? azure.GenerateAsync : HeadlineAudioWorker.GenerateAsync,
+            TimeSpan.FromSeconds(kokoro.Enabled ? 180 : azure.Enabled ? 90 : 45), TimeSpan.FromSeconds(30), !kokoro.Enabled && !azure.Enabled)
+    {
+        this.azure = azure;
+        this.kokoro = kokoro;
+    }
 
     public HeadlineAudioService(AzureSpeechAudioRenderer azure)
         : this(azure.Enabled ? azure.GenerateAsync : HeadlineAudioWorker.GenerateAsync,
@@ -37,6 +47,7 @@ public sealed class HeadlineAudioService
 
     public async Task<IReadOnlyList<NarrationVoice>> GetVoicesAsync(CancellationToken token)
     {
+        if (kokoro?.Enabled == true) return kokoro.GetVoices();
         if (azure?.Enabled == true) return await azure.GetVoicesAsync(token);
         return OperatingSystem.IsWindows() ? HeadlineAudioVoiceCatalog.GetInstalled() : [];
     }
@@ -76,8 +87,8 @@ public sealed class HeadlineAudioService
         try
         {
             var rendering = render(request with { Titles = titles }, deadline.Token);
-            // Azure closes its SDK connection before releasing the queue.
-            return azure?.Enabled == true ? await rendering : await rendering.WaitAsync(deadline.Token);
+            // Local and cloud workers close their connection before releasing the queue.
+            return azure?.Enabled == true || kokoro?.Enabled == true ? await rendering : await rendering.WaitAsync(deadline.Token);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {

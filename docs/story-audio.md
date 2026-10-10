@@ -19,7 +19,7 @@ Validate the client with `npm run iis:typecheck` and `npm run test:client`.
 
 ## Azure neural recordings
 
-Recorded audio uses the existing Windows voices until Azure is configured. With
+Recorded audio uses Windows voices until an alternative provider is configured. With
 `Speech:Provider` set to `Azure`, both full articles and screen-off headline
 briefings use Azure's standard neural voices. Browser playback remains available.
 The recording voice picker and its previews list the English and Chinese neural
@@ -72,3 +72,42 @@ Run `dotnet run --project Signal.Server.TopicMatcher.Tests -- --azure-speech-onl
 for the isolated cloud-adapter checks. They use a fake synthesizer and require no
 account or billable calls. Actual Azure voice quality and the deployed IIS identity
 must be checked after entering a real resource key.
+
+## Local Kokoro recordings
+
+Double-click **Install Signal Kokoro.cmd** after publishing the updated server.
+The script uses [uv](https://docs.astral.sh/uv/getting-started/installation/), a
+private Python 3.12 environment, pinned packages and verified ONNX model downloads.
+It tests English and Mandarin before setting `Speech:Provider` to `Kokoro` in the
+private production configuration and restarting Signal. Existing settings,
+including Azure credentials, are preserved. No account or API key is needed.
+
+Refresh Signal and select **Recorded audio**. Defaults are Emma (British English)
+and Xiaobei (Mandarin); the voice picker exposes the installed English and Mandarin
+voices and supports previews. PCs still default to Browser voice. Kokoro provides
+its own voices; the sound will differ from the browser voice.
+
+Models and Python remain in `C:\sites\SignalHost\App_Data\Kokoro`, preserved by
+deployment. Downloads require internet during setup; synthesis runs locally on CPU
+and sends no article text to a speech service. There are no speech API fees.
+The full precision model is used because it was substantially faster than the
+quantized model on this server. It requires about 354 MB for model assets plus
+Python and its packages; allow at least 1 GB during a fresh installation.
+
+On the current server, example English and Mandarin clips took roughly 1.3 times
+their spoken duration to prepare once the model loaded. Short requests also have
+startup overhead. Articles are prepared in small batches with progress shown;
+first preparation can take several minutes for a long story. A persistent worker
+keeps the model warm, and the bounded seven-day clip cache reuses repeated text.
+Recorded playback and screen-off controls work after preparation finishes.
+
+Run `dotnet run --project Signal.Server.TopicMatcher.Tests -- --kokoro-only` for
+adapter checks without models. Use `--kokoro-live` on a server with the default
+installation to validate real English/Mandarin output and worker cancellation.
+The installer also saves `sample-en.wav` and `sample-zh.wav` in the private runtime
+folder for listening. Pass `-SitePath`, `-EnglishVoice`, `-ChineseVoice`, or
+`-Threads` to `scripts/Install-SignalKokoro.ps1` to customize installation.
+
+References: [Kokoro model](https://huggingface.co/hexgrad/Kokoro-82M),
+[ONNX runtime adapter](https://github.com/thewh1teagle/kokoro-onnx),
+[pinned model release](https://github.com/thewh1teagle/kokoro-onnx/releases/tag/model-files-v1.1).

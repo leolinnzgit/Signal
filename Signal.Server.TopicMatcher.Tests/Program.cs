@@ -13,6 +13,10 @@ using Signal.Server.Controllers;
 using Signal.Server.Models;
 using Signal.Server.Services;
 
+await KokoroSpeechChecks.RunAsync();
+if (args.Contains("--kokoro-live")) { await KokoroSpeechChecks.RunLiveAsync(); return; }
+if (args.Contains("--kokoro-only")) return;
+
 await AzureSpeechChecks.RunAsync();
 if (args.Contains("--azure-speech-only")) return;
 

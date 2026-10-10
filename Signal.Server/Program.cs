@@ -137,6 +137,9 @@ builder.Services.AddRateLimiter(options =>
             AutoReplenishment = true,
         }));
 });
+builder.Services.AddRateLimiter(options => options.AddPolicy("audio", context => RateLimitPartition.GetFixedWindowLimiter(
+    context.User.Identity?.Name ?? context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+    _ => new FixedWindowRateLimiterOptions { PermitLimit = 120, Window = TimeSpan.FromMinutes(1), QueueLimit = 0, AutoReplenishment = true })));
 builder.Services.AddMemoryCache();
 builder.Services.Configure<AzureSpeechOptions>(builder.Configuration.GetSection(AzureSpeechOptions.SectionName));
 builder.Services.AddHttpClient(nameof(AzureSpeechAudioRenderer), client => client.Timeout = TimeSpan.FromSeconds(20))
@@ -146,6 +149,11 @@ builder.Services.AddSingleton(service => new AzureSpeechAudioRenderer(
     service.GetRequiredService<Microsoft.Extensions.Options.IOptions<AzureSpeechOptions>>(),
     service.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(AzureSpeechAudioRenderer)),
     service.GetRequiredService<IAzureSpeechSynthesizer>(), Path.Combine(dataDirectory, "HeadlineAudioClips")));
+builder.Services.Configure<KokoroSpeechOptions>(builder.Configuration.GetSection(AzureSpeechOptions.SectionName));
+builder.Services.AddSingleton<IKokoroSpeechWorker, KokoroSpeechWorker>();
+builder.Services.AddSingleton(service => new KokoroAudioRenderer(
+    service.GetRequiredService<Microsoft.Extensions.Options.IOptions<KokoroSpeechOptions>>(),
+    service.GetRequiredService<IKokoroSpeechWorker>(), builder.Environment.ContentRootPath));
 builder.Services.AddSingleton<HeadlineAudioService>();
 builder.Services.AddHeadlineAudioCompression();
 builder.Services.AddHostedService<HeadlineAudioHealthCheck>();

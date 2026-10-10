@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { articleNarrationParts, audioHeadlineIndex, preferBrowserArticleAudio, preparedAudioCache, prepareArticleAudio, type PreparedHeadlineAudio, type ReadingVoicePreferences } from "./headline-audio";
+import { recordedArticleNarrationParts, audioHeadlineIndex, preferBrowserArticleAudio, preparedAudioCache, prepareArticleAudio, type PreparedHeadlineAudio, type ReadingVoicePreferences } from "./headline-audio";
 import ReadingVoiceSelector, { useReadingVoices } from "./ReadingVoiceSelector";
 import BrowserArticleAudioPlayer from "./BrowserArticleAudioPlayer";
 
@@ -22,7 +22,7 @@ export default function ArticleAudioPlayer(props: ArticleAudioPlayerProps) {
 function RecordedArticleAudioPlayer({ title, source, paragraphs, autoPrepare = false, summaryOnly = false }: ArticleAudioPlayerProps) {
   const readingVoices = useReadingVoices();
   const narrationTitle = summaryOnly && paragraphs.length === 1 && paragraphs[0] === title ? "" : title;
-  const parts = useMemo(() => { try { return articleNarrationParts(narrationTitle, paragraphs); } catch { return null; } }, [narrationTitle, paragraphs]);
+  const parts = useMemo(() => { try { return recordedArticleNarrationParts(narrationTitle, paragraphs); } catch { return null; } }, [narrationTitle, paragraphs, readingVoices.loading]);
   const [attempt, setAttempt] = useState(() => autoPrepare || (parts && preparedAudioCache.get(parts, 3, navigator.language, readingVoices.preferences)) ? 1 : 0);
   const [url, setUrl] = useState("");
   const [starts, setStarts] = useState<number[]>([]);
@@ -41,7 +41,7 @@ function RecordedArticleAudioPlayer({ title, source, paragraphs, autoPrepare = f
   const recordingKey = useRef("");
 
   useEffect(() => {
-    if (!attempt) return;
+    if (!attempt || readingVoices.loading) return;
     const abort = new AbortController();
     preparation.current = abort;
     let recordingUrl = "";
@@ -72,7 +72,7 @@ function RecordedArticleAudioPlayer({ title, source, paragraphs, autoPrepare = f
         setError(reason instanceof Error ? reason.message : "The full article audio could not be prepared.");
       });
     return () => { abort.abort(); if (recordingUrl) URL.revokeObjectURL(recordingUrl); };
-  }, [attempt, narrationTitle, paragraphs, parts, readingVoices.preferences.en, readingVoices.preferences.zh]);
+  }, [attempt, narrationTitle, paragraphs, parts, readingVoices.loading, readingVoices.preferences.en, readingVoices.preferences.zh]);
 
   useEffect(() => {
     if (!url || !audio.current) return;

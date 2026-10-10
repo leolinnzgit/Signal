@@ -5,7 +5,7 @@ import ts from "typescript";
 
 const source = await readFile(new URL("../app/headline-audio.ts", import.meta.url), "utf8");
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } }).outputText;
-const { PreparedAudioCache, prepareHeadlineAudio, prepareArticleAudio, prepareReadingVoicePreview, articleNarrationParts, audioHeadlineIndex, preferScreenOffAudio, preferBrowserArticleAudio, normalizeReadingVoices } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
+const { configureRecordedAudio, recordedArticleNarrationParts, preparedAudioCache, PreparedAudioCache, prepareHeadlineAudio, prepareArticleAudio, prepareReadingVoicePreview, articleNarrationParts, audioHeadlineIndex, preferScreenOffAudio, preferBrowserArticleAudio, normalizeReadingVoices } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
 const titles = ["English headline", "中文新聞"];
 const signal = new AbortController().signal;
 
@@ -354,4 +354,35 @@ test("browser narration uses short complete chunks and preserves long words, Chi
   assert.equal(parts.join("").replace(/\s/gu, ""), ["News title", ...paragraphs].join("").replace(/\s/gu, ""));
   assert.ok(parts.every(part => !/[\uD800-\uDBFF]$/u.test(part)));
   assert.deepEqual(articleNarrationParts("", ["Headline only"], 240), ["Headline only"]);
+});
+
+
+test("local voice metadata keeps complete articles within small CPU batches and clears old engine audio", async () => {
+  configureRecordedAudio("isolated-process", "15000");
+  const recording = { blob: await waveResponse([0], 3).blob(), starts: [0] };
+  preparedAudioCache.remember(["Old engine"], 3, "en", undefined, recording);
+  assert.ok(preparedAudioCache.get(["Old engine"], 3, "en"));
+  configureRecordedAudio("kokoro-local", "300");
+  try {
+    assert.equal(preparedAudioCache.get(["Old engine"], 3, "en"), undefined);
+    const paragraphs = ["An English news sentence. ".repeat(45), "今天的新聞內容。".repeat(85)];
+    const parts = recordedArticleNarrationParts("News", paragraphs);
+    assert.ok(parts.every(part => part.length <= 300));
+    assert.equal(parts.join("").replace(/\s/g, ""), ["News", ...paragraphs].join("").replace(/\s/g, ""));
+    let count = 0;
+    const fetcher = async (url, options) => {
+      if (url === "/api/auth/csrf") return Response.json({ token: "token" });
+      const { titles } = JSON.parse(options.body);
+      count++;
+      assert.ok(titles.join("").length <= 300);
+      return waveResponse(titles.map((_, index) => index * 3), titles.length * 3);
+    };
+    const cache = new PreparedAudioCache();
+    const audio = await prepareArticleAudio("News", paragraphs, "en", signal, fetcher, undefined, undefined, cache);
+    assert.ok(count > 2);
+    assert.equal(audio.starts.length, parts.length);
+    await prepareArticleAudio("News", paragraphs, "en", signal, () => { throw new Error("Must reuse local recording"); }, undefined, undefined, cache);
+    configureRecordedAudio("kokoro-local", "bad");
+    assert.ok(recordedArticleNarrationParts("News", paragraphs).some(part => part.length > 300));
+  } finally { configureRecordedAudio("isolated-process", "15000"); }
 });
