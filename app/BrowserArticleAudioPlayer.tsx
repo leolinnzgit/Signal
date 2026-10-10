@@ -6,7 +6,7 @@ import { articleNarrationParts } from "./headline-audio";
 import {
   createHeadlinePlayback, findPreferredHeadlineVoice, HEADLINE_SPEECH_PREFERENCES_KEY,
   headlineSpeechLanguage, headlineVoiceId, normalizeHeadlineSpeechPreferences,
-  rankHeadlineVoices, selectHeadlineVoice,
+  rankHeadlineVoices, selectHeadlineVoice, browserSpeechRequiresTap,
 } from "./headline-playback";
 
 export default function BrowserArticleAudioPlayer({ title, paragraphs, autoPrepare = false, summaryOnly = false }: ArticleAudioPlayerProps) {
@@ -15,8 +15,8 @@ export default function BrowserArticleAudioPlayer({ title, paragraphs, autoPrepa
     catch { return []; }
   }, [title, paragraphs, summaryOnly]);
   const [index, setIndex] = useState(0);
-  const [paused, setPaused] = useState(!autoPrepare);
-  const [attempt, setAttempt] = useState(0);
+  const [paused, setPaused] = useState(() => !autoPrepare || browserSpeechRequiresTap(navigator.userAgent, navigator.maxTouchPoints));
+  const [started, setStarted] = useState(false);
   const [error, setError] = useState("");
   const [preferences, setPreferences] = useState(() => {
     try { return normalizeHeadlineSpeechPreferences(JSON.parse(localStorage.getItem(HEADLINE_SPEECH_PREFERENCES_KEY) ?? "null")); }
@@ -25,6 +25,7 @@ export default function BrowserArticleAudioPlayer({ title, paragraphs, autoPrepa
   const [voices, setVoices] = useState(() => window.speechSynthesis.getVoices());
   const [voicesReady, setVoicesReady] = useState(voices.length > 0);
   const playback = useRef<ReturnType<typeof createHeadlinePlayback> | null>(null);
+  const playbackKey = useRef<{ parts: string[]; index: number; rate: number; voice: string } | null>(null);
   const completed = index >= parts.length;
   const text = parts[index] ?? title;
   const readingScope = summaryOnly ? paragraphs.length === 1 && paragraphs[0] === title ? "headline" : "headline and summary" : "article";
@@ -52,16 +53,24 @@ export default function BrowserArticleAudioPlayer({ title, paragraphs, autoPrepa
     catch { /* Reading stays available when device storage is disabled. */ }
   }, [preferences]);
 
-  useEffect(() => {
-    if (completed || !voicesReady) return;
+  function ensurePlayback(part = index, settings = preferences) {
+    if (!parts[part]) { disposePlayback(); return null; }
+    const voice = settings.voices[headlineSpeechLanguage(parts[part], navigator.language).split("-")[0].toLowerCase()] ?? "";
+    const key = playbackKey.current;
+    if (playback.current && key?.parts === parts && key.index === part && key.rate === settings.rate && key.voice === voice) return playback.current;
+    disposePlayback();
+    setStarted(false);
     const current = createHeadlinePlayback({
-      title: parts[index], seconds: 0, readAloud: true,
-      rate: preferences.rate, preferredVoiceId: preferredId,
-      onAdvance: () => setIndex((part) => part + 1),
+      title: parts[part], seconds: 0, readAloud: true,
+      rate: settings.rate, preferredVoiceId: voice,
+      onAdvance: () => setIndex(part + 1),
+      onSpeechStart: () => setStarted(true),
       onSpeechError: () => {
         current.setPaused(true);
+        disposePlayback();
         setPaused(true);
-        setError("Browser reading could not continue. Press Play to try again or choose Recorded audio.");
+        setStarted(false);
+        setError("Browser reading could not start or continue. Tap Play to retry, try another Reading voice, or choose Recorded audio.");
       },
     }, {
       speech: window.speechSynthesis,
@@ -72,26 +81,57 @@ export default function BrowserArticleAudioPlayer({ title, paragraphs, autoPrepa
       clear: (id) => window.clearTimeout(id),
     });
     playback.current = current;
-    return () => { current.dispose(); playback.current = null; };
-  }, [parts, index, completed, preferences.rate, preferredId, voicesReady, attempt]);
+    playbackKey.current = { parts, index: part, rate: settings.rate, voice };
+    return current;
+  }
 
+  function disposePlayback() {
+    playback.current?.dispose();
+    playback.current = null;
+    playbackKey.current = null;
+  }
+
+  // Reconcile automatic section changes without replacing a controller started by a tap.
   useEffect(() => {
-    playback.current?.setPaused(paused || !voicesReady);
-  }, [paused, parts, index, preferences.rate, preferredId, voicesReady, attempt]);
+    if (completed) { disposePlayback(); return; }
+    if (voicesReady) ensurePlayback()?.setPaused(paused);
+  }, [parts, index, completed, preferences.rate, preferredId, voicesReady, paused]);
+
+  useEffect(() => () => disposePlayback(), []);
 
   function togglePlayback() {
+    if (!paused && !completed) {
+      playback.current?.setPaused(true);
+      setPaused(true);
+      return;
+    }
+    const part = completed ? 0 : index;
+    if (error || completed) disposePlayback();
     setError("");
-    if (completed) { setIndex(0); setAttempt((value) => value + 1); setPaused(false); return; }
-    if (error) { setAttempt((value) => value + 1); setPaused(false); return; }
-    playback.current?.setPaused(!paused);
-    setPaused(!paused);
+    setIndex(part);
+    setPaused(false);
+    // Do not wait for voiceschanged or a React effect: phones require speak in the tap handler.
+    setVoicesReady(true);
+    ensurePlayback(part)?.setPaused(false);
+  }
+
+  function moveTo(part: number) {
+    setError("");
+    setIndex(part);
+    ensurePlayback(part)?.setPaused(paused);
+  }
+
+  function changePreferences(settings: typeof preferences) {
+    setError("");
+    setPreferences(settings);
+    ensurePlayback(index, settings)?.setPaused(paused);
   }
 
   function stop() {
-    playback.current?.dispose();
+    disposePlayback();
     setPaused(true);
+    setStarted(false);
     setIndex(0);
-    setAttempt((value) => value + 1);
     setError("");
   }
 
@@ -99,25 +139,25 @@ export default function BrowserArticleAudioPlayer({ title, paragraphs, autoPrepa
     <div className="article-browser-transport">
       <button type="button" onClick={togglePlayback} disabled={!parts.length}>{completed ? "Read again" : paused ? "Play" : "Pause"}</button>
       <button type="button" onClick={stop}>Stop</button>
-      <button type="button" disabled={index === 0} onClick={() => { setError(""); setIndex((part) => part - 1); }}>Previous section</button>
-      <button type="button" disabled={completed} onClick={() => { setError(""); setIndex((part) => part + 1); }}>Next section</button>
+      <button type="button" disabled={index === 0} onClick={() => moveTo(index - 1)}>Previous section</button>
+      <button type="button" disabled={completed} onClick={() => moveTo(index + 1)}>Next section</button>
     </div>
     <label>Reading voice
       <select aria-label="Reading voice" value={preferredVoice ? headlineVoiceId(preferredVoice) : ""}
-        onChange={(event) => setPreferences((saved) => ({ ...saved, voices: { ...saved.voices, [languageKey]: event.target.value } }))}>
+        onChange={(event) => changePreferences({ ...preferences, voices: { ...preferences.voices, [languageKey]: event.target.value } })}>
         <option value="">Automatic{automaticVoice ? ` — ${automaticVoice.name}` : " — browser default"}</option>
         {availableVoices.map((voice) => <option key={headlineVoiceId(voice)} value={headlineVoiceId(voice)}>{voice.name} — {voice.lang}</option>)}
       </select>
     </label>
     <label>Speaking speed
-      <select aria-label="Speaking speed" value={preferences.rate} onChange={(event) => setPreferences((saved) => ({ ...saved, rate: Number(event.target.value) }))}>
+      <select aria-label="Speaking speed" value={preferences.rate} onChange={(event) => changePreferences({ ...preferences, rate: Number(event.target.value) })}>
         {[0.8, 0.95, 1, 1.1, 1.2].map((rate) => <option key={rate} value={rate}>{rate}×</option>)}
         {![0.8, 0.95, 1, 1.1, 1.2].includes(preferences.rate) && <option value={preferences.rate}>{preferences.rate}×</option>}
       </select>
     </label>
     <div className="article-browser-progress">
       <progress aria-label="Reading progress" value={completed ? parts.length : index} max={Math.max(1, parts.length)} />
-      <p role="status">{!parts.length ? "No text available to read aloud." : completed ? "Finished reading." : !voicesReady && !paused ? "Preparing browser voice…" : paused ? `Ready to read${summaryOnly ? ` the ${readingScope}` : ""}. Section ${index + 1} of ${parts.length}.` : `Reading ${readingScope}. Section ${index + 1} of ${parts.length}.`}</p>
+      <p role="status">{!parts.length ? "No text available to read aloud." : completed ? "Finished reading." : !voicesReady && !paused ? "Preparing browser voice…" : paused ? `Tap Play to read${summaryOnly ? ` the ${readingScope}` : ""}. Section ${index + 1} of ${parts.length}.` : !started ? "Starting browser voice…" : `Reading ${readingScope}. Section ${index + 1} of ${parts.length}.`}</p>
     </div>
     {error && <p role="alert">{error}</p>}
   </section>;

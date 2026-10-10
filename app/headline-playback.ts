@@ -4,6 +4,11 @@ export const HEADLINE_SPEECH_PREFERENCES_KEY = "signal-headline-speech-preferenc
 export const DEFAULT_HEADLINE_SPEECH_RATE = 0.95;
 export const HEADLINE_SPEECH_PAUSE_MS = 650;
 
+export function browserSpeechRequiresTap(userAgent: string, maxTouchPoints = 0) {
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(userAgent)
+    || (/Macintosh/i.test(userAgent) && maxTouchPoints > 1);
+}
+
 export type HeadlineSpeechPreferences = { rate: number; voices: Record<string, string> };
 
 export function shouldPauseHeadlinePlayback({ paused, pageVisible, readAloud, voicesReady }: {
@@ -93,7 +98,7 @@ export function headlineSpeechLanguage(title: string, preferredLanguage: string)
 }
 
 export function createHeadlinePlayback(
-  options: { title: string; seconds: number; readAloud: boolean; preferredVoiceId?: string; rate?: number; onAdvance: () => void; onSpeechError: () => void },
+  options: { title: string; seconds: number; readAloud: boolean; preferredVoiceId?: string; rate?: number; onAdvance: () => void; onSpeechError: () => void; onSpeechStart?: () => void },
   runtime: HeadlinePlaybackRuntime,
 ) {
   let paused = true;
@@ -146,6 +151,8 @@ export function createHeadlinePlayback(
   }
 
   function observeSpeech() {
+    if (disposed || speechFinished) return;
+    if (!speechObserved) options.onSpeechStart?.();
     speechObserved = true;
     idleChecks = 0;
   }

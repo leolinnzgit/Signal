@@ -7,7 +7,7 @@ const source = await readFile(new URL("../app/headline-playback.ts", import.meta
 const compiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 },
 }).outputText;
-const { createHeadlinePlayback, headlineSpeechLanguage, headlineVoiceId, selectHeadlineVoice, rankHeadlineVoices, normalizeHeadlineSpeechPreferences, prepareHeadlineSpeechText, shouldPauseHeadlinePlayback } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
+const { createHeadlinePlayback, browserSpeechRequiresTap, headlineSpeechLanguage, headlineVoiceId, selectHeadlineVoice, rankHeadlineVoices, normalizeHeadlineSpeechPreferences, prepareHeadlineSpeechText, shouldPauseHeadlinePlayback } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
 
 const voice = (name, lang, extra = {}) => ({ name, lang, voiceURI: name, default: false, ...extra });
 
@@ -429,4 +429,31 @@ test("short audio finishing between polls is detected through its start event", 
   player.speech.speaking = false;
   player.tick(6_000);
   assert.equal(player.advances, 1);
+});
+
+
+test("phones and desktop-mode iPads require a speech tap, while PCs keep autoplay", () => {
+  assert.equal(browserSpeechRequiresTap("Android Chrome"), true);
+  assert.equal(browserSpeechRequiresTap("iPhone Safari"), true);
+  assert.equal(browserSpeechRequiresTap("Macintosh Safari", 5), true);
+  assert.equal(browserSpeechRequiresTap("Macintosh Safari", 0), false);
+  assert.equal(browserSpeechRequiresTap("Windows Chrome", 10), false);
+});
+
+test("speech start is reported once and disposed callbacks cannot update a player", () => {
+  const player = harness({ speechState: true });
+  let starts = 0;
+  const playback = createHeadlinePlayback({ title: "News", seconds: 0, readAloud: true,
+    onAdvance() {}, onSpeechError() {}, onSpeechStart() { starts++; },
+  }, player.runtime);
+  playback.setPaused(false);
+  const utterance = player.utterances[0];
+  const start = utterance.onstart;
+  start();
+  utterance.onboundary();
+  player.tick(500);
+  assert.equal(starts, 1);
+  playback.dispose();
+  start();
+  assert.equal(starts, 1);
 });
