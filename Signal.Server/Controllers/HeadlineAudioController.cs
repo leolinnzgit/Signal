@@ -14,12 +14,14 @@ namespace Signal.Server.Controllers;
 public sealed class HeadlineAudioController(HeadlineAudioService audio, ILogger<HeadlineAudioController> logger) : ControllerBase
 {
     [HttpGet("voices")]
-    public IActionResult Voices()
+    public async Task<IActionResult> Voices(CancellationToken cancellationToken)
     {
         try
         {
-            return Ok(OperatingSystem.IsWindows() ? HeadlineAudioVoiceCatalog.GetInstalled() : []);
+            return Ok(await audio.GetVoicesAsync(cancellationToken));
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { return StatusCode(499); }
+        catch (HeadlineAudioUnavailableException exception) { return StatusCode(503, new { error = exception.Message, code = exception.Code }); }
         catch (Exception exception)
         {
             logger.LogWarning(exception, "Could not list installed narration voices.");

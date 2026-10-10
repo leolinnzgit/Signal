@@ -138,6 +138,14 @@ builder.Services.AddRateLimiter(options =>
         }));
 });
 builder.Services.AddMemoryCache();
+builder.Services.Configure<AzureSpeechOptions>(builder.Configuration.GetSection(AzureSpeechOptions.SectionName));
+builder.Services.AddHttpClient(nameof(AzureSpeechAudioRenderer), client => client.Timeout = TimeSpan.FromSeconds(20))
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
+builder.Services.AddSingleton<IAzureSpeechSynthesizer, AzureSpeechSynthesizer>();
+builder.Services.AddSingleton(service => new AzureSpeechAudioRenderer(
+    service.GetRequiredService<Microsoft.Extensions.Options.IOptions<AzureSpeechOptions>>(),
+    service.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(AzureSpeechAudioRenderer)),
+    service.GetRequiredService<IAzureSpeechSynthesizer>(), Path.Combine(dataDirectory, "HeadlineAudioClips")));
 builder.Services.AddSingleton<HeadlineAudioService>();
 builder.Services.AddHeadlineAudioCompression();
 builder.Services.AddHostedService<HeadlineAudioHealthCheck>();

@@ -13,6 +13,9 @@ using Signal.Server.Controllers;
 using Signal.Server.Models;
 using Signal.Server.Services;
 
+await AzureSpeechChecks.RunAsync();
+if (args.Contains("--azure-speech-only")) return;
+
 if (args.Contains("--article-reader-browser"))
 {
     await ArticleReaderChecks.RunBrowserAsync();

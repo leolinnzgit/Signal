@@ -8,9 +8,11 @@ internal sealed class HeadlineAudioClipCache(string directory, long maximumBytes
     private const int MaximumClipBytes = 8 * 1024 * 1024;
     private static readonly TimeSpan Lifetime = TimeSpan.FromDays(7);
 
-    internal byte[] GetOrCreate(string voice, string text, Func<byte[]> render)
+    private string PathFor(string voice, string text) => Path.Combine(directory, Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("pcm16k-v1\n" + voice + "\n" + text))) + ".pcm");
+
+    internal byte[]? TryGet(string voice, string text)
     {
-        var path = Path.Combine(directory, Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("pcm16k-v1\n" + voice + "\n" + text))) + ".pcm");
+        var path = PathFor(voice, text);
         try
         {
             var file = new FileInfo(path);
@@ -23,7 +25,20 @@ internal sealed class HeadlineAudioClipCache(string directory, long maximumBytes
         catch (IOException) { }
         catch (UnauthorizedAccessException) { }
 
+        return null;
+    }
+
+    internal byte[] GetOrCreate(string voice, string text, Func<byte[]> render)
+    {
+        if (TryGet(voice, text) is { } cached) return cached;
         var audio = render();
+        Store(voice, text, audio);
+        return audio;
+    }
+
+    internal void Store(string voice, string text, byte[] audio)
+    {
+        var path = PathFor(voice, text);
         if (audio.Length == 0 || audio.Length % 2 != 0 || audio.AsSpan().IndexOfAnyExcept((byte)0) < 0)
             throw new InvalidOperationException("The speech engine returned invalid audio.");
         if (audio.Length <= MaximumClipBytes)
@@ -43,7 +58,6 @@ internal sealed class HeadlineAudioClipCache(string directory, long maximumBytes
                 if (temporary is not null) { try { File.Delete(temporary); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
             }
         }
-        return audio;
     }
 
     internal void Prune()

@@ -23,14 +23,32 @@ public sealed class HeadlineAudioService
     private readonly Func<HeadlineAudioRequest, CancellationToken, Task<HeadlineAudio>> render;
     private readonly TimeSpan renderTimeout;
     private readonly TimeSpan queueTimeout;
+    private readonly AzureSpeechAudioRenderer? azure;
+    private readonly bool windowsOnly;
+
+    public string EngineName => azure?.Enabled == true ? "azure-neural" : "isolated-process";
+
+    public HeadlineAudioService(AzureSpeechAudioRenderer azure)
+        : this(azure.Enabled ? azure.GenerateAsync : HeadlineAudioWorker.GenerateAsync,
+            TimeSpan.FromSeconds(azure.Enabled ? 90 : 45), TimeSpan.FromSeconds(30), !azure.Enabled)
+    {
+        this.azure = azure;
+    }
+
+    public async Task<IReadOnlyList<NarrationVoice>> GetVoicesAsync(CancellationToken token)
+    {
+        if (azure?.Enabled == true) return await azure.GetVoicesAsync(token);
+        return OperatingSystem.IsWindows() ? HeadlineAudioVoiceCatalog.GetInstalled() : [];
+    }
 
     public HeadlineAudioService() : this(HeadlineAudioWorker.GenerateAsync, TimeSpan.FromSeconds(45), TimeSpan.FromSeconds(30)) { }
 
-    internal HeadlineAudioService(Func<HeadlineAudioRequest, CancellationToken, Task<HeadlineAudio>> render, TimeSpan renderTimeout, TimeSpan queueTimeout)
+    internal HeadlineAudioService(Func<HeadlineAudioRequest, CancellationToken, Task<HeadlineAudio>> render, TimeSpan renderTimeout, TimeSpan queueTimeout, bool windowsOnly = true)
     {
         this.render = render;
         this.renderTimeout = renderTimeout;
         this.queueTimeout = queueTimeout;
+        this.windowsOnly = windowsOnly;
     }
 
     internal static string[] Validate(HeadlineAudioRequest request)
@@ -49,7 +67,7 @@ public sealed class HeadlineAudioService
     public async Task<HeadlineAudio> GenerateAsync(HeadlineAudioRequest request, CancellationToken cancellationToken)
     {
         var titles = Validate(request);
-        if (!OperatingSystem.IsWindows())
+        if (windowsOnly && !OperatingSystem.IsWindows())
             throw new PlatformNotSupportedException("Screen-off audio is unavailable on this server.");
         if (!await generation.WaitAsync(queueTimeout, cancellationToken))
             throw new HeadlineAudioUnavailableException("busy", "The audio server is busy preparing another briefing. Please try again shortly.");
@@ -57,11 +75,13 @@ public sealed class HeadlineAudioService
         deadline.CancelAfter(renderTimeout);
         try
         {
-            return await render(request with { Titles = titles }, deadline.Token).WaitAsync(deadline.Token);
+            var rendering = render(request with { Titles = titles }, deadline.Token);
+            // Azure closes its SDK connection before releasing the queue.
+            return azure?.Enabled == true ? await rendering : await rendering.WaitAsync(deadline.Token);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            throw new HeadlineAudioUnavailableException("timeout", "The speech engine took too long to prepare audio. Please try again; the stuck job has been stopped.");
+            throw new HeadlineAudioUnavailableException("timeout", "The speech engine took too long to prepare audio. Please try again or use Browser voice.");
         }
         finally
         {
