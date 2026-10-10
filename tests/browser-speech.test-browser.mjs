@@ -27,8 +27,10 @@ try {
     page.setDefaultTimeout(15000);
     const errors = [];
     page.on("pageerror", error => { errors.push(error.message); console.error(error.message); });
-    await page.addInitScript(({ mobile }) => {
+    await page.addInitScript(({ mobile, device }) => {
       Object.defineProperty(navigator, "maxTouchPoints", { value: mobile ? 5 : 0 });
+      Object.defineProperty(navigator, "standalone", { value: mobile });
+      Object.defineProperty(navigator, "clipboard", { value: { async writeText(text) { window.copiedVoiceDetails = text; } }, configurable: true });
       let inGesture = false;
       let unlocked = !mobile;
       let voicesLoaded = !mobile;
@@ -42,21 +44,22 @@ try {
         speaking: false, pending: false, getVoices: () => voicesLoaded ? [voice] : [],
         addEventListener() {}, removeEventListener() {},
         cancel() { synth.speaking = false; },
-        pause() {}, resume() {},
+        pause() { if (device === "android") { synth.speaking = false; window.activeUtterance.onend?.(); } },
+        resume() {},
         speak(utterance) {
           // Model WebKit's silent rejection until speech starts within a tap.
           if (mobile && !unlocked && !inGesture) { window.speechCalls.push({ blocked: true }); return; }
           if (inGesture) unlocked = true;
           window.speechCalls.push({ text: utterance.text, inGesture, rate: utterance.rate, voice: utterance.voice?.name });
           window.activeUtterance = utterance;
-          if (window.failNextSpeech) { window.failNextSpeech = false; utterance.onerror?.(); return; }
+          if (window.failNextSpeech) { const reason = typeof window.failNextSpeech === "string" ? window.failNextSpeech : "synthesis-failed"; window.failNextSpeech = false; utterance.onerror?.({ error: reason }); return; }
           synth.speaking = true;
           utterance.onstart?.();
         },
       };
       Object.defineProperty(window, "speechSynthesis", { value: synth });
       window.SpeechSynthesisUtterance = class { constructor(text) { this.text = text; } };
-    }, { mobile });
+    }, { mobile, device });
     await page.goto("http://127.0.0.1:3014/speech-test");
     await page.getByRole("button", { name: mobile ? "Play" : "Pause", exact: true }).waitFor();
     if (mobile) {
@@ -91,8 +94,30 @@ try {
     await page.getByRole("button", { name: "Play", exact: true }).click();
     assert.equal(await page.evaluate(() => window.speechCalls.at(-1).inGesture), true);
     assert.equal(await page.evaluate(() => window.speechCalls.some(call => call.blocked)), false);
+    await page.getByRole("button", { name: "Pause", exact: true }).click();
+    const beforeResume = await page.evaluate(() => window.speechCalls.length);
+    await page.getByRole("button", { name: "Play", exact: true }).click();
+    await page.getByText("Reading article. Section 1 of 3.", { exact: true }).waitFor();
+    if (device === "android") assert.equal(await page.evaluate(() => window.speechCalls.length), beforeResume + 1, "Android resume restarts the current section");
+    await page.evaluate(() => window.activeUtterance.onerror({ error: "voice-unavailable" }));
+    await page.getByRole("alert").waitFor();
+    assert.match(await page.getByRole("alert").innerText(), /selected voice is unavailable/);
+    await page.getByText("Voice details", { exact: true }).click();
+    assert.match(await page.locator("details").innerText(), /voice-unavailable/);
+    await page.getByRole("button", { name: "Copy voice details", exact: true }).click();
+    await page.getByRole("button", { name: "Voice details copied", exact: true }).waitFor();
+    const diagnostics = await page.evaluate(() => JSON.parse(window.copiedVoiceDetails));
+    assert.equal(diagnostics.error, "voice-unavailable");
+    assert.equal(diagnostics.mode, mobile ? "installed app" : "browser");
+    assert.equal(diagnostics.browser, userAgent);
+    await page.getByRole("button", { name: "Try Device default", exact: true }).click();
+    await page.getByText("Reading article. Section 1 of 3.", { exact: true }).waitFor();
+    const fallbackCall = await page.evaluate(() => window.speechCalls.at(-1));
+    assert.equal(fallbackCall.voice, undefined, "Compatibility mode lets the system choose its voice");
+    assert.equal(fallbackCall.inGesture, true);
+    assert.equal(await page.getByRole("alert").count(), 0);
     assert.deepEqual(errors, []);
-    console.log(`PASS ${device}: start with unloaded voices, automatic sections, error retry, replay and Stop/Play`);
+    console.log(`PASS ${device}: start with unloaded voices, automatic sections, error retry, replay, Android resume and device-default recovery`);
     await page.close();
   }
 } finally {

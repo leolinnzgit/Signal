@@ -6,6 +6,7 @@ import type { FollowedArticle } from "./NewsDashboard";
 import ScreenOffAudioPlayer, { type ScreenOffAudioControls } from "./ScreenOffAudioPlayer";
 import {
   createHeadlinePlayback,
+  DEVICE_DEFAULT_SPEECH_VOICE,
   findPreferredHeadlineVoice,
   HEADLINE_SPEECH_PREFERENCES_KEY,
   headlineSpeechLanguage,
@@ -314,7 +315,7 @@ export default function HeadlinePlayer({ articles, startWithScreenOffAudio = fal
           <div className="headline-player-voice-settings">
             <label>Reading voice
               <select
-                value={preferredVoice ? headlineVoiceId(preferredVoice) : ""}
+                value={preferredVoiceId === DEVICE_DEFAULT_SPEECH_VOICE ? DEVICE_DEFAULT_SPEECH_VOICE : preferredVoice ? headlineVoiceId(preferredVoice) : ""}
                 disabled={!speechSupported || !voicesReady}
                 onChange={(event) => {
                   const voiceId = event.target.value;
@@ -323,6 +324,7 @@ export default function HeadlinePlayer({ articles, startWithScreenOffAudio = fal
                 }}
               >
                 <option value="">Automatic{automaticVoice ? ` — ${automaticVoice.name}` : " — browser default"}</option>
+                <option value={DEVICE_DEFAULT_SPEECH_VOICE}>Device default — compatibility</option>
                 {availableVoices.map((voice) => <option key={headlineVoiceId(voice)} value={headlineVoiceId(voice)}>{voice.name} ({voice.lang})</option>)}
               </select>
             </label>

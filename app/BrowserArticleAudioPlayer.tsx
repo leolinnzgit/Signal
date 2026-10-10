@@ -6,10 +6,10 @@ import { articleNarrationParts } from "./headline-audio";
 import {
   createHeadlinePlayback, findPreferredHeadlineVoice, HEADLINE_SPEECH_PREFERENCES_KEY,
   headlineSpeechLanguage, headlineVoiceId, normalizeHeadlineSpeechPreferences,
-  rankHeadlineVoices, selectHeadlineVoice, browserSpeechRequiresTap,
+  rankHeadlineVoices, selectHeadlineVoice, browserSpeechRequiresTap, browserSpeechErrorMessage, DEVICE_DEFAULT_SPEECH_VOICE,
 } from "./headline-playback";
 
-export default function BrowserArticleAudioPlayer({ title, paragraphs, autoPrepare = false, summaryOnly = false }: ArticleAudioPlayerProps) {
+export default function BrowserArticleAudioPlayer({ title, paragraphs, autoPrepare = false, summaryOnly = false, onRecordedAudio }: ArticleAudioPlayerProps & { onRecordedAudio?: () => void }) {
   const parts = useMemo(() => {
     try { return articleNarrationParts(summaryOnly && paragraphs.length === 1 && paragraphs[0] === title ? "" : title, paragraphs, 240); }
     catch { return []; }
@@ -18,6 +18,9 @@ export default function BrowserArticleAudioPlayer({ title, paragraphs, autoPrepa
   const [paused, setPaused] = useState(() => !autoPrepare || browserSpeechRequiresTap(navigator.userAgent, navigator.maxTouchPoints));
   const [started, setStarted] = useState(false);
   const [error, setError] = useState("");
+  const [errorCode, setErrorCode] = useState("");
+  const [copiedDetails, setCopiedDetails] = useState(false);
+  const mobileSpeech = browserSpeechRequiresTap(navigator.userAgent, navigator.maxTouchPoints);
   const [preferences, setPreferences] = useState(() => {
     try { return normalizeHeadlineSpeechPreferences(JSON.parse(localStorage.getItem(HEADLINE_SPEECH_PREFERENCES_KEY) ?? "null")); }
     catch { return normalizeHeadlineSpeechPreferences(null); }
@@ -34,7 +37,7 @@ export default function BrowserArticleAudioPlayer({ title, paragraphs, autoPrepa
   const preferredId = preferences.voices[languageKey] ?? "";
   const availableVoices = useMemo(() => rankHeadlineVoices(voices, language), [voices, language]);
   const preferredVoice = findPreferredHeadlineVoice(availableVoices, preferredId);
-  const automaticVoice = selectHeadlineVoice(voices, language);
+  const automaticVoice = selectHeadlineVoice(voices, language, "", mobileSpeech);
 
   useEffect(() => {
     const synth = window.speechSynthesis;
@@ -65,17 +68,20 @@ export default function BrowserArticleAudioPlayer({ title, paragraphs, autoPrepa
       rate: settings.rate, preferredVoiceId: voice,
       onAdvance: () => setIndex(part + 1),
       onSpeechStart: () => setStarted(true),
-      onSpeechError: () => {
+      onSpeechError: (reason) => {
         current.setPaused(true);
         disposePlayback();
         setPaused(true);
         setStarted(false);
-        setError("Browser reading could not start or continue. Tap Play to retry, try another Reading voice, or choose Recorded audio.");
+        setErrorCode(reason);
+        setError(browserSpeechErrorMessage(reason));
       },
     }, {
       speech: window.speechSynthesis,
       createUtterance: (value) => new SpeechSynthesisUtterance(value),
       language: navigator.language,
+      preferDeviceVoice: mobileSpeech,
+      restartOnResume: /Android/i.test(navigator.userAgent),
       now: () => performance.now(),
       schedule: (callback, milliseconds) => window.setTimeout(callback, milliseconds),
       clear: (id) => window.clearTimeout(id),
@@ -102,12 +108,15 @@ export default function BrowserArticleAudioPlayer({ title, paragraphs, autoPrepa
   function togglePlayback() {
     if (!paused && !completed) {
       playback.current?.setPaused(true);
+      if (/Android/i.test(navigator.userAgent)) setStarted(false);
       setPaused(true);
       return;
     }
     const part = completed ? 0 : index;
     if (error || completed) disposePlayback();
     setError("");
+    setErrorCode("");
+    setCopiedDetails(false);
     setIndex(part);
     setPaused(false);
     // Do not wait for voiceschanged or a React effect: phones require speak in the tap handler.
@@ -117,12 +126,16 @@ export default function BrowserArticleAudioPlayer({ title, paragraphs, autoPrepa
 
   function moveTo(part: number) {
     setError("");
+    setErrorCode("");
+    setCopiedDetails(false);
     setIndex(part);
     ensurePlayback(part)?.setPaused(paused);
   }
 
   function changePreferences(settings: typeof preferences) {
     setError("");
+    setErrorCode("");
+    setCopiedDetails(false);
     setPreferences(settings);
     ensurePlayback(index, settings)?.setPaused(paused);
   }
@@ -133,6 +146,33 @@ export default function BrowserArticleAudioPlayer({ title, paragraphs, autoPrepa
     setStarted(false);
     setIndex(0);
     setError("");
+    setErrorCode("");
+    setCopiedDetails(false);
+  }
+
+  function tryDeviceDefault() {
+    const part = completed ? 0 : index;
+    const key = headlineSpeechLanguage(parts[part] ?? title, navigator.language).split("-")[0].toLowerCase();
+    const settings = { ...preferences, voices: { ...preferences.voices, [key]: DEVICE_DEFAULT_SPEECH_VOICE } };
+    disposePlayback();
+    setPreferences(settings);
+    setError("");
+    setErrorCode("");
+    setCopiedDetails(false);
+    setPaused(false);
+    setVoicesReady(true);
+    ensurePlayback(part, settings)?.setPaused(false);
+    if (completed) setIndex(0);
+  }
+
+  async function copyVoiceDetails() {
+    const installed = window.matchMedia("(display-mode: standalone)").matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
+    const selected = preferredId === DEVICE_DEFAULT_SPEECH_VOICE ? "Device default" : preferredVoice?.name ?? automaticVoice?.name ?? "Browser default";
+    const details = JSON.stringify({ error: errorCode, mode: installed ? "installed app" : "browser", language,
+      voice: selected, voices: window.speechSynthesis.getVoices().map((voice) => ({ name: voice.name, lang: voice.lang, local: voice.localService, default: voice.default })),
+      browser: navigator.userAgent }, null, 2);
+    try { await navigator.clipboard.writeText(details); setCopiedDetails(true); }
+    catch { setCopiedDetails(false); }
   }
 
   return <section className="article-audio-player" aria-label={summaryOnly ? "Browser headline and summary narration" : "Browser article narration"}>
@@ -143,9 +183,10 @@ export default function BrowserArticleAudioPlayer({ title, paragraphs, autoPrepa
       <button type="button" disabled={completed} onClick={() => moveTo(index + 1)}>Next section</button>
     </div>
     <label>Reading voice
-      <select aria-label="Reading voice" value={preferredVoice ? headlineVoiceId(preferredVoice) : ""}
+      <select aria-label="Reading voice" value={preferredId === DEVICE_DEFAULT_SPEECH_VOICE ? DEVICE_DEFAULT_SPEECH_VOICE : preferredVoice ? headlineVoiceId(preferredVoice) : ""}
         onChange={(event) => changePreferences({ ...preferences, voices: { ...preferences.voices, [languageKey]: event.target.value } })}>
         <option value="">Automatic{automaticVoice ? ` — ${automaticVoice.name}` : " — browser default"}</option>
+        <option value={DEVICE_DEFAULT_SPEECH_VOICE}>Device default — compatibility</option>
         {availableVoices.map((voice) => <option key={headlineVoiceId(voice)} value={headlineVoiceId(voice)}>{voice.name} — {voice.lang}</option>)}
       </select>
     </label>
@@ -159,6 +200,16 @@ export default function BrowserArticleAudioPlayer({ title, paragraphs, autoPrepa
       <progress aria-label="Reading progress" value={completed ? parts.length : index} max={Math.max(1, parts.length)} />
       <p role="status">{!parts.length ? "No text available to read aloud." : completed ? "Finished reading." : !voicesReady && !paused ? "Preparing browser voice…" : paused ? `Tap Play to read${summaryOnly ? ` the ${readingScope}` : ""}. Section ${index + 1} of ${parts.length}.` : !started ? "Starting browser voice…" : `Reading ${readingScope}. Section ${index + 1} of ${parts.length}.`}</p>
     </div>
-    {error && <p role="alert">{error}</p>}
+    {error && <>
+      <p role="alert">{error}</p>
+      <div className="article-browser-transport">
+        <button type="button" onClick={tryDeviceDefault}>Try Device default</button>
+        {onRecordedAudio && <button type="button" onClick={onRecordedAudio}>Use Recorded audio</button>}
+      </div>
+      <details><summary>Voice details</summary>
+        <p>Speech error: {errorCode}. Voices available: {voices.length}. Language: {language}.</p>
+        <button type="button" onClick={() => { void copyVoiceDetails(); }}>{copiedDetails ? "Voice details copied" : "Copy voice details"}</button>
+      </details>
+    </>}
   </section>;
 }

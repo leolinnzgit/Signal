@@ -15,7 +15,7 @@ export default function ArticleAudioPlayer(props: ArticleAudioPlayerProps) {
       <button type="button" aria-pressed={mode === "browser"} disabled={!speechSupported} onClick={() => setMode("browser")}>Browser voice</button>
       <button type="button" aria-pressed={mode === "recorded"} onClick={() => setMode("recorded")}>Recorded audio</button>
     </div>
-    {mode === "browser" ? <BrowserArticleAudioPlayer {...props} /> : <RecordedArticleAudioPlayer {...props} />}
+    {mode === "browser" ? <BrowserArticleAudioPlayer {...props} onRecordedAudio={() => setMode("recorded")} /> : <RecordedArticleAudioPlayer {...props} />}
   </div>;
 }
 

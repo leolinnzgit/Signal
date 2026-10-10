@@ -1,8 +1,25 @@
-type SpeechTarget = Pick<SpeechSynthesis, "cancel" | "speak" | "pause" | "resume" | "getVoices"> & Partial<Pick<SpeechSynthesis, "speaking" | "pending">>;
+type SpeechTarget = Pick<SpeechSynthesis, "cancel" | "speak" | "pause" | "resume" | "getVoices"> & Partial<Pick<SpeechSynthesis, "speaking" | "pending" | "paused">>;
 
 export const HEADLINE_SPEECH_PREFERENCES_KEY = "signal-headline-speech-preferences";
 export const DEFAULT_HEADLINE_SPEECH_RATE = 0.95;
 export const HEADLINE_SPEECH_PAUSE_MS = 650;
+export const DEVICE_DEFAULT_SPEECH_VOICE = "device-default";
+
+export function browserSpeechErrorMessage(reason: string) {
+  switch (reason) {
+    case "synthesis-unavailable": return "Your device did not provide a speech engine. Enable a text-to-speech voice in your phone settings, or use Recorded audio.";
+    case "language-unavailable": return "The device has no working voice for this language. Try Device default or another Reading voice.";
+    case "voice-unavailable": return "The selected voice is unavailable on this device. Try Device default or another Reading voice.";
+    case "network": return "The selected voice could not connect to its speech service. Try Device default or Recorded audio.";
+    case "not-allowed": return "The app blocked browser speech. Tap Play again; if it still fails, open Signal in your browser or use Recorded audio.";
+    case "audio-busy": return "The device could not access its audio output. Stop other audio or calls, then tap Play.";
+    case "audio-hardware": return "The device could not find an audio output. Check the speaker or headphones, or try Recorded audio.";
+    case "start-timeout": return "The device did not start its browser voice. Try Device default or Recorded audio.";
+    case "speech-timeout": return "The browser voice stopped responding. Tap Play to retry, try Device default, or use Recorded audio.";
+    case "canceled": case "interrupted": return "The device stopped browser reading. Tap Play to retry.";
+    default: return "The device could not play its browser voice. Try Device default, another Reading voice, or Recorded audio.";
+  }
+}
 
 export function browserSpeechRequiresTap(userAgent: string, maxTouchPoints = 0) {
   return /Android|iPhone|iPad|iPod|Mobile/i.test(userAgent)
@@ -70,9 +87,12 @@ export function rankHeadlineVoices(voices: SpeechSynthesisVoice[], language: str
   }).sort((left, right) => score(right) - score(left) || left.name.localeCompare(right.name));
 }
 
-export function selectHeadlineVoice(voices: SpeechSynthesisVoice[], language: string, preferredVoiceId = "") {
+export function selectHeadlineVoice(voices: SpeechSynthesisVoice[], language: string, preferredVoiceId = "", preferDeviceVoice = false) {
+  if (preferredVoiceId === DEVICE_DEFAULT_SPEECH_VOICE) return undefined;
   const ranked = rankHeadlineVoices(voices, language);
-  return findPreferredHeadlineVoice(ranked, preferredVoiceId) ?? ranked[0];
+  return findPreferredHeadlineVoice(ranked, preferredVoiceId)
+    ?? (preferDeviceVoice ? ranked.find((voice) => voice.default) ?? ranked.find((voice) => voice.localService) : undefined)
+    ?? ranked[0];
 }
 
 export function prepareHeadlineSpeechText(title: string) {
@@ -85,6 +105,8 @@ export type HeadlinePlaybackRuntime = {
   speech?: SpeechTarget;
   createUtterance?: (text: string) => SpeechSynthesisUtterance;
   language: string;
+  preferDeviceVoice?: boolean;
+  restartOnResume?: boolean;
   now: () => number;
   schedule: (callback: () => void, milliseconds: number) => number;
   clear: (id: number) => void;
@@ -98,7 +120,7 @@ export function headlineSpeechLanguage(title: string, preferredLanguage: string)
 }
 
 export function createHeadlinePlayback(
-  options: { title: string; seconds: number; readAloud: boolean; preferredVoiceId?: string; rate?: number; onAdvance: () => void; onSpeechError: () => void; onSpeechStart?: () => void },
+  options: { title: string; seconds: number; readAloud: boolean; preferredVoiceId?: string; rate?: number; onAdvance: () => void; onSpeechError: (reason: string) => void; onSpeechStart?: () => void },
   runtime: HeadlinePlaybackRuntime,
 ) {
   let paused = true;
@@ -107,6 +129,8 @@ export function createHeadlinePlayback(
   let displayDuration = options.seconds * 1_000;
   const speechDuration = Math.max(30_000, options.title.length * 150);
   let playedMilliseconds = 0;
+  let speechBudget = speechDuration;
+  let speechAttemptAt = 0;
   let startedAt = 0;
   let displayTimer: number | undefined;
   let speechTimer: number | undefined;
@@ -162,6 +186,10 @@ export function createHeadlinePlayback(
     if (disposed || paused || speechFinished) return;
     const speech = runtime.speech;
     if (typeof speech?.speaking !== "boolean" || typeof speech.pending !== "boolean") return;
+    if (!speechObserved && !speech.speaking && runtime.now() - speechAttemptAt >= 10_000) {
+      finishSpeech("start-timeout");
+      return;
+    }
     if (speech.speaking) observeSpeech();
     else if (speech.pending) idleChecks = 0;
     else if (speechObserved && ++idleChecks >= 2) {
@@ -172,16 +200,16 @@ export function createHeadlinePlayback(
     speechPollTimer = runtime.schedule(pollSpeech, 250);
   }
 
-  function finishSpeech(failed = false) {
+  function finishSpeech(reason?: string) {
     if (disposed || speechFinished) return;
     speechFinished = true;
-    if (!failed) speechEndedAt = elapsed();
+    if (!reason) speechEndedAt = elapsed();
     if (speechTimer !== undefined) runtime.clear(speechTimer);
     if (speechPollTimer !== undefined) runtime.clear(speechPollTimer);
     if (utterance) { utterance.onend = null; utterance.onerror = null; utterance.onstart = null; utterance.onboundary = null; }
-    if (failed) {
+    if (reason) {
       runtime.speech?.cancel();
-      options.onSpeechError();
+      options.onSpeechError(reason);
     }
     if (!paused) scheduleAdvance();
     advanceIfReady();
@@ -192,7 +220,7 @@ export function createHeadlinePlayback(
     scheduleAdvance();
     if (!speechFinished) {
       // A failed or silent voice service must not leave the briefing stuck.
-      speechTimer = runtime.schedule(() => finishSpeech(true), Math.max(0, speechDuration - playedMilliseconds));
+      speechTimer = runtime.schedule(() => finishSpeech("speech-timeout"), Math.max(0, speechBudget - playedMilliseconds));
       speechPollTimer = runtime.schedule(pollSpeech, 250);
     }
   }
@@ -205,10 +233,20 @@ export function createHeadlinePlayback(
         paused = true;
         clearTimers();
         idleChecks = 0;
-        if (utterance && !speechFinished) runtime.speech?.pause();
+        if (utterance && !speechFinished) {
+          if (runtime.restartOnResume) {
+            // Android's native pause stops speech; its resume implementation does nothing.
+            utterance.onend = utterance.onerror = utterance.onstart = utterance.onboundary = null;
+            runtime.speech?.cancel();
+            utterance = undefined;
+            speechObserved = false;
+            speechBudget = playedMilliseconds + speechDuration;
+          } else runtime.speech?.pause();
+        }
         return;
       }
       paused = false;
+      speechAttemptAt = runtime.now();
       startTimers();
       if (!speechFinished && runtime.speech && runtime.createUtterance) {
         try {
@@ -220,18 +258,24 @@ export function createHeadlinePlayback(
             utterance.rate = normalizeHeadlineSpeechPreferences({ rate: options.rate }).rate;
             utterance.pitch = 1;
             const voices = runtime.speech.getVoices();
-            const voice = selectHeadlineVoice(voices, utterance.lang, options.preferredVoiceId);
+            const voice = selectHeadlineVoice(voices, utterance.lang, options.preferredVoiceId, runtime.preferDeviceVoice);
             if (voice) { utterance.voice = voice; utterance.lang = voice.lang; }
+            if (options.preferredVoiceId === DEVICE_DEFAULT_SPEECH_VOICE) utterance.lang = "";
+            utterance.volume = 1;
             utterance.onstart = observeSpeech;
             utterance.onboundary = observeSpeech;
             utterance.onend = () => finishSpeech();
-            utterance.onerror = () => finishSpeech(true);
-            runtime.speech.cancel();
-            runtime.speech.resume();
+            utterance.onerror = (event) => finishSpeech(event?.error || "unknown");
+            // Avoid cancelling an idle engine immediately before speech: older WebKit
+            // versions can apply the asynchronous cancellation to the new utterance.
+            if ((runtime.speech.speaking ?? true) || runtime.speech.pending || runtime.speech.paused) runtime.speech.cancel();
             runtime.speech.speak(utterance);
+            // A paused native engine may have no current utterance until speak queues one.
+            // Resume afterwards, while still inside the user's tap.
+            if (!disposed && !speechFinished) runtime.speech.resume();
           }
         } catch {
-          finishSpeech(true);
+          finishSpeech("speech-exception");
         }
       }
       advanceIfReady();
@@ -252,7 +296,7 @@ export function createHeadlinePlayback(
         utterance.onerror = null;
         utterance.onstart = null;
         utterance.onboundary = null;
-        runtime.speech?.cancel();
+        if (!speechFinished) runtime.speech?.cancel();
       }
     },
   };

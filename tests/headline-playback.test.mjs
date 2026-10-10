@@ -7,7 +7,7 @@ const source = await readFile(new URL("../app/headline-playback.ts", import.meta
 const compiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 },
 }).outputText;
-const { createHeadlinePlayback, browserSpeechRequiresTap, headlineSpeechLanguage, headlineVoiceId, selectHeadlineVoice, rankHeadlineVoices, normalizeHeadlineSpeechPreferences, prepareHeadlineSpeechText, shouldPauseHeadlinePlayback } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
+const { createHeadlinePlayback, browserSpeechErrorMessage, DEVICE_DEFAULT_SPEECH_VOICE, browserSpeechRequiresTap, headlineSpeechLanguage, headlineVoiceId, selectHeadlineVoice, rankHeadlineVoices, normalizeHeadlineSpeechPreferences, prepareHeadlineSpeechText, shouldPauseHeadlinePlayback } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
 
 const voice = (name, lang, extra = {}) => ({ name, lang, voiceURI: name, default: false, ...extra });
 
@@ -16,6 +16,7 @@ function harness({ readAloud = true, supported = true, throwOnSpeak = false, voi
   let sequence = 0;
   let advances = 0;
   let errors = 0;
+  const errorReasons = [];
   const timers = new Map();
   const calls = [];
   const utterances = [];
@@ -50,10 +51,10 @@ function harness({ readAloud = true, supported = true, throwOnSpeak = false, voi
     rate,
     preferredVoiceId,
     onAdvance: () => { advances++; },
-    onSpeechError: () => { errors++; },
+    onSpeechError: (reason) => { errors++; errorReasons.push(reason); },
   }, runtime);
   return {
-    playback, runtime, calls, utterances, timers, speech,
+    playback, runtime, calls, utterances, timers, speech, errorReasons,
     get advances() { return advances; },
     get errors() { return errors; },
     tick(milliseconds) {
@@ -456,4 +457,78 @@ test("speech start is reported once and disposed callbacks cannot update a playe
   playback.dispose();
   start();
   assert.equal(starts, 1);
+});
+
+
+test("reports the speech engine's actual failure code", () => {
+  const player = harness();
+  player.playback.setPaused(false);
+  player.utterances[0].onerror({ error: "synthesis-unavailable" });
+  assert.deepEqual(player.errorReasons, ["synthesis-unavailable"]);
+  assert.match(browserSpeechErrorMessage(player.errorReasons[0]), /phone settings/);
+});
+
+test("a mobile speech engine that never starts reports a startup timeout", () => {
+  const player = harness({ speechState: true });
+  player.playback.setPaused(false);
+  player.speech.speaking = false;
+  player.tick(9_999);
+  assert.equal(player.errors, 0);
+  player.tick(1);
+  assert.deepEqual(player.errorReasons, ["start-timeout"]);
+});
+
+test("device default bypasses a failed explicit voice and language override", () => {
+  const player = harness({ preferredVoiceId: DEVICE_DEFAULT_SPEECH_VOICE });
+  player.playback.setPaused(false);
+  assert.equal(player.utterances[0].voice, undefined);
+  assert.equal(player.utterances[0].lang, "");
+  assert.equal(player.utterances[0].volume, 1);
+});
+
+test("mobile automatic selection prefers the device default, while saved choices still win", () => {
+  const voices = [voice("Natural online", "en-US"), voice("Device default", "en-GB", { default: true, localService: true })];
+  assert.equal(selectHeadlineVoice(voices, "en-US", "", true).name, "Device default");
+  assert.equal(selectHeadlineVoice(voices, "en-US", "Natural online", true).name, "Natural online");
+  assert.equal(selectHeadlineVoice(voices, "en-US").name, "Natural online");
+});
+
+test("queues speech before resuming a native engine paused by another tab", () => {
+  const player = harness();
+  let queued = false;
+  player.speech.speak = (utterance) => { player.utterances.push(utterance); queued = true; };
+  player.speech.resume = () => { assert.equal(queued, true); };
+  player.playback.setPaused(false);
+  assert.equal(player.utterances.length, 1);
+});
+
+test("Android resumes by restarting the current section and detaches cancelled events", () => {
+  const player = harness({ speechState: true });
+  player.runtime.restartOnResume = true;
+  player.speech.pause = () => { throw new Error("Android native pause cannot resume"); };
+  player.playback.setPaused(false);
+  player.tick(15_000);
+  player.playback.setPaused(true);
+  assert.equal(player.utterances[0].onerror, null);
+  assert.equal(player.utterances[0].onend, null);
+  player.tick(60_000);
+  player.playback.setPaused(false);
+  assert.equal(player.utterances.length, 2);
+  assert.equal(player.utterances[1].text, player.utterances[0].text);
+  player.tick(1_000);
+  player.utterances[1].onend();
+  player.tick(650);
+  assert.equal(player.advances, 1);
+  assert.equal(player.errors, 0);
+});
+
+
+test("idle mobile engines start without a cancel that could swallow the new utterance", () => {
+  const player = harness({ speechState: true });
+  player.playback.setPaused(false);
+  assert.equal(player.calls.includes("cancel"), false);
+  player.utterances[0].onerror({ error: "voice-unavailable" });
+  const cancellations = player.calls.filter((call) => call === "cancel").length;
+  player.playback.dispose();
+  assert.equal(player.calls.filter((call) => call === "cancel").length, cancellations, "disposing a failed voice must not cancel twice");
 });
