@@ -257,6 +257,11 @@ export default function HeadlinePlayer({ articles, startWithScreenOffAudio = fal
           </div>
         ) : (
           <div className="headline-player-story">
+            {article.imageUrl && (
+              <img key={`${article.url}-${article.imageUrl}`} className="headline-player-image"
+                src={article.imageUrl} alt="" decoding="async" referrerPolicy="no-referrer"
+                onError={(event) => { event.currentTarget.hidden = true; }} />
+            )}
             <h2 key={article.url} className={`headline-player-title${article.title.length > 100 ? " headline-player-title-long" : ""}`}>{article.title}</h2>
             <p className="headline-player-source">{article.source}</p>
             <div className="headline-player-story-actions">
