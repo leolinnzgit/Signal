@@ -15,6 +15,12 @@ Phones retain recorded audio as their default. Users can choose **Browser voice*
 or **Recorded audio** in the reader. Recorded audio supports the existing
 screen-off playback and device media controls.
 
+Both audio modes highlight the current spoken section in the reader. **Follow
+reading** keeps that section in view as narration advances; turn it off in the
+reader toolbar to browse freely while listening. Pausing keeps the current text
+highlighted, and finishing or stopping clears it. Scrolling respects the device's
+reduced-motion preference and does not move keyboard focus.
+
 Validate the client with `npm run iis:typecheck` and `npm run test:client`.
 
 ## Azure neural recordings

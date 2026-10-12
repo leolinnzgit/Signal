@@ -84,7 +84,11 @@ export function configureRecordedAudio(engine: string | null, batchCharacters: s
 }
 
 export function recordedArticleNarrationParts(title: string, paragraphs: string[]) {
-  return articleNarrationParts(title, paragraphs, Math.min(900, maximumRecordedBatchCharacters));
+  return recordedArticleNarrationSections(title, paragraphs).map((section) => section.text);
+}
+
+export function recordedArticleNarrationSections(title: string, paragraphs: string[]) {
+  return articleNarrationSections(title, paragraphs, Math.min(900, maximumRecordedBatchCharacters));
 }
 
 function pcmWave(pcm: Blob[], bytes: number) {
@@ -195,16 +199,26 @@ export async function prepareHeadlineAudio(
   return recording;
 }
 
+export type ArticleNarrationSection = { text: string; paragraphIndex: number; start: number; end: number };
+
+export function normalizeArticleReadingText(text: string) {
+  return text.replace(/\s+/gu, " ").trim();
+}
+
 export function articleNarrationParts(title: string, paragraphs: string[], maximumPartLength = 900) {
+  return articleNarrationSections(title, paragraphs, maximumPartLength).map((section) => section.text);
+}
+
+export function articleNarrationSections(title: string, paragraphs: string[], maximumPartLength = 900): ArticleNarrationSection[] {
   const partLength = Math.max(80, Math.min(900, Math.floor(maximumPartLength) || 900));
   const minimumBreak = Math.floor(partLength / 3);
-  const body = paragraphs.map((paragraph) => paragraph.replace(/\s+/gu, " ").trim()).filter(Boolean);
+  const body = paragraphs.map((text, paragraphIndex) => ({ text: normalizeArticleReadingText(text), paragraphIndex })).filter((paragraph) => paragraph.text);
   if (!body.length) throw new Error("The full article text is unavailable for reading aloud.");
-  if (body.reduce((length, paragraph) => length + paragraph.length, title.length) > 40_000) {
+  if (body.reduce((length, paragraph) => length + paragraph.text.length, title.length) > 40_000) {
     throw new Error("This article is too long to prepare as audio.");
   }
-  return [title, ...body].flatMap((paragraph) => {
-    let remaining = paragraph.replace(/\s+/gu, " ").trim();
+  return [{ text: normalizeArticleReadingText(title), paragraphIndex: -1 }, ...body].flatMap(({ text: paragraph, paragraphIndex }) => {
+    let remaining = paragraph;
     const parts: string[] = [];
     while (remaining.length > partLength) {
       const window = remaining.slice(0, partLength);
@@ -219,7 +233,12 @@ export function articleNarrationParts(title: string, paragraphs: string[], maxim
       remaining = remaining.slice(end).trim();
     }
     if (remaining) parts.push(remaining);
-    return parts;
+    let offset = 0;
+    return parts.map((text) => {
+      const start = paragraph.indexOf(text, offset);
+      offset = start + text.length;
+      return { text, paragraphIndex, start, end: offset };
+    });
   });
 }
 

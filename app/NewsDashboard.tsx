@@ -6,7 +6,9 @@ import { updateInstalledAppBadge } from "./app-badge";
 import { resolveArticleShareUrl, shareArticle } from "./article-share";
 import HeadlinePlayer from "./HeadlinePlayer";
 import ArticleAudioPlayer from "./ArticleAudioPlayer";
-import { preferScreenOffAudio } from "./headline-audio";
+import ArticleReadingText from "./ArticleReadingText";
+import { scrollReadingSectionIntoView } from "./article-reading-follow";
+import { preferScreenOffAudio, type ArticleNarrationSection } from "./headline-audio";
 import {
   normalizeSecondaryTimeZone,
   type SecondaryTimeZonePreference,
@@ -866,6 +868,12 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [floatingNavigationSide, setFloatingNavigationSide] = useState<"left" | "right">("left");
   const [readerArticle, setReaderArticle] = useState<FollowedArticle | null>(null);
   const [readerAudioRequested, setReaderAudioRequested] = useState(false);
+  const [readerReading, setReaderReading] = useState<{ section: ArticleNarrationSection | null; playing: boolean }>({ section: null, playing: false });
+  const [followReading, setFollowReading] = useState(true);
+  const readerScrollBody = useRef<HTMLDivElement>(null);
+  const updateReaderReading = useCallback((section: ArticleNarrationSection | null, playing: boolean) => {
+    setReaderReading((current) => current.section === section && current.playing === playing ? current : { section, playing });
+  }, []);
   const [headlineQueue, setHeadlineQueue] = useState<FollowedArticle[] | null>(null);
   const headlineFullscreenRequested = useRef(false);
   const [readerContent, setReaderContent] = useState<ReaderContent>({ status: "idle" });
@@ -1929,6 +1937,15 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   }, [readerArticle]);
 
   useEffect(() => {
+    if (!followReading || !readerReading.playing || !readerReading.section) return;
+    const container = readerScrollBody.current;
+    const highlight = container?.querySelector<HTMLElement>(".article-reading-highlight");
+    if (container && highlight) {
+      scrollReadingSectionIntoView(container, highlight, window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    }
+  }, [followReading, readerReading]);
+
+  useEffect(() => {
     if (!quickTopicSearchOpen) return;
     const dialog = quickTopicSearchDialog.current;
     if (!dialog) return;
@@ -2663,6 +2680,8 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     markArticleRead(article);
     setReaderArticle(article);
     setReaderAudioRequested(listen);
+    setReaderReading({ section: null, playing: false });
+    setFollowReading(true);
     setReaderContent({ status: "loading" });
     const requestId = ++readerRequestSequence.current;
     const params = new URLSearchParams({ url: article.url });
@@ -2739,6 +2758,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     readerRequestSequence.current += 1;
     setReaderArticle(null);
     setReaderContent({ status: "idle" });
+    setReaderReading({ section: null, playing: false });
     window.requestAnimationFrame(() => readerTrigger.current?.focus());
   }
 
@@ -4397,6 +4417,10 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               <div className="article-reader-toolbar">
                 <span className="article-reader-kicker"><span className="pulse" /> Signal reader</span>
                 <div className="article-reader-actions">
+                  <button type="button" className="article-reader-follow" aria-pressed={followReading}
+                    onClick={() => setFollowReading((current) => !current)} title="Keep the spoken section in view">
+                    Follow reading
+                  </button>
                   <a href={readerOriginalUrl} target="_blank" rel="noreferrer">
                     Open original <span aria-hidden="true">&#8599;</span>
                   </a>
@@ -4414,7 +4438,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                 <span>{readerArticle.source}</span>
                 <span>{formatAge(readerArticle.publishedAt)}</span>
               </div>
-              <h2 id="article-reader-title">{readerArticle.title}</h2>
+              <h2 id="article-reader-title"><ArticleReadingText text={readerArticle.title} paragraphIndex={-1} section={readerReading.section} /></h2>
               <p>
                 {readerContent.status === "loading"
                   ? "Preparing a clean reading view…"
@@ -4422,13 +4446,16 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                     : "Reader view prepared from the publisher’s public article."}
               </p>
             </header>
-            <div className="article-reader-body">
+            <div ref={readerScrollBody} className="article-reader-body">
               {readerContent.status === "unavailable" && <div className="article-reader-state" role="status">
                 <strong>Full article text unavailable</strong>
                 <p>{readerContent.reason}</p>
                 <p>{readerArticle.summary ? "You can still listen to the headline and feed summary." : "You can still listen to the headline."}</p>
                 <ArticleAudioPlayer key={readerArticle.url} title={readerArticle.title} source={readerArticle.source}
-                  paragraphs={readerSummaryParagraphs} autoPrepare={readerAudioRequested} summaryOnly />
+                  paragraphs={readerSummaryParagraphs} autoPrepare={readerAudioRequested} summaryOnly onReadingSectionChange={updateReaderReading} />
+                {readerSummaryParagraphs.map((paragraph, index) => <p key={index} className="article-reader-summary">
+                  <ArticleReadingText text={paragraph} paragraphIndex={index} section={readerReading.section} />
+                </p>)}
                 <a href={readerOriginalUrl} target="_blank" rel="noreferrer">Read on the publisher’s website &#8599;</a>
               </div>}
               {readerContent.status === "loading" && (
@@ -4441,7 +4468,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               {readerContent.status === "ready" && (
                 <article className="article-reader-content">
                   <ArticleAudioPlayer key={readerArticle.url} title={readerArticle.title} source={readerArticle.source}
-                    paragraphs={readerContent.article.paragraphs} autoPrepare={readerAudioRequested} />
+                    paragraphs={readerContent.article.paragraphs} autoPrepare={readerAudioRequested} onReadingSectionChange={updateReaderReading} />
                   {readerArticle.imageUrl && (
                     <img
                       className="article-reader-image"
@@ -4460,7 +4487,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                     </p>
                   )}
                   {readerContent.article.paragraphs.map((paragraph, index) => (
-                    <p key={`${index}-${paragraph.slice(0, 24)}`}>{paragraph}</p>
+                    <p key={`${index}-${paragraph.slice(0, 24)}`}><ArticleReadingText text={paragraph} paragraphIndex={index} section={readerReading.section} /></p>
                   ))}
                   <div className="article-reader-end">
                     <span>End of reader view</span>

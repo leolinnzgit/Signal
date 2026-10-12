@@ -2,21 +2,23 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ArticleAudioPlayerProps } from "./ArticleAudioPlayer";
-import { articleNarrationParts } from "./headline-audio";
+import { articleNarrationSections, type ArticleNarrationSection } from "./headline-audio";
 import {
   createHeadlinePlayback, findPreferredHeadlineVoice, HEADLINE_SPEECH_PREFERENCES_KEY,
   headlineSpeechLanguage, headlineVoiceId, normalizeHeadlineSpeechPreferences,
   rankHeadlineVoices, selectHeadlineVoice, browserSpeechRequiresTap, browserSpeechErrorMessage, DEVICE_DEFAULT_SPEECH_VOICE,
 } from "./headline-playback";
 
-export default function BrowserArticleAudioPlayer({ title, paragraphs, autoPrepare = false, summaryOnly = false, onRecordedAudio }: ArticleAudioPlayerProps & { onRecordedAudio?: () => void }) {
-  const parts = useMemo(() => {
-    try { return articleNarrationParts(summaryOnly && paragraphs.length === 1 && paragraphs[0] === title ? "" : title, paragraphs, 240); }
+export default function BrowserArticleAudioPlayer({ title, paragraphs, autoPrepare = false, summaryOnly = false, onRecordedAudio, onReadingSectionChange }: ArticleAudioPlayerProps & { onRecordedAudio?: () => void }) {
+  const sections = useMemo(() => {
+    try { return articleNarrationSections(summaryOnly && paragraphs.length === 1 && paragraphs[0] === title ? "" : title, paragraphs, 240); }
     catch { return []; }
   }, [title, paragraphs, summaryOnly]);
+  const parts = useMemo(() => sections.map((section) => section.text), [sections]);
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(() => !autoPrepare || browserSpeechRequiresTap(navigator.userAgent, navigator.maxTouchPoints));
   const [started, setStarted] = useState(false);
+  const [readingSection, setReadingSection] = useState<ArticleNarrationSection | null>(null);
   const [error, setError] = useState("");
   const [errorCode, setErrorCode] = useState("");
   const [copiedDetails, setCopiedDetails] = useState(false);
@@ -67,12 +69,13 @@ export default function BrowserArticleAudioPlayer({ title, paragraphs, autoPrepa
       title: parts[part], seconds: 0, readAloud: true,
       rate: settings.rate, preferredVoiceId: voice,
       onAdvance: () => setIndex(part + 1),
-      onSpeechStart: () => setStarted(true),
+      onSpeechStart: () => { setStarted(true); setReadingSection(sections[part]); },
       onSpeechError: (reason) => {
         current.setPaused(true);
         disposePlayback();
         setPaused(true);
         setStarted(false);
+        setReadingSection(null);
         setErrorCode(reason);
         setError(browserSpeechErrorMessage(reason));
       },
@@ -105,6 +108,11 @@ export default function BrowserArticleAudioPlayer({ title, paragraphs, autoPrepa
 
   useEffect(() => () => disposePlayback(), []);
 
+  useEffect(() => {
+    onReadingSectionChange?.(completed ? null : readingSection,
+      !completed && !paused && started && readingSection === sections[index]);
+  }, [completed, readingSection, paused, started, sections, index, onReadingSectionChange]);
+
   function togglePlayback() {
     if (!paused && !completed) {
       playback.current?.setPaused(true);
@@ -113,7 +121,7 @@ export default function BrowserArticleAudioPlayer({ title, paragraphs, autoPrepa
       return;
     }
     const part = completed ? 0 : index;
-    if (error || completed) disposePlayback();
+    if (error || completed) { disposePlayback(); setReadingSection(null); }
     setError("");
     setErrorCode("");
     setCopiedDetails(false);
@@ -144,6 +152,7 @@ export default function BrowserArticleAudioPlayer({ title, paragraphs, autoPrepa
     disposePlayback();
     setPaused(true);
     setStarted(false);
+    setReadingSection(null);
     setIndex(0);
     setError("");
     setErrorCode("");

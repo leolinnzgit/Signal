@@ -3526,6 +3526,7 @@ button.local-weather {
 
 .article-reader-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
@@ -3580,6 +3581,29 @@ button.local-weather {
 .article-reader-actions button:hover {
   border-color: var(--red);
   color: var(--red);
+}
+
+.article-reader-actions .article-reader-follow {
+  width: auto;
+  height: auto;
+  padding: 0.55rem 0.75rem;
+  border-radius: 2rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.article-reader-actions .article-reader-follow[aria-pressed="true"] {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+.article-reading-highlight {
+  background: color-mix(in srgb, var(--red) 18%, var(--content-background));
+  color: inherit;
+  border-radius: 0.2em;
+  box-shadow: 0 0 0 0.15em color-mix(in srgb, var(--red) 18%, var(--content-background));
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 
 .article-reader-meta {

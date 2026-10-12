@@ -1,28 +1,35 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { recordedArticleNarrationParts, audioHeadlineIndex, preferBrowserArticleAudio, preparedAudioCache, prepareArticleAudio, type PreparedHeadlineAudio, type ReadingVoicePreferences } from "./headline-audio";
+import { recordedArticleNarrationSections, audioHeadlineIndex, preferBrowserArticleAudio, preparedAudioCache, prepareArticleAudio, type ArticleNarrationSection, type PreparedHeadlineAudio, type ReadingVoicePreferences } from "./headline-audio";
 import ReadingVoiceSelector, { useReadingVoices } from "./ReadingVoiceSelector";
 import BrowserArticleAudioPlayer from "./BrowserArticleAudioPlayer";
 
-export type ArticleAudioPlayerProps = { title: string; source: string; paragraphs: string[]; autoPrepare?: boolean; summaryOnly?: boolean };
+export type ArticleAudioPlayerProps = { title: string; source: string; paragraphs: string[]; autoPrepare?: boolean; summaryOnly?: boolean; onReadingSectionChange?: (section: ArticleNarrationSection | null, playing: boolean) => void };
 
 export default function ArticleAudioPlayer(props: ArticleAudioPlayerProps) {
   const [speechSupported] = useState(() => typeof window !== "undefined" && "speechSynthesis" in window && "SpeechSynthesisUtterance" in window);
   const [mode, setMode] = useState(() => preferBrowserArticleAudio(typeof navigator === "undefined" ? "" : navigator.userAgent, speechSupported) ? "browser" : "recorded");
+  useEffect(() => () => props.onReadingSectionChange?.(null, false), [props.onReadingSectionChange]);
+  function changeMode(nextMode: string) {
+    if (nextMode === mode) return;
+    props.onReadingSectionChange?.(null, false);
+    setMode(nextMode);
+  }
   return <div className="article-narration">
     <div className="article-audio-mode" role="group" aria-label="Article audio mode">
-      <button type="button" aria-pressed={mode === "browser"} disabled={!speechSupported} onClick={() => setMode("browser")}>Browser voice</button>
-      <button type="button" aria-pressed={mode === "recorded"} onClick={() => setMode("recorded")}>Recorded audio</button>
+      <button type="button" aria-pressed={mode === "browser"} disabled={!speechSupported} onClick={() => changeMode("browser")}>Browser voice</button>
+      <button type="button" aria-pressed={mode === "recorded"} onClick={() => changeMode("recorded")}>Recorded audio</button>
     </div>
-    {mode === "browser" ? <BrowserArticleAudioPlayer {...props} onRecordedAudio={() => setMode("recorded")} /> : <RecordedArticleAudioPlayer {...props} />}
+    {mode === "browser" ? <BrowserArticleAudioPlayer {...props} onRecordedAudio={() => changeMode("recorded")} /> : <RecordedArticleAudioPlayer {...props} />}
   </div>;
 }
 
-function RecordedArticleAudioPlayer({ title, source, paragraphs, autoPrepare = false, summaryOnly = false }: ArticleAudioPlayerProps) {
+function RecordedArticleAudioPlayer({ title, source, paragraphs, autoPrepare = false, summaryOnly = false, onReadingSectionChange }: ArticleAudioPlayerProps) {
   const readingVoices = useReadingVoices();
   const narrationTitle = summaryOnly && paragraphs.length === 1 && paragraphs[0] === title ? "" : title;
-  const parts = useMemo(() => { try { return recordedArticleNarrationParts(narrationTitle, paragraphs); } catch { return null; } }, [narrationTitle, paragraphs, readingVoices.loading]);
+  const sections = useMemo(() => { try { return recordedArticleNarrationSections(narrationTitle, paragraphs); } catch { return []; } }, [narrationTitle, paragraphs, readingVoices.loading]);
+  const parts = useMemo(() => sections.length ? sections.map((section) => section.text) : null, [sections]);
   const [attempt, setAttempt] = useState(() => autoPrepare || (parts && preparedAudioCache.get(parts, 3, navigator.language, readingVoices.preferences)) ? 1 : 0);
   const [url, setUrl] = useState("");
   const [starts, setStarts] = useState<number[]>([]);
@@ -32,6 +39,7 @@ function RecordedArticleAudioPlayer({ title, source, paragraphs, autoPrepare = f
   const [message, setMessage] = useState("");
   const [rate, setRate] = useState(1);
   const [playing, setPlaying] = useState(false);
+  const [readingSection, setReadingSection] = useState<ArticleNarrationSection | null>(null);
   const audio = useRef<HTMLAudioElement>(null);
   const preparation = useRef<AbortController | null>(null);
   const resumePart = useRef(0);
@@ -48,6 +56,8 @@ function RecordedArticleAudioPlayer({ title, source, paragraphs, autoPrepare = f
     recordingKey.current = preparedAudioCache.key(parts ?? [], 3, navigator.language, readingVoices.preferences);
     const ready = parts ? preparedAudioCache.get(parts, 3, navigator.language, readingVoices.preferences) : undefined;
     setUrl("");
+    setPlaying(false);
+    setReadingSection(null);
     setError("");
     setMessage("");
     setProgress(0);
@@ -93,7 +103,7 @@ function RecordedArticleAudioPlayer({ title, source, paragraphs, autoPrepare = f
     const handlers: [MediaSessionAction, MediaSessionActionHandler][] = [
       ["play", () => { void audio.current?.play().catch(() => setMessage("Tap Play to resume reading.")); }],
       ["pause", () => audio.current?.pause()],
-      ["stop", () => { if (audio.current) { audio.current.pause(); audio.current.currentTime = 0; } }],
+      ["stop", () => { if (audio.current) { audio.current.pause(); audio.current.currentTime = 0; } setReadingSection(null); }],
       ["seekto", (details) => { if (audio.current && Number.isFinite(details.seekTime) && Number.isFinite(audio.current.duration)) audio.current.currentTime = Math.max(0, Math.min(audio.current.duration, details.seekTime!)); }],
     ];
     for (const [action, handler] of handlers) { try { session.setActionHandler(action, handler); } catch { /* Optional media controls. */ } }
@@ -104,6 +114,10 @@ function RecordedArticleAudioPlayer({ title, source, paragraphs, autoPrepare = f
     };
   }, [url, title, source]);
 
+  useEffect(() => {
+    onReadingSectionChange?.(readingSection, playing);
+  }, [readingSection, playing, onReadingSectionChange]);
+
   function updatePlayback(playing: boolean) {
     setPlaying(playing);
     setMessage(playing ? "Reading full news aloud. You can turn off the screen." : "Reading paused.");
@@ -113,6 +127,10 @@ function RecordedArticleAudioPlayer({ title, source, paragraphs, autoPrepare = f
   function updatePosition() {
     const element = audio.current;
     if (element) preparedAudioCache.savePosition(recordingKey.current, element.ended ? 0 : element.currentTime);
+    if (element?.ended) setReadingSection(null);
+    else if (element && starts.length && (!element.paused || readingSection)) {
+      setReadingSection(sections[audioHeadlineIndex(starts, element.currentTime)] ?? null);
+    }
     if (!element || !Number.isFinite(element.duration) || !("mediaSession" in navigator) || !navigator.mediaSession.setPositionState) return;
     try { navigator.mediaSession.setPositionState({ duration: element.duration, position: Math.min(element.currentTime, element.duration), playbackRate: element.playbackRate }); }
     catch { /* Native audio remains usable without position controls. */ }
@@ -150,10 +168,10 @@ function RecordedArticleAudioPlayer({ title, source, paragraphs, autoPrepare = f
     {url && <>
       <audio ref={audio} src={url} controls preload="auto" aria-label={`Read ${title} aloud`}
         onLoadedMetadata={() => { if (audio.current) audio.current.currentTime = Math.min(resumeTime.current ?? starts[resumePart.current] ?? 0, audio.current.duration); }}
-        onPlay={() => updatePlayback(true)} onPause={() => updatePlayback(false)}
+        onPlay={() => { updatePlayback(true); updatePosition(); }} onPause={() => updatePlayback(false)}
         onTimeUpdate={updatePosition} onSeeking={updatePosition}
-        onEnded={() => { setPlaying(false); setMessage("Finished reading this article."); }}
-        onError={() => { setError("The recording could not be played. Try preparing the audio again."); setUrl(""); }} />
+        onEnded={() => { updatePlayback(false); setReadingSection(null); setMessage("Finished reading this article."); }}
+        onError={() => { setError("The recording could not be played. Try preparing the audio again."); setPlaying(false); setReadingSection(null); setUrl(""); }} />
       <label>Speaking speed <select value={rate} onChange={(event) => setRate(Number(event.target.value))}>{[0.8, 1, 1.1, 1.2].map((value) => <option key={value} value={value}>{value}×</option>)}</select></label>
       <p role="status">{message}</p>
     </>}
