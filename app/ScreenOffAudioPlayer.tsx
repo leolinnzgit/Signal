@@ -100,7 +100,6 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
     audio.current.currentTime = track.starts[next];
     setIndex(next);
     onIndexChange(next);
-    onArticleRead(articles[next]);
   }
   function move(direction: number) { navigate(index + direction); }
   useImperativeHandle(ref, () => ({ pause, toggle, move }));
@@ -111,7 +110,11 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
     preparedAudioCache.savePosition(recordingKey.current, audio.current.ended ? 0 : audio.current.currentTime);
     const next = audioHeadlineIndex(track.starts, audio.current.currentTime);
     const first = seeking || next < lastIndex.current ? next : lastIndex.current;
-    for (let heard = first; heard <= next; heard++) onArticleRead(articles[heard]);
+    // Metadata loading, restoring a position, and seeking while paused also
+    // update the playhead. Only listening should consume unread stories.
+    if (!audio.current.paused || audio.current.ended) {
+      for (let heard = first; heard <= next; heard++) onArticleRead(articles[heard]);
+    }
     lastIndex.current = next;
     const displayedIndex = audio.current.ended ? articles.length : next;
     setIndex(displayedIndex);

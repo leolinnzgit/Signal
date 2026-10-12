@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { runInNewContext } from "node:vm";
 import ts from "typescript";
 
 const source = await readFile(new URL("../app/headline-audio.ts", import.meta.url), "utf8");
@@ -8,6 +9,81 @@ const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.Modu
 const { configureRecordedAudio, recordedArticleNarrationParts, preparedAudioCache, PreparedAudioCache, prepareHeadlineAudio, prepareArticleAudio, prepareReadingVoicePreview, articleNarrationParts, audioHeadlineIndex, preferScreenOffAudio, preferBrowserArticleAudio, normalizeReadingVoices } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
 const titles = ["English headline", "中文新聞"];
 const signal = new AbortController().signal;
+
+// Replay the rendered player's media events without a browser or speech server.
+// Effects that fetch recordings are replaced with an already prepared track.
+async function recordedPlayerHarness() {
+  const playerSource = await readFile(new URL("../app/ScreenOffAudioPlayer.tsx", import.meta.url), "utf8");
+  const playerCode = ts.transpileModule(playerSource, { compilerOptions: {
+    module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX,
+  } }).outputText;
+  const articles = Array.from({ length: 4 }, (_, index) => ({ title: `News ${index}`, url: `https://example.com/${index}`, source: "News" }));
+  const heard = [];
+  const controls = { current: null };
+  const refs = [];
+  let stateIndex = 0;
+  const element = { currentTime: 0, duration: 24, paused: true, ended: false };
+  const react = {
+    useState(initial) { return [stateIndex++ === 0 ? { url: "blob:briefing", starts: [0, 6, 12, 18] } : initial, () => {}]; },
+    useRef(initial) { const ref = { current: initial }; refs.push(ref); return ref; },
+    useEffect() {},
+    useImperativeHandle(ref, create) { ref.current = create(); },
+  };
+  const jsx = (type, props) => ({ type, props });
+  const modules = {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "./headline-audio": { audioHeadlineIndex, preparedAudioCache },
+    "./ReadingVoiceSelector": { default: () => null, useReadingVoices: () => ({ loading: false, preferences: { en: "", zh: "" } }) },
+  };
+  const exports = {};
+  runInNewContext(playerCode, { exports, require: (name) => {
+    assert.ok(name in modules, `Unexpected player dependency: ${name}`);
+    return modules[name];
+  }, navigator: { userAgent: "Android", language: "en" } });
+  const tree = exports.default({ ref: controls, articles, initialIndex: 0, seconds: 6, rate: 1,
+    onArticleRead: (article) => heard.push(article.url), onIndexChange() {},
+  });
+  function findAudio(node) {
+    if (!node || typeof node !== "object") return;
+    if (node.type === "audio") return node.props;
+    for (const child of [node.props?.children].flat(Infinity)) {
+      const audio = findAudio(child);
+      if (audio) return audio;
+    }
+  }
+  refs[0].current = element;
+  const events = findAudio(tree);
+  assert.ok(events, "The prepared recording must render audio controls");
+  return { articles, heard, controls: controls.current, element, events };
+}
+
+test("preparing and seeking a paused recording keeps unheard headlines in the next queue", async () => {
+  const { articles, heard, controls, element, events } = await recordedPlayerHarness();
+  events.onLoadedMetadata();
+  events.onSeeking();
+  events.onTimeUpdate();
+  controls.move(1);
+  events.onSeeking();
+  events.onTimeUpdate();
+  assert.deepEqual(heard, [], "Opening or previewing the recording must not consume stories");
+  element.paused = false;
+  events.onPlay();
+  assert.deepEqual(heard, [articles[1].url], "Play marks the selected story, leaving the skipped story unread");
+});
+
+test("delayed background updates and the ended event retain read tracking for played headlines", async () => {
+  const { articles, heard, element, events } = await recordedPlayerHarness();
+  element.paused = false;
+  events.onPlay();
+  element.currentTime = 13;
+  events.onTimeUpdate();
+  element.currentTime = 24;
+  element.paused = true;
+  element.ended = true;
+  events.onEnded();
+  assert.deepEqual([...new Set(heard)], articles.map((article) => article.url));
+});
 
 test("returning to a full article reuses the ready recording without any network requests", async () => {
   const cache = new PreparedAudioCache();

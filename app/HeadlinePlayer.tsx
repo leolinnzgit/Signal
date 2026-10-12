@@ -103,10 +103,12 @@ export default function HeadlinePlayer({ articles, startWithScreenOffAudio = fal
   }, [speechPreferences]);
 
   useEffect(() => {
-    if (!article || readUrls.current.has(article.url)) return;
+    // Recorded playback owns read tracking: preparing or previewing its title
+    // must not remove an unheard story from the next unread briefing.
+    if (screenOffAudio || !article || readUrls.current.has(article.url)) return;
     readUrls.current.add(article.url);
     onArticleRead(article);
-  }, [article, onArticleRead]);
+  }, [article, onArticleRead, screenOffAudio]);
 
   useEffect(() => {
     if (screenOffAudio || completed || !title) return;
