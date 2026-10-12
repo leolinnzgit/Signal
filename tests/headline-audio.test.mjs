@@ -12,7 +12,7 @@ const signal = new AbortController().signal;
 
 // Replay the rendered player's media events without a browser or speech server.
 // Effects that fetch recordings are replaced with an already prepared track.
-async function recordedPlayerHarness() {
+async function recordedPlayerHarness({ lifecycle = false } = {}) {
   const playerSource = await readFile(new URL("../app/ScreenOffAudioPlayer.tsx", import.meta.url), "utf8");
   const playerCode = ts.transpileModule(playerSource, { compilerOptions: {
     module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX,
@@ -21,12 +21,35 @@ async function recordedPlayerHarness() {
   const heard = [];
   const controls = { current: null };
   const refs = [];
+  const states = [];
+  const effects = [];
+  let refIndex = 0;
+  let effectIndex = 0;
   let stateIndex = 0;
-  const element = { currentTime: 0, duration: 24, paused: true, ended: false };
+  let playCalls = 0;
+  let rejectPlay = false;
+  const handlers = new Map();
+  const mediaSession = { setActionHandler(action, handler) { handlers.set(action, handler); }, playbackState: "none" };
+  const element = { currentTime: 0, duration: 24, paused: true, ended: false,
+    pause() { this.paused = true; },
+    play() { playCalls++; if (rejectPlay) return Promise.reject(new Error("Playback blocked")); this.paused = false; return Promise.resolve(); },
+  };
   const react = {
-    useState(initial) { return [stateIndex++ === 0 ? { url: "blob:briefing", starts: [0, 6, 12, 18] } : initial, () => {}]; },
-    useRef(initial) { const ref = { current: initial }; refs.push(ref); return ref; },
-    useEffect() {},
+    useState(initial) {
+      const slot = stateIndex++;
+      if (!(slot in states)) states[slot] = slot === 0 ? { url: "blob:briefing", starts: [0, 6, 12, 18] } : initial;
+      return [states[slot], (value) => { states[slot] = typeof value === "function" ? value(states[slot]) : value; }];
+    },
+    useRef(initial) { const slot = refIndex++; return refs[slot] ??= { current: initial }; },
+    useEffect(callback, dependencies) {
+      const slot = effectIndex++;
+      // Supply an existing recording; run the remaining playback effects normally.
+      if (!lifecycle || dependencies?.[0] === articles) return;
+      const previous = effects[slot];
+      if (!dependencies || !previous || dependencies.some((value, index) => !Object.is(value, previous.dependencies[index]))) {
+        effects[slot] = { dependencies, callback, cleanup: previous?.cleanup, pending: true };
+      }
+    },
     useImperativeHandle(ref, create) { ref.current = create(); },
   };
   const jsx = (type, props) => ({ type, props });
@@ -40,10 +63,7 @@ async function recordedPlayerHarness() {
   runInNewContext(playerCode, { exports, require: (name) => {
     assert.ok(name in modules, `Unexpected player dependency: ${name}`);
     return modules[name];
-  }, navigator: { userAgent: "Android", language: "en" } });
-  const tree = exports.default({ ref: controls, articles, initialIndex: 0, seconds: 6, rate: 1,
-    onArticleRead: (article) => heard.push(article.url), onIndexChange() {},
-  });
+  }, navigator: { userAgent: "Android", language: "en", mediaSession }, window: {} });
   function findAudio(node) {
     if (!node || typeof node !== "object") return;
     if (node.type === "audio") return node.props;
@@ -52,11 +72,81 @@ async function recordedPlayerHarness() {
       if (audio) return audio;
     }
   }
-  refs[0].current = element;
-  const events = findAudio(tree);
-  assert.ok(events, "The prepared recording must render audio controls");
-  return { articles, heard, controls: controls.current, element, events };
+  let props = { ref: controls, articles, initialIndex: 0, seconds: 6, rate: 1,
+    onArticleRead: (article) => heard.push(article.url), onIndexChange() {},
+  };
+  let tree;
+  function render(nextProps = {}) {
+    props = { ...props, ...nextProps };
+    stateIndex = refIndex = effectIndex = 0;
+    tree = exports.default(props);
+    refs[0].current = element;
+    const pending = effects.filter((effect) => effect?.pending);
+    pending.forEach((effect) => effect.cleanup?.());
+    pending.forEach((effect) => { effect.pending = false; effect.cleanup = effect.callback(); });
+    return tree;
+  }
+  render();
+  assert.ok(findAudio(tree), "The prepared recording must render audio controls");
+  return { articles, heard, get controls() { return controls.current; }, element,
+    get events() { return findAudio(tree); }, render, handlers, mediaSession,
+    get playCalls() { return playCalls; }, blockPlayback() { rejectPlay = true; },
+  };
 }
+
+test("closing full news restores the recorded briefing at its playhead and returns media controls", async () => {
+  const player = await recordedPlayerHarness({ lifecycle: true });
+  player.element.currentTime = 13;
+  player.element.paused = false;
+  player.events.onPlay();
+  player.render();
+  const briefingPlay = player.handlers.get("play");
+  player.render({ suspended: true });
+  assert.equal(player.element.paused, true);
+  assert.equal(player.handlers.get("play"), null, "Article narration can own the device controls");
+  // Article narration changes the media session while the briefing is hidden.
+  player.handlers.set("play", () => {});
+  player.mediaSession.playbackState = "playing";
+  player.render();
+  assert.equal(player.mediaSession.playbackState, "playing");
+  player.render({ suspended: false });
+  assert.equal(player.element.currentTime, 13);
+  assert.equal(player.element.paused, false);
+  assert.equal(player.playCalls, 1);
+  assert.equal(typeof player.handlers.get("play"), "function");
+  assert.notEqual(player.handlers.get("play"), briefingPlay);
+  player.events.onPlay();
+  player.render();
+  assert.equal(player.mediaSession.playbackState, "playing");
+  player.render({ suspended: true });
+  player.render({ suspended: false });
+  assert.equal(player.playCalls, 2, "Later article interruptions also resume");
+});
+
+test("closing a reader keeps manually paused and completed briefings stopped", async () => {
+  for (const ended of [false, true]) {
+    const player = await recordedPlayerHarness({ lifecycle: true });
+    player.element.ended = ended;
+    player.render({ suspended: true });
+    player.render({ suspended: false });
+    assert.equal(player.playCalls, 0);
+    assert.equal(player.element.paused, true);
+  }
+});
+
+test("blocked automatic resume leaves the recording available with a Play prompt", async () => {
+  const player = await recordedPlayerHarness({ lifecycle: true });
+  player.element.currentTime = 8;
+  player.element.paused = false;
+  player.render({ suspended: true });
+  player.blockPlayback();
+  player.render({ suspended: false });
+  await Promise.resolve();
+  const tree = player.render();
+  assert.equal(player.element.currentTime, 8);
+  assert.equal(player.element.paused, true);
+  assert.match(JSON.stringify(tree), /Tap Play on the audio controls to resume listening/);
+});
 
 test("preparing and seeking a paused recording keeps unheard headlines in the next queue", async () => {
   const { articles, heard, controls, element, events } = await recordedPlayerHarness();

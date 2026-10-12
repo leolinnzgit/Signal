@@ -12,6 +12,7 @@ type Props = {
   fullscreenControl: ReactNode;
   articles: FollowedArticle[];
   initialIndex: number;
+  suspended?: boolean;
   seconds: number;
   rate: number;
   onRateChange: (rate: number) => void;
@@ -23,7 +24,7 @@ type Props = {
   onExit: () => void;
 };
 
-export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenControl, articles, initialIndex, seconds, rate, onRateChange, onArticleRead, onIndexChange, onOpenArticle, onListenArticle, onClose, onExit }: Props) {
+export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenControl, articles, initialIndex, suspended = false, seconds, rate, onRateChange, onArticleRead, onIndexChange, onOpenArticle, onListenArticle, onClose, onExit }: Props) {
   const [track, setTrack] = useState<{ url: string; starts: number[] } | null>(null);
   const [error, setError] = useState("");
   const [paused, setPaused] = useState(true);
@@ -34,6 +35,7 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
   const lastIndex = useRef(initialIndex);
   const initialPosition = useRef(initialIndex);
   const resumeTime = useRef<number | null>(null);
+  const resumeAfterReader = useRef(false);
   const restorePosition = useRef(true);
   const recordingKey = useRef("");
   const actions = useRef<ScreenOffAudioControls | null>(null);
@@ -119,14 +121,14 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
     const displayedIndex = audio.current.ended ? articles.length : next;
     setIndex(displayedIndex);
     onIndexChange(displayedIndex);
-    if ("mediaSession" in navigator && navigator.mediaSession.setPositionState && Number.isFinite(audio.current.duration)) {
+    if (!suspended && "mediaSession" in navigator && navigator.mediaSession.setPositionState && Number.isFinite(audio.current.duration)) {
       try { navigator.mediaSession.setPositionState({ duration: audio.current.duration, position: Math.min(audio.current.currentTime, audio.current.duration), playbackRate: audio.current.playbackRate }); }
       catch { /* Position controls are optional; the audio track keeps playing. */ }
     }
   }
 
   useEffect(() => {
-    if (!track || !("mediaSession" in navigator)) return;
+    if (suspended || !track || !("mediaSession" in navigator)) return;
     const session = navigator.mediaSession;
     const handlers: [MediaSessionAction, MediaSessionActionHandler][] = [
       ["play", () => { if (audio.current?.paused) actions.current?.toggle(); }],
@@ -142,21 +144,33 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
     const audioSession = (navigator as Navigator & { audioSession?: { type: string } }).audioSession;
     const previousType = audioSession?.type;
     try { if (audioSession) audioSession.type = "playback"; } catch { /* Standard audio playback still works. */ }
-    const element = audio.current;
     return () => {
-      element?.pause();
       for (const [action] of handlers) { try { session.setActionHandler(action, null); } catch { /* Unsupported action. */ } }
       session.metadata = null;
       session.playbackState = "none";
       try { if (audioSession && previousType) audioSession.type = previousType; } catch { /* Optional audio session. */ }
     };
-  }, [track]);
+  }, [track, suspended]);
 
   useEffect(() => {
-    if (!track || !("mediaSession" in navigator)) return;
+    if (suspended || !track || !("mediaSession" in navigator)) return;
     if ("MediaMetadata" in window) navigator.mediaSession.metadata = new MediaMetadata({ title: article?.title ?? "Signal briefing complete", artist: article?.source ?? "Signal", album: "Unread headlines", artwork: [{ src: "/icons/signal-medallion-512.png", sizes: "512x512", type: "image/png" }] });
     navigator.mediaSession.playbackState = paused ? "paused" : "playing";
-  }, [article, paused, track]);
+  }, [article, paused, track, suspended]);
+
+  useEffect(() => {
+    const element = audio.current;
+    if (suspended) {
+      resumeAfterReader.current = !!element && !element.paused && !element.ended;
+      pause();
+    } else if (resumeAfterReader.current) {
+      resumeAfterReader.current = false;
+      void element?.play().catch(() => {
+        setError("Tap Play on the audio controls to resume listening.");
+        setPaused(true);
+      });
+    }
+  }, [suspended]);
 
   return <>
     <header className="headline-player-header">
@@ -184,8 +198,8 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
         <h2 className={`headline-player-title${article.title.length > 100 ? " headline-player-title-long" : ""}`}>{article.title}</h2>
         <p className="headline-player-source">{article.source}</p>
         <div className="headline-player-story-actions">
-          <button type="button" onClick={() => { pause(); onOpenArticle(article); }}>Read article</button>
-          <button type="button" onClick={() => { pause(); onListenArticle(article); }}>Read full news aloud</button>
+          <button type="button" onClick={() => onOpenArticle(article)}>Read article</button>
+          <button type="button" onClick={() => onListenArticle(article)}>Read full news aloud</button>
           <a href={article.url} target="_blank" rel="noreferrer" onClick={pause}>Open original &#8599;</a>
         </div>
       </div>}

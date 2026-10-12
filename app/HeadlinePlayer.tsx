@@ -20,13 +20,14 @@ import {
 type HeadlinePlayerProps = {
   articles: FollowedArticle[];
   startWithScreenOffAudio?: boolean;
+  suspended?: boolean;
   onArticleRead: (article: FollowedArticle) => void;
   onOpenArticle: (article: FollowedArticle) => void;
   onListenArticle: (article: FollowedArticle) => void;
   onClose: () => void;
 };
 
-export default function HeadlinePlayer({ articles, startWithScreenOffAudio = false, onArticleRead, onOpenArticle, onListenArticle, onClose }: HeadlinePlayerProps) {
+export default function HeadlinePlayer({ articles, startWithScreenOffAudio = false, suspended = false, onArticleRead, onOpenArticle, onListenArticle, onClose }: HeadlinePlayerProps) {
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const [seconds, setSeconds] = useState(6);
@@ -88,6 +89,13 @@ export default function HeadlinePlayer({ articles, startWithScreenOffAudio = fal
   }
 
   useEffect(() => {
+    // The reader lives outside this dialog, so leave its native fullscreen view.
+    if (suspended && document.fullscreenElement === dialog.current) {
+      void document.exitFullscreen().catch(() => {});
+    }
+  }, [suspended]);
+
+  useEffect(() => {
     if (!speechSupported) return;
     const synth = window.speechSynthesis;
     const updateVoices = () => setVoices(synth.getVoices());
@@ -105,13 +113,13 @@ export default function HeadlinePlayer({ articles, startWithScreenOffAudio = fal
   useEffect(() => {
     // Recorded playback owns read tracking: preparing or previewing its title
     // must not remove an unheard story from the next unread briefing.
-    if (screenOffAudio || !article || readUrls.current.has(article.url)) return;
+    if (suspended || screenOffAudio || !article || readUrls.current.has(article.url)) return;
     readUrls.current.add(article.url);
     onArticleRead(article);
-  }, [article, onArticleRead, screenOffAudio]);
+  }, [article, onArticleRead, screenOffAudio, suspended]);
 
   useEffect(() => {
-    if (screenOffAudio || completed || !title) return;
+    if (suspended || screenOffAudio || completed || !title) return;
     const current = createHeadlinePlayback({
       title,
       seconds: 6,
@@ -130,12 +138,12 @@ export default function HeadlinePlayer({ articles, startWithScreenOffAudio = fal
     });
     playback.current = current;
     return () => { current.dispose(); playback.current = null; };
-  }, [completed, index, preferredVoiceId, readAloud, screenOffAudio, speechPreferences.rate, speechSupported, title]);
+  }, [completed, index, preferredVoiceId, readAloud, screenOffAudio, speechPreferences.rate, speechSupported, title, suspended]);
 
   useEffect(() => {
     playback.current?.setPaused(shouldPauseHeadlinePlayback({ paused, pageVisible, readAloud, voicesReady }));
     playback.current?.setSeconds(seconds);
-  }, [completed, index, preferredVoiceId, readAloud, seconds, speechPreferences.rate, paused, pageVisible, title, voicesReady]);
+  }, [completed, index, preferredVoiceId, readAloud, seconds, speechPreferences.rate, paused, pageVisible, title, voicesReady, suspended]);
 
   useEffect(() => {
     const updateVisibility = () => setPageVisible(!document.hidden);
@@ -144,6 +152,7 @@ export default function HeadlinePlayer({ articles, startWithScreenOffAudio = fal
   }, []);
 
   useEffect(() => {
+    if (suspended) return;
     const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const scrollPosition = window.scrollY;
     const previousRootOverflow = document.documentElement.style.overflow;
@@ -214,7 +223,7 @@ export default function HeadlinePlayer({ articles, startWithScreenOffAudio = fal
       window.scrollTo(0, scrollPosition);
       trigger?.focus();
     };
-  }, [articles.length, onClose]);
+  }, [articles.length, onClose, suspended]);
 
   const fullscreenControl = <button type="button" className="headline-player-fullscreen" aria-pressed={fullscreen || expanded}
     aria-label={fullscreen || expanded ? "Exit full screen" : "Enter full screen"} onClick={toggleFullscreen}>
@@ -223,9 +232,10 @@ export default function HeadlinePlayer({ articles, startWithScreenOffAudio = fal
   const playerClass = `headline-player${fullscreen || expanded ? " headline-player-expanded" : ""}`;
 
   if (screenOffAudio) return createPortal(
-    <><div className="headline-player-backdrop" aria-hidden="true" />
-    <section ref={dialog} className={playerClass} role="dialog" aria-modal="true" aria-label="Unread headline playback">
+    <><div className="headline-player-backdrop" aria-hidden="true" style={suspended ? { display: "none" } : undefined} />
+    <section ref={dialog} className={playerClass} style={suspended ? { display: "none" } : undefined} role="dialog" aria-modal="true" aria-label="Unread headline playback">
       <ScreenOffAudioPlayer ref={screenOffControls} closeButton={closeButton} articles={articles}
+        suspended={suspended}
         fullscreenControl={fullscreenControl}
         initialIndex={Math.min(index, articles.length - 1)} seconds={seconds} rate={speechPreferences.rate}
         onRateChange={(rate) => setSpeechPreferences((current) => ({ ...current, rate }))}
@@ -236,8 +246,8 @@ export default function HeadlinePlayer({ articles, startWithScreenOffAudio = fal
   );
 
   return createPortal(
-    <><div className="headline-player-backdrop" aria-hidden="true" />
-    <section ref={dialog} className={playerClass} role="dialog" aria-modal="true" aria-label="Unread headline playback">
+    <><div className="headline-player-backdrop" aria-hidden="true" style={suspended ? { display: "none" } : undefined} />
+    <section ref={dialog} className={playerClass} style={suspended ? { display: "none" } : undefined} role="dialog" aria-modal="true" aria-label="Unread headline playback">
       <header className="headline-player-header">
         <span className="headline-player-label"><span className="pulse" aria-hidden="true" /> Unread headlines</span>
         <div className="headline-player-header-actions">
@@ -265,8 +275,8 @@ export default function HeadlinePlayer({ articles, startWithScreenOffAudio = fal
             <h2 key={article.url} className={`headline-player-title${article.title.length > 100 ? " headline-player-title-long" : ""}`}>{article.title}</h2>
             <p className="headline-player-source">{article.source}</p>
             <div className="headline-player-story-actions">
-              <button type="button" onClick={() => { pausePlayback(); onOpenArticle(article); }}>Read article</button>
-              <button type="button" onClick={() => { pausePlayback(); onListenArticle(article); }}>Read full news aloud</button>
+              <button type="button" onClick={() => onOpenArticle(article)}>Read article</button>
+              <button type="button" onClick={() => onListenArticle(article)}>Read full news aloud</button>
               <a href={article.url} target="_blank" rel="noreferrer" onClick={pausePlayback}>Open original <span aria-hidden="true">&#8599;</span></a>
             </div>
           </div>

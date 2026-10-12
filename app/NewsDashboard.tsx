@@ -868,7 +868,6 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [readerAudioRequested, setReaderAudioRequested] = useState(false);
   const [headlineQueue, setHeadlineQueue] = useState<FollowedArticle[] | null>(null);
   const headlineFullscreenRequested = useRef(false);
-  const headlinePlaybackTrigger = useRef<HTMLElement | null>(null);
   const [readerContent, setReaderContent] = useState<ReaderContent>({ status: "idle" });
   const [topicPendingRemoval, setTopicPendingRemoval] = useState<string | null>(null);
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
@@ -1669,7 +1668,6 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
 
   function startHeadlinePlayback() {
     if (unreadArticles.length === 0) return;
-    headlinePlaybackTrigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     // Snapshot the queue so refreshes and read-status updates cannot skip titles.
     setHeadlineQueue([...unreadArticles]);
     if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent) && !document.fullscreenElement && document.documentElement.requestFullscreen) {
@@ -4541,15 +4539,14 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
       {headlineQueue && (
         <HeadlinePlayer
           articles={headlineQueue}
+          suspended={readerArticle !== null}
           startWithScreenOffAudio={preferScreenOffAudio(navigator.userAgent, appInstalled)}
           onArticleRead={(article) => markArticleRead(article, true)}
           onOpenArticle={(article) => {
-            closeHeadlinePlayer();
-            openArticleReader(article, headlinePlaybackTrigger.current ?? document.body);
+            openArticleReader(article, document.activeElement instanceof HTMLElement ? document.activeElement : document.body);
           }}
           onListenArticle={(article) => {
-            closeHeadlinePlayer();
-            openArticleReader(article, headlinePlaybackTrigger.current ?? document.body, true);
+            openArticleReader(article, document.activeElement instanceof HTMLElement ? document.activeElement : document.body, true);
           }}
           onClose={closeHeadlinePlayer}
         />
