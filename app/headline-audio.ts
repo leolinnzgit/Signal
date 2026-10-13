@@ -1,5 +1,6 @@
 export type PreparedHeadlineAudio = { blob: Blob; starts: number[] };
 export type ReadingVoicePreferences = { en: string; zh: string };
+export const READING_VOICES_STORAGE_KEY = "signal.recorded-reading-voices.v1";
 
 // Keep ready PCM in this app session rather than in a mounted reader. Each
 // headline is reusable even after heard titles are removed from the next queue.

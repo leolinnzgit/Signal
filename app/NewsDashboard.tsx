@@ -4272,7 +4272,8 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                 <button type="button" disabled={!weatherAudio.available} onClick={weatherAudio.read}>Read weather now</button>
                 <button type="button" disabled={weatherAudio.status !== "playing" && weatherAudio.status !== "starting"} onClick={weatherAudio.stop}>Stop reading</button>
               </div>
-              {weatherAudio.status === "blocked" && <p role="status">Tap Read weather now to allow browser speech.</p>}
+              {weatherAudio.status === "blocked" && <p role="status">Tap Read weather now to allow audio playback.</p>}
+              {weatherAudio.status === "unavailable" && <p role="status">Weather audio is unavailable. Try Read weather now again.</p>}
             </div>
             <div className="topic-confirmation-actions weather-location-actions">
               <button type="button" onClick={useDeviceWeatherLocation}>

@@ -14,6 +14,8 @@ const server = await createServer({ configFile: false, root: process.cwd(), plug
 
 async function mockSpeech(page, scenario = "automatic") {
   await page.addInitScript(scenario => {
+    // Exercise the browser fallback without a native audio implementation.
+    window.Audio = undefined;
     window.weatherCalls = [];
     window.weatherCancels = 0;
     window.failWeather = scenario === "blocked";
@@ -43,10 +45,127 @@ async function mockSpeech(page, scenario = "automatic") {
     window.SpeechSynthesisUtterance = scenario === "unsupported" ? undefined : class { constructor(text) { this.text = text; } };
   }, scenario);
 }
+
+async function mockAzure(page, scenario) {
+  await mockSpeech(page, scenario === "disabled" ? "disabled" : scenario === "no-browser" ? "unsupported" : "automatic");
+  await page.addInitScript(scenario => {
+    window.azurePlays = [];
+    window.azurePauses = 0;
+    window.failAzurePlay = scenario === "blocked";
+    window.azureAudio = [];
+    localStorage.setItem("signal.recorded-reading-voices.v1", JSON.stringify({ en: "en-NZ-MitchellNeural" }));
+    let gesture = false;
+    document.addEventListener("pointerdown", () => { gesture = true; }, true);
+    document.addEventListener("pointerdown", () => { gesture = false; });
+    document.addEventListener("click", () => { gesture = true; }, true);
+    document.addEventListener("click", () => { gesture = false; });
+    window.Audio = class {
+      src = "";
+      constructor() { window.azureAudio.push(this); }
+      play() {
+        window.azurePlays.push({ src: this.src, rate: this.playbackRate, gesture });
+        if (window.failAzurePlay) return Promise.reject(new DOMException("Tap to play", "NotAllowedError"));
+        this.onplaying?.();
+        return Promise.resolve();
+      }
+      pause() { window.azurePauses++; }
+      removeAttribute(name) { if (name === "src") this.src = ""; }
+      load() {}
+    };
+  }, scenario);
+}
 await server.listen();
 let browser;
 try {
   browser = await chromium.launch({ headless: true, ...(process.env.SIGNAL_BROWSER_CHANNEL ? { channel: process.env.SIGNAL_BROWSER_CHANNEL } : {}) });
+  for (const scenario of process.argv.includes("--dashboard-only") ? [] : ["automatic", "blocked", "disabled", "mobile", "no-browser", "unavailable", "cancel-preparation", "stream-error"]) {
+    const page = await browser.newPage({ ...(scenario === "mobile" ? { userAgent: "Mozilla/5.0 (Linux; Android 14) Chrome/128.0 Mobile Safari/537.36", hasTouch: true } : {}) });
+    page.setDefaultNavigationTimeout(90_000);
+    page.setDefaultTimeout(60_000);
+    const errors = [];
+    const requests = [];
+    let csrfRequests = 0;
+    let finishPreparation;
+    const delayed = new Promise(resolve => { finishPreparation = resolve; });
+    let receivedRequest;
+    const received = new Promise(resolve => { receivedRequest = resolve; });
+    const streamUrl = `/api/article-audio-stream/${"a".repeat(32)}`;
+    page.on("pageerror", error => errors.push(error.message));
+    await mockAzure(page, scenario);
+    await page.route("**/api/**", async route => {
+      const path = new URL(route.request().url()).pathname;
+      if (path === "/api/auth/csrf") { csrfRequests++; return route.fulfill({ json: { token: "weather-csrf" } }); }
+      if (path === "/api/article-audio-stream") {
+        requests.push({ body: route.request().postDataJSON(), csrf: route.request().headers()["x-xsrf-token"] });
+        receivedRequest();
+        if (scenario === "cancel-preparation") await delayed;
+        if (scenario === "unavailable") return route.fulfill({ status: 503, json: { error: "Azure unavailable" } });
+        return route.fulfill({ json: { url: streamUrl, statusUrl: `${streamUrl}/status` } });
+      }
+      if (path.endsWith("/status")) return route.fulfill({ json: { starts: [0], complete: scenario !== "stream-error", duration: 18,
+        error: scenario === "stream-error" ? "Azure disconnected" : null } });
+      throw new Error(`Unexpected weather request: ${path}`);
+    });
+    await page.goto("http://127.0.0.1:3015/weather-test");
+    const read = page.getByRole("button", { name: "Read weather now" });
+    const status = page.getByTestId("status");
+    await read.waitFor();
+    if (scenario === "disabled" || scenario === "mobile") {
+      assert.equal(csrfRequests, 0, "No cloud work while automatic reading is off or waiting for mobile activation");
+      if (scenario === "mobile") await page.getByRole("button", { name: "Normal interaction" }).click();
+      else await read.click();
+    }
+    if (scenario === "cancel-preparation") {
+      await page.waitForFunction(() => document.querySelector('[data-testid="status"]').textContent === "starting");
+      // Wait until the server received the cloud session request.
+      await received;
+      await page.getByRole("button", { name: "Stop reading" }).click();
+      finishPreparation();
+      await page.getByRole("button", { name: "Normal interaction" }).click();
+      assert.equal(await status.textContent(), "idle");
+      assert.equal(await page.evaluate(() => window.azurePlays.length + window.weatherCalls.length), 0, "Stopped preparation never starts late audio");
+    } else if (scenario === "unavailable") {
+      await page.waitForFunction(() => window.weatherCalls.length === 1);
+      assert.equal(await status.textContent(), "playing", "Azure failure falls back to browser speech");
+    } else {
+      if (scenario === "blocked") {
+        await page.waitForFunction(() => document.querySelector('[data-testid="status"]').textContent === "blocked");
+        await page.evaluate(() => { window.failAzurePlay = false; });
+        await read.click();
+        assert.equal(await page.evaluate(() => window.azurePlays.at(-1).gesture), true, "Blocked native playback retries synchronously on tap");
+      }
+      await page.waitForFunction(() => window.azurePlays.length > 0);
+      if (scenario === "stream-error") {
+        await page.waitForFunction(() => document.querySelector('[data-testid="status"]').textContent === "unavailable");
+        assert.equal(await page.evaluate(() => window.azureAudio.at(-1).src), "", "Failed synthesis unloads its native request");
+      } else {
+        assert.equal(await status.textContent(), "playing");
+        assert.equal(requests.length, 1, "One Azure session per opening, even with StrictMode or blocked autoplay");
+        assert.equal(requests[0].csrf, "weather-csrf");
+        assert.equal(requests[0].body.voices.en, "en-NZ-MitchellNeural");
+        assert.match(requests[0].body.titles.join(" "), /for Auckland.*Today, expect rain.*chance of rain is 75 percent/);
+        assert.equal(await page.evaluate(() => window.azurePlays.at(-1).rate), 1.1);
+        if (scenario === "automatic") {
+          await page.evaluate(() => window.azureAudio.at(-1).onended());
+          assert.equal(await status.textContent(), "finished");
+          await page.getByRole("button", { name: "Refresh weather" }).click();
+          assert.equal(requests.length, 1, "Weather refresh does not repeat automatically");
+          await read.click();
+          await page.waitForFunction(() => window.azurePlays.length === 2);
+          await page.getByRole("button", { name: "Toggle other audio" }).click();
+          assert.equal(await status.textContent(), "idle");
+          assert.equal(await page.evaluate(() => window.azureAudio.at(-1).src), "", "Other players disconnect weather audio");
+        } else {
+          await page.getByRole("button", { name: "Stop reading" }).click();
+          assert.equal(await page.evaluate(() => window.azureAudio.at(-1).src), "");
+        }
+      }
+      assert.equal(await page.evaluate(() => window.weatherCalls.length), 0, "Azure narration does not overlap browser speech");
+    }
+    assert.deepEqual(errors, []);
+    console.log(`PASS Azure weather: ${scenario}`);
+    await page.close();
+  }
   for (const scenario of process.argv.includes("--dashboard-only") ? [] : ["automatic", "blocked", "disabled", "mobile", "empty-voices", "unsupported", "long-briefing"]) {
     const page = await browser.newPage({ ...(scenario === "mobile" ? { userAgent: "Mozilla/5.0 (Linux; Android 14) Chrome/128.0 Mobile Safari/537.36", hasTouch: true } : {}) });
     const errors = [];

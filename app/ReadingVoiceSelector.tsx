@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { configureRecordedAudio, normalizeReadingVoices, prepareReadingVoicePreview, type ReadingVoicePreferences } from "./headline-audio";
+import { configureRecordedAudio, normalizeReadingVoices, prepareReadingVoicePreview, READING_VOICES_STORAGE_KEY as storageKey, type ReadingVoicePreferences } from "./headline-audio";
 
 type ReadingVoice = { id: string; name: string; language: string; gender: string };
-const storageKey = "signal.recorded-reading-voices.v1";
 
 export function useReadingVoices() {
   const [preferences, setPreferences] = useState<ReadingVoicePreferences>(() => {
