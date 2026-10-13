@@ -6,6 +6,8 @@ import { updateInstalledAppBadge } from "./app-badge";
 import { resolveArticleShareUrl, shareArticle } from "./article-share";
 import HeadlinePlayer from "./HeadlinePlayer";
 import ArticleAudioPlayer from "./ArticleAudioPlayer";
+import WeatherAudio from "./WeatherAudio";
+import { describeWeather, weatherBriefing, type LocalWeather, type WeatherForecastDay } from "./weather-briefing";
 import ArticleReadingText from "./ArticleReadingText";
 import { scrollReadingSectionIntoView } from "./article-reading-follow";
 import { preferScreenOffAudio, type ArticleNarrationSection } from "./headline-audio";
@@ -94,29 +96,10 @@ type GoogleTrendsResponse = {
   error?: string;
 };
 
-type LocalWeather = {
-  temperature: number;
-  apparentTemperature: number;
-  humidity: number;
-  weatherCode: number;
-  windSpeed: number;
-  isDay: boolean;
-  timezone: string;
-  locationName: string;
-};
-
-type WeatherForecastDay = {
-  date: string;
-  weatherCode: number;
-  temperatureMax: number;
-  temperatureMin: number;
-  precipitationProbability: number;
-  windSpeed: number;
-};
-
 type OpenMeteoResponse = {
   timezone?: string;
   current?: {
+    time?: string;
     temperature_2m?: number;
     apparent_temperature?: number;
     relative_humidity_2m?: number;
@@ -707,19 +690,6 @@ function readStoredPreferences(key: string) {
   }
 }
 
-function describeWeather(code: number) {
-  if (code === 0) return "Clear";
-  if (code <= 3) return "Partly cloudy";
-  if (code === 45 || code === 48) return "Foggy";
-  if (code >= 51 && code <= 57) return "Drizzle";
-  if (code >= 61 && code <= 67) return "Rain";
-  if (code >= 71 && code <= 77) return "Snow";
-  if (code >= 80 && code <= 82) return "Rain showers";
-  if (code >= 85 && code <= 86) return "Snow showers";
-  if (code >= 95) return "Thunderstorms";
-  return "Local weather";
-}
-
 function weatherGlyph(code: number, isDay: boolean) {
   if (code === 0) return isDay ? "\u2600" : "\u263E";
   if (code <= 3) return "\u26C5";
@@ -1234,6 +1204,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           }];
         });
         setLocalWeather({
+          observedAt: typeof current.time === "string" ? current.time : "",
           temperature: current.temperature_2m,
           apparentTemperature: current.apparent_temperature,
           humidity: current.relative_humidity_2m,
@@ -3087,6 +3058,8 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               )}
             </div>
           )}
+          <WeatherAudio text={weatherBriefing(weatherStatus === "ready" ? localWeather : null, weatherForecast)}
+            suspended={!!headlineQueue || !!readerArticle} />
         </aside>
         {forecastOpen && weatherForecast.length > 0 && localWeather && (
           <section className="weather-forecast-panel" id="seven-day-weather" aria-label="Seven day weather forecast">

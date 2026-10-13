@@ -4599,3 +4599,24 @@ footer a { color: var(--paper); text-decoration: none; }
 .article-browser-progress progress { width: 100%; accent-color: var(--red); }
 
 .listen-story-button svg { fill: none; }
+.weather-audio {
+  flex: 0 0 100%;
+  min-width: 0;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.75rem;
+}
+
+.weather-audio-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.65rem; }
+.weather-audio button {
+  padding: 0.4rem 0.65rem;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.weather-audio button:disabled { opacity: 0.5; cursor: default; }
+.weather-audio label { display: flex; align-items: center; gap: 0.4rem; }
+.weather-audio p { margin: 0.5rem 0 0; color: var(--text-muted); }
+
+.hero.compact .hero-context:has(.weather-audio) { flex-wrap: wrap; }
