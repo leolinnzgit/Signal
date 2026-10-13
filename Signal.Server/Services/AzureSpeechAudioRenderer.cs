@@ -25,6 +25,7 @@ public sealed class AzureSpeechAudioRenderer
     }
 
     public bool Enabled => settings.Enabled;
+    internal string DefaultVoice(bool chinese) => chinese ? settings.ChineseVoice : settings.EnglishVoice;
 
     public async Task<IReadOnlyList<NarrationVoice>> GetVoicesAsync(CancellationToken token)
     {

@@ -66,7 +66,7 @@ public sealed class HeadlineAudioService
         this.windowsOnly = windowsOnly;
     }
 
-    internal static string[] Validate(HeadlineAudioRequest request)
+    internal static string[] Validate(HeadlineAudioRequest request, int maximumCharacters = 20_000)
     {
         if (request.Voices is { } preferences && (preferences.Count > 2
             || preferences.Any(pair => pair.Key is not ("en" or "zh") || pair.Value is null || pair.Value.Length > 160)))
@@ -74,7 +74,7 @@ public sealed class HeadlineAudioService
         if (request.Titles is not { Length: > 0 and <= 200 }
             || request.Seconds is not (3 or 6 or 10 or 15)
             || request.Titles.Any(title => string.IsNullOrWhiteSpace(title) || title.Length > 1_000)
-            || request.Titles.Sum(title => title.Length) > 20_000)
+            || request.Titles.Sum(title => title.Length) > maximumCharacters)
             throw new ArgumentException("This briefing is too long to prepare as audio. Try a shorter briefing.");
         return request.Titles.Select(title => Regex.Replace(title, @"\s+", " ").Trim()).ToArray();
     }

@@ -144,7 +144,9 @@ builder.Services.AddMemoryCache();
 builder.Services.Configure<AzureSpeechOptions>(builder.Configuration.GetSection(AzureSpeechOptions.SectionName));
 builder.Services.AddHttpClient(nameof(AzureSpeechAudioRenderer), client => client.Timeout = TimeSpan.FromSeconds(20))
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
-builder.Services.AddSingleton<IAzureSpeechSynthesizer, AzureSpeechSynthesizer>();
+builder.Services.AddSingleton<AzureSpeechSynthesizer>();
+builder.Services.AddSingleton<IAzureSpeechSynthesizer>(service => service.GetRequiredService<AzureSpeechSynthesizer>());
+builder.Services.AddSingleton<IAzureSpeechStreamer>(service => service.GetRequiredService<AzureSpeechSynthesizer>());
 builder.Services.AddSingleton(service => new AzureSpeechAudioRenderer(
     service.GetRequiredService<Microsoft.Extensions.Options.IOptions<AzureSpeechOptions>>(),
     service.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(AzureSpeechAudioRenderer)),
@@ -155,6 +157,7 @@ builder.Services.AddSingleton(service => new KokoroAudioRenderer(
     service.GetRequiredService<Microsoft.Extensions.Options.IOptions<KokoroSpeechOptions>>(),
     service.GetRequiredService<IKokoroSpeechWorker>(), builder.Environment.ContentRootPath));
 builder.Services.AddSingleton<HeadlineAudioService>();
+builder.Services.AddSingleton(service => new ArticleAudioStreamService(service.GetRequiredService<AzureSpeechAudioRenderer>(), service.GetRequiredService<IAzureSpeechStreamer>()));
 builder.Services.AddHeadlineAudioCompression();
 builder.Services.AddHostedService<HeadlineAudioHealthCheck>();
 builder.Services.AddSingleton<ArticleAudioPreparationService>();

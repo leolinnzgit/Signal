@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { recordedArticleNarrationSections, audioHeadlineIndex, preferBrowserArticleAudio, preparedAudioCache, prepareArticleAudio, type ArticleNarrationSection, type PreparedHeadlineAudio, type ReadingVoicePreferences } from "./headline-audio";
 import ReadingVoiceSelector, { useReadingVoices } from "./ReadingVoiceSelector";
 import BrowserArticleAudioPlayer from "./BrowserArticleAudioPlayer";
+import { openArticleAudioStream } from "./article-audio-stream";
 
 export type ArticleAudioPlayerProps = { title: string; source: string; paragraphs: string[]; autoPrepare?: boolean; summaryOnly?: boolean; onReadingSectionChange?: (section: ArticleNarrationSection | null, playing: boolean) => void };
 
@@ -40,6 +41,9 @@ function RecordedArticleAudioPlayer({ title, source, paragraphs, autoPrepare = f
   const [rate, setRate] = useState(1);
   const [playing, setPlaying] = useState(false);
   const [readingSection, setReadingSection] = useState<ArticleNarrationSection | null>(null);
+  const [useStream, setUseStream] = useState(true);
+  const [streaming, setStreaming] = useState(false);
+  const [streamComplete, setStreamComplete] = useState(false);
   const audio = useRef<HTMLAudioElement>(null);
   const preparation = useRef<AbortController | null>(null);
   const resumePart = useRef(0);
@@ -47,21 +51,27 @@ function RecordedArticleAudioPlayer({ title, source, paragraphs, autoPrepare = f
   const resumeTime = useRef<number | null>(null);
   const restorePosition = useRef(true);
   const recordingKey = useRef("");
+  const restoredStreamPosition = useRef(false);
 
   useEffect(() => {
     if (!attempt || readingVoices.loading) return;
     const abort = new AbortController();
     preparation.current = abort;
     let recordingUrl = "";
-    recordingKey.current = preparedAudioCache.key(parts ?? [], 3, navigator.language, readingVoices.preferences);
     const ready = parts ? preparedAudioCache.get(parts, 3, navigator.language, readingVoices.preferences) : undefined;
+    const streamThisArticle = !ready && useStream && readingVoices.streaming && parts;
+    recordingKey.current = (streamThisArticle ? "stream:" : "") + preparedAudioCache.key(parts ?? [], 3, navigator.language, readingVoices.preferences);
     setUrl("");
     setPlaying(false);
     setReadingSection(null);
     setError("");
     setMessage("");
     setProgress(0);
+    setStarts([]);
     setPreparing(!ready);
+    setStreaming(false);
+    setStreamComplete(false);
+    restoredStreamPosition.current = false;
     const useRecording = (recording: PreparedHeadlineAudio) => {
         if (abort.signal.aborted) return;
         resumeTime.current = restorePosition.current ? preparedAudioCache.position(recordingKey.current) ?? null : null;
@@ -73,6 +83,38 @@ function RecordedArticleAudioPlayer({ title, source, paragraphs, autoPrepare = f
         setMessage(ready ? "Audio ready. Tap Play to resume reading." : "Ready. Tap Play if the audio does not start automatically.");
     };
     if (ready) useRecording(ready);
+    else if (useStream && readingVoices.streaming && parts) {
+      let streamUrl = "";
+      let complete = false;
+      setStreaming(true);
+      resumeTime.current = restorePosition.current ? preparedAudioCache.position(recordingKey.current) ?? null : null;
+      restorePosition.current = true;
+      void openArticleAudioStream(parts, navigator.language, readingVoices.preferences, abort.signal, (status) => {
+        if (abort.signal.aborted) return;
+        setStarts(status.starts);
+        setProgress(status.complete ? 100 : Math.min(99, Math.round(status.starts.length / parts.length * 100)));
+        setStreamComplete(status.complete);
+        complete = status.complete;
+        if (status.complete && streamUrl) {
+          const element = audio.current;
+          resumeTime.current = element?.ended ? 0 : element?.currentTime ?? 0;
+          resumePlayback.current = !!element && !element.paused && !element.ended;
+          restoredStreamPosition.current = false;
+          setUrl(`${streamUrl}?ready=1`);
+        }
+        if (status.error) {
+          audio.current?.pause(); audio.current?.removeAttribute("src"); audio.current?.load();
+          setPlaying(false); setUrl(""); setError(status.error);
+        }
+      }).then((openedUrl) => {
+        if (abort.signal.aborted) return;
+        streamUrl = openedUrl;
+        setUrl(complete ? `${openedUrl}?ready=1` : openedUrl); setPreparing(false);
+        setMessage("Tap Play to start listening while the rest is generated.");
+      }).catch((reason: unknown) => {
+        if (!abort.signal.aborted) { setPreparing(false); setError(reason instanceof Error ? reason.message : "The audio stream could not be opened."); }
+      });
+    }
     else void Promise.resolve().then(() => prepareArticleAudio(narrationTitle, paragraphs, navigator.language, abort.signal, undefined,
       (done, total) => { if (!abort.signal.aborted) setProgress(Math.round(done / total * 100)); }, readingVoices.preferences))
       .then(useRecording)
@@ -81,8 +123,12 @@ function RecordedArticleAudioPlayer({ title, source, paragraphs, autoPrepare = f
         setPreparing(false);
         setError(reason instanceof Error ? reason.message : "The full article audio could not be prepared.");
       });
-    return () => { abort.abort(); if (recordingUrl) URL.revokeObjectURL(recordingUrl); };
-  }, [attempt, narrationTitle, paragraphs, parts, readingVoices.loading, readingVoices.preferences.en, readingVoices.preferences.zh]);
+    return () => {
+      abort.abort();
+      if (recordingUrl) URL.revokeObjectURL(recordingUrl);
+      else if (useStream && readingVoices.streaming) { audio.current?.pause(); audio.current?.removeAttribute("src"); audio.current?.load(); }
+    };
+  }, [attempt, narrationTitle, paragraphs, parts, readingVoices.loading, readingVoices.preferences.en, readingVoices.preferences.zh, readingVoices.streaming, useStream]);
 
   useEffect(() => {
     if (!url || !audio.current) return;
@@ -91,8 +137,27 @@ function RecordedArticleAudioPlayer({ title, source, paragraphs, autoPrepare = f
     // The user requested narration. Phones that require a fresh gesture still
     // have the native Play control after asynchronous preparation.
     if (resumePlayback.current) void element.play().catch(() => setMessage("Ready. Tap Play to read the full news aloud."));
-    return () => { preparedAudioCache.savePosition(key, element.ended ? 0 : element.currentTime); element.pause(); };
+    return () => {
+      if (!streaming || element.getAttribute("src")) preparedAudioCache.savePosition(key, element.ended ? 0 : element.currentTime);
+      element.pause();
+    };
   }, [url]);
+
+  function restoreStreamPosition() {
+    const element = audio.current;
+    if (!streaming || !element || restoredStreamPosition.current) return;
+    const position = resumeTime.current ?? starts[resumePart.current];
+    if (position === undefined) return;
+    for (let index = 0; index < element.buffered.length; index++) {
+      if (position >= element.buffered.start(index) && position <= element.buffered.end(index)) {
+        element.currentTime = position;
+        restoredStreamPosition.current = true;
+        return;
+      }
+    }
+  }
+
+  useEffect(restoreStreamPosition, [starts, streamComplete]);
 
   useEffect(() => { if (audio.current) audio.current.playbackRate = rate; }, [rate, url]);
 
@@ -161,20 +226,35 @@ function RecordedArticleAudioPlayer({ title, source, paragraphs, autoPrepare = f
       onPreviewStart={() => { resumePlayback.current = false; audio.current?.pause(); setPlaying(false); }} />
     {!url && !preparing && <button type="button" onClick={() => { resumePlayback.current = true; setAttempt((current) => current + 1); }}>{error ? "Try audio again" : summaryOnly ? "Read headline and summary aloud" : "Read full news aloud"}</button>}
     {preparing && <>
-      <p role="status">Preparing full article audio… {progress}%</p>
-      <p>Keep Signal open until the recording is ready.</p>
+      <p role="status">{streaming ? "Opening audio stream…" : `Preparing full article audio… ${progress}%`}</p>
+      <p>{streaming ? "Playback can begin while the rest of the article is generated." : "Keep Signal open until the recording is ready."}</p>
       <button type="button" onClick={cancelPreparation}>Cancel audio preparation</button>
     </>}
     {url && <>
       <audio ref={audio} src={url} controls preload="auto" aria-label={`Read ${title} aloud`}
-        onLoadedMetadata={() => { if (audio.current) audio.current.currentTime = Math.min(resumeTime.current ?? starts[resumePart.current] ?? 0, audio.current.duration); }}
+        onLoadedMetadata={() => {
+          const element = audio.current;
+          const position = resumeTime.current ?? starts[resumePart.current] ?? 0;
+          if (element && (!streaming || streamComplete || position === 0)) element.currentTime = Math.min(position, element.duration);
+        }}
+        onCanPlay={restoreStreamPosition} onProgress={restoreStreamPosition}
         onPlay={() => { updatePlayback(true); updatePosition(); }} onPause={() => updatePlayback(false)}
         onTimeUpdate={updatePosition} onSeeking={updatePosition}
         onEnded={() => { updatePlayback(false); setReadingSection(null); setMessage("Finished reading this article."); }}
         onError={() => { setError("The recording could not be played. Try preparing the audio again."); setPlaying(false); setReadingSection(null); setUrl(""); }} />
       <label>Speaking speed <select value={rate} onChange={(event) => setRate(Number(event.target.value))}>{[0.8, 1, 1.1, 1.2].map((value) => <option key={value} value={value}>{value}×</option>)}</select></label>
       <p role="status">{message}</p>
+      {streaming && !streamComplete && !error && <p role="status">Streaming audio — {progress}% generated. You can keep listening.</p>}
     </>}
+    {readingVoices.streaming && attempt > 0 && <button type="button" onClick={() => {
+      if (audio.current) {
+        resumePart.current = audio.current.ended ? 0 : audioHeadlineIndex(starts, audio.current.currentTime);
+        resumePlayback.current = !audio.current.paused;
+        audio.current.pause();
+      } else resumePlayback.current = true;
+      restorePosition.current = false;
+      setUseStream((current) => !current); setAttempt((current) => current + 1);
+    }}>{useStream ? "Prepare recording instead" : "Stream audio instead"}</button>}
     {error && <p role="alert">{error}</p>}
   </section>;
 }

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Threading.Channels;
 using Microsoft.CognitiveServices.Speech;
 using Microsoft.Extensions.Options;
 
@@ -10,8 +11,54 @@ internal interface IAzureSpeechSynthesizer
     Task<AzureSpeechBatch> SynthesizeAsync(string ssml, CancellationToken cancellationToken);
 }
 
-internal sealed class AzureSpeechSynthesizer(IOptions<AzureSpeechOptions> options) : IAzureSpeechSynthesizer
+internal interface IAzureSpeechStreamer
 {
+    Task<TimeSpan> StreamAsync(string ssml, Func<byte[], CancellationToken, Task> write, Action<string, ulong> bookmark, CancellationToken token);
+}
+
+internal sealed class AzureSpeechSynthesizer(IOptions<AzureSpeechOptions> options) : IAzureSpeechSynthesizer, IAzureSpeechStreamer
+{
+    public async Task<TimeSpan> StreamAsync(string ssml, Func<byte[], CancellationToken, Task> write, Action<string, ulong> bookmark, CancellationToken token)
+    {
+        var settings = options.Value;
+        settings.Validate();
+        var config = SpeechConfig.FromSubscription(settings.Key, settings.Region);
+        config.SetSpeechSynthesisOutputFormat(SpeechSynthesisOutputFormat.Audio16Khz32KBitRateMonoMp3);
+        using var synth = new SpeechSynthesizer(config, null);
+        using var abort = CancellationTokenSource.CreateLinkedTokenSource(token);
+        var chunks = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(64) { SingleReader = true, FullMode = BoundedChannelFullMode.Wait });
+        synth.BookmarkReached += (_, args) => bookmark(args.Text, args.AudioOffset);
+        synth.Synthesizing += (_, args) =>
+        {
+            var bytes = args.Result.AudioData;
+            if (bytes.Length > 0 && !chunks.Writer.TryWrite(bytes))
+            {
+                chunks.Writer.TryComplete(new HeadlineAudioUnavailableException("stream", "The audio connection is too slow. Try again or prepare a recording."));
+                abort.Cancel();
+            }
+        };
+        var duration = TimeSpan.Zero;
+        async Task ProduceAsync()
+        {
+            try
+            {
+                using var result = await SpeakAsync(synth, ssml, abort.Token);
+                EnsureCompleted(result);
+                duration = result.AudioDuration;
+                chunks.Writer.TryComplete();
+            }
+            catch (Exception exception) { chunks.Writer.TryComplete(exception); }
+        }
+        var producing = ProduceAsync();
+        try
+        {
+            await foreach (var chunk in chunks.Reader.ReadAllAsync(token)) await write(chunk, token);
+            await producing;
+            return duration;
+        }
+        finally { abort.Cancel(); await producing; }
+    }
+
     public async Task<AzureSpeechBatch> SynthesizeAsync(string ssml, CancellationToken cancellationToken)
     {
         var settings = options.Value;
@@ -23,6 +70,12 @@ internal sealed class AzureSpeechSynthesizer(IOptions<AzureSpeechOptions> option
         var bookmarks = new ConcurrentDictionary<string, ulong>();
         synth.BookmarkReached += (_, args) => bookmarks.TryAdd(args.Text, args.AudioOffset);
         using var result = await SpeakAsync(synth, ssml, cancellationToken);
+        EnsureCompleted(result);
+        return new AzureSpeechBatch(result.AudioData, bookmarks);
+    }
+
+    private static void EnsureCompleted(SpeechSynthesisResult result)
+    {
         if (result.Reason != ResultReason.SynthesizingAudioCompleted)
         {
             var details = SpeechSynthesisCancellationDetails.FromResult(result);
@@ -34,7 +87,6 @@ internal sealed class AzureSpeechSynthesizer(IOptions<AzureSpeechOptions> option
                 _ => new HeadlineAudioUnavailableException("azure", "Azure could not prepare this recording. Please try again or use Browser voice."),
             };
         }
-        return new AzureSpeechBatch(result.AudioData, bookmarks);
     }
 
     private static async Task<SpeechSynthesisResult> SpeakAsync(SpeechSynthesizer synth, string ssml, CancellationToken token)

@@ -14,6 +14,14 @@ using Signal.Server.Models;
 using Signal.Server.Services;
 
 if (args.Contains("--azure-speech-live")) { await AzureSpeechChecks.RunLiveAsync(); return; }
+if (args.Contains("--azure-stream-live"))
+{
+    try { await ArticleAudioStreamLiveChecks.RunAsync(); }
+    catch (Exception exception) { Console.Error.WriteLine(exception); Environment.ExitCode = 1; }
+    return;
+}
+await ArticleAudioStreamChecks.RunAsync();
+if (args.Contains("--article-stream-only")) return;
 
 ArticleAudioPreparationChecks.Run();
 await ArticleAudioPreparationChecks.RunHostedAsync();

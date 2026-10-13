@@ -56,7 +56,7 @@ export class PreparedAudioCache {
 
   position(key: string) { return this.positions.get(key); }
   savePosition(key: string, time: number) {
-    if (!this.clips.size || !Number.isFinite(time) || time < 0) return;
+    if (!Number.isFinite(time) || time < 0) return;
     this.positions.delete(key);
     this.positions.set(key, time);
     if (this.positions.size > 64) this.positions.delete(this.positions.keys().next().value!);

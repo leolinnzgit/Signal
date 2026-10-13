@@ -14,6 +14,7 @@ export function useReadingVoices() {
   const [voices, setVoices] = useState<ReadingVoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [streaming, setStreaming] = useState(false);
   useEffect(() => {
     const abort = new AbortController();
     void fetch("/api/headline-audio/voices", { credentials: "same-origin", cache: "no-store", signal: abort.signal })
@@ -26,6 +27,7 @@ export function useReadingVoices() {
         if (abort.signal.aborted) return;
         configureRecordedAudio(response.headers.get("X-Signal-Audio-Engine"), response.headers.get("X-Signal-Audio-Batch-Characters"));
         setVoices(data);
+        setStreaming(response.headers.get("X-Signal-Article-Streaming") === "true");
         setPreferences((saved) => ({
           en: data.some((voice) => voice.id === saved.en && voice.language.startsWith("en")) ? saved.en : "",
           zh: data.some((voice) => voice.id === saved.zh && voice.language.startsWith("zh")) ? saved.zh : "",
@@ -42,7 +44,7 @@ export function useReadingVoices() {
   function selectVoice(language: keyof ReadingVoicePreferences, id: string) {
     setPreferences((saved) => ({ ...saved, [language]: id }));
   }
-  return { preferences, voices, loading, error, selectVoice };
+  return { preferences, voices, loading, error, streaming, selectVoice };
 }
 
 type Props = ReturnType<typeof useReadingVoices> & { active?: boolean; playbackActive?: boolean; onPreviewStart: () => void };

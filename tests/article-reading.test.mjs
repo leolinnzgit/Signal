@@ -81,7 +81,7 @@ test("follow reading scrolls only out-of-view sections inside the reader and res
 
 // Run the components' actual effects and event handlers with prepared audio and
 // a controllable speech engine, without requiring a device voice or a server.
-async function narrationHarness(mode) {
+async function narrationHarness(mode, { streaming = false } = {}) {
   const states = [], refs = [], memos = [], effects = [];
   let stateIndex, refIndex, memoIndex, effectIndex, dirty;
   let tree;
@@ -113,15 +113,23 @@ async function narrationHarness(mode) {
   const speech = { getVoices: () => [], addEventListener() {}, removeEventListener() {} };
   const element = { paused: true, ended: false, currentTime: 0, duration: sections.length * 3,
     pause() { this.paused = true; }, play() { this.paused = false; return Promise.resolve(); },
+    buffered: { length: 1, start: () => 0, end: () => sections.length * 3 },
+    getAttribute: () => "native-stream", removeAttribute() {}, load() {},
   };
+  let streamReport;
   const modules = {
     react, "react/jsx-runtime": { jsx, jsxs: jsx },
     "./headline-audio": { ...audio, preparedAudioCache: {
-      get: () => ({ blob: new Blob(["recording"]), starts: sections.map((_, index) => index * 3) }),
+      get: () => streaming ? undefined : ({ blob: new Blob(["recording"]), starts: sections.map((_, index) => index * 3) }),
       key: () => "article", position: () => undefined, savePosition() {},
     } },
-    "./ReadingVoiceSelector": { default: () => null, useReadingVoices: () => ({ loading: false, preferences: { en: "", zh: "" } }) },
+    "./ReadingVoiceSelector": { default: () => null, useReadingVoices: () => ({ loading: false, streaming, preferences: { en: "", zh: "" } }) },
     "./BrowserArticleAudioPlayer": { default: () => null },
+    "./article-audio-stream": { openArticleAudioStream(_parts, _language, _voices, _signal, report) {
+      assert.ok(streaming, "A prepared recording must bypass streaming.");
+      streamReport = report; report({ starts: [0], complete: false, duration: 0, error: null });
+      return Promise.resolve("/api/article-audio-stream/" + "a".repeat(32));
+    } },
     "./headline-playback": {
       HEADLINE_SPEECH_PREFERENCES_KEY: "preferences", normalizeHeadlineSpeechPreferences: () => ({ rate: 1, voices: {} }),
       browserSpeechRequiresTap: () => false, headlineSpeechLanguage: () => "en", rankHeadlineVoices: () => [],
@@ -140,7 +148,7 @@ async function narrationHarness(mode) {
     AbortController, performance: { now: () => 0 },
   });
   const component = mode === "browser" ? exports.default : exports.recorded;
-  const props = { title, source: "News", paragraphs, onReadingSectionChange: (section, playing) => reports.push({ section, playing }) };
+  const props = { title, source: "News", paragraphs, autoPrepare: streaming, onReadingSectionChange: (section, playing) => reports.push({ section, playing }) };
   function render() {
     let passes = 0;
     do {
@@ -156,11 +164,37 @@ async function narrationHarness(mode) {
     } while (dirty);
   }
   render();
+  if (streaming) { await new Promise(setImmediate); render(); }
   return { sections, reports, element, controllers, render,
+    reportStream(status) { streamReport(status); render(); },
     get events() { return find(tree, (node) => node.type === "audio")?.props; },
     click(text) { const button = find(tree, (node) => node.type === "button" && node.props.children === text); assert.ok(button, `Missing button: ${text}`); button.props.onClick(); render(); },
   };
 }
+
+test("the article player starts a native stream and follows arriving timestamps before completion", async () => {
+  const player = await narrationHarness("recorded", { streaming: true });
+  assert.match(player.events.src, /^\/api\/article-audio-stream\//);
+  assert.equal(player.element.paused, false, "Requested narration should start without waiting for a complete recording.");
+  player.events.onPlay(); player.render();
+  assert.deepEqual(player.reports.at(-1), { section: player.sections[0], playing: true });
+  player.reportStream({ starts: [0, 3], complete: false, duration: 0, error: null });
+  player.element.currentTime = 3.5; player.events.onTimeUpdate(); player.render();
+  assert.deepEqual(player.reports.at(-1), { section: player.sections[1], playing: true });
+  player.reportStream({ starts: [0, 3], complete: false, duration: 0, error: "Azure stream failed." });
+  assert.equal(player.element.paused, true);
+  assert.equal(player.events, undefined, "Failed streaming should return to retry controls.");
+});
+
+test("a completed stream becomes seekable audio while preserving the current playhead", async () => {
+  const player = await narrationHarness("recorded", { streaming: true });
+  player.element.currentTime = 3.5;
+  player.reportStream({ starts: player.sections.map((_, index) => index * 3), complete: true, duration: player.sections.length * 3, error: null });
+  assert.match(player.events.src, /\?ready=1$/);
+  player.events.onLoadedMetadata();
+  assert.equal(player.element.currentTime, 3.5);
+  assert.equal(player.element.paused, false);
+});
 
 test("recorded narration follows real timestamps, seeking and pause, then clears at the end", async () => {
   const player = await narrationHarness("recorded");

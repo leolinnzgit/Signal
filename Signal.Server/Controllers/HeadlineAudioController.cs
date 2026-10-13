@@ -20,6 +20,7 @@ public sealed class HeadlineAudioController(HeadlineAudioService audio, ILogger<
         {
             var voices = await audio.GetVoicesAsync(cancellationToken);
             Response.Headers["X-Signal-Audio-Engine"] = audio.EngineName;
+            Response.Headers["X-Signal-Article-Streaming"] = audio.EngineName == "azure-neural" ? "true" : "false";
             Response.Headers["X-Signal-Audio-Batch-Characters"] = audio.MaximumBatchCharacters.ToString(System.Globalization.CultureInfo.InvariantCulture);
             return Ok(voices);
         }
