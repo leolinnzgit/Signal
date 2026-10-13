@@ -25,6 +25,7 @@ public sealed class ArticleReaderService(
     IArticlePageRenderer? pageRenderer = null)
 {
     internal const string InsufficientTextReason = "Signal Reader could not find enough article text on this page.";
+    internal const string GoogleNewsResolutionReason = "Google News did not provide the publisher link this time. Try again later, or open the original story.";
 
     private const int MaximumArticleBytes = 2_000_000;
     private const int MaximumParagraphs = 80;
@@ -89,6 +90,15 @@ public sealed class ArticleReaderService(
 
             if (!IsRedirect(response.StatusCode))
             {
+                if (GoogleNewsArticleUrl.IsRedirectPage(currentUri))
+                {
+                    if (!response.IsSuccessStatusCode) return initialUri.AbsoluteUri;
+                    var html = await ReadLimitedHtmlAsync(response.Content, cancellationToken);
+                    var publisherUri = await ResolveGoogleNewsAsync(currentUri, html, cancellationToken);
+                    if (publisherUri is null) return initialUri.AbsoluteUri;
+                    currentUri = publisherUri;
+                    continue;
+                }
                 var resolvedUrl = currentUri.AbsoluteUri;
                 cache.Set(cacheKey, resolvedUrl, TimeSpan.FromHours(6));
                 return resolvedUrl;
@@ -110,7 +120,10 @@ public sealed class ArticleReaderService(
         Uri initialUri,
         CancellationToken cancellationToken)
     {
-        var currentUri = initialUri;
+        var currentUri = cache.TryGetValue($"article-url:{initialUri.AbsoluteUri}", out string? resolvedUrl)
+            && !string.IsNullOrWhiteSpace(resolvedUrl)
+            ? await ValidatePublicArticleUriAsync(resolvedUrl, cancellationToken)
+            : initialUri;
         for (var redirectCount = 0; redirectCount <= MaximumRedirects; redirectCount++)
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, currentUri);
@@ -150,6 +163,14 @@ public sealed class ArticleReaderService(
                 return Unavailable("This article is too large for Signal Reader.");
 
             var html = await ReadLimitedHtmlAsync(response.Content, cancellationToken);
+            if (GoogleNewsArticleUrl.IsRedirectPage(currentUri))
+            {
+                var publisherUri = await ResolveGoogleNewsAsync(currentUri, html, cancellationToken);
+                if (publisherUri is null) return Unavailable(GoogleNewsResolutionReason);
+                cache.Set($"article-url:{initialUri.AbsoluteUri}", publisherUri.AbsoluteUri, TimeSpan.FromHours(6));
+                currentUri = publisherUri;
+                continue;
+            }
             var extracted = ExtractArticle(html, currentUri);
             if (!extracted.Available && extracted.Reason == InsufficientTextReason && pageRenderer is not null)
             {
@@ -161,6 +182,20 @@ public sealed class ArticleReaderService(
         }
 
         return Unavailable("The publisher did not make this article available to Signal Reader.");
+    }
+
+    private async Task<Uri?> ResolveGoogleNewsAsync(Uri uri, string html, CancellationToken token)
+    {
+        try
+        {
+            return await GoogleNewsArticleUrl.ResolveAsync(httpClient, uri, html, token);
+        }
+        catch (Exception exception) when (exception is HttpRequestException or InvalidOperationException
+            || exception is OperationCanceledException && !token.IsCancellationRequested)
+        {
+            logger.LogDebug(exception, "Could not resolve Google News article {ArticleUrl}.", uri);
+            return null;
+        }
     }
 
     internal ArticleReaderResult ExtractArticle(string html, Uri finalUri)
