@@ -3699,6 +3699,17 @@ button.local-weather {
   text-transform: uppercase;
 }
 
+.article-ai-summary {
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.article-ai-summary h3 { margin: 0 0 0.75rem; }
+.article-ai-summary > p { line-height: 1.75; }
+.article-summary-caption { font-size: 0.85rem; opacity: 0.75; }
+
 .article-reader-end {
   display: flex;
   align-items: center;

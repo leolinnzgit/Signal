@@ -13,6 +13,8 @@ using Signal.Server.Controllers;
 using Signal.Server.Models;
 using Signal.Server.Services;
 
+await AzureLanguageSummaryChecks.RunAsync();
+if (args.Contains("--azure-summary-only")) return;
 if (args.Contains("--azure-speech-live")) { await AzureSpeechChecks.RunLiveAsync(); return; }
 if (args.Contains("--azure-stream-live"))
 {

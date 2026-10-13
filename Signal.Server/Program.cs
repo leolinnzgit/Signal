@@ -196,6 +196,10 @@ builder.Services.AddHttpClient<MarketDataService>(client =>
     client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
 });
 builder.Services.AddSingleton<IArticlePageRenderer, ArticlePageRenderer>();
+builder.Services.Configure<AzureLanguageOptions>(builder.Configuration.GetSection(AzureLanguageOptions.SectionName));
+builder.Services.AddSingleton<AzureLanguageSummaryService>();
+builder.Services.AddHttpClient(AzureLanguageSummaryService.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(20))
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
 builder.Services.AddHttpClient(ArticlePageRenderer.HttpClientName, client =>
 {
     client.Timeout = TimeSpan.FromSeconds(8);

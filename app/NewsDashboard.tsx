@@ -6,6 +6,7 @@ import { updateInstalledAppBadge } from "./app-badge";
 import { resolveArticleShareUrl, shareArticle } from "./article-share";
 import HeadlinePlayer from "./HeadlinePlayer";
 import ArticleAudioPlayer from "./ArticleAudioPlayer";
+import ArticleSummaryPlayer from "./ArticleSummaryPlayer";
 import { useWeatherAudio } from "./WeatherAudio";
 import { describeWeather, weatherBriefing, type LocalWeather, type WeatherForecastDay } from "./weather-briefing";
 import ArticleReadingText from "./ArticleReadingText";
@@ -4450,7 +4451,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               )}
               {readerContent.status === "ready" && (
                 <article className="article-reader-content">
-                  <ArticleAudioPlayer key={readerArticle.url} title={readerArticle.title} source={readerArticle.source}
+                  <ArticleSummaryPlayer key={readerArticle.url} url={readerArticle.url} title={readerArticle.title} source={readerArticle.source}
                     paragraphs={readerContent.article.paragraphs} autoPrepare={readerAudioRequested} onReadingSectionChange={updateReaderReading} />
                   {readerArticle.imageUrl && (
                     <img

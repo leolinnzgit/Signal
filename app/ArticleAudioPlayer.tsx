@@ -6,13 +6,13 @@ import ReadingVoiceSelector, { useReadingVoices } from "./ReadingVoiceSelector";
 import BrowserArticleAudioPlayer from "./BrowserArticleAudioPlayer";
 import { openArticleAudioStream } from "./article-audio-stream";
 
-export type ArticleAudioPlayerProps = { title: string; source: string; paragraphs: string[]; autoPrepare?: boolean; summaryOnly?: boolean; onReadingSectionChange?: (section: ArticleNarrationSection | null, playing: boolean) => void };
+export type ArticleAudioPlayerProps = { title: string; source: string; paragraphs: string[]; autoPrepare?: boolean; summaryOnly?: boolean; defaultMode?: "browser" | "recorded"; onReadingSectionChange?: (section: ArticleNarrationSection | null, playing: boolean) => void };
 
 export default function ArticleAudioPlayer(props: ArticleAudioPlayerProps) {
   const [speechSupported] = useState(() => typeof window !== "undefined" && "speechSynthesis" in window && "SpeechSynthesisUtterance" in window);
-  const [mode, setMode] = useState(() => preferBrowserArticleAudio(typeof navigator === "undefined" ? "" : navigator.userAgent, speechSupported) ? "browser" : "recorded");
+  const [mode, setMode] = useState(() => props.defaultMode ?? (preferBrowserArticleAudio(typeof navigator === "undefined" ? "" : navigator.userAgent, speechSupported) ? "browser" : "recorded"));
   useEffect(() => () => props.onReadingSectionChange?.(null, false), [props.onReadingSectionChange]);
-  function changeMode(nextMode: string) {
+  function changeMode(nextMode: "browser" | "recorded") {
     if (nextMode === mode) return;
     props.onReadingSectionChange?.(null, false);
     setMode(nextMode);
@@ -136,7 +136,7 @@ function RecordedArticleAudioPlayer({ title, source, paragraphs, autoPrepare = f
     const key = recordingKey.current;
     // The user requested narration. Phones that require a fresh gesture still
     // have the native Play control after asynchronous preparation.
-    if (resumePlayback.current) void element.play().catch(() => setMessage("Ready. Tap Play to read the full news aloud."));
+    if (resumePlayback.current) void element.play().catch(() => setMessage(summaryOnly ? "Summary ready. Tap Play to listen." : "Ready. Tap Play to read the full news aloud."));
     return () => {
       if (!streaming || element.getAttribute("src")) preparedAudioCache.savePosition(key, element.ended ? 0 : element.currentTime);
       element.pause();
@@ -164,7 +164,7 @@ function RecordedArticleAudioPlayer({ title, source, paragraphs, autoPrepare = f
   useEffect(() => {
     if (!url || !("mediaSession" in navigator)) return;
     const session = navigator.mediaSession;
-    if ("MediaMetadata" in window) session.metadata = new MediaMetadata({ title, artist: source, album: "Full news", artwork: [{ src: "/icons/signal-medallion-512.png", sizes: "512x512", type: "image/png" }] });
+    if ("MediaMetadata" in window) session.metadata = new MediaMetadata({ title, artist: source, album: summaryOnly ? "Article summary" : "Full news", artwork: [{ src: "/icons/signal-medallion-512.png", sizes: "512x512", type: "image/png" }] });
     const handlers: [MediaSessionAction, MediaSessionActionHandler][] = [
       ["play", () => { void audio.current?.play().catch(() => setMessage("Tap Play to resume reading.")); }],
       ["pause", () => audio.current?.pause()],
@@ -177,7 +177,7 @@ function RecordedArticleAudioPlayer({ title, source, paragraphs, autoPrepare = f
       session.metadata = null;
       session.playbackState = "none";
     };
-  }, [url, title, source]);
+  }, [url, title, source, summaryOnly]);
 
   useEffect(() => {
     onReadingSectionChange?.(readingSection, playing);
@@ -185,7 +185,7 @@ function RecordedArticleAudioPlayer({ title, source, paragraphs, autoPrepare = f
 
   function updatePlayback(playing: boolean) {
     setPlaying(playing);
-    setMessage(playing ? "Reading full news aloud. You can turn off the screen." : "Reading paused.");
+    setMessage(playing ? summaryOnly ? "Reading the summary aloud. You can turn off the screen." : "Reading full news aloud. You can turn off the screen." : "Reading paused.");
     if ("mediaSession" in navigator) navigator.mediaSession.playbackState = playing ? "playing" : "paused";
   }
 
@@ -226,8 +226,8 @@ function RecordedArticleAudioPlayer({ title, source, paragraphs, autoPrepare = f
       onPreviewStart={() => { resumePlayback.current = false; audio.current?.pause(); setPlaying(false); }} />
     {!url && !preparing && <button type="button" onClick={() => { resumePlayback.current = true; setAttempt((current) => current + 1); }}>{error ? "Try audio again" : summaryOnly ? "Read headline and summary aloud" : "Read full news aloud"}</button>}
     {preparing && <>
-      <p role="status">{streaming ? "Opening audio stream…" : `Preparing full article audio… ${progress}%`}</p>
-      <p>{streaming ? "Playback can begin while the rest of the article is generated." : "Keep Signal open until the recording is ready."}</p>
+      <p role="status">{streaming ? "Opening audio stream…" : `Preparing ${summaryOnly ? "summary" : "full article"} audio… ${progress}%`}</p>
+      <p>{streaming ? "Playback can begin while the rest of the audio is generated." : "Keep Signal open until the recording is ready."}</p>
       <button type="button" onClick={cancelPreparation}>Cancel audio preparation</button>
     </>}
     {url && <>
@@ -240,7 +240,7 @@ function RecordedArticleAudioPlayer({ title, source, paragraphs, autoPrepare = f
         onCanPlay={restoreStreamPosition} onProgress={restoreStreamPosition}
         onPlay={() => { updatePlayback(true); updatePosition(); }} onPause={() => updatePlayback(false)}
         onTimeUpdate={updatePosition} onSeeking={updatePosition}
-        onEnded={() => { updatePlayback(false); setReadingSection(null); setMessage("Finished reading this article."); }}
+        onEnded={() => { updatePlayback(false); setReadingSection(null); setMessage(summaryOnly ? "Finished reading the summary." : "Finished reading this article."); }}
         onError={() => { setError("The recording could not be played. Try preparing the audio again."); setPlaying(false); setReadingSection(null); setUrl(""); }} />
       <label>Speaking speed <select value={rate} onChange={(event) => setRate(Number(event.target.value))}>{[0.8, 1, 1.1, 1.2].map((value) => <option key={value} value={value}>{value}×</option>)}</select></label>
       <p role="status">{message}</p>
