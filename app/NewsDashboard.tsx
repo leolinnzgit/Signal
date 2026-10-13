@@ -1749,6 +1749,18 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     return "";
   }, [feedView, preferences.topics, selectedTopic, topicHasUnread]);
 
+  const nextFloatingTopic = useMemo(() => {
+    if (nextUnreadTopic) return nextUnreadTopic;
+    if (feedView !== "latest" || preferences.topics.length === 0) return "";
+    const currentIndex = selectedTopic === ALL_TOPICS
+      ? -1
+      : preferences.topics.findIndex(
+          (topic) => topic.toLowerCase() === selectedTopic.toLowerCase(),
+        );
+    const topic = preferences.topics[(currentIndex + 1) % preferences.topics.length];
+    return topic.toLowerCase() === selectedTopic.toLowerCase() ? "" : topic;
+  }, [feedView, nextUnreadTopic, preferences.topics, selectedTopic]);
+
   const previousTopic = useMemo(() => {
     if (feedView !== "latest" || selectedTopic === ALL_TOPICS || preferences.topics.length < 2) return "";
     const currentIndex = preferences.topics.findIndex(
@@ -4627,13 +4639,13 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               <span aria-hidden="true">&#8592;</span>
             </button>
           )}
-          {nextUnreadTopic && (
+          {nextFloatingTopic && (
             <button
               type="button"
               className="floating-next-unread"
-              onClick={() => selectTopicFilter(nextUnreadTopic)}
-              aria-label={`Go to next unread topic: ${nextUnreadTopic}`}
-              title={`Next unread: ${nextUnreadTopic}`}
+              onClick={() => selectTopicFilter(nextFloatingTopic)}
+              aria-label={`Go to next ${nextUnreadTopic ? "unread " : ""}topic: ${nextFloatingTopic}`}
+              title={`Next ${nextUnreadTopic ? "unread" : "topic"}: ${nextFloatingTopic}`}
             >
               <span aria-hidden="true">&#8594;</span>
             </button>
