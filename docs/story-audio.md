@@ -5,15 +5,15 @@ Signal Reader and starts reading the extracted article. If the full text is
 unavailable, Signal offers the headline and feed summary, or just the headline
 when no summary was provided.
 
-On PCs with browser speech support, article narration defaults to **Browser
-voice**, using the same saved voice and speed preferences as headline playback.
-The player supports Play/Pause, Stop, Previous/Next section, voice choice and
-speaking speed. Closing the reader or changing the audio mode stops that player.
-Long text is read in short chunks, with automatic English/Chinese voice selection.
+On PCs, headline playback and article narration default to **Recorded audio**.
+Phones retain recorded audio as their article default. Users can choose
+**Browser voice** or **Recorded audio** in the reader. Recorded audio supports
+the existing screen-off playback and device media controls.
 
-Phones retain recorded audio as their default. Users can choose **Browser voice**
-or **Recorded audio** in the reader. Recorded audio supports the existing
-screen-off playback and device media controls.
+Browser voice uses the saved browser voice and speed preferences. Its player
+supports Play/Pause, Stop, Previous/Next section, voice choice and speaking speed.
+Closing the reader or changing the audio mode stops that player. Long text is
+read in short chunks, with automatic English/Chinese voice selection.
 
 Both audio modes highlight the current spoken section in the reader. **Follow
 reading** keeps that section in view as narration advances; turn it off in the
@@ -90,7 +90,7 @@ including Azure credentials, are preserved. No account or API key is needed.
 
 Refresh Signal and select **Recorded audio**. Defaults are Emma (British English)
 and Xiaobei (Mandarin); the voice picker exposes the installed English and Mandarin
-voices and supports previews. PCs still default to Browser voice. Kokoro provides
+voices and supports previews. PCs default to Recorded audio. Kokoro provides
 its own voices; the sound will differ from the browser voice.
 
 Models and Python remain in `C:\sites\SignalHost\App_Data\Kokoro`, preserved by

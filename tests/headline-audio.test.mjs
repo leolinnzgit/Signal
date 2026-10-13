@@ -6,7 +6,7 @@ import ts from "typescript";
 
 const source = await readFile(new URL("../app/headline-audio.ts", import.meta.url), "utf8");
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } }).outputText;
-const { configureRecordedAudio, recordedArticleNarrationParts, preparedAudioCache, PreparedAudioCache, prepareHeadlineAudio, prepareArticleAudio, prepareReadingVoicePreview, articleNarrationParts, audioHeadlineIndex, preferScreenOffAudio, preferBrowserArticleAudio, normalizeReadingVoices } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
+const { configureRecordedAudio, recordedArticleNarrationParts, preparedAudioCache, PreparedAudioCache, prepareHeadlineAudio, prepareArticleAudio, prepareReadingVoicePreview, articleNarrationParts, audioHeadlineIndex, preferScreenOffAudio, normalizeReadingVoices } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
 const titles = ["English headline", "中文新聞"];
 const signal = new AbortController().signal;
 
@@ -364,12 +364,16 @@ test("closing full news preparation cancels remaining batches", async () => {
   assert.equal(count, 1);
 });
 
-test("installed Android apps start with recorded audio, including Samsung and Chrome", () => {
+test("PCs and installed Android apps start with recorded headline audio", () => {
   assert.equal(preferScreenOffAudio("Mozilla/5.0 (Linux; Android 14; SM-S918B) Chrome/128.0", true), true);
   assert.equal(preferScreenOffAudio("Mozilla/5.0 (Linux; Android 14; SM-S918B) SamsungBrowser/27.0 Chrome/125.0", true), true);
   assert.equal(preferScreenOffAudio("Mozilla/5.0 (Linux; Android 14; SM-S918B) Chrome/128.0", false), false);
-  assert.equal(preferScreenOffAudio("Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/128.0", true), false);
+  for (const agent of ["Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/128.0", "Mozilla/5.0 (Macintosh; Intel Mac OS X)", "Mozilla/5.0 (X11; Linux x86_64)"]) {
+    assert.equal(preferScreenOffAudio(agent, true), true);
+    assert.equal(preferScreenOffAudio(agent, false), true);
+  }
   assert.equal(preferScreenOffAudio("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)", true), false);
+  assert.equal(preferScreenOffAudio("Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X)", false), false);
 });
 
 function waveResponse(starts, duration, sample = 7) {
@@ -501,16 +505,6 @@ test("maps playback position to headlines across gaps, seeking and delayed backg
   assert.equal(audioHeadlineIndex(starts, 120), 3);
   assert.equal(audioHeadlineIndex(starts, -1), 0);
   assert.equal(audioHeadlineIndex([], 10), 0);
-});
-
-test("desktop article narration prefers browser speech while phones retain recorded audio", () => {
-  for (const agent of ["Mozilla/5.0 (Windows NT 10.0; Win64; x64)", "Mozilla/5.0 (Macintosh; Intel Mac OS X)", "Mozilla/5.0 (X11; Linux x86_64)"]) {
-    assert.equal(preferBrowserArticleAudio(agent, true), true);
-    assert.equal(preferBrowserArticleAudio(agent, false), false);
-  }
-  for (const agent of ["Mozilla/5.0 (Linux; Android 14)", "Mozilla/5.0 (iPhone; CPU iPhone OS)", "Mozilla/5.0 (iPad; CPU OS)"]) {
-    assert.equal(preferBrowserArticleAudio(agent, true), false);
-  }
 });
 
 test("browser narration uses short complete chunks and preserves long words, Chinese and emoji", () => {

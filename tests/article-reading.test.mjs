@@ -31,6 +31,41 @@ function find(node, predicate) {
   }
 }
 
+test("article audio defaults to recorded playback and lets users select browser voice", async () => {
+  const code = await compile("ArticleAudioPlayer.tsx", true);
+  const browserPlayer = () => null;
+  for (const speechSupported of [true, false]) {
+    const states = [];
+    let stateIndex = 0;
+    const component = load(code, {
+      react: {
+        useState(initial) {
+          const slot = stateIndex++;
+          if (!(slot in states)) states[slot] = typeof initial === "function" ? initial() : initial;
+          return [states[slot], (value) => { states[slot] = value; }];
+        },
+        useEffect() {},
+      },
+      "react/jsx-runtime": { jsx, jsxs: jsx }, "./headline-audio": audio,
+      "./ReadingVoiceSelector": {}, "./BrowserArticleAudioPlayer": { default: browserPlayer },
+      "./article-audio-stream": {},
+    }, { window: speechSupported ? { speechSynthesis: {}, SpeechSynthesisUtterance() {} } : {} }).default;
+    const render = (props = {}) => { stateIndex = 0; return component({ title: "News", source: "Source", paragraphs: ["Story"], ...props }); };
+    const tree = render();
+    assert.equal(find(tree, (node) => node.props.children === "Recorded audio").props["aria-pressed"], true);
+    const browserButton = find(tree, (node) => node.props.children === "Browser voice");
+    assert.equal(browserButton.props.disabled, !speechSupported);
+    if (speechSupported) {
+      browserButton.props.onClick();
+      assert.ok(find(render(), (node) => node.type === browserPlayer));
+      find(render(), (node) => node.props.children === "Recorded audio").props.onClick();
+      assert.equal(find(render(), (node) => node.props.children === "Recorded audio").props["aria-pressed"], true);
+    }
+    states.length = 0;
+    assert.ok(find(render({ defaultMode: "browser" }), (node) => node.type === browserPlayer));
+  }
+});
+
 test("narration sections preserve paragraph indices and exact text through whitespace, repeated words and Unicode splits", () => {
   const paragraphs = [" ", "  A repeated sentence.\n".repeat(60), "", "中文內容。🚀".repeat(180)];
   for (const maximum of [240, 300, 900]) {

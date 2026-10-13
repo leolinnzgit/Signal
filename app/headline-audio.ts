@@ -109,11 +109,7 @@ export function normalizeReadingVoices(value: unknown): ReadingVoicePreferences 
 }
 
 export function preferScreenOffAudio(userAgent: string, standalone: boolean) {
-  return standalone && /Android/i.test(userAgent);
-}
-
-export function preferBrowserArticleAudio(userAgent: string, speechSupported: boolean) {
-  return speechSupported && !/Android|iPhone|iPad|iPod|Mobile/i.test(userAgent);
+  return !/Android|iPhone|iPad|iPod|Mobile/i.test(userAgent) || (standalone && /Android/i.test(userAgent));
 }
 
 export function prepareReadingVoicePreview(

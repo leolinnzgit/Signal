@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { recordedArticleNarrationSections, audioHeadlineIndex, preferBrowserArticleAudio, preparedAudioCache, prepareArticleAudio, type ArticleNarrationSection, type PreparedHeadlineAudio, type ReadingVoicePreferences } from "./headline-audio";
+import { recordedArticleNarrationSections, audioHeadlineIndex, preparedAudioCache, prepareArticleAudio, type ArticleNarrationSection, type PreparedHeadlineAudio, type ReadingVoicePreferences } from "./headline-audio";
 import ReadingVoiceSelector, { useReadingVoices } from "./ReadingVoiceSelector";
 import BrowserArticleAudioPlayer from "./BrowserArticleAudioPlayer";
 import { openArticleAudioStream } from "./article-audio-stream";
@@ -10,7 +10,7 @@ export type ArticleAudioPlayerProps = { title: string; source: string; paragraph
 
 export default function ArticleAudioPlayer(props: ArticleAudioPlayerProps) {
   const [speechSupported] = useState(() => typeof window !== "undefined" && "speechSynthesis" in window && "SpeechSynthesisUtterance" in window);
-  const [mode, setMode] = useState(() => props.defaultMode ?? (preferBrowserArticleAudio(typeof navigator === "undefined" ? "" : navigator.userAgent, speechSupported) ? "browser" : "recorded"));
+  const [mode, setMode] = useState(() => props.defaultMode ?? "recorded");
   useEffect(() => () => props.onReadingSectionChange?.(null, false), [props.onReadingSectionChange]);
   function changeMode(nextMode: "browser" | "recorded") {
     if (nextMode === mode) return;
