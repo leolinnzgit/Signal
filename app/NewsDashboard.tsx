@@ -7,6 +7,8 @@ import { resolveArticleShareUrl, shareArticle } from "./article-share";
 import HeadlinePlayer from "./HeadlinePlayer";
 import ArticleAudioPlayer from "./ArticleAudioPlayer";
 import ArticleSummaryPlayer from "./ArticleSummaryPlayer";
+import ArticleTranslationControls from "./ArticleTranslationControls";
+import type { ArticleTranslation } from "./article-translation";
 import { useWeatherAudio } from "./WeatherAudio";
 import { describeWeather, weatherBriefing, type LocalWeather, type WeatherForecastDay } from "./weather-briefing";
 import ArticleReadingText from "./ArticleReadingText";
@@ -839,11 +841,16 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [floatingNavigationSide, setFloatingNavigationSide] = useState<"left" | "right">("left");
   const [readerArticle, setReaderArticle] = useState<FollowedArticle | null>(null);
   const [readerAudioRequested, setReaderAudioRequested] = useState(false);
+  const [readerTranslation, setReaderTranslation] = useState<ArticleTranslation | null>(null);
   const [readerReading, setReaderReading] = useState<{ section: ArticleNarrationSection | null; playing: boolean }>({ section: null, playing: false });
   const [followReading, setFollowReading] = useState(true);
   const readerScrollBody = useRef<HTMLDivElement>(null);
   const updateReaderReading = useCallback((section: ArticleNarrationSection | null, playing: boolean) => {
     setReaderReading((current) => current.section === section && current.playing === playing ? current : { section, playing });
+  }, []);
+  const updateReaderTranslation = useCallback((translation: ArticleTranslation | null) => {
+    setReaderTranslation(translation);
+    setReaderReading({ section: null, playing: false });
   }, []);
   const [headlineQueue, setHeadlineQueue] = useState<FollowedArticle[] | null>(null);
   const headlineFullscreenRequested = useRef(false);
@@ -2655,6 +2662,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     readerTrigger.current = trigger;
     markArticleRead(article);
     setReaderArticle(article);
+    setReaderTranslation(null);
     setReaderAudioRequested(listen);
     setReaderReading({ section: null, playing: false });
     setFollowReading(true);
@@ -2733,6 +2741,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   function closeArticleReader() {
     readerRequestSequence.current += 1;
     setReaderArticle(null);
+    setReaderTranslation(null);
     setReaderContent({ status: "idle" });
     setReaderReading({ section: null, playing: false });
     window.requestAnimationFrame(() => readerTrigger.current?.focus());
@@ -4422,7 +4431,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                 <span>{readerArticle.source}</span>
                 <span>{formatAge(readerArticle.publishedAt)}</span>
               </div>
-              <h2 id="article-reader-title"><ArticleReadingText text={readerArticle.title} paragraphIndex={-1} section={readerReading.section} /></h2>
+              <h2 id="article-reader-title" lang={readerTranslation?.language} dir="auto"><ArticleReadingText text={readerTranslation?.title ?? readerArticle.title} paragraphIndex={-1} section={readerReading.section} /></h2>
               <p>
                 {readerContent.status === "loading"
                   ? "Preparing a clean reading view…"
@@ -4451,8 +4460,13 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               )}
               {readerContent.status === "ready" && (
                 <article className="article-reader-content">
-                  <ArticleSummaryPlayer key={readerArticle.url} url={readerArticle.url} title={readerArticle.title} source={readerArticle.source}
-                    paragraphs={readerContent.article.paragraphs} autoPrepare={readerAudioRequested} onReadingSectionChange={updateReaderReading} />
+                  <ArticleTranslationControls key={readerArticle.url} url={readerArticle.url} title={readerArticle.title}
+                    translated={readerTranslation !== null} onChange={updateReaderTranslation} />
+                  {readerTranslation ? <ArticleAudioPlayer key={`${readerArticle.url}-${readerTranslation.language}`}
+                    title={readerTranslation.title} source={readerArticle.source} paragraphs={readerTranslation.paragraphs}
+                    onReadingSectionChange={updateReaderReading} />
+                    : <ArticleSummaryPlayer key={readerArticle.url} url={readerArticle.url} title={readerArticle.title} source={readerArticle.source}
+                      paragraphs={readerContent.article.paragraphs} autoPrepare={readerAudioRequested} onReadingSectionChange={updateReaderReading} />}
                   {readerArticle.imageUrl && (
                     <img
                       className="article-reader-image"
@@ -4470,8 +4484,8 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                         .join(" / ")}
                     </p>
                   )}
-                  {readerContent.article.paragraphs.map((paragraph, index) => (
-                    <p key={`${index}-${paragraph.slice(0, 24)}`}><ArticleReadingText text={paragraph} paragraphIndex={index} section={readerReading.section} /></p>
+                  {(readerTranslation?.paragraphs ?? readerContent.article.paragraphs).map((paragraph, index) => (
+                    <p key={`${index}-${paragraph.slice(0, 24)}`} lang={readerTranslation?.language} dir="auto"><ArticleReadingText text={paragraph} paragraphIndex={index} section={readerReading.section} /></p>
                   ))}
                   <div className="article-reader-end">
                     <span>End of reader view</span>

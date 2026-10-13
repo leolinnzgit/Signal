@@ -3709,6 +3709,13 @@ button.local-weather {
 .article-ai-summary h3 { margin: 0 0 0.75rem; }
 .article-ai-summary > p { line-height: 1.75; }
 .article-summary-caption { font-size: 0.85rem; opacity: 0.75; }
+.article-translation { margin-bottom: 1.2rem; padding-bottom: 1rem; border-bottom: 1px solid var(--line); }
+.article-translation-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.65rem; }
+.article-translation-controls label { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; font-size: 0.85rem; }
+.article-translation-controls select, .article-translation-controls button { padding: 0.55rem 0.7rem; border: 1px solid var(--line); border-radius: 5px; background: var(--paper); color: var(--ink); font: inherit; font-size: 0.85rem; }
+.article-translation-controls button { cursor: pointer; }
+.article-translation-controls button:disabled { opacity: 0.6; cursor: wait; }
+.article-translation > p { margin: 0.65rem 0 0; font-size: 0.8rem; opacity: 0.75; }
 
 .article-reader-end {
   display: flex;
