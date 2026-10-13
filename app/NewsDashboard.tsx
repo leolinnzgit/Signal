@@ -6,7 +6,7 @@ import { updateInstalledAppBadge } from "./app-badge";
 import { resolveArticleShareUrl, shareArticle } from "./article-share";
 import HeadlinePlayer from "./HeadlinePlayer";
 import ArticleAudioPlayer from "./ArticleAudioPlayer";
-import WeatherAudio from "./WeatherAudio";
+import { useWeatherAudio } from "./WeatherAudio";
 import { describeWeather, weatherBriefing, type LocalWeather, type WeatherForecastDay } from "./weather-briefing";
 import ArticleReadingText from "./ArticleReadingText";
 import { scrollReadingSectionIntoView } from "./article-reading-follow";
@@ -899,6 +899,8 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     : Object.entries(preferences.tickerOverrides)
         .find(([topic]) => topic.toLowerCase() === selectedTopic.toLowerCase())?.[1] ?? "";
 
+  const weatherAudio = useWeatherAudio(weatherBriefing(weatherStatus === "ready" ? localWeather : null, weatherForecast), !!headlineQueue || !!readerArticle);
+
   const trendTrafficRange = useMemo(() => {
     const values = trendingTerms.map((term) => trendTrafficValue(term.traffic)).filter((value) => value > 0);
     return {
@@ -1647,6 +1649,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
 
   function startHeadlinePlayback() {
     if (unreadArticles.length === 0) return;
+    weatherAudio.stop();
     // Snapshot the queue so refreshes and read-status updates cannot skip titles.
     setHeadlineQueue([...unreadArticles]);
     if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent) && !document.fullscreenElement && document.documentElement.requestFullscreen) {
@@ -2647,6 +2650,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     [readerArticle?.summary, readerArticle?.title]);
 
   function openArticleReader(article: FollowedArticle, trigger: HTMLElement, listen = false) {
+    weatherAudio.stop();
     readerTrigger.current = trigger;
     markArticleRead(article);
     setReaderArticle(article);
@@ -3058,8 +3062,6 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               )}
             </div>
           )}
-          <WeatherAudio text={weatherBriefing(weatherStatus === "ready" ? localWeather : null, weatherForecast)}
-            suspended={!!headlineQueue || !!readerArticle} />
         </aside>
         {forecastOpen && weatherForecast.length > 0 && localWeather && (
           <section className="weather-forecast-panel" id="seven-day-weather" aria-label="Seven day weather forecast">
@@ -4254,6 +4256,14 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                 ))}
               </div>
             )}
+            <div className="weather-speech-settings">
+              <label><input type="checkbox" checked={weatherAudio.enabled} onChange={(event) => weatherAudio.changeEnabled(event.target.checked)} />Read weather on opening</label>
+              <div className="topic-confirmation-actions">
+                <button type="button" disabled={!weatherAudio.available} onClick={weatherAudio.read}>Read weather now</button>
+                <button type="button" disabled={weatherAudio.status !== "playing" && weatherAudio.status !== "starting"} onClick={weatherAudio.stop}>Stop reading</button>
+              </div>
+              {weatherAudio.status === "blocked" && <p role="status">Tap Read weather now to allow browser speech.</p>}
+            </div>
             <div className="topic-confirmation-actions weather-location-actions">
               <button type="button" onClick={useDeviceWeatherLocation}>
                 Use my device location
