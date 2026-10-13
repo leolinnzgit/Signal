@@ -9,6 +9,34 @@ using Signal.Server.Services;
 internal static class AzureSpeechChecks
 {
     private static void Assert(bool condition, string message) { if (!condition) throw new Exception(message); }
+    public static async Task RunLiveAsync()
+    {
+        var path = Environment.GetEnvironmentVariable("SIGNAL_AZURE_TEST_CONFIG") ?? @"C:\sites\SignalHost\appsettings.Production.json";
+        using var configuration = JsonDocument.Parse(await File.ReadAllTextAsync(path));
+        var settings = configuration.RootElement.GetProperty("Speech").Deserialize<AzureSpeechOptions>()!;
+        settings.Validate();
+        Assert(settings.Enabled, "The live Speech configuration must select Azure.");
+        var synth = new LiveSynthesizer(new AzureSpeechSynthesizer(Options.Create(settings)));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+        var directory = Path.Combine(Path.GetTempPath(), "SignalAzureLive-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            using var client = new HttpClient();
+            var renderer = new AzureSpeechAudioRenderer(Options.Create(settings), client, synth, directory);
+            var disabled = Options.Create(new KokoroSpeechOptions { Provider = settings.Provider });
+            var service = new HeadlineAudioService(renderer, new KokoroAudioRenderer(disabled, new UnusedKokoroWorker(), directory));
+            var request = new HeadlineAudioRequest(["Signal audio is ready.", "語音已準備好。", "Signal audio is ready."], 3,
+                Voices: new Dictionary<string, string> { ["en"] = "kokoro/bf_emma", ["zh"] = "kokoro/zf_xiaobei" });
+            var recording = await service.GenerateAsync(request, timeout.Token);
+            Assert(service.EngineName == "azure-neural" && HeadlineAudioHealthCheck.IsCompleteRecording(recording, 3, 3),
+                "Live Azure did not produce complete English and Chinese narration after switching from Kokoro.");
+            await service.GenerateAsync(request with { Seconds = 6 }, timeout.Token);
+            Assert(synth.Calls == 1, "Live replay did not reuse the cached Azure clips.");
+            Console.WriteLine("Live Azure passed English/Chinese audio, stale Kokoro voice fallback, timing, duplicate reuse and cached replay.");
+        }
+        finally { if (Directory.Exists(directory)) { foreach (var file in Directory.GetFiles(directory)) File.Delete(file); Directory.Delete(directory); } }
+    }
+
     public static async Task RunAsync()
     {
         new AzureSpeechOptions().Validate();
@@ -80,13 +108,20 @@ internal static class AzureSpeechChecks
 
     private static void CheckIncompleteAudio()
     {
+        var pcm = Enumerable.Repeat((byte)1, 44_800).ToArray();
+        var complete = AzureSpeechAudioRenderer.SplitClips(new AzureSpeechBatch(pcm,
+            new Dictionary<string, ulong> { ["clip-0-start"] = 0, ["clip-1-start"] = 7_000_000 }), 2);
+        Assert(complete.Length == 2 && complete.All(clip => clip.Length == 22_400)
+            && complete.SelectMany(clip => clip).SequenceEqual(pcm), "Start-only bookmarks lost or truncated narration.");
         foreach (var marks in new[] {
             new Dictionary<string, ulong>(),
-            new Dictionary<string, ulong> { ["clip-0-start"] = 0, ["clip-0-end"] = 10_000_000 },
-            new Dictionary<string, ulong> { ["clip-0-start"] = 5_000_000, ["clip-0-end"] = 1_000_000 },
+            new Dictionary<string, ulong> { ["clip-0-start"] = 0 },
+            new Dictionary<string, ulong> { ["clip-0-start"] = 0, ["clip-1-start"] = 0 },
+            new Dictionary<string, ulong> { ["clip-0-start"] = 5_000_000, ["clip-1-start"] = 1_000_000 },
+            new Dictionary<string, ulong> { ["clip-0-start"] = 0, ["clip-1-start"] = 20_000_000 },
         })
         {
-            try { AzureSpeechAudioRenderer.SplitClips(new AzureSpeechBatch(Enumerable.Repeat((byte)1, 19_200).ToArray(), marks), 1); throw new Exception("Incomplete Azure audio was accepted."); }
+            try { AzureSpeechAudioRenderer.SplitClips(new AzureSpeechBatch(pcm, marks), 2); throw new Exception("Incomplete Azure audio was accepted."); }
             catch (InvalidOperationException) { }
         }
         try { AzureSpeechAudioRenderer.SplitClips(new AzureSpeechBatch(new byte[19_200], new Dictionary<string, ulong> { ["clip-0-start"] = 0, ["clip-0-end"] = 6_000_000 }), 1); throw new Exception("Silent Azure audio was accepted."); }
@@ -139,11 +174,22 @@ internal static class AzureSpeechChecks
                 marks[voice.Elements(ns + "bookmark").First().Attribute("mark")!.Value] = (ulong)(pcm.Length / 32_000d * TimeSpan.TicksPerSecond);
                 var value = (byte)(SHA256.HashData(Encoding.UTF8.GetBytes(text + Voices.Last()))[0] % 254 + 1);
                 pcm.Write(Enumerable.Repeat(value, 19_200).ToArray());
-                marks[voice.Elements(ns + "bookmark").Last().Attribute("mark")!.Value] = (ulong)(pcm.Length / 32_000d * TimeSpan.TicksPerSecond);
                 pcm.Write(new byte[3_200]);
             }
             LargestBatchCharacters = Math.Max(LargestBatchCharacters, characters);
             return new AzureSpeechBatch(pcm.ToArray(), marks);
         }
+    }
+
+    private sealed class LiveSynthesizer(IAzureSpeechSynthesizer inner) : IAzureSpeechSynthesizer
+    {
+        public int Calls;
+        public Task<AzureSpeechBatch> SynthesizeAsync(string ssml, CancellationToken token) { Calls++; return inner.SynthesizeAsync(ssml, token); }
+    }
+
+    private sealed class UnusedKokoroWorker : IKokoroSpeechWorker
+    {
+        public Task<byte[][]> GenerateAsync(IReadOnlyList<KokoroClip> clips, CancellationToken token, bool background = false)
+            => throw new Exception("Azure narration invoked Kokoro.");
     }
 }

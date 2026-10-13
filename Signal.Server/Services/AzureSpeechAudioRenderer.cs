@@ -127,9 +127,9 @@ public sealed class AzureSpeechAudioRenderer
             clips.Select((clip, index) => new XElement(ns + "voice", new XAttribute("name", clip.Voice),
                 new XElement(ns + "bookmark", new XAttribute("mark", $"clip-{index}-start")),
                 new XText(clip.Text),
-                new XElement(ns + "bookmark", new XAttribute("mark", $"clip-{index}-end")),
-                // Adjacent bookmarks are coalesced by some voices. Separate them
-                // with silence, then exclude this spacer when splitting the PCM.
+                // Azure can omit bookmarks after sentence-ending punctuation.
+                // Split at the next start marker (or PCM end) instead, retaining
+                // all speech and this short spacer in the cached clip.
                 new XElement(ns + "break", new XAttribute("time", "100ms")))))
             .ToString(SaveOptions.DisableFormatting);
     }
@@ -143,11 +143,17 @@ public sealed class AzureSpeechAudioRenderer
         for (var index = 0; index < count; index++)
         {
             if (!batch.Bookmarks.TryGetValue($"clip-{index}-start", out var startTicks)
-                || !batch.Bookmarks.TryGetValue($"clip-{index}-end", out var endTicks)
-                || endTicks <= startTicks || endTicks / (double)TimeSpan.TicksPerSecond > batch.Pcm.Length / (double)BytesPerSecond + 1d / 16_000)
+                || startTicks / (double)TimeSpan.TicksPerSecond >= batch.Pcm.Length / (double)BytesPerSecond)
                 throw new InvalidOperationException("Azure returned an incomplete recording. Try preparing audio again.");
             var start = checked((int)Math.Round(startTicks / (double)TimeSpan.TicksPerSecond * 16_000) * 2);
-            var end = Math.Min(batch.Pcm.Length, checked((int)Math.Round(endTicks / (double)TimeSpan.TicksPerSecond * 16_000) * 2));
+            var end = batch.Pcm.Length;
+            if (index + 1 < count)
+            {
+                if (!batch.Bookmarks.TryGetValue($"clip-{index + 1}-start", out var nextTicks)
+                    || nextTicks / (double)TimeSpan.TicksPerSecond >= batch.Pcm.Length / (double)BytesPerSecond)
+                    throw new InvalidOperationException("Azure returned an incomplete recording. Try preparing audio again.");
+                end = checked((int)Math.Round(nextTicks / (double)TimeSpan.TicksPerSecond * 16_000) * 2);
+            }
             if (start < previousEnd || end <= start || batch.Pcm.AsSpan(start, end - start).IndexOfAnyExcept((byte)0) < 0)
                 throw new InvalidOperationException("Azure returned missing or silent narration.");
             segments[index] = batch.Pcm[start..end];

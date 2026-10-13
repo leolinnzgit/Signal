@@ -13,6 +13,8 @@ using Signal.Server.Controllers;
 using Signal.Server.Models;
 using Signal.Server.Services;
 
+if (args.Contains("--azure-speech-live")) { await AzureSpeechChecks.RunLiveAsync(); return; }
+
 ArticleAudioPreparationChecks.Run();
 await ArticleAudioPreparationChecks.RunHostedAsync();
 await KokoroSpeechChecks.RunAsync();
