@@ -10,6 +10,10 @@ Phones retain recorded audio as their article default. Users can choose
 **Browser voice** or **Recorded audio** in the reader. Recorded audio supports
 the existing screen-off playback and device media controls.
 
+The **Reading voice** section starts hidden. Select **Show** to choose or preview
+a voice, and **Hide** to collapse it. Hiding the section stops any voice preview
+without stopping the main narration; saved voice choices are retained.
+
 Browser voice uses the saved browser voice and speed preferences. Its player
 supports Play/Pause, Stop, Previous/Next section, voice choice and speaking speed.
 Closing the reader or changing the audio mode stops that player. Long text is

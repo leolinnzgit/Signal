@@ -329,33 +329,36 @@ export default function HeadlinePlayer({ articles, startWithScreenOffAudio = fal
               </span>
             </div>
           </div>
-          <div className="headline-player-voice-settings">
-            <label>Reading voice
-              <select
-                value={preferredVoiceId === DEVICE_DEFAULT_SPEECH_VOICE ? DEVICE_DEFAULT_SPEECH_VOICE : preferredVoice ? headlineVoiceId(preferredVoice) : ""}
-                disabled={!speechSupported || !voicesReady}
-                onChange={(event) => {
-                  const voiceId = event.target.value;
-                  setSpeechError(false);
-                  setSpeechPreferences((current) => ({ ...current, voices: { ...current.voices, [languageKey]: voiceId } }));
-                }}
-              >
-                <option value="">Automatic{automaticVoice ? ` — ${automaticVoice.name}` : " — browser default"}</option>
-                <option value={DEVICE_DEFAULT_SPEECH_VOICE}>Device default — compatibility</option>
-                {availableVoices.map((voice) => <option key={headlineVoiceId(voice)} value={headlineVoiceId(voice)}>{voice.name} ({voice.lang})</option>)}
-              </select>
-            </label>
-            <label>Speaking speed
-              <select
-                value={speechPreferences.rate}
-                disabled={!speechSupported}
-                onChange={(event) => setSpeechPreferences((current) => ({ ...current, rate: Number(event.target.value) }))}
-              >
-                {Array.from(new Set([0.8, 0.95, 1, 1.1, 1.2, speechPreferences.rate])).sort((left, right) => left - right)
-                  .map((rate) => <option key={rate} value={rate}>{rate}×{rate === 0.95 ? " — relaxed" : rate === 1 ? " — normal" : ""}</option>)}
-              </select>
-            </label>
-          </div>
+          <details className="reading-voice-disclosure">
+            <summary>Reading voice <span className="reading-voice-show">Show</span><span className="reading-voice-hide">Hide</span></summary>
+            <div className="headline-player-voice-settings">
+              <label>Reading voice
+                <select
+                  value={preferredVoiceId === DEVICE_DEFAULT_SPEECH_VOICE ? DEVICE_DEFAULT_SPEECH_VOICE : preferredVoice ? headlineVoiceId(preferredVoice) : ""}
+                  disabled={!speechSupported || !voicesReady}
+                  onChange={(event) => {
+                    const voiceId = event.target.value;
+                    setSpeechError(false);
+                    setSpeechPreferences((current) => ({ ...current, voices: { ...current.voices, [languageKey]: voiceId } }));
+                  }}
+                >
+                  <option value="">Automatic{automaticVoice ? ` — ${automaticVoice.name}` : " — browser default"}</option>
+                  <option value={DEVICE_DEFAULT_SPEECH_VOICE}>Device default — compatibility</option>
+                  {availableVoices.map((voice) => <option key={headlineVoiceId(voice)} value={headlineVoiceId(voice)}>{voice.name} ({voice.lang})</option>)}
+                </select>
+              </label>
+              <label>Speaking speed
+                <select
+                  value={speechPreferences.rate}
+                  disabled={!speechSupported}
+                  onChange={(event) => setSpeechPreferences((current) => ({ ...current, rate: Number(event.target.value) }))}
+                >
+                  {Array.from(new Set([0.8, 0.95, 1, 1.1, 1.2, speechPreferences.rate])).sort((left, right) => left - right)
+                    .map((rate) => <option key={rate} value={rate}>{rate}×{rate === 0.95 ? " — relaxed" : rate === 1 ? " — normal" : ""}</option>)}
+                </select>
+              </label>
+            </div>
+          </details>
         </div>
       )}
     </section></>,

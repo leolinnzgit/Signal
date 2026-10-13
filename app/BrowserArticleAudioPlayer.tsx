@@ -191,14 +191,19 @@ export default function BrowserArticleAudioPlayer({ title, paragraphs, autoPrepa
       <button type="button" disabled={index === 0} onClick={() => moveTo(index - 1)}>Previous section</button>
       <button type="button" disabled={completed} onClick={() => moveTo(index + 1)}>Next section</button>
     </div>
-    <label>Reading voice
-      <select aria-label="Reading voice" value={preferredId === DEVICE_DEFAULT_SPEECH_VOICE ? DEVICE_DEFAULT_SPEECH_VOICE : preferredVoice ? headlineVoiceId(preferredVoice) : ""}
-        onChange={(event) => changePreferences({ ...preferences, voices: { ...preferences.voices, [languageKey]: event.target.value } })}>
-        <option value="">Automatic{automaticVoice ? ` — ${automaticVoice.name}` : " — browser default"}</option>
-        <option value={DEVICE_DEFAULT_SPEECH_VOICE}>Device default — compatibility</option>
-        {availableVoices.map((voice) => <option key={headlineVoiceId(voice)} value={headlineVoiceId(voice)}>{voice.name} — {voice.lang}</option>)}
-      </select>
-    </label>
+    <details className="reading-voice-disclosure">
+      <summary>Reading voice <span className="reading-voice-show">Show</span><span className="reading-voice-hide">Hide</span></summary>
+      <div className="reading-voice-content">
+        <label>Reading voice
+          <select aria-label="Reading voice" value={preferredId === DEVICE_DEFAULT_SPEECH_VOICE ? DEVICE_DEFAULT_SPEECH_VOICE : preferredVoice ? headlineVoiceId(preferredVoice) : ""}
+            onChange={(event) => changePreferences({ ...preferences, voices: { ...preferences.voices, [languageKey]: event.target.value } })}>
+            <option value="">Automatic{automaticVoice ? ` — ${automaticVoice.name}` : " — browser default"}</option>
+            <option value={DEVICE_DEFAULT_SPEECH_VOICE}>Device default — compatibility</option>
+            {availableVoices.map((voice) => <option key={headlineVoiceId(voice)} value={headlineVoiceId(voice)}>{voice.name} — {voice.lang}</option>)}
+          </select>
+        </label>
+      </div>
+    </details>
     <label>Speaking speed
       <select aria-label="Speaking speed" value={preferences.rate} onChange={(event) => changePreferences({ ...preferences, rate: Number(event.target.value) })}>
         {[0.8, 0.95, 1, 1.1, 1.2].map((rate) => <option key={rate} value={rate}>{rate}×</option>)}

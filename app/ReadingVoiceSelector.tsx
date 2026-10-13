@@ -98,32 +98,34 @@ export default function ReadingVoiceSelector({ preferences, voices, loading, err
     }
   }
 
-  return <fieldset className="reading-voice-selector">
-    <legend>Reading voice</legend>
-    {(["en", "zh"] as const).map((language) => <div className="reading-voice-choice" key={language}><label>
-      {language === "en" ? "English voice" : "Chinese voice"}
-      <select value={preferences[language]} disabled={loading || !voices.some((voice) => voice.language.startsWith(language))}
-        onChange={(event) => selectVoice(language, event.target.value)}>
-        <option value="">Automatic — female preferred</option>
-        {voices.filter((voice) => voice.language.startsWith(language)).map((voice) => <option key={voice.id} value={voice.id}>
-          {voice.name.replace(/^Microsoft\s+/u, "")} · {voice.gender} · {voice.language}
-        </option>)}
-      </select>
-    </label><button type="button" disabled={loading}
-      onClick={() => { void previewVoice(language); }}
-      aria-label={`${preview?.language === language && (preview.preparing || preview.playing) ? "Stop" : "Preview"} ${language === "en" ? "English" : "Chinese"} voice`}>
-      {preview?.language === language && (preview.preparing || preview.playing) ? "Stop preview" : "Preview voice"}
-    </button></div>)}
-    {preview && <div className="reading-voice-preview">
-      <p role="status">{preview.message}</p>
-      {preview.url && <audio ref={audio} src={preview.url} controls preload="auto"
-        aria-label={`${preview.language === "en" ? "English" : "Chinese"} voice sample`}
-        onPlay={() => { onPreviewStart(); setPreview((current) => current && { ...current, playing: true, message: "Playing voice sample." }); }}
-        onPause={() => setPreview((current) => current && { ...current, playing: false })}
-        onEnded={() => setPreview((current) => current && { ...current, playing: false, message: "Voice preview finished." })}
-        onError={() => setPreview((current) => current && { ...current, playing: false, message: "The voice sample could not be played. Try previewing again." })} />}
-    </div>}
-    <p>{loading ? "Loading voice choices…" : "Your choices are saved on this device."}{active && " Changing a voice prepares a new recording."}</p>
-    {error && <p role="status">{error}</p>}
-  </fieldset>;
+  return <details className="reading-voice-selector reading-voice-disclosure" onToggle={(event) => { if (!event.currentTarget.open) stopPreview(); }}>
+    <summary>Reading voice <span className="reading-voice-show">Show</span><span className="reading-voice-hide">Hide</span></summary>
+    <div className="reading-voice-content">
+      {(["en", "zh"] as const).map((language) => <div className="reading-voice-choice" key={language}><label>
+        {language === "en" ? "English voice" : "Chinese voice"}
+        <select value={preferences[language]} disabled={loading || !voices.some((voice) => voice.language.startsWith(language))}
+          onChange={(event) => selectVoice(language, event.target.value)}>
+          <option value="">Automatic — female preferred</option>
+          {voices.filter((voice) => voice.language.startsWith(language)).map((voice) => <option key={voice.id} value={voice.id}>
+            {voice.name.replace(/^Microsoft\s+/u, "")} · {voice.gender} · {voice.language}
+          </option>)}
+        </select>
+      </label><button type="button" disabled={loading}
+        onClick={() => { void previewVoice(language); }}
+        aria-label={`${preview?.language === language && (preview.preparing || preview.playing) ? "Stop" : "Preview"} ${language === "en" ? "English" : "Chinese"} voice`}>
+        {preview?.language === language && (preview.preparing || preview.playing) ? "Stop preview" : "Preview voice"}
+      </button></div>)}
+      {preview && <div className="reading-voice-preview">
+        <p role="status">{preview.message}</p>
+        {preview.url && <audio ref={audio} src={preview.url} controls preload="auto"
+          aria-label={`${preview.language === "en" ? "English" : "Chinese"} voice sample`}
+          onPlay={() => { onPreviewStart(); setPreview((current) => current && { ...current, playing: true, message: "Playing voice sample." }); }}
+          onPause={() => setPreview((current) => current && { ...current, playing: false })}
+          onEnded={() => setPreview((current) => current && { ...current, playing: false, message: "Voice preview finished." })}
+          onError={() => setPreview((current) => current && { ...current, playing: false, message: "The voice sample could not be played. Try previewing again." })} />}
+      </div>}
+      <p>{loading ? "Loading voice choices…" : "Your choices are saved on this device."}{active && " Changing a voice prepares a new recording."}</p>
+      {error && <p role="status">{error}</p>}
+    </div>
+  </details>;
 }
