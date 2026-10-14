@@ -140,7 +140,8 @@ topics do not wait for synthesis. The default English/Chinese voices are used;
 choosing another voice prepares that recording when requested.
 
 Azure requests prepare several article parts at a time and save clips in the
-existing seven-day, 256 MB disk cache. Headline playback assembles cached clips
+existing seven-day, 256 MiB disk cache, with lossless compression to save space.
+Headline playback assembles cached clips
 with the selected gaps without another synthesis request. The article player
 serves complete cached articles as WAV recordings through its authenticated,
 user-owned media URL; uncached stories continue to stream MP3 audio as it arrives.

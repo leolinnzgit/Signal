@@ -1,3 +1,5 @@
+using System.Buffers.Binary;
+using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -13,13 +15,29 @@ internal sealed class HeadlineAudioClipCache(string directory, long maximumBytes
     internal byte[]? TryGet(string voice, string text)
     {
         var path = PathFor(voice, text);
+        return Read(path + ".br") ?? Read(path);
+    }
+
+    private static byte[]? Read(string path)
+    {
         try
         {
             var file = new FileInfo(path);
-            if (file.Exists && file.Length is > 0 and <= MaximumClipBytes && file.Length % 2 == 0 && file.LastWriteTimeUtc >= DateTime.UtcNow - Lifetime)
+            if (file.Exists && file.Length is > 0 and <= MaximumClipBytes && file.LastWriteTimeUtc >= DateTime.UtcNow - Lifetime)
             {
                 var cached = File.ReadAllBytes(path);
-                if (cached.Length > 0 && cached.Length % 2 == 0 && cached.AsSpan().IndexOfAnyExcept((byte)0) >= 0) return cached;
+                if (path.EndsWith(".br", StringComparison.Ordinal))
+                {
+                    // Bound decompression and verify exact PCM, including truncated/corrupt files.
+                    if (cached.Length <= 40 || !cached.AsSpan(0, 4).SequenceEqual("SPC1"u8)) return null;
+                    var length = BinaryPrimitives.ReadInt32LittleEndian(cached.AsSpan(4, 4));
+                    if (length is <= 0 or > MaximumClipBytes || length % 2 != 0) return null;
+                    var pcm = new byte[length];
+                    if (!BrotliDecoder.TryDecompress(cached.AsSpan(40), pcm, out var written) || written != length
+                        || !CryptographicOperations.FixedTimeEquals(SHA256.HashData(pcm), cached.AsSpan(8, 32))) return null;
+                    cached = pcm;
+                }
+                if (Valid(cached)) return cached;
             }
         }
         catch (IOException) { }
@@ -42,37 +60,57 @@ internal sealed class HeadlineAudioClipCache(string directory, long maximumBytes
         if (audio.Length == 0 || audio.Length % 2 != 0 || audio.AsSpan().IndexOfAnyExcept((byte)0) < 0)
             throw new InvalidOperationException("The speech engine returned invalid audio.");
         if (audio.Length <= MaximumClipBytes)
+            Save(path, audio, DateTime.UtcNow);
+    }
+
+    private static bool Valid(byte[] audio) => audio.Length is > 0 and <= MaximumClipBytes && audio.Length % 2 == 0
+        && audio.AsSpan().IndexOfAnyExcept((byte)0) >= 0;
+
+    private static void Save(string rawPath, byte[] audio, DateTime writtenAt)
+    {
+        // Lossless compression retains the original samples and bookmark offsets.
+        using var compressed = new MemoryStream();
+        compressed.Write("SPC1"u8);
+        var size = new byte[4];
+        BinaryPrimitives.WriteInt32LittleEndian(size, audio.Length);
+        compressed.Write(size);
+        compressed.Write(SHA256.HashData(audio));
+        using (var encoder = new BrotliStream(compressed, CompressionLevel.Optimal, leaveOpen: true)) encoder.Write(audio);
+        var smaller = compressed.Length < audio.Length;
+        var path = smaller ? rawPath + ".br" : rawPath;
+        var other = smaller ? rawPath : rawPath + ".br";
+        string? temporary = null;
+        try
         {
-            string? temporary = null;
-            try
-            {
-                Directory.CreateDirectory(directory);
-                temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-                File.WriteAllBytes(temporary, audio);
-                File.Move(temporary, path, overwrite: true);
-            }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
-            finally
-            {
-                if (temporary is not null) { try { File.Delete(temporary); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
-            }
+            Directory.CreateDirectory(Path.GetDirectoryName(rawPath)!);
+            temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            File.WriteAllBytes(temporary, smaller ? compressed.ToArray() : audio);
+            File.SetLastWriteTimeUtc(temporary, writtenAt);
+            File.Move(temporary, path, overwrite: true);
+            File.Delete(other);
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+        finally
+        {
+            if (temporary is not null) { try { File.Delete(temporary); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
         }
     }
 
-    internal void Prune()
+    internal void Prune() => DerivedAudioCachePruner.Prune(directory, [".pcm", ".pcm.br"], maximumBytes, Lifetime);
+
+    internal async Task CompactLegacyAsync(CancellationToken token)
     {
         try
         {
             if (!Directory.Exists(directory)) return;
-            var files = new DirectoryInfo(directory).GetFiles("*.pcm").OrderBy(file => file.LastWriteTimeUtc).ToArray();
-            var size = files.Sum(file => file.Length);
-            foreach (var file in files)
+            foreach (var file in new DirectoryInfo(directory).GetFiles("*.pcm"))
             {
-                if (file.LastWriteTimeUtc >= DateTime.UtcNow - Lifetime && size <= maximumBytes) break;
-                var length = file.Length;
-                file.Delete();
-                size -= length;
+                token.ThrowIfCancellationRequested();
+                if (!DerivedAudioCachePruner.IsCacheFile(file.Name, [".pcm"])) continue;
+                if (Read(file.FullName) is { } pcm) Save(file.FullName, pcm, file.LastWriteTimeUtc);
+                // Startup migration should leave time for playback and news updates.
+                await Task.Delay(10, token);
             }
         }
         catch (IOException) { }

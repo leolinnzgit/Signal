@@ -14,6 +14,8 @@ Recipients do not need to sign in. Audio uses a voice matching the translation
 language, streams into the native audio player, and supports pause and replay.
 Completed MP3 recordings are cached in `App_Data/SharedArticleAudio` and support
 seeking on subsequent plays. Audio starts only when the listener presses Play.
+The MP3 cache is limited to 128 MiB and 30 days. Evicted audio can be regenerated;
+saved shared stories and translations remain available. See [disk storage](storage.md).
 The server must have Azure Speech configured through the existing Speech settings.
 
 The saved translation remains in the language chosen when sharing. Sharing a

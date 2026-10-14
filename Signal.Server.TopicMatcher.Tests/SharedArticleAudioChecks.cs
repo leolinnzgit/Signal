@@ -124,6 +124,15 @@ internal static class SharedArticleAudioChecks
                 && synth.Calls == calls, "Anonymous replay did not serve cached, seekable MP3.");
             controller.Request.Method = "HEAD";
             Require(await controller.Read(article.Id, CancellationToken.None) is OkResult && synth.Calls == calls, "A HEAD probe triggered synthesis.");
+            File.SetLastWriteTimeUtc(recording.Path, DateTime.UtcNow.AddDays(-31));
+            Require(!SharedArticleAudioService.IsCached(recording), "An expired shared recording remained available indefinitely.");
+            service.Prune();
+            Require(!File.Exists(recording.Path) && await database.SharedNewsArticles.AnyAsync(item => item.Id == article.Id),
+                "Cache eviction deleted the saved story or retained its expired MP3.");
+            using var regenerated = new MemoryStream();
+            await service.WriteAsync(recording, regenerated, CancellationToken.None);
+            Require(SharedArticleAudioService.IsCached(recording) && regenerated.Length > 0 && synth.Calls == calls + 1,
+                "An evicted shared recording could not be regenerated from its saved story.");
             Console.WriteLine("Shared Azure audio passed all translation languages, native streaming, exact saved text, concurrent reuse, persisted replay, long Unicode batches, failures, cancellation, anonymous seekable playback and unknown-link protection.");
 
             SharedNewsArticle withLanguage(string language) => new() { Title = article.Title, Language = language, ParagraphsJson = article.ParagraphsJson };

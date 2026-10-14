@@ -13,6 +13,8 @@ public sealed class SharedArticleAudioService
     private readonly IAzureSpeechStreamer synth;
     private readonly string directory;
     private readonly SemaphoreSlim generation = new(1, 1);
+    internal const long MaximumCacheBytes = 128 * 1024 * 1024;
+    internal static readonly TimeSpan CacheLifetime = TimeSpan.FromDays(30);
     internal sealed record Recording(string Path, AzureSpeechAudioRenderer.Clip[] Clips);
 
     internal SharedArticleAudioService(AzureSpeechAudioRenderer azure, IAzureSpeechStreamer synth, string directory)
@@ -37,7 +39,9 @@ public sealed class SharedArticleAudioService
             .Select(text => new AzureSpeechAudioRenderer.Clip(voice.Id, text)).ToArray();
         var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(
             new { Version = 1, Voice = voice.Id, article.Language, Texts = texts }))));
-        return new(Path.Combine(directory, key + ".mp3"), clips);
+        var path = Path.Combine(directory, key + ".mp3");
+        Prune(path);
+        return new(path, clips);
     }
 
     internal static NarrationVoice ChooseVoice(IReadOnlyList<NarrationVoice> voices, string language, bool chinese, string configured)
@@ -61,7 +65,19 @@ public sealed class SharedArticleAudioService
             ?? throw new HeadlineAudioUnavailableException("voices", "Azure has no available voice for this story's language.");
     }
 
-    internal static bool IsCached(Recording recording) => File.Exists(recording.Path) && new FileInfo(recording.Path).Length > 0;
+    internal static bool IsCached(Recording recording)
+    {
+        try
+        {
+            var file = new FileInfo(recording.Path);
+            return file.Exists && file.Length is > 0 and <= 32 * 1024 * 1024
+                && file.LastWriteTimeUtc >= DateTime.UtcNow - CacheLifetime;
+        }
+        catch (IOException) { return false; }
+        catch (UnauthorizedAccessException) { return false; }
+    }
+
+    internal void Prune(string? keep = null) => DerivedAudioCachePruner.Prune(directory, [".mp3"], MaximumCacheBytes, CacheLifetime, keep);
 
     internal async Task WriteAsync(Recording recording, Stream output, CancellationToken token)
     {
@@ -109,6 +125,7 @@ public sealed class SharedArticleAudioService
             deadline.Token.ThrowIfCancellationRequested();
             File.Move(temporary, recording.Path, overwrite: true);
             temporary = null;
+            Prune(recording.Path);
         }
         finally
         {

@@ -13,6 +13,8 @@ using Signal.Server.Controllers;
 using Signal.Server.Models;
 using Signal.Server.Services;
 
+await AudioCacheStorageChecks.RunAsync();
+if (args.Contains("--audio-cache-only")) return;
 await SharedArticleAudioChecks.RunAsync();
 if (args.Contains("--shared-article-audio-only")) return;
 if (args.Contains("--shared-article-audio-live")) { await SharedArticleAudioChecks.RunLiveAsync(); return; }

@@ -165,6 +165,7 @@ builder.Services.AddHostedService<HeadlineAudioHealthCheck>();
 builder.Services.AddSingleton<ArticleAudioPreparationService>();
 builder.Services.AddSingleton<IArticleAudioPrewarmer>(service => service.GetRequiredService<ArticleAudioPreparationService>());
 builder.Services.AddHostedService(service => service.GetRequiredService<ArticleAudioPreparationService>());
+builder.Services.AddHostedService<AudioCacheMaintenanceService>();
 builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection(SmtpOptions.SectionName));
 builder.Services.Configure<MarketDataOptions>(builder.Configuration.GetSection(MarketDataOptions.SectionName));
 builder.Services.AddSingleton<GmailOAuthStore>();
