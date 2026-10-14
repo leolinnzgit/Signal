@@ -4,6 +4,8 @@ import { type ReactNode, type Ref, useEffect, useImperativeHandle, useRef, useSt
 import type { FollowedArticle } from "./NewsDashboard";
 import { audioHeadlineIndex, briefingNarrationTitles, preparedAudioCache, prepareHeadlineAudio, type PreparedHeadlineAudio, type ReadingVoicePreferences } from "./headline-audio";
 import ReadingVoiceSelector, { useReadingVoices } from "./ReadingVoiceSelector";
+import BriefingMarketPrice from "./BriefingMarketPrice";
+import type { MarketQuote } from "./market-quote";
 
 export type ScreenOffAudioControls = { pause: () => void; toggle: () => void; move: (direction: number) => void };
 type Props = {
@@ -11,6 +13,7 @@ type Props = {
   closeButton: Ref<HTMLButtonElement>;
   fullscreenControl: ReactNode;
   articles: FollowedArticle[];
+  marketQuote?: MarketQuote | null;
   initialIndex: number;
   suspended?: boolean;
   seconds: number;
@@ -24,7 +27,7 @@ type Props = {
   onExit: () => void;
 };
 
-export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenControl, articles, initialIndex, suspended = false, seconds, rate, onRateChange, onArticleRead, onIndexChange, onOpenArticle, onListenArticle, onClose, onExit }: Props) {
+export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenControl, articles, marketQuote, initialIndex, suspended = false, seconds, rate, onRateChange, onArticleRead, onIndexChange, onOpenArticle, onListenArticle, onClose, onExit }: Props) {
   const [track, setTrack] = useState<{ url: string; starts: number[] } | null>(null);
   const [error, setError] = useState("");
   const [paused, setPaused] = useState(true);
@@ -183,6 +186,7 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
         <button ref={closeButton} type="button" onClick={onClose} aria-label="Close headline playback" title="Close (Esc)">&#215;</button>
       </div>
     </header>
+    <BriefingMarketPrice quote={marketQuote} />
     <div className="headline-player-stage">
       {!track ? <div className="article-reader-state" role="status">
         {!error && <span className="article-reader-loader" aria-hidden="true" />}

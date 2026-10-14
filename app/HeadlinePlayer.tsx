@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { FollowedArticle } from "./NewsDashboard";
 import ScreenOffAudioPlayer, { type ScreenOffAudioControls } from "./ScreenOffAudioPlayer";
+import BriefingMarketPrice from "./BriefingMarketPrice";
+import type { MarketQuote } from "./market-quote";
 import { BRIEFING_COMPLETE_MESSAGE } from "./headline-audio";
 import {
   createHeadlinePlayback,
@@ -20,6 +22,7 @@ import {
 
 type HeadlinePlayerProps = {
   articles: FollowedArticle[];
+  marketQuote?: MarketQuote | null;
   startWithScreenOffAudio?: boolean;
   suspended?: boolean;
   onArticleRead: (article: FollowedArticle) => void;
@@ -28,7 +31,7 @@ type HeadlinePlayerProps = {
   onClose: () => void;
 };
 
-export default function HeadlinePlayer({ articles, startWithScreenOffAudio = false, suspended = false, onArticleRead, onOpenArticle, onListenArticle, onClose }: HeadlinePlayerProps) {
+export default function HeadlinePlayer({ articles, marketQuote, startWithScreenOffAudio = false, suspended = false, onArticleRead, onOpenArticle, onListenArticle, onClose }: HeadlinePlayerProps) {
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const [seconds, setSeconds] = useState(6);
@@ -236,6 +239,7 @@ export default function HeadlinePlayer({ articles, startWithScreenOffAudio = fal
     <><div className="headline-player-backdrop" aria-hidden="true" style={suspended ? { display: "none" } : undefined} />
     <section ref={dialog} className={playerClass} style={suspended ? { display: "none" } : undefined} role="dialog" aria-modal="true" aria-label="Unread headline playback">
       <ScreenOffAudioPlayer ref={screenOffControls} closeButton={closeButton} articles={articles}
+        marketQuote={marketQuote}
         suspended={suspended}
         fullscreenControl={fullscreenControl}
         initialIndex={Math.min(index, articles.length - 1)} seconds={seconds} rate={speechPreferences.rate}
@@ -258,6 +262,7 @@ export default function HeadlinePlayer({ articles, startWithScreenOffAudio = fal
           <button ref={closeButton} type="button" onClick={onClose} aria-label="Close headline playback" title="Close (Esc)">&#215;</button>
         </div>
       </header>
+      <BriefingMarketPrice quote={marketQuote} />
       <div className="headline-player-stage" aria-live={readAloud && !speechError ? "off" : "polite"} aria-atomic="true">
         {completed ? (
           <div className="headline-player-complete">

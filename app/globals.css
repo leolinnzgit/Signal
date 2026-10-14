@@ -3117,6 +3117,16 @@ button.local-weather {
 .headline-player-header-actions .headline-player-back,
 .headline-player-header-actions .headline-player-fullscreen { width: auto; padding: 0.6rem 1rem; font-size: 0.8rem; }
 .headline-player-stage { display: grid; flex: 1 0 auto; place-items: center; padding: clamp(2rem, 8vh, 6rem) 0; text-align: center; }
+.briefing-market-price { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; gap: 0.5rem 1.25rem; padding: 1rem 0; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.briefing-market-company { display: flex; flex: 1 1 12rem; flex-wrap: wrap; align-items: baseline; gap: 0.35rem 0.65rem; min-width: 0; overflow-wrap: anywhere; }
+.briefing-market-company strong { font-size: 0.85rem; }
+.briefing-market-company span { color: var(--text-faint); font-size: 0.8rem; }
+.briefing-market-value { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem; }
+.briefing-market-value strong { font-size: 1.25rem; }
+.briefing-market-value span { color: var(--text-faint); font-size: 0.8rem; }
+.briefing-market-value .positive { color: var(--market-up); }
+.briefing-market-value .negative { color: var(--red); }
+.briefing-market-price p { flex-basis: 100%; margin: 0; color: var(--text-faint); font-size: 0.7rem; line-height: 1.5; overflow-wrap: anywhere; }
 .headline-player-story { display: grid; width: 100%; min-width: 0; justify-items: center; gap: 1.25rem; }
 .headline-player-image { display: block; max-width: min(100%, 36rem); max-height: min(24dvh, 16rem); width: auto; height: auto; object-fit: contain; border-radius: 0.65rem; }
 .headline-player-image[hidden] { display: none; }

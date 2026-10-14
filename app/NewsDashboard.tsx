@@ -10,6 +10,7 @@ import ArticleSummaryPlayer from "./ArticleSummaryPlayer";
 import ArticleTranslationControls from "./ArticleTranslationControls";
 import type { ArticleTranslation } from "./article-translation";
 import { useWeatherAudio } from "./WeatherAudio";
+import { formatMarketPrice, type MarketQuote } from "./market-quote";
 import { describeWeather, weatherBriefing, type LocalWeather, type WeatherForecastDay } from "./weather-briefing";
 import ArticleReadingText from "./ArticleReadingText";
 import { scrollReadingSectionIntoView } from "./article-reading-follow";
@@ -135,20 +136,6 @@ type OpenMeteoGeocodingResponse = {
 };
 
 type WeatherStatus = "locating" | "ready" | "denied" | "error" | "unsupported";
-
-type MarketQuote = {
-  topic: string;
-  symbol: string;
-  name: string;
-  exchange: string;
-  currency: string;
-  price: number;
-  change: number;
-  percentChange: number;
-  quoteTime: string;
-  isMarketOpen: boolean | null;
-  provider: string;
-};
 
 type MarketNotice = {
   topic: string;
@@ -716,18 +703,6 @@ function weatherLocationLabel(location: Pick<WeatherLocationSearchResult, "name"
   return [location.name, location.admin1, location.country]
     .filter((part, index, values): part is string => Boolean(part) && values.indexOf(part) === index)
     .join(", ");
-}
-
-function formatMarketPrice(price: number, currency: string) {
-  try {
-    return new Intl.NumberFormat(undefined, {
-      style: currency ? "currency" : "decimal",
-      currency: currency || undefined,
-      maximumFractionDigits: 2,
-    }).format(price);
-  } catch {
-    return `${currency ? `${currency} ` : ""}${price.toFixed(2)}`;
-  }
 }
 
 function decodeBase64Url(value: string) {
@@ -4616,6 +4591,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
       {headlineQueue && (
         <HeadlinePlayer
           articles={headlineQueue}
+          marketQuote={marketQuote?.topic.toLowerCase() === selectedTopic.toLowerCase() ? marketQuote : null}
           suspended={readerArticle !== null}
           startWithScreenOffAudio={preferScreenOffAudio(navigator.userAgent, appInstalled)}
           onArticleRead={(article) => markArticleRead(article, true)}

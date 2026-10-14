@@ -41,6 +41,7 @@ test("browser briefings narrate completion with saved preferences and stop on cl
       "react/jsx-runtime": { jsx, jsxs: jsx },
       "react-dom": { createPortal: (node) => node },
       "./ScreenOffAudioPlayer": { default: () => null },
+      "./BriefingMarketPrice": { default: () => null },
       "./headline-audio": { BRIEFING_COMPLETE_MESSAGE },
       "./headline-playback": { ...playbackModule, createHeadlinePlayback(options) {
         calls.push(options);
@@ -118,6 +119,7 @@ async function recordedPlayerHarness({ lifecycle = false, announcement = false }
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "./headline-audio": { audioHeadlineIndex, preparedAudioCache },
     "./ReadingVoiceSelector": { default: () => null, useReadingVoices: () => ({ loading: false, preferences: { en: "", zh: "" } }) },
+    "./BriefingMarketPrice": { default: () => null },
   };
   const exports = {};
   runInNewContext(playerCode, { exports, require: (name) => {
