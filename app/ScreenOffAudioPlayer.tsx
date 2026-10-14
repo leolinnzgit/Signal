@@ -2,7 +2,7 @@
 
 import { type ReactNode, type Ref, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { FollowedArticle } from "./NewsDashboard";
-import { audioHeadlineIndex, preparedAudioCache, prepareHeadlineAudio, type PreparedHeadlineAudio, type ReadingVoicePreferences } from "./headline-audio";
+import { audioHeadlineIndex, briefingNarrationTitles, preparedAudioCache, prepareHeadlineAudio, type PreparedHeadlineAudio, type ReadingVoicePreferences } from "./headline-audio";
 import ReadingVoiceSelector, { useReadingVoices } from "./ReadingVoiceSelector";
 
 export type ScreenOffAudioControls = { pause: () => void; toggle: () => void; move: (direction: number) => void };
@@ -47,7 +47,8 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
     if (readingVoices.loading) return;
     const abort = new AbortController();
     let url = "";
-    const titles = articles.map((item) => item.title);
+    // Include the closing announcement in the same track for screen-off playback.
+    const titles = briefingNarrationTitles(articles.map((item) => item.title));
     recordingKey.current = preparedAudioCache.key(titles, seconds, navigator.language, readingVoices.preferences);
     const ready = preparedAudioCache.get(titles, seconds, navigator.language, readingVoices.preferences);
     setError("");
@@ -62,7 +63,7 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
     };
     if (ready) useRecording(ready);
     else void prepareHeadlineAudio(titles, seconds, navigator.language, abort.signal, undefined,
-      (prepared) => { if (!abort.signal.aborted) setPreparedCount(prepared); }, 15_000, readingVoices.preferences)
+      (prepared) => { if (!abort.signal.aborted) setPreparedCount(Math.min(prepared, articles.length)); }, 15_000, readingVoices.preferences)
       .then(useRecording)
       .catch((reason: unknown) => {
         if (!abort.signal.aborted) setError(reason instanceof Error ? reason.message : "Audio could not be prepared.");
@@ -115,7 +116,7 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
     // Metadata loading, restoring a position, and seeking while paused also
     // update the playhead. Only listening should consume unread stories.
     if (!audio.current.paused || audio.current.ended) {
-      for (let heard = first; heard <= next; heard++) onArticleRead(articles[heard]);
+      for (let heard = first; heard <= next && heard < articles.length; heard++) onArticleRead(articles[heard]);
     }
     lastIndex.current = next;
     const displayedIndex = audio.current.ended ? articles.length : next;

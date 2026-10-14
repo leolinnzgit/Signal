@@ -1,6 +1,11 @@
 export type PreparedHeadlineAudio = { blob: Blob; starts: number[] };
 export type ReadingVoicePreferences = { en: string; zh: string };
 export const READING_VOICES_STORAGE_KEY = "signal.recorded-reading-voices.v1";
+export const BRIEFING_COMPLETE_MESSAGE = "All caught up. You've reached the end of your audio briefing.";
+
+export function briefingNarrationTitles(titles: string[]) {
+  return titles.length ? [...titles, BRIEFING_COMPLETE_MESSAGE] : [];
+}
 
 // Keep ready PCM in this app session rather than in a mounted reader. Each
 // headline is reusable even after heard titles are removed from the next queue.

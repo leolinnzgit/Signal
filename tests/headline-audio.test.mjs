@@ -6,13 +6,73 @@ import ts from "typescript";
 
 const source = await readFile(new URL("../app/headline-audio.ts", import.meta.url), "utf8");
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } }).outputText;
-const { configureRecordedAudio, recordedArticleNarrationParts, preparedAudioCache, PreparedAudioCache, prepareHeadlineAudio, prepareArticleAudio, prepareReadingVoicePreview, articleNarrationParts, audioHeadlineIndex, preferScreenOffAudio, normalizeReadingVoices } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
+const { BRIEFING_COMPLETE_MESSAGE, briefingNarrationTitles, configureRecordedAudio, recordedArticleNarrationParts, preparedAudioCache, PreparedAudioCache, prepareHeadlineAudio, prepareArticleAudio, prepareReadingVoicePreview, articleNarrationParts, audioHeadlineIndex, preferScreenOffAudio, normalizeReadingVoices } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
 const titles = ["English headline", "中文新聞"];
 const signal = new AbortController().signal;
 
+test("browser briefings narrate completion with saved preferences and stop on close; muted briefings stay silent", async () => {
+  const playerSource = await readFile(new URL("../app/HeadlinePlayer.tsx", import.meta.url), "utf8");
+  const code = ts.transpileModule(playerSource, { compilerOptions: {
+    module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX,
+  } }).outputText;
+  const playbackSource = await readFile(new URL("../app/headline-playback.ts", import.meta.url), "utf8");
+  const playbackCode = ts.transpileModule(playbackSource, { compilerOptions: {
+    module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022,
+  } }).outputText;
+  const playbackModule = await import(`data:text/javascript;base64,${Buffer.from(playbackCode).toString("base64")}`);
+  for (const muted of [false, true]) {
+    const states = [];
+    const effects = [];
+    const calls = [];
+    let slot = 0;
+    let disposed = false;
+    const jsx = (type, props) => ({ type, props });
+    const modules = {
+      react: {
+        useState(initial) {
+          const current = slot++;
+          states[current] = current === 0 ? 1 : current === 5 ? !muted : typeof initial === "function" ? initial() : initial;
+          return [states[current], (value) => { states[current] = typeof value === "function" ? value(states[current]) : value; }];
+        },
+        useRef: (current) => ({ current }),
+        useMemo: (create) => create(),
+        useEffect: (callback, dependencies) => effects.push({ callback, dependencies }),
+      },
+      "react/jsx-runtime": { jsx, jsxs: jsx },
+      "react-dom": { createPortal: (node) => node },
+      "./ScreenOffAudioPlayer": { default: () => null },
+      "./headline-audio": { BRIEFING_COMPLETE_MESSAGE },
+      "./headline-playback": { ...playbackModule, createHeadlinePlayback(options) {
+        calls.push(options);
+        return { dispose() { disposed = true; } };
+      } },
+    };
+    const exports = {};
+    runInNewContext(code, { exports, require: (name) => modules[name],
+      navigator: { language: "en-NZ" }, document: { hidden: false, fullscreenElement: null, body: {} },
+      window: { speechSynthesis: { getVoices: () => [] }, SpeechSynthesisUtterance: class {} },
+      localStorage: { getItem: () => JSON.stringify({ rate: 1.2, voices: { en: "Saved voice" } }) },
+    });
+    exports.default({ articles: [{ title: "Final story", url: "https://example.com/final" }] });
+    const effect = effects.find(({ dependencies }) => dependencies?.[7] === BRIEFING_COMPLETE_MESSAGE);
+    assert.ok(effect, "The completed briefing still has a playback effect");
+    const cleanup = effect.callback();
+    assert.equal(calls.length, muted ? 0 : 1);
+    if (!muted) {
+      assert.equal(calls[0].title, BRIEFING_COMPLETE_MESSAGE);
+      assert.equal(calls[0].preferredVoiceId, "Saved voice");
+      assert.equal(calls[0].rate, 1.2);
+      calls[0].onAdvance();
+      assert.equal(states[0], 1, "Completion cannot advance beyond the end or repeat");
+      cleanup();
+      assert.equal(disposed, true, "Closing stops the completion speech");
+    }
+  }
+});
+
 // Replay the rendered player's media events without a browser or speech server.
 // Effects that fetch recordings are replaced with an already prepared track.
-async function recordedPlayerHarness({ lifecycle = false } = {}) {
+async function recordedPlayerHarness({ lifecycle = false, announcement = false } = {}) {
   const playerSource = await readFile(new URL("../app/ScreenOffAudioPlayer.tsx", import.meta.url), "utf8");
   const playerCode = ts.transpileModule(playerSource, { compilerOptions: {
     module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX,
@@ -37,7 +97,7 @@ async function recordedPlayerHarness({ lifecycle = false } = {}) {
   const react = {
     useState(initial) {
       const slot = stateIndex++;
-      if (!(slot in states)) states[slot] = slot === 0 ? { url: "blob:briefing", starts: [0, 6, 12, 18] } : initial;
+      if (!(slot in states)) states[slot] = slot === 0 ? { url: "blob:briefing", starts: announcement ? [0, 6, 12, 18, 24] : [0, 6, 12, 18] } : initial;
       return [states[slot], (value) => { states[slot] = typeof value === "function" ? value(states[slot]) : value; }];
     },
     useRef(initial) { const slot = refIndex++; return refs[slot] ??= { current: initial }; },
@@ -173,6 +233,48 @@ test("delayed background updates and the ended event retain read tracking for pl
   element.ended = true;
   events.onEnded();
   assert.deepEqual([...new Set(heard)], articles.map((article) => article.url));
+});
+
+test("the closing announcement completes the display without treating it as a news article", async () => {
+  const player = await recordedPlayerHarness({ announcement: true });
+  player.element.duration = 30;
+  player.element.paused = false;
+  player.events.onPlay();
+  player.element.currentTime = 25;
+  player.events.onTimeUpdate();
+  const tree = player.render();
+  assert.match(JSON.stringify(tree), /All caught up/);
+  assert.deepEqual([...new Set(player.heard)], player.articles.map((article) => article.url));
+  player.element.currentTime = 30;
+  player.element.paused = true;
+  player.element.ended = true;
+  player.events.onEnded();
+  player.render();
+  player.controls.move(-1);
+  assert.equal(player.element.currentTime, 18, "Previous returns to the final headline");
+});
+
+test("recorded briefings include one closing announcement, including when reusing cached news", async () => {
+  const cache = new PreparedAudioCache();
+  const requests = [];
+  const fetcher = async (url, options) => {
+    if (url === "/api/auth/csrf") return Response.json({ token: "token" });
+    const body = JSON.parse(options.body);
+    requests.push(body.titles);
+    return waveResponse(body.titles.map((_, index) => index * 3), body.titles.length * 3);
+  };
+  assert.deepEqual(briefingNarrationTitles([]), []);
+  const voices = { en: "Susan", zh: "Yating" };
+  const narration = briefingNarrationTitles(titles);
+  const recording = await prepareHeadlineAudio(narration, 6, "en", signal, fetcher, undefined, 15_000, voices, cache);
+  assert.deepEqual(requests.flat(), [...titles, BRIEFING_COMPLETE_MESSAGE]);
+  assert.deepEqual(recording.starts, [0, 3, 6]);
+  assert.equal(recording.blob.size, 44 + 9 * 32_000);
+  assert.equal(cache.get([titles.at(-1)], 6, "en", voices).blob.size, 44 + 3 * 32_000, "The announcement stays separate from reusable story audio");
+  const remaining = await prepareHeadlineAudio(briefingNarrationTitles(titles.slice(1)), 6, "en", signal,
+    () => { throw new Error("Must reuse the complete cached track"); }, undefined, 15_000, voices, cache);
+  assert.deepEqual(remaining.starts, [0, 3]);
+  assert.equal(remaining.blob.size, 44 + 6 * 32_000);
 });
 
 test("returning to a full article reuses the ready recording without any network requests", async () => {

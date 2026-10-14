@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { FollowedArticle } from "./NewsDashboard";
 import ScreenOffAudioPlayer, { type ScreenOffAudioControls } from "./ScreenOffAudioPlayer";
+import { BRIEFING_COMPLETE_MESSAGE } from "./headline-audio";
 import {
   createHeadlinePlayback,
   DEVICE_DEFAULT_SPEECH_VOICE,
@@ -52,7 +53,7 @@ export default function HeadlinePlayer({ articles, startWithScreenOffAudio = fal
   const readUrls = useRef(new Set<string>());
   const completed = index >= articles.length;
   const article = articles[index];
-  const title = article?.title;
+  const title = completed && articles.length ? BRIEFING_COMPLETE_MESSAGE : article?.title;
   const speechLanguage = headlineSpeechLanguage(title ?? "", navigator.language);
   const languageKey = speechLanguage.split("-")[0].toLowerCase();
   const preferredVoiceId = speechPreferences.voices[languageKey] ?? "";
@@ -119,14 +120,14 @@ export default function HeadlinePlayer({ articles, startWithScreenOffAudio = fal
   }, [article, onArticleRead, screenOffAudio, suspended]);
 
   useEffect(() => {
-    if (suspended || screenOffAudio || completed || !title) return;
+    if (suspended || screenOffAudio || !title || (completed && !readAloud)) return;
     const current = createHeadlinePlayback({
       title,
-      seconds: 6,
+      seconds: completed ? 0 : 6,
       readAloud,
       preferredVoiceId,
       rate: speechPreferences.rate,
-      onAdvance: () => setIndex((currentIndex) => currentIndex + 1),
+      onAdvance: () => { if (!completed) setIndex((currentIndex) => currentIndex + 1); },
       onSpeechError: () => { setSpeechError(true); setReadAloud(false); },
     }, {
       speech: speechSupported ? window.speechSynthesis : undefined,
