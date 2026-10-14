@@ -271,6 +271,25 @@ await using (var scope = app.Services.CreateAsyncScope())
     await database.Database.EnsureCreatedAsync();
     // EnsureCreated does not add new tables to an existing Identity database.
     await database.Database.ExecuteSqlRawAsync("""
+        CREATE TABLE IF NOT EXISTS "SharedNewsArticles" (
+            "Id" TEXT NOT NULL CONSTRAINT "PK_SharedNewsArticles" PRIMARY KEY,
+            "UserId" TEXT NOT NULL,
+            "ContentHash" TEXT NOT NULL,
+            "OriginalUrl" TEXT NOT NULL,
+            "Title" TEXT NOT NULL,
+            "Source" TEXT NOT NULL,
+            "Byline" TEXT NOT NULL,
+            "Language" TEXT NOT NULL,
+            "ParagraphsJson" TEXT NOT NULL,
+            "SummaryOnly" INTEGER NOT NULL,
+            "CreatedAtUtc" TEXT NOT NULL,
+            CONSTRAINT "FK_SharedNewsArticles_AspNetUsers_UserId"
+                FOREIGN KEY ("UserId") REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS "IX_SharedNewsArticles_UserId_ContentHash"
+            ON "SharedNewsArticles" ("UserId", "ContentHash");
+        """);
+    await database.Database.ExecuteSqlRawAsync("""
         CREATE TABLE IF NOT EXISTS "UserNewsPreferences" (
             "UserId" TEXT NOT NULL CONSTRAINT "PK_UserNewsPreferences" PRIMARY KEY,
             "TopicsJson" TEXT NOT NULL,

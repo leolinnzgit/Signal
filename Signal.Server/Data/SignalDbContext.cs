@@ -11,6 +11,8 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
 
     public DbSet<StoredNewsArticle> StoredNewsArticles => Set<StoredNewsArticle>();
 
+    public DbSet<SharedNewsArticle> SharedNewsArticles => Set<SharedNewsArticle>();
+
     public DbSet<TopicRefreshState> TopicRefreshStates => Set<TopicRefreshState>();
 
     public DbSet<UserPushSubscription> UserPushSubscriptions => Set<UserPushSubscription>();
@@ -28,6 +30,17 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
+
+        builder.Entity<SharedNewsArticle>(article =>
+        {
+            article.ToTable("SharedNewsArticles");
+            article.HasKey(item => item.Id);
+            article.Property(item => item.Id).HasMaxLength(48);
+            article.Property(item => item.UserId).HasMaxLength(450).IsRequired();
+            article.HasIndex(item => new { item.UserId, item.ContentHash }).IsUnique();
+            article.HasOne(item => item.User).WithMany()
+                .HasForeignKey(item => item.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
 
         builder.Entity<UserNewsPreferences>(preferences =>
         {
@@ -146,9 +159,9 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
             message.Property(item => item.SenderUserId).HasMaxLength(450).IsRequired();
             message.Property(item => item.RecipientUserId).HasMaxLength(450).IsRequired();
             message.Property(item => item.Body).HasMaxLength(2000).IsRequired();
-            message.Property(item => item.SharedArticleTitle).HasMaxLength(300).IsRequired();
+            message.Property(item => item.SharedArticleTitle).HasMaxLength(2000).IsRequired();
             message.Property(item => item.SharedArticleUrl).HasMaxLength(2048).IsRequired();
-            message.Property(item => item.SharedArticleSource).HasMaxLength(200).IsRequired();
+            message.Property(item => item.SharedArticleSource).HasMaxLength(256).IsRequired();
             message.HasIndex(item => new { item.SenderUserId, item.RecipientUserId, item.CreatedAtUtc });
             message.HasIndex(item => new { item.RecipientUserId, item.ReadAtUtc });
         });

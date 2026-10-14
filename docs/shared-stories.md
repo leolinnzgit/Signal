@@ -1,0 +1,25 @@
+# Hosted story sharing
+
+Open a story in Signal Reader, translate it if desired, then select **Share**.
+Signal saves the title and paragraphs currently displayed. **Copy link** copies
+the hosted page URL; **Preview shared page** opens the saved version. The news
+feed's Share button creates a page in the article's original language.
+
+Anyone with the link can read the page without a Signal account. Shared pages
+use random URLs and ask search engines not to index them. The page includes the
+publisher's name and a link to the original reporting.
+
+The saved translation remains in the language chosen when sharing. Sharing a
+different language or revised text creates another page; existing links retain
+their content. Sharing the same version again reuses its link.
+
+If the publisher does not expose full text, Signal saves a clearly labelled
+headline and feed summary, with a link to the full article. Shared pages remain
+in the Signal database independently of feed history retention and survive
+normal IIS publication, which preserves `App_Data`.
+
+The authenticated, CSRF-protected `POST /api/article-shares` endpoint saves
+bounded text snapshots. `GET /shared/{id}` renders the saved page anonymously,
+with escaped text, a restrictive content security policy, and link-preview
+metadata. Signal friends and offline notification emails receive this hosted
+page link through the existing sharing flow.

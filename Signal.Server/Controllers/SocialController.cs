@@ -498,9 +498,9 @@ public sealed record SendMessageRequest(
 
 public sealed record ShareArticleRequest(
     [Required, MaxLength(450)] string RecipientUserId,
-    [Required, MaxLength(300)] string Title,
+    [Required, MaxLength(2000)] string Title,
     [Required, MaxLength(2048)] string Url,
-    [MaxLength(200)] string Source);
+    [MaxLength(256)] string Source);
 
 public sealed record SocialOverviewResponse(
     FriendResponse[] Friends,

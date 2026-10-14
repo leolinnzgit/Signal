@@ -3398,6 +3398,11 @@ button.local-weather {
 }
 .friend-share-actions { justify-content: space-between; }
 .friend-share-actions button:disabled { cursor: wait; opacity: 0.5; }
+.friend-share-actions { flex-wrap: wrap; }
+.friend-share-link { display: grid; gap: 0.6rem; margin-top: 1.25rem; }
+.friend-share-link label { font-size: 0.8rem; font-weight: 600; }
+.friend-share-link input { width: 100%; min-width: 0; padding: 0.7rem; border: 1px solid var(--line); border-radius: 5px; background: var(--paper); color: var(--ink); font: inherit; font-size: 0.8rem; }
+.friend-share-link a, .friend-share-link p { font-size: 0.8rem; line-height: 1.5; }
 
 .weather-location-dialog { width: min(100%, 38rem); }
 
@@ -3582,6 +3587,11 @@ button.local-weather {
   border-color: var(--red);
   color: var(--red);
 }
+
+.article-reader-actions { flex-wrap: wrap; }
+.article-reader-actions .article-reader-share { display: inline-flex; align-items: center; gap: 0.45rem; width: auto; padding: 0.55rem 0.75rem; font-size: 0.72rem; font-weight: 700; }
+.article-reader-share svg { width: 1rem; height: 1rem; }
+.article-reader-share:disabled { opacity: 0.5; cursor: wait; }
 
 .article-reader-actions .article-reader-follow {
   width: auto;

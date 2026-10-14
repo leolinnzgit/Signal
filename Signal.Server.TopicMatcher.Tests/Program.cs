@@ -13,6 +13,9 @@ using Signal.Server.Controllers;
 using Signal.Server.Models;
 using Signal.Server.Services;
 
+await ArticleShareChecks.RunAsync();
+if (args.Contains("--article-shares-browser")) { await ArticleShareChecks.RunBrowserAsync(); return; }
+if (args.Contains("--article-shares-only")) return;
 await AzureTranslatorChecks.RunAsync();
 if (args.Contains("--azure-translator-only")) return;
 await AzureLanguageSummaryChecks.RunAsync();

@@ -1,0 +1,70 @@
+using System.Net;
+using System.Text.Json;
+using Signal.Server.Models;
+
+namespace Signal.Server.Services;
+
+public static class SharedArticlePage
+{
+    private static string Encode(string value) => WebUtility.HtmlEncode(value);
+
+    public static string Render(SharedNewsArticle article, string homePath)
+    {
+        var paragraphs = JsonSerializer.Deserialize<string[]>(article.ParagraphsJson) ?? [];
+        var description = paragraphs.FirstOrDefault() ?? article.Title;
+        if (description.Length > 240) description = description[..240] + "…";
+        var languageNote = article.Language.Length > 0
+            ? $"<span>Translated · {Encode(LanguageName(article.Language))}</span>"
+            : "";
+        var notice = article.SummaryOnly
+            ? "<aside>Headline and feed summary. The publisher did not provide full article text to Signal. Follow the original link to read the full story.</aside>"
+            : "<aside>A saved reading view shared from Signal. "
+                + (article.Language.Length > 0 ? "This translation is preserved in the language chosen by the person who shared it. " : "")
+                + "Reporting belongs to the original publisher.</aside>";
+        return Document(article.Title, article.Language.Length > 0 ? article.Language : "und", description, $"""
+            <header><a class="brand" href="{Encode(homePath)}" lang="en">SIGNAL<span>Shared story</span></a></header>
+            <main><article>
+            <div class="meta" lang="en"><span>{Encode(article.Source)}</span>{languageNote}</div>
+            <h1 dir="auto">{Encode(article.Title)}</h1>
+            {(article.Byline.Length > 0 ? $"<p class=\"byline\" dir=\"auto\">{Encode(article.Byline)}</p>" : "")}
+            <div lang="en">{notice}</div>
+            <div class="body">{string.Join("\n", paragraphs.Select(text => $"<p dir=\"auto\">{Encode(text)}</p>"))}</div>
+            <footer lang="en"><a href="{Encode(article.OriginalUrl)}" target="_blank" rel="noopener noreferrer">Read the original article ↗</a><p>Saved and shared with Signal</p></footer>
+            </article></main>
+            """);
+    }
+
+    public static string RenderMissing() => Document("Shared story unavailable", "en", "This shared story could not be found.",
+        "<header><a class=\"brand\" href=\"/\">SIGNAL</a></header><main><h1>Shared story unavailable</h1><p>This link is incomplete or the story is no longer available.</p></main>");
+
+    private static string LanguageName(string language) => language switch
+    {
+        "en" => "English", "zh-Hans" => "Chinese (Simplified)", "zh-Hant" => "Chinese (Traditional)",
+        "ja" => "Japanese", "ko" => "Korean", "fr" => "French", "de" => "German", "es" => "Spanish",
+        "it" => "Italian", "pt" => "Portuguese", "ar" => "Arabic", "hi" => "Hindi", _ => language,
+    };
+
+    private static string Document(string title, string language, string description, string body) => $$$"""
+        <!doctype html>
+        <html lang="{{{Encode(language)}}}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>{{{Encode(title)}}} — Signal</title><meta name="robots" content="noindex, nofollow">
+        <meta name="description" content="{{{Encode(description)}}}"><meta property="og:type" content="article">
+        <meta property="og:title" content="{{{Encode(title)}}}"><meta property="og:description" content="{{{Encode(description)}}}">
+        <meta property="og:site_name" content="Signal"><meta name="color-scheme" content="light dark">
+        <style>
+        :root{color-scheme:light dark;--paper:#f7f4ed;--ink:#20201d;--muted:#6c6a62;--line:#d8d4c9;--accent:#bb312a}
+        *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font-family:system-ui,sans-serif}
+        header{border-bottom:1px solid var(--line);padding:1.4rem max(1.25rem,calc((100vw - 780px)/2))}
+        a{color:var(--accent);text-underline-offset:4px}.brand{color:var(--ink);text-decoration:none;font-weight:850;letter-spacing:.18em;font-size:1.5rem}
+        .brand span{display:block;font-size:.65rem;letter-spacing:.12em;color:var(--muted);margin-top:.3rem;text-transform:uppercase}
+        main{max-width:780px;margin:auto;padding:2.5rem 1.25rem 3rem;overflow-wrap:anywhere}
+        .meta{display:flex;flex-wrap:wrap;gap:1rem;color:var(--muted);font-size:.8rem}
+        h1{font-family:Georgia,serif;font-size:clamp(2rem,5vw,3rem);line-height:1.17;font-weight:600;margin:1.1rem 0 1.5rem}
+        .byline{color:var(--muted);font-size:.9rem}aside{font-size:.8rem;line-height:1.6;border-block:1px solid var(--line);padding:1rem 0;color:var(--muted)}
+        .body{font-family:Georgia,serif;font-size:1.15rem;line-height:1.85;margin-top:2rem}.body p{margin:0 0 1.4rem;white-space:pre-wrap}
+        footer{border-top:1px solid var(--line);padding-top:1.5rem;margin-top:2.5rem;font-size:.85rem}footer p{color:var(--muted)}
+        @media(prefers-color-scheme:dark){:root{--paper:#191a18;--ink:#edeae2;--muted:#aaa79f;--line:#3b3c36;--accent:#ef8176}}
+        @media print{:root{--paper:white;--ink:black;--muted:#555;--line:#ccc}main{max-width:none;padding:1rem 0}header{padding:0 0 1rem}}
+        </style></head><body>{{{body}}}</body></html>
+        """;
+}

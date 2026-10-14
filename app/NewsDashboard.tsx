@@ -3,7 +3,7 @@
 import { type CSSProperties, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { updateInstalledAppBadge } from "./app-badge";
-import { resolveArticleShareUrl, shareArticle } from "./article-share";
+import { createHostedArticleShare, shareArticle } from "./article-share";
 import HeadlinePlayer from "./HeadlinePlayer";
 import ArticleAudioPlayer from "./ArticleAudioPlayer";
 import ArticleSummaryPlayer from "./ArticleSummaryPlayer";
@@ -798,6 +798,9 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [friendShareLoading, setFriendShareLoading] = useState(false);
   const [friendShareBusy, setFriendShareBusy] = useState("");
   const [friendShareError, setFriendShareError] = useState("");
+  const [friendShareSummaryOnly, setFriendShareSummaryOnly] = useState(false);
+  const [friendShareCopied, setFriendShareCopied] = useState(false);
+  const friendShareRequest = useRef(0);
   const [fetchedAt, setFetchedAt] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -1914,13 +1917,8 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     document.body.style.top = `-${scrollPosition}px`;
     document.body.style.width = "100%";
     const focusFrame = window.requestAnimationFrame(() => readerCloseButton.current?.focus());
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closeArticleReader();
-    };
-    window.addEventListener("keydown", closeOnEscape);
     return () => {
       window.cancelAnimationFrame(focusFrame);
-      window.removeEventListener("keydown", closeOnEscape);
       document.documentElement.style.overflow = previousRootOverflow;
       document.body.style.overflow = previousOverflow;
       document.body.style.position = previousPosition;
@@ -1929,6 +1927,15 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
       window.scrollTo(0, scrollPosition);
     };
   }, [readerArticle]);
+
+  useEffect(() => {
+    if (!readerArticle || friendShareArticle) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeArticleReader();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [readerArticle, friendShareArticle]);
 
   useEffect(() => {
     if (!followReading || !readerReading.playing || !readerReading.section) return;
@@ -2792,6 +2799,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
 
   function closeFriendShare() {
     if (friendShareBusy) return;
+    friendShareRequest.current++;
     setFriendShareArticle(null);
     setFriendShareUrl("");
     setFriendShareFriends([]);
@@ -2800,30 +2808,42 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   }
 
   async function openStoryShare(article: FollowedArticle, trigger: HTMLButtonElement) {
-    if (!friendShareStore) {
-      await shareStoryExternally(article);
-      return;
-    }
+    const requestId = ++friendShareRequest.current;
+    const snapshot = readerArticle?.url === article.url && readerContent.status === "ready"
+      ? { title: readerTranslation?.title ?? article.title,
+          paragraphs: [...(readerTranslation?.paragraphs ?? readerContent.article.paragraphs)],
+          language: readerTranslation?.language ?? "", byline: readerContent.article.byline }
+      : undefined;
     friendShareTrigger.current = trigger;
-    setFriendShareArticle(article);
+    setFriendShareArticle({ ...article, title: snapshot?.title ?? article.title });
     setFriendShareUrl("");
+    setFriendShareSummaryOnly(false);
+    setFriendShareCopied(false);
     setFriendShareFriends([]);
     setFriendShareError("");
     setFriendShareLoading(true);
     setSharingUrls((current) => new Set(current).add(article.url));
     try {
-      const [resolvedUrl, friends] = await Promise.all([
-        resolveArticleShareUrl(article.url),
-        friendShareStore.loadFriends(),
+      const [saved, friendsResult] = await Promise.all([
+        createHostedArticleShare({ ...article, url: snapshot && readerContent.status === "ready"
+          ? readerContent.article.finalUrl : article.url }, snapshot),
+        friendShareStore?.loadFriends().then((friends) => ({ friends, error: "" }))
+          .catch(() => ({ friends: [], error: "Your friends could not be loaded. You can still copy or share the link." }))
+          ?? Promise.resolve({ friends: [], error: "" }),
       ]);
-      setFriendShareUrl(resolvedUrl);
-      setFriendShareFriends(friends);
+      if (friendShareRequest.current !== requestId) return;
+      setFriendShareUrl(new URL(saved.path, window.location.origin).href);
+      setFriendShareArticle({ ...article, title: saved.title });
+      setFriendShareSummaryOnly(saved.summaryOnly);
+      setFriendShareFriends(friendsResult.friends);
+      setFriendShareError(friendsResult.error);
     } catch (caught) {
+      if (friendShareRequest.current !== requestId) return;
       setFriendShareError(caught instanceof Error
         ? caught.message
         : "Signal could not prepare this story for sharing.");
     } finally {
-      setFriendShareLoading(false);
+      if (friendShareRequest.current === requestId) setFriendShareLoading(false);
       setSharingUrls((current) => {
         const next = new Set(current);
         next.delete(article.url);
@@ -2833,17 +2853,16 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   }
 
   async function shareStoryExternally(article: FollowedArticle, preparedUrl = "") {
-    if (sharingUrls.has(article.url)) return;
+    if (!preparedUrl || sharingUrls.has(article.url)) return;
     setSharingUrls((current) => new Set(current).add(article.url));
     try {
-      const resolvedUrl = preparedUrl || await resolveArticleShareUrl(article.url);
       const result = await shareArticle({
         title: article.title,
         text: `${article.title} — ${article.source}`,
-        url: resolvedUrl,
+        url: preparedUrl,
       });
       if (result === "copied") {
-        setNotice("Publisher link copied. It is ready to paste.");
+        setNotice("Signal story link copied. It is ready to paste.");
         closeFriendShare();
       } else if (result === "shared") {
         closeFriendShare();
@@ -2857,6 +2876,14 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         return next;
       });
     }
+  }
+
+  async function copyStoryLink() {
+    if (!friendShareUrl || friendShareBusy) return;
+    const result = await shareArticle({ title: friendShareArticle?.title ?? "Signal story",
+      text: "", url: friendShareUrl }, { clipboard: navigator.clipboard });
+    if (result === "copied") setFriendShareCopied(true);
+    else setFriendShareError("Select the link below and copy it to share this story.");
   }
 
   async function shareStoryWithFriend(friend: SignalFriend) {
@@ -4126,18 +4153,16 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
             aria-describedby="friend-share-description"
           >
             <p className="topic-confirmation-kicker">Share in Signal</p>
-            <h2 id="friend-share-title">Send this story to a friend.</h2>
+            <h2 id="friend-share-title">Share this story.</h2>
             <p id="friend-share-description">
-              It will appear in your Signal conversation. Friends who are offline will also receive an email notification.
+              Signal saves the version you are viewing, including its translation. Anyone with the link can read it without signing in.
             </p>
             <div className="friend-share-story">
               <small>{friendShareArticle.source}</small>
               <strong>{friendShareArticle.title}</strong>
             </div>
             {friendShareLoading ? (
-              <p className="friend-share-status">Preparing the publisher link and loading your friends…</p>
-            ) : friendShareError ? (
-              <p className="friend-share-status error" role="alert">{friendShareError}</p>
+              <p className="friend-share-status" role="status">Saving your Signal story page…</p>
             ) : friendShareFriends.length > 0 ? (
               <div className="friend-share-list" role="list" aria-label="Signal friends">
                 {friendShareFriends.map((friend) => (
@@ -4164,20 +4189,30 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                   </button>
                 ))}
               </div>
-            ) : (
+            ) : friendShareStore ? (
               <div className="friend-share-empty">
                 <p>You do not have any accepted Signal friends yet.</p>
                 {onOpenCommunity && (
                   <button type="button" onClick={() => {
-                    setFriendShareArticle(null);
+                    closeFriendShare();
                     onOpenCommunity();
                   }}>
                     Find friends
                   </button>
                 )}
               </div>
-            )}
+            ) : null}
+            {friendShareError && <p className="friend-share-status error" role="alert">{friendShareError}</p>}
+            {friendShareUrl && <div className="friend-share-link">
+              <label htmlFor="hosted-story-link">Your Signal story link</label>
+              <input id="hosted-story-link" value={friendShareUrl} readOnly onFocus={(event) => event.currentTarget.select()} />
+              <a href={friendShareUrl} target="_blank" rel="noreferrer">Preview shared page ↗</a>
+              {friendShareCopied && <p role="status">Link copied. It is ready to paste.</p>}
+              {friendShareSummaryOnly && <p>Only the headline and feed summary are available for this story. The shared page links to the full article.</p>}
+            </div>}
             <div className="topic-confirmation-actions friend-share-actions">
+              <button type="button" disabled={!friendShareUrl || friendShareLoading || Boolean(friendShareBusy)}
+                onClick={() => void copyStoryLink()}>Copy link</button>
               <button
                 type="button"
                 disabled={!friendShareUrl || friendShareLoading || Boolean(friendShareBusy)}
@@ -4423,6 +4458,10 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               <div className="article-reader-toolbar">
                 <span className="article-reader-kicker"><span className="pulse" /> Signal reader</span>
                 <div className="article-reader-actions">
+                  <button type="button" className="article-reader-share" disabled={readerContent.status === "loading" || sharingUrls.has(readerArticle.url)}
+                    onClick={(event) => void openStoryShare(readerArticle, event.currentTarget)}>
+                    <ShareIcon /> Share
+                  </button>
                   <button type="button" className="article-reader-follow" aria-pressed={followReading}
                     onClick={() => setFollowReading((current) => !current)} title="Keep the spoken section in view">
                     Follow reading
