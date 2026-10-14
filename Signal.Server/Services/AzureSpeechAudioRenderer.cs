@@ -29,6 +29,14 @@ public sealed class AzureSpeechAudioRenderer
 
     public async Task<IReadOnlyList<NarrationVoice>> GetVoicesAsync(CancellationToken token)
     {
+        var available = (await GetAllVoicesAsync(token)).Where(voice => voice.Language.StartsWith("en-", StringComparison.OrdinalIgnoreCase)
+            || voice.Language.StartsWith("zh-", StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (available.Length == 0) throw new HeadlineAudioUnavailableException("voices", "Azure did not return any supported English or Chinese neural voices.");
+        return available;
+    }
+
+    internal async Task<IReadOnlyList<NarrationVoice>> GetAllVoicesAsync(CancellationToken token)
+    {
         settings.Validate();
         await voiceLock.WaitAsync(token);
         try
@@ -51,12 +59,11 @@ public sealed class AzureSpeechAudioRenderer
             using var json = JsonDocument.Parse(body.ToArray());
             var available = json.RootElement.EnumerateArray()
                 .Where(voice => Field(voice, "VoiceType") == "Neural" && Field(voice, "Status") == "GA")
-                .Where(voice => Field(voice, "Locale").StartsWith("en-", StringComparison.OrdinalIgnoreCase) || Field(voice, "Locale").StartsWith("zh-", StringComparison.OrdinalIgnoreCase))
                 // Standard neural voices are supported by F0. HD voices have separate availability/pricing.
                 .Where(voice => Regex.IsMatch(Field(voice, "ShortName"), "^[a-z]{2}-[A-Z]{2}-[A-Za-z0-9]+Neural$"))
                 .Select(voice => new NarrationVoice(Field(voice, "ShortName"), Field(voice, "DisplayName") + " (Azure Neural)", Field(voice, "Locale"), Field(voice, "Gender")))
                 .DistinctBy(voice => voice.Id).OrderBy(voice => voice.Language).ThenBy(voice => voice.Name).ToArray();
-            if (available.Length == 0) throw new HeadlineAudioUnavailableException("voices", "Azure did not return any supported English or Chinese neural voices.");
+            if (available.Length == 0) throw new HeadlineAudioUnavailableException("voices", "Azure did not return any supported neural voices.");
             voices = available;
             voicesExpire = DateTimeOffset.UtcNow.AddHours(12);
             return voices;

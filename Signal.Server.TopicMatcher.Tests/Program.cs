@@ -13,6 +13,9 @@ using Signal.Server.Controllers;
 using Signal.Server.Models;
 using Signal.Server.Services;
 
+await SharedArticleAudioChecks.RunAsync();
+if (args.Contains("--shared-article-audio-only")) return;
+if (args.Contains("--shared-article-audio-live")) { await SharedArticleAudioChecks.RunLiveAsync(); return; }
 await ArticleShareChecks.RunAsync();
 if (args.Contains("--article-shares-browser")) { await ArticleShareChecks.RunBrowserAsync(); return; }
 if (args.Contains("--article-shares-only")) return;

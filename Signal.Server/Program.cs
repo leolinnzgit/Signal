@@ -158,6 +158,8 @@ builder.Services.AddSingleton(service => new KokoroAudioRenderer(
     service.GetRequiredService<IKokoroSpeechWorker>(), builder.Environment.ContentRootPath));
 builder.Services.AddSingleton<HeadlineAudioService>();
 builder.Services.AddSingleton(service => new ArticleAudioStreamService(service.GetRequiredService<AzureSpeechAudioRenderer>(), service.GetRequiredService<IAzureSpeechStreamer>()));
+builder.Services.AddSingleton(service => new SharedArticleAudioService(service.GetRequiredService<AzureSpeechAudioRenderer>(),
+    service.GetRequiredService<IAzureSpeechStreamer>(), Path.Combine(dataDirectory, "SharedArticleAudio")));
 builder.Services.AddHeadlineAudioCompression();
 builder.Services.AddHostedService<HeadlineAudioHealthCheck>();
 builder.Services.AddSingleton<ArticleAudioPreparationService>();

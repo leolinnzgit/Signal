@@ -9,6 +9,13 @@ Anyone with the link can read the page without a Signal account. Shared pages
 use random URLs and ask search engines not to index them. The page includes the
 publisher's name and a link to the original reporting.
 
+Select **Play audio** to hear the saved title and full text with Azure narration.
+Recipients do not need to sign in. Audio uses a voice matching the translation
+language, streams into the native audio player, and supports pause and replay.
+Completed MP3 recordings are cached in `App_Data/SharedArticleAudio` and support
+seeking on subsequent plays. Audio starts only when the listener presses Play.
+The server must have Azure Speech configured through the existing Speech settings.
+
 The saved translation remains in the language chosen when sharing. Sharing a
 different language or revised text creates another page; existing links retain
 their content. Sharing the same version again reuses its link.

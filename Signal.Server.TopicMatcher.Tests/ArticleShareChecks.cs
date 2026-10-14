@@ -20,6 +20,11 @@ internal static class ArticleShareChecks
         using var playwright = await Microsoft.Playwright.Playwright.CreateAsync();
         await using var browser = await playwright.Chromium.LaunchAsync(new() { Headless = true, Channel = "msedge" });
         Directory.CreateDirectory("work");
+        var audioScript = await File.ReadAllTextAsync("public/shared-story-audio.js");
+        var pcm = new byte[64_000];
+        for (var sample = 0; sample < pcm.Length / 2; sample++)
+            BitConverter.TryWriteBytes(pcm.AsSpan(sample * 2, 2), (short)(Math.Sin(sample * Math.PI * 440 / 8000) * 8000));
+        var wave = RecordedNarration.Assemble([pcm], 3).Wave;
         foreach (var (language, title, text) in new[] {
             ("en", "Researchers reveal a promising advance in clean energy", "Researchers have developed a new way to store renewable energy. Their early experiments suggest it could help homes make better use of solar power after sunset."),
             ("zh-Hans", "研究人员公布清洁能源新突破", "研究人员开发了一种储存可再生能源的新方法。初步实验表明，这项技术可以帮助家庭在日落之后更好地使用太阳能。"),
@@ -28,17 +33,55 @@ internal static class ArticleShareChecks
         foreach (var width in new[] { 390, 1280 })
         {
             var page = await browser.NewPageAsync(new() { ViewportSize = new() { Width = width, Height = 844 } });
-            await page.SetContentAsync(SharedArticlePage.Render(new SharedNewsArticle {
+            var html = SharedArticlePage.Render(new SharedNewsArticle {
+                Id = new string('a', 48),
                 Title = title, Source = "Science news", Byline = "Example Reporter", Language = language,
-                OriginalUrl = "https://example.com/clean-energy", ParagraphsJson = JsonSerializer.Serialize(new[] { text, text, text }) }, "/"));
+                OriginalUrl = "https://example.com/clean-energy", ParagraphsJson = JsonSerializer.Serialize(new[] { text, text, text }) }, "/");
+            var audioRequests = 0;
+            var failure = false;
+            await page.RouteAsync("https://shared.example.test/**", async route =>
+            {
+                if (route.Request.Url.EndsWith("/audio"))
+                {
+                    audioRequests++;
+                    await route.FulfillAsync(new() { Status = failure ? 503 : 200, ContentType = "audio/wav", BodyBytes = failure ? [] : wave });
+                }
+                else if (route.Request.Url.EndsWith("shared-story-audio.js"))
+                    await route.FulfillAsync(new() { ContentType = "text/javascript", Body = audioScript });
+                else await route.FulfillAsync(new() { ContentType = "text/html", Body = html,
+                    Headers = new Dictionary<string, string> { ["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; media-src 'self'; base-uri 'none'" } });
+            });
+            await page.GotoAsync("https://shared.example.test/shared/" + new string('a', 48));
             Require(await page.Locator("h1").InnerTextAsync() == title, "Rendered title changed.");
             Require(await page.Locator(".body p").CountAsync() == 3, "Rendered paragraphs disappeared.");
             Require(await page.EvaluateAsync<bool>("document.documentElement.scrollWidth <= innerWidth"), "Shared page overflows on a phone.");
             if (language == "ar") Require(await page.Locator(".body p").First.EvaluateAsync<string>("el => getComputedStyle(el).direction") == "rtl", "Arabic paragraphs lost their reading direction.");
+            Require(audioRequests == 0, "Page previews or initial loading triggered paid audio synthesis.");
+            await page.GetByRole(Microsoft.Playwright.AriaRole.Button, new() { Name = "Play audio" }).ClickAsync();
+            await Microsoft.Playwright.Assertions.Expect(page.Locator("#audio-status")).ToHaveTextAsync("Playing the saved story with Azure narration.");
+            var audio = page.Locator("#story-audio");
+            Require(await audio.GetAttributeAsync("controls") is not null && audioRequests > 0, "Audio did not play with native controls under the page's CSP.");
+            await Task.Delay(250);
+            await audio.EvaluateAsync("el => el.pause()");
+            await Microsoft.Playwright.Assertions.Expect(page.Locator("#audio-status")).ToHaveTextAsync("Paused. Press play to continue.");
+            await audio.EvaluateAsync("el => el.play()");
+            await Microsoft.Playwright.Assertions.Expect(page.Locator("#audio-status")).ToHaveTextAsync("Playing the saved story with Azure narration.");
+            await audio.EvaluateAsync("el => { el.currentTime = el.duration - 0.05; }");
+            await Microsoft.Playwright.Assertions.Expect(page.Locator("#audio-status")).ToHaveTextAsync("End of story. Press play to listen again.");
+            if (language == "en")
+            {
+                failure = true;
+                await page.ReloadAsync();
+                await page.GetByRole(Microsoft.Playwright.AriaRole.Button, new() { Name = "Play audio" }).ClickAsync();
+                await page.GetByRole(Microsoft.Playwright.AriaRole.Button, new() { Name = "Try audio again" }).WaitForAsync();
+                failure = false;
+                await page.GetByRole(Microsoft.Playwright.AriaRole.Button, new() { Name = "Try audio again" }).ClickAsync();
+                await Microsoft.Playwright.Assertions.Expect(page.Locator("#audio-status")).ToHaveTextAsync("Playing the saved story with Azure narration.");
+            }
             await page.ScreenshotAsync(new() { Path = $"work/shared-story-{language}-{width}.png", FullPage = true });
             await page.CloseAsync();
         }
-        Console.WriteLine("Hosted pages passed real-browser desktop/phone layout, Chinese text and Arabic direction checks.");
+        Console.WriteLine("Hosted pages passed desktop/phone layout, Chinese and Arabic text, CSP, click-only audio loading, native playback, pause/resume, completion and failed-audio retry checks.");
     }
 
     public static async Task RunAsync()

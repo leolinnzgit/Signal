@@ -119,7 +119,7 @@ public sealed class ArticleSharesController(
         Response.Headers["X-Robots-Tag"] = "noindex, nofollow";
         Response.Headers["Referrer-Policy"] = "no-referrer";
         Response.Headers.XContentTypeOptions = "nosniff";
-        Response.Headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'";
+        Response.Headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; media-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'";
         var article = id.Length == 48 && id.All(character => char.IsAsciiHexDigit(character))
             ? await database.SharedNewsArticles.AsNoTracking().SingleOrDefaultAsync(item => item.Id == id, token)
             : null;
