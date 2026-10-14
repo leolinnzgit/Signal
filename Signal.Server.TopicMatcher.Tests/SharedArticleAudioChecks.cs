@@ -38,6 +38,8 @@ internal static class SharedArticleAudioChecks
             using var output = new MemoryStream();
             await service.WriteAsync(recording, output, timeout.Token);
             Require(output.Length > 1000 && SharedArticleAudioService.IsCached(recording), "Live Azure did not produce a complete cached MP3.");
+            Require(service.GetTiming(recording) is { Complete: true } liveTiming && liveTiming.Starts.Length == recording.Clips.Length,
+                "Live Azure did not preserve narration bookmarks.");
             var calls = synth.Calls;
             using var replay = new MemoryStream();
             await service.WriteAsync(recording, replay, timeout.Token);
@@ -69,11 +71,20 @@ internal static class SharedArticleAudioChecks
                 var prepared = await service.PrepareAsync(withLanguage(language), CancellationToken.None);
                 Require(prepared.Clips.All(clip => clip.Voice == locale + "-TestNeural"), "A translation was read with a voice from another language or Chinese script.");
             }
-            Require((await renderer.GetVoicesAsync(CancellationToken.None)).Count == 3, "Expanded Azure catalog changed the English/Chinese account voice picker.");
+            Require((await renderer.GetVoicesAsync(CancellationToken.None)).Count == 6, "Expanded Azure catalog changed the English/Chinese account voice picker.");
+            var alternate = await service.PrepareAsync(article, CancellationToken.None, "zh-CN-AlternateNeural");
+            Require(alternate.Clips.All(clip => clip.Voice == "zh-CN-AlternateNeural"), "The listener's selected voice was ignored.");
+            foreach (var invalidVoice in new[] { "zh-TW-TestNeural", "en-NZ-TestNeural", "missing" })
+            {
+                try { await service.PrepareAsync(article, CancellationToken.None, invalidVoice); throw new InvalidOperationException("An unsupported voice was accepted."); }
+                catch (ArgumentException) { }
+            }
             var recording = await service.PrepareAsync(article, CancellationToken.None);
             using var output = new MemoryStream();
             var writing = service.WriteAsync(recording, output, CancellationToken.None);
             await synth.FirstBytes.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            Require(service.GetTiming(recording).Starts.SequenceEqual(new[] { 0d, 1d, 2d })
+                && !service.GetTiming(recording).Complete, "Streaming narration did not expose its early paragraph timings.");
             Require(output.Length > 0 && !writing.IsCompleted && !SharedArticleAudioService.IsCached(recording), "Playback waited for the complete article or offered a partial cache.");
             using var duplicate = new MemoryStream();
             var duplicateWriting = service.WriteAsync(recording, duplicate, CancellationToken.None);
@@ -82,6 +93,10 @@ internal static class SharedArticleAudioChecks
             Require(synth.Calls == 1 && output.ToArray().SequenceEqual(duplicate.ToArray()) && SharedArticleAudioService.IsCached(recording), "Concurrent visitors regenerated the same recording or lost bytes.");
             Require(synth.Texts.SequenceEqual(new[] { article.Title, "第一段。", "第二段。" }), "Azure narration did not preserve the saved title and paragraph order.");
             var reopened = new SharedArticleAudioService(renderer, synth, directory);
+            Require(reopened.GetTiming(recording) is { Complete: true, Duration: 3 } savedTiming
+                && savedTiming.Starts.SequenceEqual(new[] { 0d, 1d, 2d }) && savedTiming.Sections.SequenceEqual(new[] { 0, 1, 2 }),
+                "Persisted playback lost its exact title and paragraph timings.");
+            Require(alternate.Path != recording.Path, "Voice choices shared the same recording cache.");
             using var replay = new MemoryStream();
             await reopened.WriteAsync(recording, replay, CancellationToken.None);
             Require(synth.Calls == 1 && output.ToArray().SequenceEqual(replay.ToArray()), "Reopening the service lost the persisted MP3 cache.");
@@ -91,6 +106,10 @@ internal static class SharedArticleAudioChecks
             var longRecording = await service.PrepareAsync(longArticle, CancellationToken.None);
             using var longOutput = new MemoryStream();
             await service.WriteAsync(longRecording, longOutput, CancellationToken.None);
+            var longTiming = service.GetTiming(longRecording);
+            Require(longTiming.Complete && longTiming.Starts.Zip(longTiming.Starts.Skip(1)).All(pair => pair.Second > pair.First)
+                && longTiming.Sections[0] == 0 && longTiming.Sections.Skip(1).All(section => section == 1),
+                "Timings lost their paragraph mapping or reset at an Azure batch boundary.");
             Require(synth.LargestCharacters <= 1500 && longRecording.Clips.All(clip => !char.IsHighSurrogate(clip.Text[^1]))
                 && string.Concat(longRecording.Clips.Skip(1).Select(clip => clip.Text)) == string.Concat(Enumerable.Repeat("文🙂", 20_000)), "Long saved translations exceeded a batch or lost Unicode text.");
             var failure = await service.PrepareAsync(new SharedNewsArticle { Title = "Fail", Language = "en", ParagraphsJson = "[]" }, CancellationToken.None);
@@ -119,6 +138,14 @@ internal static class SharedArticleAudioChecks
             { ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() } };
             var calls = synth.Calls;
             Require(await controller.Read("unknown", CancellationToken.None) is NotFoundResult && synth.Calls == calls, "Unknown links triggered Azure generation.");
+            Require(await controller.Voices("unknown", CancellationToken.None) is NotFoundResult
+                && await controller.Timing("unknown", CancellationToken.None) is NotFoundResult, "Unknown links exposed narration metadata.");
+            Require(await controller.Voices(article.Id, CancellationToken.None) is OkObjectResult
+                && await controller.Timing(article.Id, CancellationToken.None) is OkObjectResult { Value: SharedArticleAudioService.Timing { Complete: true } }
+                && synth.Calls == calls, "Anonymous metadata triggered synthesis or lost the cached timings.");
+            Require(await controller.Read(article.Id, CancellationToken.None, "en-NZ-TestNeural") is BadRequestObjectResult
+                && await controller.Timing(article.Id, CancellationToken.None, "en-NZ-TestNeural") is BadRequestObjectResult,
+                "A voice from another language was accepted by a public endpoint.");
             var result = await controller.Read(article.Id, CancellationToken.None);
             Require(result is PhysicalFileResult { EnableRangeProcessing: true, ContentType: "audio/mpeg" }
                 && synth.Calls == calls, "Anonymous replay did not serve cached, seekable MP3.");
@@ -127,7 +154,7 @@ internal static class SharedArticleAudioChecks
             File.SetLastWriteTimeUtc(recording.Path, DateTime.UtcNow.AddDays(-31));
             Require(!SharedArticleAudioService.IsCached(recording), "An expired shared recording remained available indefinitely.");
             service.Prune();
-            Require(!File.Exists(recording.Path) && await database.SharedNewsArticles.AnyAsync(item => item.Id == article.Id),
+            Require(!File.Exists(recording.Path) && !File.Exists(recording.Path + ".json") && await database.SharedNewsArticles.AnyAsync(item => item.Id == article.Id),
                 "Cache eviction deleted the saved story or retained its expired MP3.");
             using var regenerated = new MemoryStream();
             await service.WriteAsync(recording, regenerated, CancellationToken.None);
@@ -147,8 +174,9 @@ internal static class SharedArticleAudioChecks
     private sealed class Voices : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
-            => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(Locales.Select(locale => new {
-                ShortName = locale + "-TestNeural", Locale = locale, DisplayName = "Test", Gender = "Female", VoiceType = "Neural", Status = "GA" }))) });
+            => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(Locales.SelectMany(locale => new[] {
+                new { ShortName = locale + "-TestNeural", Locale = locale, DisplayName = "Test", Gender = "Female", VoiceType = "Neural", Status = "GA" },
+                new { ShortName = locale + "-AlternateNeural", Locale = locale, DisplayName = "Alternate", Gender = "Male", VoiceType = "Neural", Status = "GA" } }))) });
     }
     private sealed class FakeStream : IAzureSpeechStreamer
     {
@@ -165,6 +193,7 @@ internal static class SharedArticleAudioChecks
             var texts = XDocument.Parse(ssml).Root!.Elements(ns + "voice").Select(voice => string.Concat(voice.Nodes().OfType<XText>().Select(node => node.Value))).ToArray();
             Texts.AddRange(texts);
             LargestCharacters = Math.Max(LargestCharacters, texts.Sum(text => text.Length));
+            for (var index = 0; index < texts.Length; index++) bookmark($"clip-{index}-start", (ulong)(index * TimeSpan.TicksPerSecond));
             await write([0xff, 0xf3, 0x48, 0xc4], token);
             FirstBytes.TrySetResult();
             await Release.Task.WaitAsync(token);

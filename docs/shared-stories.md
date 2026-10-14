@@ -12,10 +12,16 @@ publisher's name and a link to the original reporting.
 Select **Play audio** to hear the saved title and full text with Azure narration.
 Recipients do not need to sign in. Audio uses a voice matching the translation
 language, streams into the native audio player, and supports pause and replay.
+Listeners can select another available voice in the saved story's language.
+The title or paragraph currently being read is highlighted using Azure narration
+bookmarks, including when seeking or replaying. Changing voices during playback
+restarts the story in the selected voice; paused listeners press Play audio to start.
 Completed MP3 recordings are cached in `App_Data/SharedArticleAudio` and support
 seeking on subsequent plays. Audio starts only when the listener presses Play.
 The MP3 cache is limited to 128 MiB and 30 days. Evicted audio can be regenerated;
 saved shared stories and translations remain available. See [disk storage](storage.md).
+Each voice has its own recording and a small timing file that survives restarts
+and is removed with its recording.
 The server must have Azure Speech configured through the existing Speech settings.
 
 The saved translation remains in the language chosen when sharing. Sharing a

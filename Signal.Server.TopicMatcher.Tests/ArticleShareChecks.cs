@@ -38,18 +38,25 @@ internal static class ArticleShareChecks
                 Title = title, Source = "Science news", Byline = "Example Reporter", Language = language,
                 OriginalUrl = "https://example.com/clean-energy", ParagraphsJson = JsonSerializer.Serialize(new[] { text, text, text }) }, "/");
             var audioRequests = 0;
+            var requestedVoice = "";
             var failure = false;
             await page.RouteAsync("https://shared.example.test/**", async route =>
             {
-                if (route.Request.Url.EndsWith("/audio"))
+                var url = new Uri(route.Request.Url);
+                if (url.AbsolutePath.EndsWith("/audio"))
                 {
                     audioRequests++;
+                    requestedVoice = url.Query;
                     await route.FulfillAsync(new() { Status = failure ? 503 : 200, ContentType = "audio/wav", BodyBytes = failure ? [] : wave });
                 }
-                else if (route.Request.Url.EndsWith("shared-story-audio.js"))
+                else if (url.AbsolutePath.EndsWith("/audio/voices"))
+                    await route.FulfillAsync(new() { ContentType = "application/json", Body = "{\"selected\":\"default\",\"voices\":[{\"id\":\"default\",\"name\":\"Default\",\"language\":\"" + language + "\",\"gender\":\"Female\"},{\"id\":\"alternate\",\"name\":\"Alternate\",\"language\":\"" + language + "\",\"gender\":\"Male\"}]}" });
+                else if (url.AbsolutePath.EndsWith("/audio/timing"))
+                    await route.FulfillAsync(new() { ContentType = "application/json", Body = "{\"starts\":[0,0.45,1.1,1.65],\"sections\":[0,1,2,3],\"complete\":true,\"duration\":2}" });
+                else if (url.AbsolutePath.EndsWith("shared-story-audio.js"))
                     await route.FulfillAsync(new() { ContentType = "text/javascript", Body = audioScript });
                 else await route.FulfillAsync(new() { ContentType = "text/html", Body = html,
-                    Headers = new Dictionary<string, string> { ["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; media-src 'self'; base-uri 'none'" } });
+                    Headers = new Dictionary<string, string> { ["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; media-src 'self'; connect-src 'self'; base-uri 'none'" } });
             });
             await page.GotoAsync("https://shared.example.test/shared/" + new string('a', 48));
             Require(await page.Locator("h1").InnerTextAsync() == title, "Rendered title changed.");
@@ -57,17 +64,36 @@ internal static class ArticleShareChecks
             Require(await page.EvaluateAsync<bool>("document.documentElement.scrollWidth <= innerWidth"), "Shared page overflows on a phone.");
             if (language == "ar") Require(await page.Locator(".body p").First.EvaluateAsync<string>("el => getComputedStyle(el).direction") == "rtl", "Arabic paragraphs lost their reading direction.");
             Require(audioRequests == 0, "Page previews or initial loading triggered paid audio synthesis.");
+            await Microsoft.Playwright.Assertions.Expect(page.Locator("#story-voice")).ToBeEnabledAsync();
+            Require(await page.Locator("#story-voice option").CountAsync() == 2, "The voice picker did not load under the page CSP.");
             await page.GetByRole(Microsoft.Playwright.AriaRole.Button, new() { Name = "Play audio" }).ClickAsync();
             await Microsoft.Playwright.Assertions.Expect(page.Locator("#audio-status")).ToHaveTextAsync("Playing the saved story with Azure narration.");
             var audio = page.Locator("#story-audio");
+            await Microsoft.Playwright.Assertions.Expect(page.Locator("h1")).ToHaveClassAsync(new System.Text.RegularExpressions.Regex("audio-current"));
             Require(await audio.GetAttributeAsync("controls") is not null && audioRequests > 0, "Audio did not play with native controls under the page's CSP.");
             await Task.Delay(250);
             await audio.EvaluateAsync("el => el.pause()");
             await Microsoft.Playwright.Assertions.Expect(page.Locator("#audio-status")).ToHaveTextAsync("Paused. Press play to continue.");
+            Require(await page.Locator(".audio-current").CountAsync() == 0, "Paused playback kept a speaking highlight.");
+            await audio.EvaluateAsync("el => { el.currentTime = 1.15; }");
             await audio.EvaluateAsync("el => el.play()");
             await Microsoft.Playwright.Assertions.Expect(page.Locator("#audio-status")).ToHaveTextAsync("Playing the saved story with Azure narration.");
+            await Microsoft.Playwright.Assertions.Expect(page.Locator("[data-audio-section='2']")).ToHaveClassAsync(new System.Text.RegularExpressions.Regex("audio-current"));
+            await audio.EvaluateAsync("el => { el.currentTime = 0.5; }");
+            await Microsoft.Playwright.Assertions.Expect(page.Locator("[data-audio-section='1']")).ToHaveClassAsync(new System.Text.RegularExpressions.Regex("audio-current"));
+            await audio.EvaluateAsync("el => el.pause()");
+            var previousRequests = audioRequests;
+            await page.Locator("#story-voice").SelectOptionAsync("alternate");
+            Require(audioRequests == previousRequests && await page.Locator(".audio-current").CountAsync() == 0, "Changing a paused voice generated audio or kept stale highlighting.");
+            await page.GetByRole(Microsoft.Playwright.AriaRole.Button, new() { Name = "Play audio" }).ClickAsync();
+            await Microsoft.Playwright.Assertions.Expect(page.Locator("#audio-status")).ToHaveTextAsync("Playing the saved story with Azure narration.");
+            Require(requestedVoice == "?voice=alternate", "Playback ignored the listener's voice choice.");
+            await page.Locator("#story-voice").SelectOptionAsync("default");
+            await Microsoft.Playwright.Assertions.Expect(page.Locator("#audio-status")).ToHaveTextAsync("Playing the saved story with Azure narration.");
+            Require(requestedVoice == "?voice=default", "Changing a playing voice did not restart narration.");
             await audio.EvaluateAsync("el => { el.currentTime = el.duration - 0.05; }");
             await Microsoft.Playwright.Assertions.Expect(page.Locator("#audio-status")).ToHaveTextAsync("End of story. Press play to listen again.");
+            Require(await page.Locator(".audio-current").CountAsync() == 0, "Completed playback retained a speaking highlight.");
             if (language == "en")
             {
                 failure = true;
@@ -81,7 +107,7 @@ internal static class ArticleShareChecks
             await page.ScreenshotAsync(new() { Path = $"work/shared-story-{language}-{width}.png", FullPage = true });
             await page.CloseAsync();
         }
-        Console.WriteLine("Hosted pages passed desktop/phone layout, Chinese and Arabic text, CSP, click-only audio loading, native playback, pause/resume, completion and failed-audio retry checks.");
+        Console.WriteLine("Hosted pages passed desktop/phone layout, Chinese and Arabic text, CSP, voice selection and switching, synchronized highlights, forward/backward seeking, pause/resume, completion and failed-audio retry checks.");
     }
 
     public static async Task RunAsync()

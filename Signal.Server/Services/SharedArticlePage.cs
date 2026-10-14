@@ -25,17 +25,18 @@ public static class SharedArticlePage
             <header><a class="brand" href="{Encode(homePath)}" lang="en">SIGNAL<span>Shared story</span></a></header>
             <main><article>
             <div class="meta" lang="en"><span>{Encode(article.Source)}</span>{languageNote}</div>
-            <h1 dir="auto">{Encode(article.Title)}</h1>
+            <h1 dir="auto" data-audio-section="0">{Encode(article.Title)}</h1>
             {(article.Byline.Length > 0 ? $"<p class=\"byline\" dir=\"auto\">{Encode(article.Byline)}</p>" : "")}
             <div lang="en">{notice}</div>
             <section class="shared-audio" lang="en" aria-label="Listen to this story">
             <strong>Listen to this story</strong><p>Azure narration reads the saved story in its shared language.</p>
+            <label for="story-voice">Voice</label><select id="story-voice" disabled><option value="">Default voice · loading choices…</option></select>
             <button id="listen-button" type="button">Play audio</button>
             <audio id="story-audio" controls preload="none" data-src="{Encode(homePath)}shared/{Encode(article.Id)}/audio" hidden aria-label="Story audio"></audio>
             <p id="audio-status" role="status" aria-live="polite"></p>
             </section>
-            <script src="{Encode(homePath)}shared-story-audio.js" defer></script>
-            <div class="body">{string.Join("\n", paragraphs.Select(text => $"<p dir=\"auto\">{Encode(text)}</p>"))}</div>
+            <script src="{Encode(homePath)}shared-story-audio.js?v=2" defer></script>
+            <div class="body">{string.Join("\n", paragraphs.Select((text, index) => $"<p dir=\"auto\" data-audio-section=\"{index + 1}\">{Encode(text)}</p>"))}</div>
             <footer lang="en"><a href="{Encode(article.OriginalUrl)}" target="_blank" rel="noopener noreferrer">Read the original article ↗</a><p>Saved and shared with Signal</p></footer>
             </article></main>
             """);
@@ -71,10 +72,13 @@ public static class SharedArticlePage
         .shared-audio{border:1px solid var(--line);padding:1.25rem;margin-top:1.5rem;border-radius:.5rem;font-size:.9rem}.shared-audio p{color:var(--muted);font-size:.8rem;line-height:1.6;margin:.5rem 0}
         .shared-audio button{font:inherit;background:var(--ink);color:var(--paper);border:0;border-radius:.3rem;padding:.65rem 1rem;cursor:pointer}.shared-audio button:disabled{opacity:.6;cursor:wait}
         .shared-audio audio{width:100%;margin-top:.6rem}.shared-audio [hidden]{display:none}
+        .shared-audio label{display:block;margin:.8rem 0 .3rem}.shared-audio select{display:block;max-width:100%;width:100%;font:inherit;padding:.6rem;border:1px solid var(--line);border-radius:.3rem;background:var(--paper);color:var(--ink);margin-bottom:1rem}
+        [data-audio-section]{border-radius:.2rem;scroll-margin-block:2rem}.audio-current{background:var(--highlight);outline:3px solid var(--highlight);box-shadow:-5px 0 0 var(--accent)}
         .body{font-family:Georgia,serif;font-size:1.15rem;line-height:1.85;margin-top:2rem}.body p{margin:0 0 1.4rem;white-space:pre-wrap}
         footer{border-top:1px solid var(--line);padding-top:1.5rem;margin-top:2.5rem;font-size:.85rem}footer p{color:var(--muted)}
-        @media(prefers-color-scheme:dark){:root{--paper:#191a18;--ink:#edeae2;--muted:#aaa79f;--line:#3b3c36;--accent:#ef8176}}
-        @media print{:root{--paper:white;--ink:black;--muted:#555;--line:#ccc}main{max-width:none;padding:1rem 0}header{padding:0 0 1rem}.shared-audio{display:none}}
+        :root{--highlight:#f5e2af}
+        @media(prefers-color-scheme:dark){:root{--paper:#191a18;--ink:#edeae2;--muted:#aaa79f;--line:#3b3c36;--accent:#ef8176;--highlight:#51422a}}
+        @media print{:root{--paper:white;--ink:black;--muted:#555;--line:#ccc}main{max-width:none;padding:1rem 0}header{padding:0 0 1rem}.shared-audio{display:none}.audio-current{background:none;outline:none;box-shadow:none}}
         </style></head><body>{{{body}}}</body></html>
         """;
 }
