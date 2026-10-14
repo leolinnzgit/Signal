@@ -25,6 +25,7 @@ public sealed class AzureSpeechAudioRenderer
     }
 
     public bool Enabled => settings.Enabled;
+    internal bool BackgroundPreparationEnabled => Enabled && settings.Prewarm;
     internal string DefaultVoice(bool chinese) => chinese ? settings.ChineseVoice : settings.EnglishVoice;
 
     public async Task<IReadOnlyList<NarrationVoice>> GetVoicesAsync(CancellationToken token)
@@ -78,17 +79,34 @@ public sealed class AzureSpeechAudioRenderer
 
     internal sealed record Clip(string Voice, string Text);
 
-    public async Task<HeadlineAudio> GenerateAsync(HeadlineAudioRequest request, CancellationToken token)
+    private async Task<Clip[]> GetClipsAsync(HeadlineAudioRequest request, CancellationToken token)
     {
         var titles = HeadlineAudioService.Validate(request);
         var available = await GetVoicesAsync(token);
-        var clips = titles.Select(title =>
+        return titles.Select(title =>
         {
             var chinese = title.Any(character => character is >= '\u3400' and <= '\u9fff');
             var voice = ChooseVoice(available, request.Language, chinese, request.Voices?.GetValueOrDefault(chinese ? "zh" : "en"), chinese ? settings.ChineseVoice : settings.EnglishVoice);
-            var text = Regex.IsMatch(title, @"[.!?。！？][""'”’]*$") ? title : title + (chinese ? "。" : ".");
-            return new Clip(voice.Id, text);
+            return NormalizeClip(new Clip(voice.Id, title));
         }).ToArray();
+    }
+
+    internal async Task<HeadlineAudio?> GetCachedAsync(HeadlineAudioRequest request, CancellationToken token)
+        => GetCached(await GetClipsAsync(request, token), request.Seconds);
+
+    internal HeadlineAudio? GetCached(IReadOnlyList<Clip> clips, int seconds)
+    {
+        var pcm = clips.Select(clip => cache.TryGet("azure-v1/" + clip.Voice, clip.Text)).ToArray();
+        return pcm.All(clip => clip is not null) ? Assemble(pcm.Select(clip => clip!).ToArray(), seconds) : null;
+    }
+
+    internal static Clip NormalizeClip(Clip clip)
+        => clip with { Text = Regex.IsMatch(clip.Text, @"[.!?。！？][""'”’]*$") ? clip.Text
+            : clip.Text + (clip.Text.Any(character => character is >= '\u3400' and <= '\u9fff') ? "。" : ".") };
+
+    public async Task<HeadlineAudio> GenerateAsync(HeadlineAudioRequest request, CancellationToken token)
+    {
+        var clips = await GetClipsAsync(request, token);
         var pcm = new Dictionary<Clip, byte[]>();
         var missing = new List<Clip>();
         cache.Prune();

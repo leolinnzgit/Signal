@@ -6,6 +6,7 @@ public sealed class AzureSpeechOptions
 {
     public const string SectionName = "Speech";
     public string Provider { get; set; } = "Windows";
+    public bool Prewarm { get; set; } = true;
     public string Key { get; set; } = "";
     public string Region { get; set; } = "";
     public string EnglishVoice { get; set; } = "en-NZ-MollyNeural";

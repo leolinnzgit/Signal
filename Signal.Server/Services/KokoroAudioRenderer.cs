@@ -20,6 +20,7 @@ public sealed class KokoroAudioRenderer
         cache = new HeadlineAudioClipCache(cacheDirectory ?? Path.Combine(contentRoot, "App_Data", "HeadlineAudioClips"));
     }
     public bool Enabled => settings.Enabled;
+    internal bool BackgroundPreparationEnabled => Enabled && settings.KokoroPrewarm;
     public IReadOnlyList<NarrationVoice> GetVoices()
     {
         if (voices is not null) return voices;

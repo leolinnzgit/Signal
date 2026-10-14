@@ -27,12 +27,13 @@ internal static class AzureSpeechChecks
             var service = new HeadlineAudioService(renderer, new KokoroAudioRenderer(disabled, new UnusedKokoroWorker(), directory));
             var request = new HeadlineAudioRequest(["Signal audio is ready.", "語音已準備好。", "Signal audio is ready."], 3,
                 Voices: new Dictionary<string, string> { ["en"] = "kokoro/bf_emma", ["zh"] = "kokoro/zf_xiaobei" });
+            Assert(await service.TryPrepareInBackgroundAsync(request, timeout.Token), "Live Azure could not save its background recording.");
             var recording = await service.GenerateAsync(request, timeout.Token);
             Assert(service.EngineName == "azure-neural" && HeadlineAudioHealthCheck.IsCompleteRecording(recording, 3, 3),
                 "Live Azure did not produce complete English and Chinese narration after switching from Kokoro.");
             await service.GenerateAsync(request with { Seconds = 6 }, timeout.Token);
             Assert(synth.Calls == 1, "Live replay did not reuse the cached Azure clips.");
-            Console.WriteLine("Live Azure passed English/Chinese audio, stale Kokoro voice fallback, timing, duplicate reuse and cached replay.");
+            Console.WriteLine("Live Azure passed background preparation, English/Chinese audio, stale Kokoro voice fallback, timing, duplicate reuse and cached playback.");
         }
         finally { if (Directory.Exists(directory)) { foreach (var file in Directory.GetFiles(directory)) File.Delete(file); Directory.Delete(directory); } }
     }
@@ -97,6 +98,17 @@ internal static class AzureSpeechChecks
             catch (HeadlineAudioUnavailableException exception) when (exception.Code == "quota") { }
             synth.Failure = null;
             await service.GenerateAsync(new HeadlineAudioRequest(["Quota test"], 3), CancellationToken.None);
+            await CheckBackgroundPriorityAsync(renderer, synth, titles[0]);
+            var optedOut = new HeadlineAudioService(new AzureSpeechAudioRenderer(Options.Create(new AzureSpeechOptions {
+                Provider = "Azure", Prewarm = false, Key = settings.Key, Region = settings.Region
+            }), client, synth, directory));
+            Assert(!await optedOut.TryPrepareInBackgroundAsync(new HeadlineAudioRequest(["Disabled background request"], 3), default),
+                "Azure preparation ignored its explicit opt-out.");
+            var blockedCache = Path.Combine(directory, "blocked-cache");
+            File.WriteAllText(blockedCache, "A file cannot contain cache clips.");
+            var cannotSave = new HeadlineAudioService(new AzureSpeechAudioRenderer(Options.Create(settings), client, synth, blockedCache));
+            try { await cannotSave.TryPrepareInBackgroundAsync(new HeadlineAudioRequest(["Unsaved Azure background clip"], 3), default); throw new Exception("An unsaved Azure clip was reported as prepared."); }
+            catch (HeadlineAudioUnavailableException exception) when (exception.Code == "cache") { }
             handler.Status = HttpStatusCode.Unauthorized;
             var denied = new AzureSpeechAudioRenderer(Options.Create(settings), client, synth, directory);
             try { await denied.GetVoicesAsync(CancellationToken.None); throw new Exception("An invalid key was accepted."); }
@@ -104,6 +116,32 @@ internal static class AzureSpeechChecks
         }
         finally { foreach (var file in Directory.GetFiles(directory)) File.Delete(file); Directory.Delete(directory); }
         Console.WriteLine("Azure neural recordings passed voices, escaped SSML, bookmark timing, batching, cache reuse, cancellation and quota checks without cloud calls.");
+    }
+
+    private static async Task CheckBackgroundPriorityAsync(AzureSpeechAudioRenderer renderer, FakeSynthesizer synth, string cachedTitle)
+    {
+        var service = new HeadlineAudioService(renderer);
+        synth.Hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var background = service.TryPrepareInBackgroundAsync(new HeadlineAudioRequest(["Azure background story"], 3), default);
+        await synth.Hold.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        var before = synth.Calls;
+        var ready = await service.GenerateAsync(new HeadlineAudioRequest([cachedTitle], 6), default);
+        Assert(!background.IsCompleted && synth.Calls == before && HeadlineAudioHealthCheck.IsCompleteRecording(ready, 1, 6),
+            "Cached Azure playback waited for or cancelled background synthesis.");
+        synth.Hold = null;
+        var foreground = await service.GenerateAsync(new HeadlineAudioRequest(["Azure requested story"], 3), default);
+        Assert(!await background && HeadlineAudioHealthCheck.IsCompleteRecording(foreground, 1, 3), "Azure playback did not preempt background preparation.");
+        Assert(!await service.TryPrepareInBackgroundAsync(new HeadlineAudioRequest(["Azure between HTTP batches"], 3), default),
+            "Azure background work restarted between playback batches.");
+        Assert(await service.TryPrepareInBackgroundAsync(new HeadlineAudioRequest([cachedTitle], 3), default), "Azure background work did not reuse a ready clip.");
+        service = new HeadlineAudioService(renderer);
+        synth.Hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var stop = new CancellationTokenSource();
+        background = service.TryPrepareInBackgroundAsync(new HeadlineAudioRequest(["Azure shutdown story"], 3), stop.Token);
+        await synth.Hold.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        stop.Cancel();
+        try { await background; throw new Exception("Azure background synthesis ignored shutdown."); } catch (OperationCanceledException) { }
+        synth.Hold = null;
     }
 
     private static void CheckIncompleteAudio()

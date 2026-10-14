@@ -21,6 +21,18 @@ const source = await readFile(new URL("../app/article-audio-stream.ts", import.m
 const url = `/api/article-audio-stream/${"a".repeat(32)}`;
 const reply = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
 
+test("prewarmed Azure articles open as complete recordings without polling or generating a stream", async () => {
+  const h = harness((path) => path === "/api/auth/csrf" ? reply({ token: "csrf" })
+    : reply({ url, statusUrl: `${url}/status`, status: { starts: [0, 3], complete: true, duration: 6, error: null } }));
+  const reports = [];
+  assert.equal(await h.open(["Saved English", "已儲存的新聞"], "en", {}, new AbortController().signal,
+    (status) => reports.push(status), h.fetch), url);
+  assert.equal(reports.length, 1);
+  assert.equal(reports[0].complete, true);
+  assert.equal(h.tasks.size, 0);
+  assert.equal(h.requests.length, 2);
+});
+
 test("a stream opens before audio generation and completed playback reuses the same native URL", async () => {
   let complete = false;
   const h = harness((path) => path === "/api/auth/csrf" ? reply({ token: "csrf" }) : path === "/api/article-audio-stream"

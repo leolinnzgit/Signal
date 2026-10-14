@@ -16,7 +16,7 @@ public sealed class ArticleAudioPreparationService(
     private readonly SemaphoreSlim available = new(0, 1);
     private long preparedParts, preparedArticles, failedArticles;
     private DateTime lastStatus;
-    private bool Enabled => options.Value.Enabled && options.Value.KokoroPrewarm;
+    private bool Enabled => audio.BackgroundPreparationEnabled;
 
     public void Enqueue(string url, string title, string summary)
     {
@@ -24,7 +24,8 @@ public sealed class ArticleAudioPreparationService(
             || !Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != "https" || !string.IsNullOrEmpty(uri.UserInfo)) return;
         var job = new ArticleAudioPreparationJob(url, title, summary) {
             // Headline briefings keep the full title; article reading uses smaller parts.
-            Parts = new[] { title }.Concat(ArticleNarrationParts.SplitText(title)).Distinct().ToArray()
+            Parts = new[] { title }.Concat(ArticleNarrationParts.SplitText(title, audio.ArticlePartLength))
+                .Append(HeadlineAudioService.BriefingCompleteMessage).Distinct().ToArray()
         };
         if (queue.Enqueue(job)) { try { available.Release(); } catch (SemaphoreFullException) { } }
     }
@@ -50,7 +51,9 @@ public sealed class ArticleAudioPreparationService(
                 try
                 {
                     if (job.Article && !job.Extracted) await ExtractAsync(job, stoppingToken);
-                    var ready = await audio.TryPrepareInBackgroundAsync(new HeadlineAudioRequest([job.Parts[job.Index]], 3), stoppingToken);
+                    // Cloud requests prepare several parts together; local inference stays small.
+                    var batch = job.Parts.Skip(job.Index).Take(audio.EngineName == "azure-neural" ? 4 : 1).ToArray();
+                    var ready = await audio.TryPrepareInBackgroundAsync(new HeadlineAudioRequest(batch, 3), stoppingToken);
                     if (!ready)
                     {
                         queue.Resume(job);
@@ -58,8 +61,8 @@ public sealed class ArticleAudioPreparationService(
                         await Task.Delay(TimeSpan.FromMilliseconds(500), stoppingToken);
                         continue;
                     }
-                    preparedParts++;
-                    job.Index++;
+                    preparedParts += batch.Length;
+                    job.Index += batch.Length;
                     if (job.Index < job.Parts.Length) queue.Resume(job);
                     else if (!job.Article)
                     {
@@ -118,9 +121,9 @@ public sealed class ArticleAudioPreparationService(
         catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
         catch (Exception exception) { logger.LogDebug(exception, "Background reader will use the feed summary."); }
         job.Parts = extracted is { Available: true, Article.Paragraphs.Count: > 0 }
-            ? ArticleNarrationParts.Split(job.Title, extracted.Article.Paragraphs)
+            ? ArticleNarrationParts.Split(job.Title, extracted.Article.Paragraphs, audio.ArticlePartLength)
             : ArticleNarrationParts.Split(string.IsNullOrEmpty(job.Summary) || job.Summary == job.Title ? "" : job.Title,
-                [string.IsNullOrEmpty(job.Summary) ? job.Title : job.Summary]);
+                [string.IsNullOrEmpty(job.Summary) ? job.Title : job.Summary], audio.ArticlePartLength);
         job.Extracted = true;
     }
 
@@ -135,7 +138,7 @@ public sealed class ArticleAudioPreparationService(
             var path = Path.Combine(directory, "article-audio-preparation.json");
             var temporary = path + ".tmp";
             await File.WriteAllTextAsync(temporary, JsonSerializer.Serialize(new {
-                Engine = audio.EngineName, Enabled, CpuThreads = options.Value.KokoroThreads,
+                Engine = audio.EngineName, Enabled, CpuThreads = audio.EngineName == "kokoro-local" ? (int?)options.Value.KokoroThreads : null,
                 QueuedArticles = queue.Count, Active = active, PreparedParts = preparedParts,
                 PreparedArticles = preparedArticles, FailedArticles = failedArticles, UpdatedAt = DateTimeOffset.UtcNow
             }), token);

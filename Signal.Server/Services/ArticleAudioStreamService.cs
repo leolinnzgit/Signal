@@ -29,6 +29,9 @@ public sealed class ArticleAudioStreamService
             var voice = AzureSpeechAudioRenderer.ChooseVoice(voices, request.Language, chinese, request.Voices?.GetValueOrDefault(chinese ? "zh" : "en"), configured);
             return new AzureSpeechAudioRenderer.Clip(voice.Id, title);
         }).ToArray();
+        // Serve pre-generated Azure PCM through the same owned media URL.
+        // Uncached stories retain early MP3 playback while Azure renders them.
+        var ready = azure.GetCached(clips.Select(AzureSpeechAudioRenderer.NormalizeClip).ToArray(), request.Seconds);
         lock (gate)
         {
             foreach (var expired in sessions.Values.Where(session => !session.Running && session.Created < DateTimeOffset.UtcNow.AddMinutes(-30)).ToArray()) sessions.Remove(expired.Id);
@@ -41,7 +44,7 @@ public sealed class ArticleAudioStreamService
                 owned = owned.Where(session => session != removable).ToArray();
             }
             if (sessions.Count >= 8) throw new HeadlineAudioUnavailableException("busy", "The audio server is busy. Please try again shortly.");
-            var created = new Session(owner, clips);
+            var created = new Session(owner, clips, ready);
             sessions.Add(created.Id, created);
             return created;
         }
@@ -110,15 +113,16 @@ public sealed class ArticleAudioStreamService
                 new XElement(ns + "break", new XAttribute("time", "650ms"))))).ToString(SaveOptions.DisableFormatting);
     }
 
-    internal sealed class Session(string owner, AzureSpeechAudioRenderer.Clip[] clips)
+    internal sealed class Session(string owner, AzureSpeechAudioRenderer.Clip[] clips, HeadlineAudio? ready = null)
     {
         private readonly object gate = new();
-        private MemoryStream? audio = new();
-        private readonly double?[] starts = new double?[clips.Length];
-        private byte[]? recording;
-        private bool started, complete;
+        private MemoryStream? audio = ready is null ? new() : null;
+        private readonly double?[] starts = ready?.Starts.Select(start => (double?)start).ToArray() ?? new double?[clips.Length];
+        private byte[]? recording = ready?.Wave;
+        private bool started = ready is not null, complete = ready is not null;
         private string? error;
-        private double duration;
+        private double duration = ready is null ? 0 : (ready.Wave.Length - 44) / 32_000d;
+        public string ContentType { get; } = ready is null ? "audio/mpeg" : "audio/wav";
         public string Id { get; } = Guid.NewGuid().ToString("N");
         public string Owner { get; } = owner;
         public DateTimeOffset Created { get; } = DateTimeOffset.UtcNow;

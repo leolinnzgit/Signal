@@ -22,7 +22,7 @@ public sealed class ArticleAudioStreamController(ArticleAudioStreamService strea
         try
         {
             var session = await streams.CreateAsync(Owner, request, token);
-            return Ok(new { url = $"/api/article-audio-stream/{session.Id}", statusUrl = $"/api/article-audio-stream/{session.Id}/status" });
+            return Ok(new { url = $"/api/article-audio-stream/{session.Id}", statusUrl = $"/api/article-audio-stream/{session.Id}/status", status = session.Status });
         }
         catch (ArgumentException exception) { return BadRequest(new { error = exception.Message }); }
         catch (HeadlineAudioUnavailableException exception) { return StatusCode(503, new { error = exception.Message }); }
@@ -36,7 +36,7 @@ public sealed class ArticleAudioStreamController(ArticleAudioStreamService strea
     {
         var session = streams.Find(Owner, id);
         if (session is null) return NotFound();
-        if (session.Recording is { } ready) return File(ready, "audio/mpeg", enableRangeProcessing: true);
+        if (session.Recording is { } ready) return File(ready, session.ContentType, enableRangeProcessing: true);
         if (!session.TryStart()) return Conflict(new { error = session.Status.Error ?? "This audio stream is already open." });
         HttpContext.Features.Get<IHttpResponseBodyFeature>()?.DisableBuffering();
         Response.ContentType = "audio/mpeg";

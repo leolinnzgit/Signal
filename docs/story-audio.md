@@ -129,15 +129,27 @@ References: [Kokoro model](https://huggingface.co/hexgrad/Kokoro-82M),
 
 ### Prepare audio when news arrives
 
-With Kokoro enabled, newly saved news automatically queues background recordings.
+With Azure (the primary speech provider) or Kokoro enabled, newly saved news
+automatically queues background recordings. Azure preparation is enabled by
+default without changing the production key, region, or voice settings.
 Headlines are prepared first; Signal then extracts each readable full article and
-prepares the same 300-character parts used by Listen. When extraction is
+prepares the same parts used by Listen (up to 900 characters for Azure or 300
+for Kokoro). The briefing's closing announcement is also cached. When extraction is
 unavailable, it prepares the title and feed summary. Saving news and refreshing
 topics do not wait for synthesis. The default English/Chinese voices are used;
 choosing another voice prepares that recording when requested.
 
+Azure requests prepare several article parts at a time and save clips in the
+existing seven-day, 256 MB disk cache. Headline playback assembles cached clips
+with the selected gaps without another synthesis request. The article player
+serves complete cached articles as WAV recordings through its authenticated,
+user-owned media URL; uncached stories continue to stream MP3 audio as it arrives.
+Preparing new Azure text uses the configured Speech resource, including text
+that the user may not subsequently listen to. Identical saved text and voices
+reuse clips across users and server restarts.
+
 Kokoro already uses four CPU threads inside one synthesis process. Background
-work runs at reduced Windows process priority. A playback request with missing
+work runs at reduced Windows process priority. A recorded playback request with missing
 clips cancels background inference and takes priority; ready cached playback
 bypasses synthesis entirely. Background work waits five seconds after a foreground
 request so consecutive article batches can finish without repeated interruptions.
@@ -149,8 +161,10 @@ repeated saves, and discards older pending work when full. Restarting Signal
 restores up to 128 recent stories seen in the last day. An article can still show
 preparation progress if its background job has not finished, its cache expired,
 or the user selects another voice. Background preparation requires the server to
-remain running and uses CPU while work is pending.
+remain running. Kokoro uses local CPU while work is pending; Azure uses the
+configured cloud Speech resource.
 
-Set `Speech:KokoroPrewarm` to `false` to disable automatic preparation. Private
+Set `Speech:Prewarm` to `false` to disable Azure automatic preparation, or
+`Speech:KokoroPrewarm` to `false` to disable Kokoro automatic preparation. Private
 progress counters are saved in `App_Data/article-audio-preparation.json`; article
 text and URLs are excluded from that status file.
