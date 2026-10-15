@@ -75,6 +75,10 @@ export default function HeadlinePlayer({ articles, marketQuote, startWithScreenO
   useHandGestureTarget(20, !suspended, (action) => {
     if (action === "bookmark") return article && onHandBookmark ? onHandBookmark(article) : "No current headline to bookmark.";
     if (screenOffAudio) return undefined;
+    if (action === "toggle-playback") {
+      if (paused) { setPaused(false); return "Headline playback resumed. Tap Resume if your browser blocks audio."; }
+      pausePlayback(); return "Headline playback paused.";
+    }
     if (action === "pause") { pausePlayback(); return "Headline playback paused."; }
     if (action === "resume") { setPaused(false); return "Headline playback resumed. Tap Resume if your browser blocks audio."; }
     if (action === "next" || action === "previous") {

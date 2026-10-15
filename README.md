@@ -144,7 +144,7 @@ IIS for a persistent personal deployment.
   password reset, login lockout, rate-limited account endpoints, and optional
   Google account sign-in with password linking.
 
-## Hands-free hand gestures
+## Hands-free hand and eye gestures
 
 Tap the floating **hand button** at the bottom right of the feed, headline player,
 or article reader to open the guide. Tap **Start gestures** and allow the front
@@ -178,6 +178,20 @@ Signal becomes hidden, is closed, or **Stop camera** is pressed. It never starts
 automatically. Audio may require an on-screen Play tap before gestures can resume
 it. Other pop-up windows suspend reading gestures. Lighting, hand visibility and
 browser performance affect recognition; the normal touch controls remain usable.
+
+For eye controls, open the floating guide and select **Eye winks & long blink**
+before starting the camera. Stop the camera before switching modes; only one
+recognition model runs at a time. Choose **Practise gestures** to learn first.
+Look at the camera with both eyes open until **Eyes ready** appears. Hold your
+own right wink for about a second for the next topic/story/headline, or your left
+wink for the previous one. Close both eyes for 1–2 seconds to pause/resume
+existing narration. Each command confirms only after both eyes reopen briefly.
+Normal short blinks are ignored; closures longer than 2.5 seconds, lost face
+tracking, multiple faces and long processing gaps cancel the command. Wait for
+**Eyes ready** between commands. The preview includes left/right eye-closure
+meters and recognition instructions. Turn off **Practice only** to control Signal.
+Glasses, reflections and lighting affect recognition. Audio may still need a
+Play tap. Eye frames and expression scores remain on the device and are not saved.
 
 ## Technology
 

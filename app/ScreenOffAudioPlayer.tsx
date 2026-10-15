@@ -112,8 +112,8 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
   useHandGestureTarget(25, !suspended, async (action) => {
     if (action === "bookmark") return undefined;
     if (!track || !audio.current) return "Prepare the recording and tap Play first.";
-    if (action === "pause") { pause(); return "Audio briefing paused."; }
-    if (action === "resume") {
+    if (action === "pause" || (action === "toggle-playback" && !audio.current.paused)) { pause(); return "Audio briefing paused."; }
+    if (action === "resume" || action === "toggle-playback") {
       try { await audio.current.play(); return "Audio briefing resumed."; }
       catch { return "Your browser requires a tap. Tap Play to resume the briefing."; }
     }

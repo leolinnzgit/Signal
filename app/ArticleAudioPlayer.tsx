@@ -55,8 +55,8 @@ function RecordedArticleAudioPlayer({ title, source, paragraphs, autoPrepare = f
   const restoredStreamPosition = useRef(false);
 
   useHandGestureTarget(30, true, async (action) => {
-    if (action !== "pause" && action !== "resume") return undefined;
-    if (action === "pause") { resumePlayback.current = false; audio.current?.pause(); return "Article narration paused."; }
+    if (action !== "pause" && action !== "resume" && action !== "toggle-playback") return undefined;
+    if (action === "pause" || (action === "toggle-playback" && audio.current && !audio.current.paused)) { resumePlayback.current = false; audio.current?.pause(); return "Article narration paused."; }
     if (!url || !audio.current) return "Tap Read full news aloud to prepare audio first.";
     try { await audio.current.play(); return "Article narration resumed."; }
     catch { return "Your browser requires a tap. Tap Play to resume reading."; }

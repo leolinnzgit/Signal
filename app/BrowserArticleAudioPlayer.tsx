@@ -134,6 +134,11 @@ export default function BrowserArticleAudioPlayer({ title, paragraphs, autoPrepa
   }
 
   useHandGestureTarget(30, true, (action) => {
+    if (action === "toggle-playback") {
+      const resume = paused || completed;
+      togglePlayback();
+      return resume ? "Article narration resumed. Tap Play if your browser requires it." : "Article narration paused.";
+    }
     if (action !== "pause" && action !== "resume") return undefined;
     if (action === "pause") {
       if (!paused && !completed) togglePlayback();
