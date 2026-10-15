@@ -8,6 +8,7 @@ import { createEyeGestureDetector, EYE_TRACKING_LABELS, type EyeFrame, type EyeT
 import "./hand-gestures.css";
 
 const MODE_STORAGE_KEY = "signal-gesture-mode";
+const PREVIEW_STORAGE_KEY = "signal-gesture-preview";
 
 // Pinching is limited to reading/navigation controls. Account, sharing, delete,
 // and other unrelated actions are deliberately outside the hand pointer.
@@ -35,7 +36,10 @@ export default function HandGestureControls() {
   const [pointing, setPointing] = useState(false);
   const [toast, setToast] = useState(false);
   const [tracking, setTracking] = useState<HandTracking>("missing");
-  const [showPreview, setShowPreview] = useState(true);
+  const [showPreview, setShowPreview] = useState(() => {
+    try { return localStorage.getItem(PREVIEW_STORAGE_KEY) !== "false"; }
+    catch { return true; }
+  });
   const preview = useRef<HTMLCanvasElement>(null);
   const session = useRef(0);
   const cleanup = useRef<(() => void) | null>(null);
@@ -44,6 +48,11 @@ export default function HandGestureControls() {
   const selected = useRef<{ element: HTMLElement; since: number } | null>(null);
   const busy = useRef(false);
   const eyeDetector = useRef(createEyeGestureDetector());
+
+  function updatePreview(next: boolean) {
+    setShowPreview(next);
+    try { localStorage.setItem(PREVIEW_STORAGE_KEY, String(next)); } catch { /* Storage is optional. */ }
+  }
 
   function saveMode(nextMode: "hands" | "eyes") {
     setMode(nextMode);
@@ -123,7 +132,7 @@ export default function HandGestureControls() {
     if (handGesturesBlocked()) { setStatus("Close the pop-up window before using reading gestures."); return; }
     if (action === "select") {
       const target = selected.current;
-      if (!target || !target.element.isConnected || performance.now() - target.since < 350) {
+      if (!target || !target.element.isConnected || performance.now() - target.since < 180) {
         setStatus("Point at a reading button or story until it is outlined, then pinch."); return;
       }
       target.element.click(); clearSelection(); setStatus("Selected highlighted control"); return;
@@ -220,7 +229,7 @@ export default function HandGestureControls() {
           // A pinch uses the target held just before fingertips close together.
           if (result.action) void perform(result.action);
           updatePointer(result.pointer);
-          timer = window.setTimeout(capture, 40);
+          timer = window.setTimeout(capture, 16);
         } else if (data.type === "error") stop("Camera recognition could not load or run. Stop and try again in Chrome or Samsung Internet.");
       };
       worker.onerror = () => { if (isCurrent()) stop("Camera recognition is unavailable. Try restarting it or updating your browser."); };
@@ -241,7 +250,7 @@ export default function HandGestureControls() {
   // Keep pointer display aligned with viewport-based elementFromPoint targeting.
   const containingBlock = getComputedStyle(host).transform !== "none" ? host.getBoundingClientRect() : null;
   const trackingText = mode === "eyes" ? EYE_TRACKING_LABELS[eyeTracking] : tracking === "tracking" ? "Hand detected" : tracking === "multiple" ? "Show just one hand" : "No hand in view";
-  const isTracked = mode === "eyes" ? eyeTracking === "ready" : tracking === "tracking";
+  const isTracked = mode === "eyes" ? ["ready", "turn-left", "turn-right"].includes(eyeTracking) : tracking === "tracking";
   const eyeFeedback = mode === "eyes" && eyeScores?.faceCount === 1 && <div className="eye-gesture-scores" aria-label="Eye closure feedback">
     <label>Your left eye <meter min={0} max={1} value={eyeScores.left ?? 0} /> {Math.round((eyeScores.left ?? 0) * 100)}% closed</label>
     <label>Your right eye <meter min={0} max={1} value={eyeScores.right ?? 0} /> {Math.round((eyeScores.right ?? 0) * 100)}% closed</label>
@@ -255,37 +264,44 @@ export default function HandGestureControls() {
     {!guide && state === "on" && <div className={`hand-gesture-monitor${showPreview ? " has-preview" : ""}`}>
       {showPreview && <canvas ref={preview} width={160} height={120} aria-label="Live mirrored camera tracking preview" />}
       <p className={isTracked ? "hand-is-tracked" : ""} role="status">{trackingText}</p>
-      {eyeFeedback}
-      <small>{practice ? "Practice only" : "Controls active"}</small>
+      {showPreview && eyeFeedback}
+      <div className="hand-gesture-monitor-footer">
+        <small>{practice ? "Practice only" : "Controls active"}</small>
+        <button type="button" className="hand-gesture-preview-toggle" onClick={() => updatePreview(!showPreview)}>{showPreview ? "Hide preview" : "Show preview"}</button>
+      </div>
     </div>}
     {!guide && toast && <p className={`hand-gesture-toast${state === "on" ? " above-monitor" : ""}`} role="status">{practice ? "Practice only · " : ""}{status}</p>}
     {guide && <>
       <p className="hand-gesture-status" role="status">{status}</p>
       {state === "on" && <div className="hand-gesture-live">
-        <canvas ref={preview} width={160} height={120} aria-label="Mirrored front camera preview" />
+        {showPreview && <canvas ref={preview} width={160} height={120} aria-label="Mirrored front camera preview" />}
         <p className={isTracked ? "hand-is-tracked" : ""} role="status">{trackingText}</p>
         {eyeFeedback}
         <label><input type="checkbox" checked={practice} onChange={(event) => { setPractice(event.target.checked); clearSelection(); }} /> Practice only</label>
-        <label><input type="checkbox" checked={showPreview} onChange={(event) => setShowPreview(event.target.checked)} /> Show tracking preview while using gestures</label>
+        <label><input type="checkbox" checked={showPreview} onChange={(event) => updatePreview(event.target.checked)} /> Show camera preview</label>
         <p>{practice ? "Practice only: gestures are recognised without changing Signal." : "Controls active: gestures work while this guide is open."}</p>
       </div>}
     </>}
     {guide && <section id="hand-gesture-guide" className="hand-gesture-guide" aria-labelledby="hand-gesture-title">
       <h2 id="hand-gesture-title">Read hands-free</h2>
-      <label className="gesture-mode-choice">Control mode <select value={mode} onChange={(event) => changeMode(event.target.value as "hands" | "eyes")}><option value="eyes">Eye winks &amp; long blink</option><option value="hands">Hand gestures</option></select></label>
+      <div className="gesture-mode-row">
+        <label className="gesture-mode-choice">Control mode <select value={mode} onChange={(event) => changeMode(event.target.value as "hands" | "eyes")}><option value="eyes">Eye winks, blink &amp; head turns</option><option value="hands">Hand gestures</option></select></label>
+        {state === "off" && <label className="gesture-preview-choice"><input type="checkbox" checked={showPreview} onChange={(event) => updatePreview(event.target.checked)} /> Show camera preview</label>}
+      </div>
       {mode === "eyes" ? <>
-        <p>Rest your phone on a stand in good light. Face the front camera with your whole face in view. Keep both eyes naturally open until <strong>Eyes ready</strong> appears. Green dots and the eye meters show how Signal sees your eyes.</p>
+        <p>Rest your phone on a stand in good light. Face the front camera with your whole face in view. Keep both eyes naturally open until <strong>Eyes ready</strong> appears. Green dots and the eye meters show how Signal sees your eyes and nose.</p>
         <ol>
           <li>Tap <strong>Start eye controls</strong> and allow camera access. Wait for <strong>Eyes ready</strong> in the preview.</li>
-          <li>Close both eyes for about half a second to a second, or wink one eye briefly, then reopen both eyes to confirm the command.</li>
+          <li>Blink both eyes deliberately, wink one eye, or turn your head slightly left or right.</li>
           <li>To practise without changing Signal, choose <strong>Practise gestures</strong>.</li>
         </ol>
         <dl>
+          <dt>Turn your head right or left</dt><dd>Turn your head slightly right for the next topic in the feed (or next story / headline), or left for the previous one, then return your head to the centre.</dd>
           <dt>Wink your right eye</dt><dd>Keep your left eye open. Hold briefly, then reopen both eyes for the next topic in the feed, or the next story / headline in the reader or player.</dd>
           <dt>Wink your left eye</dt><dd>Keep your right eye open. Hold briefly, then reopen both eyes for the previous topic, story or headline. Left and right mean your own eyes, as shown in the mirrored preview.</dd>
-          <dt>Long blink with both eyes</dt><dd>Close both eyes for about half a second to a second, then reopen. In the news feed this moves to the next topic. While narration or headline playback is open it pauses or resumes instead. Start audio using its on-screen Play button first. Your browser may require another Play tap to resume.</dd>
+          <dt>Blink with both eyes</dt><dd>Close both eyes deliberately (for about a quarter-second or longer), then reopen. In the news feed this moves to the next topic. While narration or headline playback is open it pauses or resumes instead. Start audio using its on-screen Play button first. Your browser may require another Play tap to resume.</dd>
         </dl>
-        <p>Brief natural blinks are ignored. Closing your eyes for more than about 3 seconds cancels the command. Losing face tracking also cancels it. Signal adjusts to how open your eyes normally look while you face the camera. Glasses, reflections, lighting and slow camera processing can affect recognition; use the touch controls if needed.</p>
+        <p>Quick involuntary blinks are ignored. Closing your eyes for more than about 3 seconds cancels the command. Losing face tracking also cancels it. Signal adjusts to how open your eyes normally look while you face the camera. Glasses, reflections, lighting and slow camera processing can affect recognition; use the touch controls if needed.</p>
       </> : <>
       <p>Rest your phone on a stand. Face the front camera in good light and show one whole hand with fingers spread. Wait for <strong>Hand detected</strong> in the preview, then move your hand. Green dots show the hand Signal can see.</p>
       <ol>
@@ -294,14 +310,14 @@ export default function HandGestureControls() {
         <li>To learn without changing anything, choose <strong>Practise gestures</strong>. Turn off <strong>Practice only</strong> and close this guide when ready.</li>
       </ol>
       <dl>
-        <dt>Swipe an open hand left / right</dt><dd>In the news feed, move left for the next followed topic or right for the previous topic. From All topics, left opens the first followed topic and right opens the last. In a reader or headline player, swipes move between stories or headlines. Move sideways by about the width of your palm while keeping your hand in the preview. You do not need to hold it still first.</dd>
+        <dt>Swipe an open hand left / right</dt><dd>In the news feed, move left for the next followed topic or right for the previous topic. From All topics, left opens the first followed topic and right opens the last. In a reader or headline player, swipes move between stories or headlines. Move sideways across the preview; you do not need to hold your hand still first.</dd>
         <dt>Move an open hand up / down</dt><dd>Scroll up / down in the feed or reader. Lower your hand between gestures to repeat.</dd>
-        <dt>Hold an open palm still</dt><dd>Hold for about one second to pause narration.</dd>
+        <dt>Hold an open palm still</dt><dd>Hold briefly to pause narration.</dd>
         <dt>Hold a closed fist</dt><dd>Hold briefly to resume narration. Start playback with an on-screen tap first; your browser may require another tap to resume audio.</dd>
         <dt>Hold a thumbs-up</dt><dd>Bookmark the current headline, reader article, or visible feed story. An existing bookmark stays saved.</dd>
-        <dt>Point, then pinch</dt><dd>Move your index finger to position the on-screen dot. Hold over a story or reading button until outlined, then bring thumb and index fingertips together to activate it. Spread them apart before another pinch.</dd>
+        <dt>Point, then pinch</dt><dd>Move your index finger to position the on-screen dot. Hover briefly over a story or reading button until outlined, then bring thumb and index fingertips together to activate it. Spread them apart before another pinch.</dd>
       </dl>
-      <p>Lower your hand briefly between commands. Point at a story’s title and pinch to open it. Other pop-up windows suspend reading gestures. Tap the floating hand button to reopen this guide or stop the camera.</p>
+      <p>Lower your hand briefly between commands. Point at a story’s title and pinch to open it. Other pop-up windows suspend reading gestures. Tap the floating button to reopen this guide, hide the camera preview, or stop the camera.</p>
       </>}
       <p>Only the selected control mode runs. Other pop-up windows suspend commands. Reopen this floating guide to switch modes, practise or stop the camera.</p>
       <p>Video is processed on your device and is not recorded or uploaded. Camera use consumes extra battery. The camera stops when Signal is hidden or you tap Stop camera. It never starts automatically.</p>

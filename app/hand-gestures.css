@@ -33,14 +33,19 @@
 .hand-gesture-monitor canvas { display: block; width: 144px; height: 108px; transform: scaleX(-1); border-radius: 7px; background: #25251f; }
 .hand-gesture-monitor p { margin: 5px 0 0; font-size: 12px; font-weight: 600; }
 .hand-gesture-monitor small { font-size: 11px; color: var(--text-muted); }
+.hand-gesture-monitor-footer { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 4px; }
+.hand-gesture-dock .hand-gesture-preview-toggle { pointer-events: auto; min-height: 24px; padding: 2px 7px; border-radius: 6px; font-size: 11px; line-height: 1.2; }
 .hand-gesture-dock .hand-is-tracked { color: #08794c; }
 [data-theme="dark"] .hand-gesture-dock .hand-is-tracked { color: #54dfa5; }
-.hand-gesture-toast.above-monitor { bottom: calc(100% + 190px); }
+.hand-gesture-toast.above-monitor { bottom: calc(100% + 96px); }
+.hand-gesture-dock:has(.hand-gesture-monitor.has-preview) .hand-gesture-toast.above-monitor { bottom: calc(100% + 205px); }
+.gesture-mode-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .gesture-mode-choice { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-weight: 700; }
 .gesture-mode-choice select { max-width: 100%; min-height: 40px; padding: 6px; font: inherit; background: var(--content-background); color: var(--page-text); border: 1px solid var(--line); border-radius: 6px; }
+.gesture-preview-choice { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
 .eye-gesture-scores { width: 100%; font-size: 11px; }
 .eye-gesture-scores label { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .eye-gesture-scores meter { width: 54px; }
-.hand-gesture-monitor:has(.eye-gesture-scores) { width: 190px; }
-.hand-gesture-monitor:has(.eye-gesture-scores) canvas { width: 174px; height: 130px; }
-.hand-gesture-dock:has(.eye-gesture-scores) .hand-gesture-toast.above-monitor { bottom: calc(100% + 300px); }
+.hand-gesture-monitor:has(.eye-gesture-scores) { width: 194px; }
+.hand-gesture-monitor:has(.eye-gesture-scores) canvas { width: 178px; height: 134px; }
+.hand-gesture-dock:has(.eye-gesture-scores) .hand-gesture-toast.above-monitor { bottom: calc(100% + 315px); }

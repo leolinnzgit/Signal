@@ -32,8 +32,8 @@ test("held winks use the user's own left/right and confirm only after reopening"
 test("normal blinks and brief winks never navigate or change playback", () => {
   for (const frame of [both, left, right]) {
     const detector = ready();
-    assert.deepEqual(frames(detector, frame, 700, 1000), []);
-    assert.deepEqual(frames(detector, open, 1100, 2300), []);
+    assert.deepEqual(frames(detector, frame, 700, 800), []);
+    assert.deepEqual(frames(detector, open, 900, 2000), []);
   }
 });
 
@@ -68,7 +68,7 @@ test("uncertain eye scores do not arm controls or build a hold", () => {
   frames(detector, both, 1100, 2200);
   assert.deepEqual(frames(detector, open, 2300, 3200), []);
   frames(detector, both, 3300, 3900);
-  frames(detector, { faceCount: 1, left: 0.35, right: 0.35 }, 4000, 4500);
+  frames(detector, { faceCount: 1, left: 0.22, right: 0.22 }, 4000, 4500);
   assert.deepEqual(frames(detector, open, 4600, 5500), []);
 });
 
@@ -152,14 +152,23 @@ test("ordinary blinks seen on slow frames are ignored", () => {
 
 test("asymmetric bilateral blinks and softer closures still confirm a long blink", () => {
   const detector = ready();
-  frames(detector, { faceCount: 1, left: 0.42, right: 0.34 }, 700, 1100);
-  assert.deepEqual(frames(detector, open, 1200, 1400), ["toggle-playback"]);
+  frames(detector, { faceCount: 1, left: 0.28, right: 0.24 }, 700, 1000);
+  assert.deepEqual(frames(detector, open, 1100, 1300), ["toggle-playback"]);
 });
 
 test("an ordinary short blink does not disarm an immediately following deliberate blink", () => {
   const detector = ready();
   detector.update(both, 700);
   assert.equal(detector.update(open, 800).state, "ready");
-  frames(detector, both, 900, 1300);
-  assert.deepEqual(frames(detector, open, 1400, 1600), ["toggle-playback"]);
+  frames(detector, both, 900, 1200);
+  assert.deepEqual(frames(detector, open, 1300, 1500), ["toggle-playback"]);
+});
+
+test("turning head right or left navigates once and requires returning to centre before repeating", () => {
+  const detector = createEyeGestureDetector();
+  assert.deepEqual(frames(detector, { ...open, yaw: 0 }, 0, 400), []);
+  assert.deepEqual(frames(detector, { ...open, yaw: 0.16 }, 500, 900), ["next"]);
+  assert.deepEqual(frames(detector, { ...open, yaw: 0.16 }, 1000, 2000), []);
+  assert.deepEqual(frames(detector, { ...open, yaw: 0 }, 2100, 2300), []);
+  assert.deepEqual(frames(detector, { ...open, yaw: -0.16 }, 2400, 2800), ["previous"]);
 });

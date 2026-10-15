@@ -55,47 +55,51 @@ export function createHandGestureDetector() {
       const palmSize = distance(points[5], points[17]);
       const pinchRatio = palmSize > 0.035 ? distance(points[4], points[8]) / palmSize : Infinity;
       const category = frame.gestures[0]?.[0];
-      const heldPose = category && category.score >= 0.65 && ["Closed_Fist", "Thumb_Up"].includes(category.categoryName);
+      const heldPose = category && category.score >= 0.55 && ["Closed_Fist", "Thumb_Up"].includes(category.categoryName);
       const wasPinched = pinched;
       // Folded fingers can touch a thumb. Keep confident fist/thumbs-up poses
       // from also activating whatever the pointer happens to cover.
-      pinched = !heldPose && pinchRatio < (pinched ? 0.5 : 0.28);
+      pinched = !heldPose && pinchRatio < (pinched ? 0.52 : 0.33);
       const extendedFingers = [[8, 6], [12, 10], [16, 14], [20, 18]]
-        .filter(([tip, joint]) => distance(points[tip], points[0]) > distance(points[joint], points[0]) * 1.12).length;
-      const open = !pinched && !heldPose && ((category?.categoryName === "Open_Palm" && category.score >= 0.5) || extendedFingers >= 3);
+        .filter(([tip, joint]) => distance(points[tip], points[0]) > distance(points[joint], points[0]) * 1.06).length;
+      const open = !pinched && !heldPose && ((category?.categoryName === "Open_Palm" && category.score >= 0.35) || extendedFingers >= 2);
       if (open) lastOpenAt = now;
-      const nextPose = pinched ? "Pinch" : open ? "Open_Palm" : category && category.score >= 0.65 ? category.categoryName : "None";
+      const nextPose = pinched ? "Pinch" : open ? "Open_Palm" : category && category.score >= 0.55 ? category.categoryName : "None";
       const center = { x: 1 - (points[0].x + points[9].x) / 2, y: (points[0].y + points[9].y) / 2 };
       if (pose !== nextPose) {
         pose = nextPose; poseSince = now; fired = false; anchor = center;
       }
       const emit = (action: HandAction) => {
-        cooldownUntil = now + 1100; fired = true; anchor = center;
-        if (action !== "pause") { motionCooldownUntil = now + 900; motion = []; }
+        const isSwipe = action === "next" || action === "previous" || action === "scroll-up" || action === "scroll-down";
+        cooldownUntil = now + (isSwipe ? 650 : 1050); fired = true; anchor = center;
+        if (action !== "pause") { motionCooldownUntil = now + 600; motion = []; }
         return { action, pointer, ...tracked };
       };
-      const movingOpenHand = !pinched && !heldPose && now - lastOpenAt <= 900;
+      const movingOpenHand = !pinched && !heldPose && now - lastOpenAt <= 1100;
       if (movingOpenHand) {
         motion = motion.filter((sample) => now - sample.time <= 1800);
         motion.push({ ...center, time: now, size: palmSize });
         if (now < motionCooldownUntil) motion = motion.slice(-1);
-        const first = motion[0];
-        const dx = center.x - first.x;
-        const dy = center.y - first.y;
-        // A swipe needs roughly a palm's width, capped for close-up hands.
-        const threshold = Math.max(0.10, Math.min(0.18, (first.size + palmSize) * 0.45));
-        if (now >= motionCooldownUntil && now - first.time >= 80) {
-          if (Math.abs(dx) >= threshold && Math.abs(dx) > Math.abs(dy) * 1.3) return emit(dx < 0 ? "next" : "previous");
-          if (Math.abs(dy) >= threshold && Math.abs(dy) > Math.abs(dx) * 1.3) return emit(dy < 0 ? "scroll-up" : "scroll-down");
+        if (now >= motionCooldownUntil) {
+          for (let index = 0; index < motion.length - 1; index++) {
+            const sample = motion[index];
+            if (now - sample.time < 50) continue;
+            const dx = center.x - sample.x;
+            const dy = center.y - sample.y;
+            // A swipe needs roughly two-thirds of a palm width, capped for close-up hands.
+            const threshold = Math.max(0.08, Math.min(0.13, (sample.size + palmSize) * 0.34));
+            if (Math.abs(dx) >= threshold && Math.abs(dx) > Math.abs(dy) * 1.2) return emit(dx < 0 ? "next" : "previous");
+            if (Math.abs(dy) >= threshold && Math.abs(dy) > Math.abs(dx) * 1.2) return emit(dy < 0 ? "scroll-up" : "scroll-down");
+          }
         }
       } else motion = [];
       if (now < cooldownUntil) return { pointer, ...tracked };
       if (pinched && !wasPinched) return emit("select");
       if (pose === "Open_Palm" && anchor) {
-        if (distance(center, anchor) > 0.035) { anchor = center; poseSince = now; }
-        else if (!fired && now - poseSince >= 900) return emit("pause");
+        if (distance(center, anchor) > 0.05) { anchor = center; poseSince = now; }
+        else if (!fired && now - poseSince >= 650) return emit("pause");
       }
-      if (!fired && now - poseSince >= 650) {
+      if (!fired && now - poseSince >= 550) {
         if (pose === "Closed_Fist") return emit("resume");
         if (pose === "Thumb_Up") return emit("bookmark");
       }

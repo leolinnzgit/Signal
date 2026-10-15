@@ -179,17 +179,20 @@ automatically. Audio may require an on-screen Play tap before gestures can resum
 it. Other pop-up windows suspend reading gestures. Lighting, hand visibility and
 browser performance affect recognition; the normal touch controls remain usable.
 
-For eye controls, open the floating guide and select **Eye winks & long blink**
-before starting the camera. Stop the camera before switching modes; only one
-recognition model runs at a time. Choose **Practise gestures** to learn first.
-Look at the camera with both eyes open until **Eyes ready** appears. Hold your
-own right wink for about half a second for the next topic/story/headline, or your
-left wink for the previous one. Close both eyes for about a second for the next
-topic in the news feed, or to pause/resume narration or headline playback when
-one is open. Each command confirms only after both eyes reopen briefly.
+For eye and head controls, open the floating guide and select **Eye winks, blink & head turns**.
+You can switch between eye and hand controls at any time, and toggle **Show camera preview**
+(or tap **Hide preview** on the floating monitor) to hide the live video box while keeping
+controls active. Choose **Practise gestures** to learn first.
+Look at the camera with both eyes open until **Eyes ready** appears. Turn your
+head slightly right for the next topic/story/headline or left for the previous
+one, then return your head to the centre. You can also wink your right eye for
+next, wink your left eye for previous, or blink both eyes deliberately (for
+about a quarter-second or longer) for the next topic in the news feed or to
+pause/resume narration or headline playback when one is open. Eye closures
+confirm after reopening both eyes.
 Thresholds adapt to each eye's normal open reading (for example when looking
 down at a phone), and a wink still counts if the other eye squints slightly.
-Normal short blinks are ignored; closures longer than 3 seconds, lost face
+Quick involuntary blinks are ignored; closures longer than 3 seconds, lost face
 tracking, multiple faces and processing gaps over 1 second cancel the command. Wait for
 **Eyes ready** between commands. The preview includes left/right eye-closure
 meters and recognition instructions. Turn off **Practice only** to control Signal.

@@ -129,3 +129,10 @@ test("a hand held still before swiping does not lose navigation to the pause coo
   detector.update(frame("Open_Palm", { x: 0.53 }), 1100);
   assert.equal(detector.update(frame("Open_Palm", { x: 0.40 }), 1250).action, "next");
 });
+
+test("raising a hand into view or making a smaller horizontal flick still triggers a swipe", () => {
+  const detector = createHandGestureDetector();
+  detector.update(frame("Open_Palm", { x: 0.5, y: 0.62 }), 0);
+  detector.update(frame("Open_Palm", { x: 0.5, y: 0.5 }), 60);
+  assert.equal(detector.update(frame("Open_Palm", { x: 0.35, y: 0.5 }), 140).action, "next");
+});

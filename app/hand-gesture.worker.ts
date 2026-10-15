@@ -1,6 +1,6 @@
 import { FaceLandmarker, FilesetResolver, GestureRecognizer } from "@mediapipe/tasks-vision";
 
-const EYE_LANDMARKS = [33, 133, 159, 145, 263, 362, 386, 374];
+const EYE_LANDMARKS = [33, 133, 159, 145, 263, 362, 386, 374, 1];
 let recognizer: GestureRecognizer | null = null;
 let face: FaceLandmarker | null = null;
 self.onmessage = async ({ data }: MessageEvent) => {
@@ -12,12 +12,12 @@ self.onmessage = async ({ data }: MessageEvent) => {
       if (data.mode === "eyes") face = await FaceLandmarker.createFromOptions(vision, {
         baseOptions: { modelAssetPath: data.modelPath, delegate: "CPU" },
         runningMode: "VIDEO", numFaces: 2, outputFaceBlendshapes: true,
-        minFaceDetectionConfidence: 0.5, minFacePresenceConfidence: 0.5, minTrackingConfidence: 0.5,
+        minFaceDetectionConfidence: 0.4, minFacePresenceConfidence: 0.4, minTrackingConfidence: 0.4,
       });
       else recognizer = await GestureRecognizer.createFromOptions(vision, {
         baseOptions: { modelAssetPath: data.modelPath, delegate: "CPU" },
         runningMode: "VIDEO", numHands: 2,
-        minHandDetectionConfidence: 0.5, minHandPresenceConfidence: 0.5, minTrackingConfidence: 0.5,
+        minHandDetectionConfidence: 0.4, minHandPresenceConfidence: 0.4, minTrackingConfidence: 0.4,
       });
       self.postMessage({ type: "ready" });
     } else if (data.type === "frame" && (recognizer || face)) {
@@ -30,10 +30,18 @@ self.onmessage = async ({ data }: MessageEvent) => {
           const points = landmarks
             ? EYE_LANDMARKS.map((index) => landmarks[index]).filter(Boolean).map(({ x, y }) => ({ x, y }))
             : undefined;
+          const rightCheek = landmarks?.[234];
+          const leftCheek = landmarks?.[454];
+          const nose = landmarks?.[1];
+          const faceWidth = rightCheek && leftCheek ? leftCheek.x - rightCheek.x : 0;
+          const yaw = rightCheek && leftCheek && nose && faceWidth > 0.05
+            ? ((rightCheek.x + leftCheek.x) / 2 - nose.x) / faceWidth
+            : undefined;
           self.postMessage({ type: "result", timestamp: data.timestamp, eye: {
             faceCount: result.faceLandmarks.length,
             left: scores?.find((score) => score.categoryName === "eyeBlinkLeft")?.score,
             right: scores?.find((score) => score.categoryName === "eyeBlinkRight")?.score,
+            yaw,
             points,
           } });
         } else if (recognizer) {
