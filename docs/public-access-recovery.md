@@ -12,6 +12,53 @@ curl.exe --fail --silent --show-error --max-time 20 --output NUL https://signal.
 Use `--insecure` only for the local IIS certificate. Keep certificate validation
 enabled for all public requests.
 
+## Automatic recovery
+
+Install or update the production checks from this checkout:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Install-SignalPublicWatchdog.ps1
+```
+
+Installation requests Windows administrator elevation once. It publishes protected
+script copies to `C:\ProgramData\SignalPublicWatchdog` and registers both tasks
+as SYSTEM, with startup triggers and permission to run on battery power. It also
+enables Tailscale's unattended mode while preserving its other preferences. No
+application rebuild or database change is required. The prior IIS task definition
+is retained in that directory as `Signal-IIS-Keepalive-before-install.xml`.
+
+- **Signal IIS Keepalive** checks the local API every five minutes and recovers
+  `SignalAppPool` when needed.
+- **Signal Public Watchdog** checks every minute. It resolves public relay
+  addresses through Google DNS-over-HTTPS, with Cloudflare as a fallback, and
+  compares each relay's API version with local IIS using normal TLS validation.
+  It rejects private and Tailscale addresses to avoid accidentally testing only
+  the local listener. One working relay counts as usable but degraded service.
+- Three consecutive failures across all tested public relays trigger a Tailscale
+  service restart, followed by a wait for the existing node to reconnect and
+  another public check. The saved Funnel configuration is preserved.
+- A persistent 20-minute cooldown is recorded **before** restart, including when
+  recovery fails or the process is interrupted. Overlapping checks are prevented.
+- Deployment maintenance (`app_offline.htm`), local IIS failures, and unavailable
+  public DNS probes defer tunnel recovery. External commands have deadlines.
+
+The latest observations, relay results, failure count, and recovery timestamps
+are recorded in `C:\ProgramData\SignalPublicWatchdog\state.json`. Task Scheduler
+also reports failed recovery checks with a nonzero result. The tasks can recover
+the running host independently of an interactive login; they do not change its
+sleep policy or repair an outage in the upstream relay service.
+
+Run the isolated failure-simulation tests with:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/public-watchdog.test.ps1
+```
+
+References: [Tailscale unattended mode](https://tailscale.com/docs/how-to/run-unattended)
+and [Windows task settings](https://learn.microsoft.com/en-us/powershell/module/scheduledtasks/new-scheduledtasksettingsset).
+
+## Manual recovery
+
 If IIS is healthy but the public TLS handshake fails, inspect Tailscale before
 redeploying the application. In an administrator PowerShell window, restart the
 Tailscale service:
@@ -69,3 +116,7 @@ failure remains an unresolved diagnostic finding.
 The final Funnel configuration matched the pre-recovery configuration. No
 application binaries, production settings, or application data were changed.
 The existing production tunnel mapping was reapplied without rebuilding IIS.
+
+During the later watchdog validation, both public relay addresses returned the
+expected application version. The earlier individual relay failure was no
+longer reproducible in that check.
