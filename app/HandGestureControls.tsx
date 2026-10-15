@@ -19,11 +19,12 @@ export default function HandGestureControls() {
   const [host, setHost] = useState<Element | null>(null);
   const [hostHeight, setHostHeight] = useState(0);
   const [guide, setGuide] = useState(false);
-  const [practice, setPractice] = useState(true);
+  const [practice, setPractice] = useState(false);
   const [state, setState] = useState<"off" | "starting" | "on">("off");
   const [status, setStatus] = useState("Camera off");
   const [pointer, setPointer] = useState<HandPoint | null>(null);
   const [pointing, setPointing] = useState(false);
+  const [toast, setToast] = useState(false);
   const preview = useRef<HTMLCanvasElement>(null);
   const session = useRef(0);
   const cleanup = useRef<(() => void) | null>(null);
@@ -69,6 +70,12 @@ export default function HandGestureControls() {
   }, []);
 
   useEffect(() => { clearSelection(); setPointer(null); }, [host, practice, guide]);
+  useEffect(() => {
+    if (guide || (state === "off" && status === "Camera off")) { setToast(false); return; }
+    setToast(true);
+    const timeout = window.setTimeout(() => setToast(false), 3500);
+    return () => window.clearTimeout(timeout);
+  }, [status, guide, state]);
 
   function updatePointer(point: HandPoint | undefined) {
     if (!point || live.current.practice || live.current.guide) { clearSelection(); setPointer(null); setPointing(false); return; }
@@ -183,39 +190,42 @@ export default function HandGestureControls() {
   const containingBlock = getComputedStyle(host).transform !== "none" ? host.getBoundingClientRect() : null;
   return createPortal(<div className={`hand-gesture-dock${guide ? " hand-gesture-guide-open" : ""}`} style={guide ? { maxHeight: Math.max(160, hostHeight - 24) } : undefined} data-hand-gesture-ui>
     <div className="hand-gesture-bar">
-      <button type="button" onClick={() => setGuide((value) => !value)} aria-expanded={guide} aria-controls="hand-gesture-guide">✋ Hand gestures</button>
-      {state !== "off" && <span className="hand-camera-indicator">Camera {state === "starting" ? "starting" : "on"}</span>}
-      {state !== "off" && <button type="button" onClick={() => stop()}>Stop camera</button>}
+      <button type="button" className={`hand-gesture-launch${state !== "off" ? " camera-active" : ""}`} onClick={() => setGuide((value) => !value)} aria-label="Hand gesture guide" title={`Hand gesture guide${state !== "off" ? ` · camera ${state === "starting" ? "starting" : "on"}${practice ? " · practice only" : ""}` : ""}`} aria-expanded={guide} aria-controls="hand-gesture-guide"><span aria-hidden="true">✋</span><span className="hand-gesture-button-label">Hand gestures</span>{state !== "off" && <span className="hand-gesture-camera-dot" aria-hidden="true" />}</button>
+      {guide && state !== "off" && <span className="hand-camera-indicator">Camera {state === "starting" ? "starting" : "on"}</span>}
+      {guide && state !== "off" && <button type="button" onClick={() => stop()}>Stop camera</button>}
     </div>
-    {(guide || state !== "off") && <>
+    {!guide && toast && <p className="hand-gesture-toast" role="status">{practice ? "Practice only · " : ""}{status}</p>}
+    {guide && <>
       <p className="hand-gesture-status" role="status">{status}</p>
       {state === "on" && <div className="hand-gesture-live">
         <canvas ref={preview} width={160} height={120} aria-label="Mirrored front camera preview" />
         <label><input type="checkbox" checked={practice} onChange={(event) => { setPractice(event.target.checked); clearSelection(); }} /> Practice only</label>
         {guide && <p>Close this guide to control Signal. While this guide is open, gestures only practise.</p>}
-        {!guide && !practice && <p>Gestures active · point with your index finger to highlight a reading control.</p>}
       </div>}
     </>}
     {guide && <section id="hand-gesture-guide" className="hand-gesture-guide" aria-labelledby="hand-gesture-title">
       <h2 id="hand-gesture-title">Read hands-free</h2>
       <p>Rest your phone on a stand. Face the front camera in good light and hold one hand about an arm’s length away, with all fingers visible. Watch the mirrored preview.</p>
       <ol>
-        <li>Tap <strong>Start camera</strong> and allow camera access. Practice mode starts on.</li>
-        <li>Try the gestures below. The status shows what Signal recognises without changing anything.</li>
-        <li>Turn off <strong>Practice only</strong> and tap <strong>Close guide</strong> to control Signal.</li>
+        <li>Tap <strong>Start gestures</strong> and allow camera access. This guide closes and gestures control Signal.</li>
+        <li>In the news feed, swipe an open hand left for the next topic or right for the previous topic.</li>
+        <li>To learn without changing anything, choose <strong>Practise gestures</strong>. Turn off <strong>Practice only</strong> and close this guide when ready.</li>
       </ol>
       <dl>
-        <dt>Swipe an open hand left / right</dt><dd>Move left for the next headline, right for the previous one. In the feed or reader, move between stories. Start near the centre and swipe across roughly a quarter of the preview.</dd>
+        <dt>Swipe an open hand left / right</dt><dd>In the news feed, move left for the next followed topic or right for the previous topic. From All topics, left opens the first followed topic and right opens the last. In a reader or headline player, swipes move between stories or headlines. Start near the centre and swipe across roughly a quarter of the preview.</dd>
         <dt>Move an open hand up / down</dt><dd>Scroll up / down in the feed or reader. Lower your hand between gestures to repeat.</dd>
         <dt>Hold an open palm still</dt><dd>Hold for about one second to pause narration.</dd>
         <dt>Hold a closed fist</dt><dd>Hold briefly to resume narration. Start playback with an on-screen tap first; your browser may require another tap to resume audio.</dd>
-        <dt>Hold a thumbs-up</dt><dd>Bookmark the current headline, reader article, or selected feed story. An existing bookmark stays saved.</dd>
+        <dt>Hold a thumbs-up</dt><dd>Bookmark the current headline, reader article, or visible feed story. An existing bookmark stays saved.</dd>
         <dt>Point, then pinch</dt><dd>Move your index finger to position the on-screen dot. Hold over a story or reading button until outlined, then bring thumb and index fingertips together to activate it. Spread them apart before another pinch.</dd>
       </dl>
-      <p>Lower your hand briefly between commands. In the feed, swiping selects a story and outlines it; point at its title and pinch to open it. Other pop-up windows suspend reading gestures.</p>
+      <p>Lower your hand briefly between commands. Point at a story’s title and pinch to open it. Other pop-up windows suspend reading gestures. Tap the floating hand button to reopen this guide or stop the camera.</p>
       <p>Video is processed on your device and is not recorded or uploaded. Camera use consumes extra battery. The camera stops when Signal is hidden or you tap Stop camera. It never starts automatically.</p>
       <div className="hand-gesture-guide-actions">
-        {state === "off" && <button type="button" onClick={() => { setPractice(true); void start(); }}>Start camera</button>}
+        {state === "off" && <>
+          <button type="button" onClick={() => { setPractice(false); setGuide(false); void start(); }}>Start gestures</button>
+          <button type="button" onClick={() => { setPractice(true); void start(); }}>Practise gestures</button>
+        </>}
         <button type="button" onClick={() => setGuide(false)}>Close guide</button>
       </div>
     </section>}

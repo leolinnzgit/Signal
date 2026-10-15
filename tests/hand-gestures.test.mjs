@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createHandGestureDetector } from "../app/hand-gestures.ts";
+import { createHandGestureDetector, handGestureTopic } from "../app/hand-gestures.ts";
 
 function frame(pose = "Open_Palm", { x = 0.5, y = 0.5, score = 0.99, pinch = false } = {}) {
   const points = Array.from({ length: 21 }, () => ({ x: 1 - x, y }));
@@ -21,6 +21,17 @@ function hold(detector, value, start, duration) {
   }
   return actions;
 }
+
+test("feed gestures choose followed topics from All topics and wrap in either direction", () => {
+  const topics = ["Science", "New Zealand", "Technology"];
+  assert.equal(handGestureTopic(topics, "All topics", 1), "Science");
+  assert.equal(handGestureTopic(topics, "All topics", -1), "Technology");
+  assert.equal(handGestureTopic(topics, "Science", 1), "New Zealand");
+  assert.equal(handGestureTopic(topics, "Science", -1), "Technology");
+  assert.equal(handGestureTopic(topics, "technology", 1), "Science");
+  assert.equal(handGestureTopic(["Science"], "Science", 1), "Science");
+  assert.equal(handGestureTopic([], "All topics", 1), null);
+});
 
 test("palm, fist and thumbs-up require a deliberate hold and fire only once", () => {
   for (const [pose, action] of [["Open_Palm", "pause"], ["Closed_Fist", "resume"], ["Thumb_Up", "bookmark"]]) {

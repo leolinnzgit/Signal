@@ -7,6 +7,7 @@ import { createHostedArticleShare, shareArticle } from "./article-share";
 import HeadlinePlayer from "./HeadlinePlayer";
 import HandGestureControls from "./HandGestureControls";
 import { useHandGestureTarget } from "./hand-gesture-actions";
+import { handGestureTopic } from "./hand-gestures";
 import ArticleAudioPlayer from "./ArticleAudioPlayer";
 import ArticleSummaryPlayer from "./ArticleSummaryPlayer";
 import ArticleTranslationControls from "./ArticleTranslationControls";
@@ -820,7 +821,6 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [backToTopVisible, setBackToTopVisible] = useState(false);
   const [floatingNavigationSide, setFloatingNavigationSide] = useState<"left" | "right">("left");
   const [readerArticle, setReaderArticle] = useState<FollowedArticle | null>(null);
-  const [handSelectedUrl, setHandSelectedUrl] = useState("");
   const [readerAudioRequested, setReaderAudioRequested] = useState(false);
   const [readerTranslation, setReaderTranslation] = useState<ArticleTranslation | null>(null);
   const [readerReading, setReaderReading] = useState<{ section: ArticleNarrationSection | null; playing: boolean }>({ section: null, playing: false });
@@ -2951,6 +2951,12 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
 
   useHandGestureTarget(10, true, async (action) => {
     if (headlineQueue && !readerArticle) return "Use the headline player's controls for this action.";
+    if (!readerArticle && (action === "next" || action === "previous")) {
+      const topic = handGestureTopic(preferences.topics, selectedTopic, action === "next" ? 1 : -1);
+      if (!topic) return "Follow a topic first to switch topics with your hand.";
+      selectTopicFilter(topic);
+      return `Topic: ${topic}`;
+    }
     if (action === "scroll-up" || action === "scroll-down") {
       const direction = action === "scroll-down" ? 1 : -1;
       const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -2962,18 +2968,14 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     const list = readerArticle && headlineQueue ? headlineQueue : filteredArticles;
     const visibleIndex = [...(storyListElement.current?.querySelectorAll("li") ?? [])]
       .findIndex((element) => element.getBoundingClientRect().bottom > innerHeight * 0.3);
-    const selectedIndex = list.findIndex((item) => item.url === (readerArticle?.url ?? handSelectedUrl));
+    const selectedIndex = list.findIndex((item) => item.url === readerArticle?.url);
     const index = selectedIndex >= 0 ? selectedIndex : Math.max(0, visibleIndex);
     if (action === "next" || action === "previous") {
       if (!list.length) return "There are no stories in this view.";
       const nextIndex = Math.max(0, Math.min(list.length - 1, index + (action === "next" ? 1 : -1)));
       const next = list[nextIndex];
-      if (readerArticle) openArticleReader(next, readerCloseButton.current ?? document.body);
-      else {
-        setHandSelectedUrl(next.url);
-        storyListElement.current?.children[nextIndex]?.scrollIntoView({ block: "center", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
-      }
-      return `${readerArticle ? "Opened" : "Selected"}: ${next.title}`;
+      openArticleReader(next, readerCloseButton.current ?? document.body);
+      return `Opened: ${next.title}`;
     }
     if (action === "bookmark") {
       const current = readerArticle ?? list[index];
@@ -4080,7 +4082,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           <>
             <ol className="story-list" ref={storyListElement}>
               {filteredArticles.map((article, index) => (
-                <li key={article.url} className={handSelectedUrl === article.url ? "hand-gesture-story-selected" : undefined}>
+                <li key={article.url}>
                 <a
                   href={article.url}
                   className={article.imageUrl ? "story-link has-image" : "story-link"}

@@ -146,14 +146,18 @@ IIS for a persistent personal deployment.
 
 ## Hands-free hand gestures
 
-Open **Hand gestures** at the bottom right of the feed, headline player, or
-article reader. Tap **Start camera** and allow the front camera. The guide starts
-in **Practice only** mode: recognised gestures appear as status messages without
-changing the app. Turn practice off and close the guide when ready.
+Tap the floating **hand button** at the bottom right of the feed, headline player,
+or article reader to open the guide. Tap **Start gestures** and allow the front
+camera; the guide closes and gestures control Signal. **Practise gestures** is
+an optional mode that recognises gestures without changing the app. Turn off
+**Practice only** and close the guide when ready. The button shows a green dot
+while the camera is on; tap it to reopen the guide or stop the camera.
 
 Rest the phone on a stand in good light and show one whole hand to the camera.
-Swipe an open hand left/right for the next/previous headline or story, move it
-up/down to scroll, hold a palm still for about one second to pause, hold a fist
+In the news feed, swipe an open hand left/right for the next/previous followed
+topic, including when starting from All topics. In a reader or player, swipes
+move between stories or headlines. Move the hand up/down to scroll, hold a palm
+still for about one second to pause, hold a fist
 briefly to resume, and hold a thumbs-up to save the current article. To select,
 point your index finger until the on-screen dot outlines a reading button or
 story, then pinch thumb and index finger together. Release or lower the hand

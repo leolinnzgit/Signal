@@ -2,9 +2,16 @@ export type HandAction = "next" | "previous" | "scroll-up" | "scroll-down" | "pa
 export type HandPoint = { x: number; y: number; z?: number };
 export type HandFrame = { landmarks: HandPoint[][]; gestures: { categoryName: string; score: number }[][] };
 export const HAND_ACTION_LABELS: Record<HandAction, string> = {
-  next: "Next headline", previous: "Previous headline", "scroll-up": "Scroll up", "scroll-down": "Scroll down",
+  next: "Next topic / headline", previous: "Previous topic / headline", "scroll-up": "Scroll up", "scroll-down": "Scroll down",
   pause: "Pause reading", resume: "Resume reading", bookmark: "Bookmark article", select: "Select highlighted control",
 };
+
+export function handGestureTopic(topics: readonly string[], current: string, direction: 1 | -1): string | null {
+  if (!topics.length) return null;
+  const index = topics.findIndex((topic) => topic.toLowerCase() === current.toLowerCase());
+  if (index < 0) return direction === 1 ? topics[0] : topics[topics.length - 1];
+  return topics[(index + direction + topics.length) % topics.length];
+}
 
 /** Recognition is deliberately temporal: held poses fire once, and a moving palm
  * never also pauses playback. Coordinates match the mirrored selfie preview. */

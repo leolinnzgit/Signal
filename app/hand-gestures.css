@@ -18,7 +18,14 @@
 .hand-gesture-guide-actions { display: flex; gap: 8px; position: sticky; bottom: -10px; padding: 10px 0; background: var(--paper, #fffdf7); border-top: 1px solid var(--line, #b9b4a7); }
 .hand-gesture-pointer { position: fixed; width: 20px; height: 20px; border: 3px solid #087e8b; background: #fff9; border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none; z-index: 9999; }
 .hand-gesture-pointer.is-targeting { background: #0bad7c99; border-color: #05764f; }
-.hand-gesture-highlight, .hand-gesture-story-selected { outline: 3px solid #087e8b !important; outline-offset: 3px; border-radius: 4px; }
+.hand-gesture-highlight { outline: 3px solid #087e8b !important; outline-offset: 3px; border-radius: 4px; }
 [data-theme="dark"] .hand-gesture-dock { background: #242720; color: #f5f2e9; border-color: #74796c; }
 [data-theme="dark"] .hand-gesture-guide-actions { background: #242720; }
-@media (max-width: 600px) { .hand-gesture-dock:not(.hand-gesture-guide-open) { width: min(300px, calc(100vw - 86px)); } }
+.hand-gesture-dock:not(.hand-gesture-guide-open) { width: auto; padding: 0; border: 0; background: transparent; box-shadow: none; }
+.hand-gesture-dock .hand-gesture-launch { display: inline-flex; position: relative; align-items: center; justify-content: center; gap: 8px; width: 56px; height: 56px; padding: 0; border-radius: 50%; border: 1px solid var(--line); background: var(--content-background); color: var(--page-text); box-shadow: 0 4px 18px #0003; font-size: 24px; }
+.hand-gesture-button-label { display: none; }
+.hand-gesture-guide-open .hand-gesture-launch { width: auto; height: auto; min-height: 38px; padding: 6px 10px; border-radius: 8px; font-size: 16px; box-shadow: none; }
+.hand-gesture-guide-open .hand-gesture-button-label { display: inline; font-size: 13px; }
+.hand-gesture-camera-dot { position: absolute; top: 3px; right: 3px; width: 11px; height: 11px; background: #13a469; border: 2px solid var(--content-background); border-radius: 50%; }
+.hand-gesture-toast { position: absolute; bottom: calc(100% + 8px); right: 0; width: min(290px, calc(100vw - 32px)); padding: 10px 12px; background: var(--content-background); color: var(--page-text); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 4px 18px #0002; }
+.hand-gesture-guide-actions { flex-wrap: wrap; }
