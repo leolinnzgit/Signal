@@ -661,7 +661,7 @@ function normalizePreferences(saved: Partial<NewsPreferences> & { topic?: string
       rssFeeds: rssFeeds.filter((feed) => {
         const key = canonicalFeedKey(feed);
         return key !== null && !feedKeys.has(key) && Boolean(feedKeys.add(key));
-      }).slice(0, 20),
+      }).slice(0, 30),
     },
   };
 }
@@ -2161,8 +2161,8 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         setNotice(message);
         return false;
       }
-      if (preferences.sources.rssFeeds.length >= 20) {
-        const message = "You can add up to 20 publisher feeds.";
+      if (preferences.sources.rssFeeds.length >= 30) {
+        const message = "You can add up to 30 publisher feeds.";
         setRssMessage(message);
         setNotice(message);
         return false;

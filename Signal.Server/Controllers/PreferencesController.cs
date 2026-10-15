@@ -148,8 +148,8 @@ public sealed class PreferencesController(
                     StringComparison.OrdinalIgnoreCase));
             if (duplicateOf is not null)
                 return Ok(new ResolveRssFeedResponse(candidate, false, duplicateOf, feeds.ToArray()));
-            if (feeds.Count >= 20)
-                return BadRequest(new { error = "You can add up to 20 publisher feeds." });
+            if (feeds.Count >= 30)
+                return BadRequest(new { error = "You can add up to 30 publisher feeds." });
 
             feeds.Add(candidate);
             return Ok(new ResolveRssFeedResponse(candidate, true, null, feeds.ToArray()));
@@ -188,7 +188,7 @@ public sealed class PreferencesController(
         .Where(value => value is not null)
         .Where(value => keys.Add(FeedUrlCanonicalizer.GetComparisonKey(value!)!))
         .Select(value => value!)
-        .Take(20)
+        .Take(30)
         .ToArray();
     }
 
