@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { createHandGestureDetector, HAND_ACTION_LABELS, type HandAction, type HandFrame, type HandPoint } from "./hand-gestures";
+import { createHandGestureDetector, HAND_ACTION_LABELS, type HandAction, type HandFrame, type HandPoint, type HandTracking } from "./hand-gestures";
 import { handGesturesBlocked, runHandGestureAction } from "./hand-gesture-actions";
 import "./hand-gestures.css";
 
@@ -25,6 +25,8 @@ export default function HandGestureControls() {
   const [pointer, setPointer] = useState<HandPoint | null>(null);
   const [pointing, setPointing] = useState(false);
   const [toast, setToast] = useState(false);
+  const [tracking, setTracking] = useState<HandTracking>("missing");
+  const [showPreview, setShowPreview] = useState(true);
   const preview = useRef<HTMLCanvasElement>(null);
   const session = useRef(0);
   const cleanup = useRef<(() => void) | null>(null);
@@ -41,7 +43,7 @@ export default function HandGestureControls() {
   function stop(message = "Camera off") {
     session.current++;
     cleanup.current?.(); cleanup.current = null;
-    clearSelection(); setPointer(null); setPointing(false); setState("off"); setStatus(message);
+    clearSelection(); setPointer(null); setPointing(false); setTracking("missing"); setState("off"); setStatus(message);
   }
 
   useEffect(() => {
@@ -158,13 +160,21 @@ export default function HandGestureControls() {
           responseTimer = window.setTimeout(() => { if (isCurrent()) stop("Hand recognition stopped responding. Start again to retry."); }, 15000);
         } catch { if (isCurrent()) stop("Could not read the camera. Stop other camera apps and try again."); }
       };
-      worker.onmessage = ({ data }: MessageEvent<HandFrame & { type: string }>) => {
+      worker.onmessage = ({ data }: MessageEvent<HandFrame & { type: string; timestamp?: number }>) => {
         if (!isCurrent()) return;
         window.clearTimeout(responseTimer);
         if (data.type === "ready") {
           window.clearTimeout(startupTimer); setState("on"); setStatus("Ready. Show one hand inside the camera preview."); void capture();
         } else if (data.type === "result") {
-          const result = detector.update(data, performance.now());
+          const result = detector.update(data, Number.isFinite(data.timestamp) ? data.timestamp! : performance.now());
+          setTracking(result.state);
+          const context = preview.current?.getContext("2d");
+          if (context && preview.current && result.tracking) {
+            context.fillStyle = "#23db92";
+            for (const point of data.landmarks[0]) {
+              context.beginPath(); context.arc(point.x * preview.current.width, point.y * preview.current.height, 2, 0, Math.PI * 2); context.fill();
+            }
+          }
           // A pinch uses the target held just before fingertips close together.
           if (result.action) void perform(result.action);
           updatePointer(result.pointer);
@@ -188,31 +198,39 @@ export default function HandGestureControls() {
   // A windowed headline player establishes a fixed-position containing block.
   // Keep pointer display aligned with viewport-based elementFromPoint targeting.
   const containingBlock = getComputedStyle(host).transform !== "none" ? host.getBoundingClientRect() : null;
+  const trackingText = tracking === "tracking" ? "Hand detected" : tracking === "multiple" ? "Show just one hand" : "No hand in view";
   return createPortal(<div className={`hand-gesture-dock${guide ? " hand-gesture-guide-open" : ""}`} style={guide ? { maxHeight: Math.max(160, hostHeight - 24) } : undefined} data-hand-gesture-ui>
     <div className="hand-gesture-bar">
       <button type="button" className={`hand-gesture-launch${state !== "off" ? " camera-active" : ""}`} onClick={() => setGuide((value) => !value)} aria-label="Hand gesture guide" title={`Hand gesture guide${state !== "off" ? ` · camera ${state === "starting" ? "starting" : "on"}${practice ? " · practice only" : ""}` : ""}`} aria-expanded={guide} aria-controls="hand-gesture-guide"><span aria-hidden="true">✋</span><span className="hand-gesture-button-label">Hand gestures</span>{state !== "off" && <span className="hand-gesture-camera-dot" aria-hidden="true" />}</button>
       {guide && state !== "off" && <span className="hand-camera-indicator">Camera {state === "starting" ? "starting" : "on"}</span>}
       {guide && state !== "off" && <button type="button" onClick={() => stop()}>Stop camera</button>}
     </div>
-    {!guide && toast && <p className="hand-gesture-toast" role="status">{practice ? "Practice only · " : ""}{status}</p>}
+    {!guide && state === "on" && <div className={`hand-gesture-monitor${showPreview ? " has-preview" : ""}`}>
+      {showPreview && <canvas ref={preview} width={160} height={120} aria-label="Live mirrored hand tracking preview" />}
+      <p className={tracking === "tracking" ? "hand-is-tracked" : ""} role="status">{trackingText}</p>
+      <small>{practice ? "Practice only" : "Controls active"}</small>
+    </div>}
+    {!guide && toast && <p className={`hand-gesture-toast${state === "on" ? " above-monitor" : ""}`} role="status">{practice ? "Practice only · " : ""}{status}</p>}
     {guide && <>
       <p className="hand-gesture-status" role="status">{status}</p>
       {state === "on" && <div className="hand-gesture-live">
         <canvas ref={preview} width={160} height={120} aria-label="Mirrored front camera preview" />
+        <p className={tracking === "tracking" ? "hand-is-tracked" : ""} role="status">{trackingText}</p>
         <label><input type="checkbox" checked={practice} onChange={(event) => { setPractice(event.target.checked); clearSelection(); }} /> Practice only</label>
+        <label><input type="checkbox" checked={showPreview} onChange={(event) => setShowPreview(event.target.checked)} /> Show tracking preview while using gestures</label>
         {guide && <p>Close this guide to control Signal. While this guide is open, gestures only practise.</p>}
       </div>}
     </>}
     {guide && <section id="hand-gesture-guide" className="hand-gesture-guide" aria-labelledby="hand-gesture-title">
       <h2 id="hand-gesture-title">Read hands-free</h2>
-      <p>Rest your phone on a stand. Face the front camera in good light and hold one hand about an arm’s length away, with all fingers visible. Watch the mirrored preview.</p>
+      <p>Rest your phone on a stand. Face the front camera in good light and show one whole hand with fingers spread. Wait for <strong>Hand detected</strong> in the preview, then move your hand. Green dots show the hand Signal can see.</p>
       <ol>
         <li>Tap <strong>Start gestures</strong> and allow camera access. This guide closes and gestures control Signal.</li>
         <li>In the news feed, swipe an open hand left for the next topic or right for the previous topic.</li>
         <li>To learn without changing anything, choose <strong>Practise gestures</strong>. Turn off <strong>Practice only</strong> and close this guide when ready.</li>
       </ol>
       <dl>
-        <dt>Swipe an open hand left / right</dt><dd>In the news feed, move left for the next followed topic or right for the previous topic. From All topics, left opens the first followed topic and right opens the last. In a reader or headline player, swipes move between stories or headlines. Start near the centre and swipe across roughly a quarter of the preview.</dd>
+        <dt>Swipe an open hand left / right</dt><dd>In the news feed, move left for the next followed topic or right for the previous topic. From All topics, left opens the first followed topic and right opens the last. In a reader or headline player, swipes move between stories or headlines. Move sideways by about the width of your palm while keeping your hand in the preview. You do not need to hold it still first.</dd>
         <dt>Move an open hand up / down</dt><dd>Scroll up / down in the feed or reader. Lower your hand between gestures to repeat.</dd>
         <dt>Hold an open palm still</dt><dd>Hold for about one second to pause narration.</dd>
         <dt>Hold a closed fist</dt><dd>Hold briefly to resume narration. Start playback with an on-screen tap first; your browser may require another tap to resume audio.</dd>
@@ -226,6 +244,7 @@ export default function HandGestureControls() {
           <button type="button" onClick={() => { setPractice(false); setGuide(false); void start(); }}>Start gestures</button>
           <button type="button" onClick={() => { setPractice(true); void start(); }}>Practise gestures</button>
         </>}
+        {state === "on" && <button type="button" onClick={() => { setPractice(false); setGuide(false); }}>Use gestures now</button>}
         <button type="button" onClick={() => setGuide(false)}>Close guide</button>
       </div>
     </section>}

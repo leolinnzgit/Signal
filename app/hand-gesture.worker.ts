@@ -8,14 +8,14 @@ self.onmessage = async ({ data }: MessageEvent) => {
       recognizer = await GestureRecognizer.createFromOptions(vision, {
         baseOptions: { modelAssetPath: data.modelPath, delegate: "CPU" },
         runningMode: "VIDEO", numHands: 2,
-        minHandDetectionConfidence: 0.65, minHandPresenceConfidence: 0.65, minTrackingConfidence: 0.65,
+        minHandDetectionConfidence: 0.5, minHandPresenceConfidence: 0.5, minTrackingConfidence: 0.5,
       });
       self.postMessage({ type: "ready" });
     } else if (data.type === "frame" && recognizer) {
       const bitmap = data.bitmap as ImageBitmap;
       try {
         const result = recognizer.recognizeForVideo(bitmap, data.timestamp);
-        self.postMessage({ type: "result", landmarks: result.landmarks, gestures: result.gestures });
+        self.postMessage({ type: "result", landmarks: result.landmarks, gestures: result.gestures, timestamp: data.timestamp });
       } finally { bitmap.close(); }
     }
   } catch (error) {

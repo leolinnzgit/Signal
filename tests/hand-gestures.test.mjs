@@ -108,3 +108,24 @@ test("reset clears a held gesture and malformed landmarks cannot cause commands"
   const invalid = frame(); invalid.landmarks[0][0].x = NaN;
   assert.equal(detector.update(invalid, 1100).tracking, false);
 });
+
+test("a slower phone can recognise a swipe across frames more than 300 ms apart", () => {
+  const detector = createHandGestureDetector();
+  detector.update(frame("Open_Palm", { x: 0.65 }), 0);
+  detector.update(frame("Open_Palm", { x: 0.53 }), 450);
+  assert.equal(detector.update(frame("Open_Palm", { x: 0.40 }), 900).action, "next");
+});
+
+test("a brief drop in palm classification confidence does not erase a swipe", () => {
+  const detector = createHandGestureDetector();
+  detector.update(frame("Open_Palm", { x: 0.65 }), 0);
+  detector.update(frame("None", { x: 0.53, score: 0.4 }), 150);
+  assert.equal(detector.update(frame("Open_Palm", { x: 0.40 }), 300).action, "next");
+});
+
+test("a hand held still before swiping does not lose navigation to the pause cooldown", () => {
+  const detector = createHandGestureDetector();
+  assert.deepEqual(hold(detector, frame("Open_Palm", { x: 0.65 }), 0, 1000), ["pause"]);
+  detector.update(frame("Open_Palm", { x: 0.53 }), 1100);
+  assert.equal(detector.update(frame("Open_Palm", { x: 0.40 }), 1250).action, "next");
+});

@@ -152,10 +152,16 @@ camera; the guide closes and gestures control Signal. **Practise gestures** is
 an optional mode that recognises gestures without changing the app. Turn off
 **Practice only** and close the guide when ready. The button shows a green dot
 while the camera is on; tap it to reopen the guide or stop the camera.
+The small live preview shows **Hand detected**, **No hand in view**, or
+**Show just one hand**, with green dots over tracked hand landmarks. The preview
+can be hidden in the guide. **Use gestures now** leaves practice and closes the guide.
 
 Rest the phone on a stand in good light and show one whole hand to the camera.
 In the news feed, swipe an open hand left/right for the next/previous followed
-topic, including when starting from All topics. In a reader or player, swipes
+topic, including when starting from All topics. Move about one palm's width and
+keep the hand inside the preview; no stationary hold is needed before a swipe.
+Motion tracking tolerates slower phone frames and brief palm-classifier dropouts.
+In a reader or player, swipes
 move between stories or headlines. Move the hand up/down to scroll, hold a palm
 still for about one second to pause, hold a fist
 briefly to resume, and hold a thumbs-up to save the current article. To select,
