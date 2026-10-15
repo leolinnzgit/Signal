@@ -2008,8 +2008,7 @@ button.local-weather {
 }
 
 .rss-feeds {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
   gap: 0.4rem;
   margin: 0.65rem 0 0;
   padding: 0;
@@ -2017,17 +2016,23 @@ button.local-weather {
 }
 
 .rss-feeds li {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.35rem 0.35rem 0.35rem 0.6rem;
+  padding: 0.6rem;
   background: rgba(244, 240, 231, 0.08);
   color: rgba(244, 240, 231, 0.72);
   font-size: 0.64rem;
 }
 
-.rss-feeds button { border: 0; background: transparent; color: rgba(244, 240, 231, 0.5); cursor: pointer; }
+.rss-feed-details { display: grid; gap: 0.25rem; min-width: 0; overflow-wrap: anywhere; }
+.rss-feed-details a { color: #f3ad9f; line-height: 1.5; }
+.rss-feed-details a:hover { color: var(--paper); }
+.rss-feeds button { min-height: 2rem; border: 0; background: transparent; color: rgba(244, 240, 231, 0.72); cursor: pointer; }
+.rss-feeds .rss-feed-copy { padding: 0.35rem 0.5rem; border: 1px solid rgba(244, 240, 231, 0.24); font: inherit; white-space: nowrap; }
 .rss-feeds button:hover { color: #f08b76; }
+.rss-feeds :is(a, button):focus-visible { outline: 2px solid #f08b76; outline-offset: 3px; }
 
 .settings-note {
   margin: 1.2rem 0 0;

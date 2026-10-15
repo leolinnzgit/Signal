@@ -844,6 +844,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [theme, setTheme] = useState<ColorTheme | null>(null);
   const [rssResolvingFeed, setRssResolvingFeed] = useState<string | null>(null);
   const [rssMessage, setRssMessage] = useState("");
+  const [copiedRssFeed, setCopiedRssFeed] = useState<string | null>(null);
   const [storageStatus, setStorageStatus] = useState<"loading" | "saving" | "saved" | "error" | "local">(
     preferencesStore ? "loading" : "local",
   );
@@ -2211,7 +2212,16 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     });
   }
 
+  async function copyRssFeedLink(feed: string) {
+    const result = await shareArticle({ title: feedName(feed), text: "", url: feed }, { clipboard: navigator.clipboard });
+    setCopiedRssFeed(result === "copied" ? feed : null);
+    setRssMessage(result === "copied"
+      ? "RSS feed link copied."
+      : "Could not copy the RSS link. Select the full link below and copy it manually.");
+  }
+
   function removeRssFeed(feed: string) {
+    if (copiedRssFeed === feed) setCopiedRssFeed(null);
     setPreferences((current) => ({
       ...current,
       sources: { ...current.sources, rssFeeds: current.sources.rssFeeds.filter((item) => item !== feed) },
@@ -3405,7 +3415,17 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
             {preferences.sources.rssFeeds.length > 0 && (
               <ul className="rss-feeds">
                 {preferences.sources.rssFeeds.map((feed) => (
-                  <li key={feed}><span>{feedName(feed)}</span><button type="button" onClick={() => removeRssFeed(feed)} aria-label={`Remove ${feedName(feed)} feed`}>&#215;</button></li>
+                  <li key={feed}>
+                    <div className="rss-feed-details">
+                      <strong>{feedName(feed)}</strong>
+                      <a href={feed} target="_blank" rel="noopener noreferrer">{feed}</a>
+                    </div>
+                    <button type="button" className="rss-feed-copy" onClick={() => void copyRssFeedLink(feed)}
+                      aria-label={`Copy RSS feed link: ${feed}`}>
+                      {copiedRssFeed === feed ? "Copied" : "Copy link"}
+                    </button>
+                    <button type="button" onClick={() => removeRssFeed(feed)} aria-label={`Remove RSS feed: ${feed}`}>&#215;</button>
+                  </li>
                 ))}
               </ul>
             )}
