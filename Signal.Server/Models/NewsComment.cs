@@ -16,6 +16,9 @@ public sealed class NewsComment
 
     public ApplicationUser? User { get; set; }
 
+    [MaxLength(80)]
+    public string GuestName { get; set; } = "";
+
     [Required]
     public string Body { get; set; } = "";
 

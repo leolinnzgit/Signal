@@ -17,14 +17,14 @@ public sealed class SharedCommentsController(SignalDbContext database) : Control
 {
     public sealed record PublicComment(long Id, string Body, DateTime CreatedAt, string Author);
     public sealed record PublicCommentPage(PublicComment[] Comments, int Total, bool HasMore);
-    public sealed record CreateRequest([Required, MaxLength(2000)] string Body);
+    public sealed record CreateRequest([Required, MaxLength(2000)] string Body, [MaxLength(80)] string? Name = null);
 
     [HttpGet]
     public async Task<IActionResult> Get(string id, [FromQuery] long? beforeId = null, CancellationToken token = default)
     {
         var article = await FindArticleAsync(id, token);
         if (article is null) return NotFound();
-        // Shared visitors see the story's discussion without exposing account IDs, photos or names.
+        // Only names explicitly supplied by guests are public; account details stay private.
         var url = DiscussionUrl(article);
         var query = database.NewsComments.AsNoTracking().Where(item => item.ArticleUrl == url);
         var total = await query.CountAsync(token);
@@ -42,9 +42,11 @@ public sealed class SharedCommentsController(SignalDbContext database) : Control
         var body = request.Body?.Trim() ?? "";
         if (body.Length == 0) return BadRequest(new { error = "Write a comment first." });
         if (body.Length > 2000) return BadRequest(new { error = "Comments can contain up to 2,000 characters." });
+        if (request.Name?.Length > 80) return BadRequest(new { error = "Names can contain up to 80 characters." });
+        var name = string.Join(' ', (request.Name ?? "").Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
         var comment = new NewsComment {
             ArticleUrl = DiscussionUrl(article), ArticleTitle = article.Title[..Math.Min(article.Title.Length, 500)],
-            Body = body, CreatedAtUtc = DateTime.UtcNow,
+            Body = body, GuestName = name, CreatedAtUtc = DateTime.UtcNow,
         };
         database.NewsComments.Add(comment);
         await database.SaveChangesAsync(token);
@@ -60,5 +62,6 @@ public sealed class SharedCommentsController(SignalDbContext database) : Control
         article.DiscussionUrl.Length > 0 ? article.DiscussionUrl : article.OriginalUrl;
 
     private static PublicComment ToPublic(NewsComment comment) => new(comment.Id, comment.Body,
-        DateTime.SpecifyKind(comment.CreatedAtUtc, DateTimeKind.Utc), "Anonymous");
+        DateTime.SpecifyKind(comment.CreatedAtUtc, DateTimeKind.Utc),
+        comment.UserId is null && comment.GuestName.Length > 0 ? comment.GuestName : "Anonymous");
 }

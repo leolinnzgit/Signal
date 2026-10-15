@@ -6,6 +6,7 @@
   const list = document.getElementById("comment-list");
   const form = document.getElementById("comment-form");
   const body = document.getElementById("comment-body");
+  const guestName = document.getElementById("comment-name");
   const submit = document.getElementById("comment-submit");
   const status = document.getElementById("comment-status");
   const older = document.getElementById("comments-older");
@@ -29,7 +30,8 @@
     const header = document.createElement("div");
     header.className = "comment-meta";
     const name = document.createElement("strong");
-    name.textContent = "Anonymous";
+    name.dir = "auto";
+    name.textContent = comment.author || "Anonymous";
     const time = document.createElement("time");
     time.dateTime = comment.createdAt;
     time.textContent = new Date(comment.createdAt).toLocaleString();
@@ -78,7 +80,7 @@
     }
     busy = true;
     submit.disabled = older.disabled = refresh.disabled = true;
-    body.readOnly = true;
+    body.readOnly = guestName.readOnly = true;
     status.textContent = "Posting comment…";
     try {
       const csrf = await read(await fetch(`${home}api/auth/csrf`, { credentials: "same-origin", cache: "no-store" }));
@@ -86,19 +88,21 @@
       const comment = await read(await fetch(endpoint, {
         method: "POST", credentials: "same-origin",
         headers: { "Content-Type": "application/json", "X-XSRF-TOKEN": csrf.token },
-        body: JSON.stringify({ body: body.value.trim() }),
+        body: JSON.stringify({ body: body.value.trim(), name: guestName.value.trim() }),
       }));
       list.append(render(comment));
       firstId ??= comment.id;
       total++;
       updateCount();
       body.value = "";
-      status.textContent = "Comment posted anonymously. It also appears with this story in Signal.";
+      status.textContent = guestName.value.trim()
+        ? `Comment posted as ${comment.author}. It also appears with this story in Signal.`
+        : "Comment posted anonymously. It also appears with this story in Signal.";
     } catch (error) {
       status.textContent = error.message;
     } finally {
       busy = false;
-      body.readOnly = false;
+      body.readOnly = guestName.readOnly = false;
       submit.disabled = older.disabled = refresh.disabled = false;
     }
   });

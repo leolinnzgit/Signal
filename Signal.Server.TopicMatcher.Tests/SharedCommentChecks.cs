@@ -16,6 +16,12 @@ internal static class SharedCommentChecks
 {
     public static async Task RunAsync()
     {
+        await RunDatabaseAsync(nullableUser: false);
+        await RunDatabaseAsync(nullableUser: true);
+    }
+
+    private static async Task RunDatabaseAsync(bool nullableUser)
+    {
         using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
         var options = new DbContextOptionsBuilder<SignalDbContext>().UseSqlite(connection).Options;
@@ -23,7 +29,7 @@ internal static class SharedCommentChecks
         await database.Database.EnsureCreatedAsync();
         database.Users.Add(new ApplicationUser { Id = "owner", UserName = "private@example.test" });
         await database.SaveChangesAsync();
-        // Recreate the production schema from before anonymous comments, including a deleted high ID.
+        // Cover both the original schema and the deployed anonymous-comment schema, preserving deleted high IDs.
         await database.Database.ExecuteSqlRawAsync("""
             ALTER TABLE SharedNewsArticles DROP COLUMN DiscussionUrl;
             DROP TABLE NewsComments;
@@ -34,7 +40,7 @@ internal static class SharedCommentChecks
             INSERT INTO NewsComments VALUES (7, 'https://example.test/feed-story', 'Story', 'owner', 'Existing comment', '2026-10-16 00:00:00');
             INSERT INTO NewsComments VALUES (70, 'https://example.test/feed-story', 'Story', 'owner', 'Deleted comment', '2026-10-16 00:00:00');
             DELETE FROM NewsComments WHERE Id = 70;
-            """);
+            """.Replace("UserId TEXT NOT NULL", nullableUser ? "UserId TEXT NULL" : "UserId TEXT NOT NULL"));
         await AnonymousCommentSchema.UpgradeAsync(database);
         await AnonymousCommentSchema.UpgradeAsync(database);
         var preserved = await database.NewsComments.Include(item => item.User).SingleAsync();
@@ -80,13 +86,35 @@ internal static class SharedCommentChecks
         Require(publicPage.Total == 57 && publicPage.Comments.Length == 50 && publicPage.HasMore, "Public comments are not bounded or paginated.");
         var older = (SharedCommentsController.PublicCommentPage)((OkObjectResult)await controller.Get(share.Id, publicPage.Comments[0].Id)).Value!;
         Require(older.Comments.Length == 7 && !older.HasMore && !older.Comments.Any(item => publicPage.Comments.Any(next => next.Id == item.Id)), "Older comments overlap or disappear.");
+        Require(await controller.Create(share.Id, new("Named comment", new string('x', 81)), default) is BadRequestObjectResult,
+            "Overlong guest name was accepted.");
+        var named = (SharedCommentsController.PublicComment)((OkObjectResult)await controller.Create(share.Id, new("A named reader's thoughts", "  Jamie \n Lee  "), default)).Value!;
+        Require(named.Author == "Jamie Lee", "Optional guest name was not normalized and returned.");
+        await AnonymousCommentSchema.UpgradeAsync(database);
+        await using (var reloaded = new SignalDbContext(options))
+        {
+            var saved = await reloaded.NewsComments.AsNoTracking().SingleAsync(item => item.Id == named.Id);
+            Require(saved.GuestName == "Jamie Lee" && saved.UserId is null && saved.ArticleUrl == share.DiscussionUrl,
+                "Guest name was not persisted with the news item or acquired an account identity.");
+        }
+        publicPage = (SharedCommentsController.PublicCommentPage)((OkObjectResult)await controller.Get(otherVersion.Id)).Value!;
+        Require(publicPage.Comments.Single(item => item.Id == named.Id).Author == "Jamie Lee", "Shared discussion lost guest name.");
+        newsPage = (CommentPageResponse)((OkObjectResult)await comments.Get(share.DiscussionUrl)).Value!;
+        var namedNews = newsPage.Comments.Single(item => item.Id == named.Id);
+        Require(namedNews.Author.Name == "Jamie Lee" && namedNews.Author.UserId == "" && !namedNews.CanDelete
+            && namedNews.FriendshipState == "anonymous", "News discussion lost the guest name or enabled account controls.");
+        latest = (LatestCommentsResponse)((OkObjectResult)await comments.GetLatest()).Value!;
+        Require(latest.Comments.Single(item => item.Id == named.Id).Author.Name == "Jamie Lee", "Latest comments lost the guest name.");
+        Require(await comments.Delete(named.Id, default) is ForbidResult, "Reader can delete another guest's named comment.");
+        var blankName = (SharedCommentsController.PublicComment)((OkObjectResult)await controller.Create(share.Id, new("Still anonymous", " \t \n "), default)).Value!;
+        Require(blankName.Author == "Anonymous", "Blank name did not retain anonymous posting.");
         // Existing shared links have no stored feed URL and continue using their original URL.
         otherVersion.DiscussionUrl = "";
         await database.SaveChangesAsync();
         var legacy = (SharedCommentsController.PublicComment)((OkObjectResult)await controller.Create(otherVersion.Id, new("Legacy link"), default)).Value!;
         Require((await database.NewsComments.FindAsync(legacy.Id))!.ArticleUrl == share.OriginalUrl, "Existing shared link cannot accept comments.");
         Require(await database.Database.SqlQueryRaw<long>("SELECT COUNT(*) AS Value FROM pragma_foreign_key_check").SingleAsync() == 0, "Upgrade damaged foreign keys.");
-        Console.WriteLine("Shared comments passed legacy schema upgrade, preserved IDs/authors, anonymous posting, URL linkage, news/latest views, privacy, ownership, validation and pagination.");
+        Console.WriteLine("Shared comments passed legacy schema upgrade, preserved IDs/authors, anonymous posting, URL linkage, news/latest views, privacy, ownership, validation, pagination and optional guest names.");
     }
 
     public static async Task RunBrowserAsync()
@@ -111,8 +139,10 @@ internal static class SharedCommentChecks
                     {
                         Require(route.Request.Headers.GetValueOrDefault("x-xsrf-token") == "test-token", "Anonymous form omitted CSRF token.");
                         if (fail) { await route.FulfillAsync(new() { Status = 429 }); return; }
-                        var body = JsonDocument.Parse(route.Request.PostData!).RootElement.GetProperty("body").GetString();
-                        var comment = new { id = comments.Count + 1, body, createdAt = "2026-10-16T00:00:00Z", author = "Anonymous" };
+                        var request = JsonDocument.Parse(route.Request.PostData!).RootElement;
+                        var body = request.GetProperty("body").GetString();
+                        var name = request.GetProperty("name").GetString();
+                        var comment = new { id = comments.Count + 1, body, createdAt = "2026-10-16T00:00:00Z", author = string.IsNullOrWhiteSpace(name) ? "Anonymous" : name };
                         comments.Add(comment);
                         await route.FulfillAsync(new() { ContentType = "application/json", Body = JsonSerializer.Serialize(comment) });
                     }
@@ -131,16 +161,28 @@ internal static class SharedCommentChecks
             Require(await page.Locator("#comment-body").InputValueAsync() == "", "Successful submission did not clear draft.");
             await page.ReloadAsync();
             await Microsoft.Playwright.Assertions.Expect(page.Locator("#comment-list li")).ToHaveCountAsync(1);
+            const string guestName = "Jamie <img src=x onerror=alert(1)>";
+            await page.Locator("#comment-name").FillAsync(guestName);
+            await page.Locator("#comment-body").FillAsync("A named guest comment");
+            await page.Locator("#comment-submit").ClickAsync();
+            await Microsoft.Playwright.Assertions.Expect(page.Locator("#comment-status")).ToContainTextAsync("Comment posted as " + guestName);
+            await Microsoft.Playwright.Assertions.Expect(page.Locator("#comment-list li").Last.Locator("strong")).ToHaveTextAsync(guestName);
+            Require(await page.Locator("#comment-list img").CountAsync() == 0, "Guest name was interpreted as HTML.");
+            await page.ReloadAsync();
+            await Microsoft.Playwright.Assertions.Expect(page.Locator("#comment-list li")).ToHaveCountAsync(2);
+            await Microsoft.Playwright.Assertions.Expect(page.Locator("#comment-list li").Last.Locator("strong")).ToHaveTextAsync(guestName);
+            await page.Locator("#comment-name").FillAsync("Keep my name");
             fail = true;
             await page.Locator("#comment-body").FillAsync("Keep this draft");
             await page.Locator("#comment-submit").ClickAsync();
             await Microsoft.Playwright.Assertions.Expect(page.Locator("#comment-status")).ToContainTextAsync("wait a minute");
-            Require(await page.Locator("#comment-body").InputValueAsync() == "Keep this draft", "Failed submission lost the draft.");
+            Require(await page.Locator("#comment-body").InputValueAsync() == "Keep this draft"
+                && await page.Locator("#comment-name").InputValueAsync() == "Keep my name", "Failed submission lost the name or draft.");
             Require(await page.EvaluateAsync<bool>("document.documentElement.scrollWidth <= innerWidth"), "Comments overflow on mobile.");
             await page.Locator("#story-comments").ScreenshotAsync(new() { Path = $"work/shared-comments-{width}.png" });
             await page.CloseAsync();
         }
-        Console.WriteLine("Shared comment browser checks passed mobile/desktop submission, CSP, CSRF, text escaping, reload persistence, error recovery and layout.");
+        Console.WriteLine("Shared comment browser checks passed mobile/desktop submission, CSP, CSRF, text escaping, reload persistence, error recovery, optional names and layout.");
     }
 
     private static void Require(bool value, string message) { if (!value) throw new InvalidOperationException(message); }

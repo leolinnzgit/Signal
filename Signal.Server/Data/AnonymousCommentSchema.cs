@@ -17,6 +17,10 @@ internal static class AnonymousCommentSchema
             if (Convert.ToInt64(await check.ExecuteScalarAsync()) == 0)
                 await database.Database.ExecuteSqlRawAsync("ALTER TABLE SharedNewsArticles ADD COLUMN DiscussionUrl TEXT NOT NULL DEFAULT ''; ");
 
+            check.CommandText = "SELECT COUNT(*) FROM pragma_table_info('NewsComments') WHERE name = 'GuestName';";
+            if (Convert.ToInt64(await check.ExecuteScalarAsync()) == 0)
+                await database.Database.ExecuteSqlRawAsync("ALTER TABLE NewsComments ADD COLUMN GuestName TEXT NOT NULL DEFAULT '';");
+
             check.CommandText = "SELECT COUNT(*) FROM pragma_table_info('NewsComments') WHERE name = 'UserId' AND \"notnull\" = 1;";
             if (Convert.ToInt64(await check.ExecuteScalarAsync()) == 0) return;
             // SQLite requires a table rebuild to make an existing foreign key nullable.
@@ -28,12 +32,13 @@ internal static class AnonymousCommentSchema
                     ArticleUrl TEXT NOT NULL,
                     ArticleTitle TEXT NOT NULL,
                     UserId TEXT NULL,
+                    GuestName TEXT NOT NULL,
                     Body TEXT NOT NULL,
                     CreatedAtUtc TEXT NOT NULL,
                     FOREIGN KEY (UserId) REFERENCES AspNetUsers (Id) ON DELETE CASCADE
                 );
-                INSERT INTO NewsComments_AnonymousUpgrade (Id, ArticleUrl, ArticleTitle, UserId, Body, CreatedAtUtc)
-                    SELECT Id, ArticleUrl, ArticleTitle, UserId, Body, CreatedAtUtc FROM NewsComments;
+                INSERT INTO NewsComments_AnonymousUpgrade (Id, ArticleUrl, ArticleTitle, UserId, GuestName, Body, CreatedAtUtc)
+                    SELECT Id, ArticleUrl, ArticleTitle, UserId, GuestName, Body, CreatedAtUtc FROM NewsComments;
                 UPDATE sqlite_sequence SET seq = MAX(seq, COALESCE((SELECT seq FROM sqlite_sequence WHERE name = 'NewsComments'), 0))
                     WHERE name = 'NewsComments_AnonymousUpgrade';
                 INSERT INTO sqlite_sequence (name, seq)

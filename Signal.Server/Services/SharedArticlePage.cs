@@ -41,12 +41,15 @@ public static class SharedArticlePage
             <section id="story-comments" class="shared-comments" lang="en" aria-labelledby="comments-title"
                 data-endpoint="{Encode(homePath)}api/shared/{Encode(article.Id)}/comments" data-home="{Encode(homePath)}">
             <h2 id="comments-title">Comments</h2>
-            <p>Leave a comment anonymously. Comments also appear with this news story in Signal.</p>
+            <p>Add your name or post anonymously. Comments also appear with this news story in Signal.</p>
             <form id="comment-form">
+            <label for="comment-name">Your name (optional)</label>
+            <input id="comment-name" name="name" type="text" maxlength="80" autocomplete="name" placeholder="Anonymous" aria-describedby="comment-name-hint">
+            <p id="comment-name-hint" class="comment-hint">Leave blank to post as Anonymous. Your name will appear with your comment.</p>
             <label for="comment-body">Your comment</label>
             <textarea id="comment-body" name="body" rows="4" maxlength="2000" required placeholder="Share your thoughts…"></textarea>
-            <p class="comment-hint">Up to 2,000 characters. No name or sign-in needed.</p>
-            <button id="comment-submit" type="submit" disabled>Post anonymously</button>
+            <p class="comment-hint">Up to 2,000 characters. No sign-in needed.</p>
+            <button id="comment-submit" type="submit" disabled>Post comment</button>
             </form>
             <p id="comment-status" role="status" aria-live="polite"></p>
             <noscript><p>Enable JavaScript to read and leave comments.</p></noscript>
@@ -54,7 +57,7 @@ public static class SharedArticlePage
             <button id="comments-older" type="button" hidden>Load older comments</button>
             <ol id="comment-list" aria-label="Story comments"></ol>
             </section>
-            <script src="{Encode(homePath)}shared-story-comments.js?v=1" defer></script>
+            <script src="{Encode(homePath)}shared-story-comments.js?v=2" defer></script>
             </article></main>
             """);
     }
@@ -94,7 +97,8 @@ public static class SharedArticlePage
         .body{font-family:Georgia,serif;font-size:1.15rem;line-height:1.85;margin-top:2rem}.body p{margin:0 0 1.4rem;white-space:pre-wrap}
         footer{border-top:1px solid var(--line);padding-top:1.5rem;margin-top:2.5rem;font-size:.85rem}footer p{color:var(--muted)}
         .shared-comments{border-top:1px solid var(--line);margin-top:2rem;padding-top:1.5rem}.shared-comments h2{font-family:Georgia,serif;font-size:1.6rem}.shared-comments>p,.comment-hint{color:var(--muted);font-size:.85rem;line-height:1.6}
-        .shared-comments label{display:block;font-weight:600;margin:1rem 0 .5rem}.shared-comments textarea{display:block;width:100%;resize:vertical;min-height:7rem;padding:.8rem;font:inherit;border:1px solid var(--line);border-radius:.3rem;background:var(--paper);color:var(--ink)}
+        .shared-comments label{display:block;font-weight:600;margin:1rem 0 .5rem}.shared-comments input,.shared-comments textarea{display:block;width:100%;resize:vertical;min-height:7rem;padding:.8rem;font:inherit;border:1px solid var(--line);border-radius:.3rem;background:var(--paper);color:var(--ink)}
+        .shared-comments input{min-height:0;resize:none}
         .shared-comments button{font:inherit;font-size:.85rem;padding:.65rem .9rem;border:1px solid var(--line);border-radius:.3rem;background:var(--paper);color:var(--ink);cursor:pointer}.shared-comments button:disabled{opacity:.6;cursor:wait}.shared-comments [hidden]{display:none}
         #comment-submit{background:var(--ink);color:var(--paper)}.shared-comments :focus-visible{outline:2px solid var(--accent);outline-offset:3px}.comments-toolbar{display:flex;align-items:center;justify-content:space-between;gap:1rem;margin:1.5rem 0 1rem;font-size:.85rem}
         #comment-list{list-style:none;padding:0;margin:1rem 0}#comment-list li{border-top:1px solid var(--line);padding:1rem 0}#comment-list p{white-space:pre-wrap;line-height:1.65;margin:.6rem 0 0}.comment-meta{display:flex;flex-wrap:wrap;gap:.5rem 1rem;align-items:baseline;font-size:.85rem}.comment-meta time{color:var(--muted);font-size:.75rem}

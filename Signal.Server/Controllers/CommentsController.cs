@@ -194,7 +194,7 @@ public sealed class CommentsController(
             AsUtc(comment.CreatedAtUtc),
             new CommentAuthorResponse(
                 comment.UserId ?? "",
-                comment.User is null ? "Anonymous" : PublicName(comment.User),
+                comment.User is null ? (comment.GuestName.Length > 0 ? comment.GuestName : "Anonymous") : PublicName(comment.User),
                 comment.UserId is null ? "" : $"/api/social/users/{Uri.EscapeDataString(comment.UserId)}/photo"),
             comment.UserId == currentUserId,
             comment.UserId is null ? "anonymous" : comment.UserId == currentUserId
