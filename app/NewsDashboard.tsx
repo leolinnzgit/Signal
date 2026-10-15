@@ -5,6 +5,8 @@ import { type CSSProperties, FormEvent, useCallback, useEffect, useMemo, useRef,
 import { updateInstalledAppBadge } from "./app-badge";
 import { createHostedArticleShare, shareArticle } from "./article-share";
 import HeadlinePlayer from "./HeadlinePlayer";
+import HandGestureControls from "./HandGestureControls";
+import { useHandGestureTarget } from "./hand-gesture-actions";
 import ArticleAudioPlayer from "./ArticleAudioPlayer";
 import ArticleSummaryPlayer from "./ArticleSummaryPlayer";
 import ArticleTranslationControls from "./ArticleTranslationControls";
@@ -818,6 +820,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [backToTopVisible, setBackToTopVisible] = useState(false);
   const [floatingNavigationSide, setFloatingNavigationSide] = useState<"left" | "right">("left");
   const [readerArticle, setReaderArticle] = useState<FollowedArticle | null>(null);
+  const [handSelectedUrl, setHandSelectedUrl] = useState("");
   const [readerAudioRequested, setReaderAudioRequested] = useState(false);
   const [readerTranslation, setReaderTranslation] = useState<ArticleTranslation | null>(null);
   const [readerReading, setReaderReading] = useState<{ section: ArticleNarrationSection | null; playing: boolean }>({ section: null, playing: false });
@@ -2752,7 +2755,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   }
 
   async function toggleBookmark(article: FollowedArticle) {
-    if (!articleStore || bookmarkingUrls.has(article.url)) return;
+    if (!articleStore || bookmarkingUrls.has(article.url)) return false;
     const bookmarked = !article.isBookmarked;
     setBookmarkingUrls((current) => new Set(current).add(article.url));
     try {
@@ -2763,6 +2766,8 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
       setHistoryArticles((current) => current.map((item) => item.url === article.url
         ? { ...item, isBookmarked: bookmarked, bookmarkedAt: bookmarked ? new Date().toISOString() : null }
         : item));
+      setReaderArticle((current) => current?.url === article.url ? { ...current, isBookmarked: bookmarked } : current);
+      setHeadlineQueue((current) => current?.map((item) => item.url === article.url ? { ...item, isBookmarked: bookmarked } : item) ?? null);
       setBookmarkTotal((current) => Math.max(0, current + (bookmarked ? 1 : -1)));
       if (feedView === "bookmarks") {
         setHistoryArticles((current) => current.filter((item) => item.url !== article.url || bookmarked));
@@ -2771,8 +2776,10 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
       setNotice(bookmarked
         ? "Story bookmarked. It will be kept until you remove the bookmark."
         : "Bookmark removed. The normal history cleanup setting now applies.");
+      return true;
     } catch (caught) {
       setNotice(caught instanceof Error ? caught.message : "That bookmark could not be updated.");
+      return false;
     } finally {
       setBookmarkingUrls((current) => {
         const next = new Set(current);
@@ -2935,8 +2942,49 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     ? readerContent.article.finalUrl
     : readerArticle?.url ?? "";
 
+  async function bookmarkWithHand(article: FollowedArticle) {
+    const current = articles.find((item) => item.url === article.url)
+      ?? historyArticles.find((item) => item.url === article.url) ?? article;
+    if (current.isBookmarked) return "Article already bookmarked.";
+    return await toggleBookmark(current) ? "Article bookmarked." : "Could not save the bookmark. Please try its on-screen control.";
+  }
+
+  useHandGestureTarget(10, true, async (action) => {
+    if (headlineQueue && !readerArticle) return "Use the headline player's controls for this action.";
+    if (action === "scroll-up" || action === "scroll-down") {
+      const direction = action === "scroll-down" ? 1 : -1;
+      const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const container = readerArticle ? readerScrollBody.current : null;
+      if (container) { setFollowReading(false); container.scrollBy({ top: direction * container.clientHeight * 0.65, behavior: reduced ? "instant" : "smooth" }); }
+      else window.scrollBy({ top: direction * innerHeight * 0.65, behavior: reduced ? "instant" : "smooth" });
+      return action === "scroll-down" ? "Scrolled down." : "Scrolled up.";
+    }
+    const list = readerArticle && headlineQueue ? headlineQueue : filteredArticles;
+    const visibleIndex = [...(storyListElement.current?.querySelectorAll("li") ?? [])]
+      .findIndex((element) => element.getBoundingClientRect().bottom > innerHeight * 0.3);
+    const selectedIndex = list.findIndex((item) => item.url === (readerArticle?.url ?? handSelectedUrl));
+    const index = selectedIndex >= 0 ? selectedIndex : Math.max(0, visibleIndex);
+    if (action === "next" || action === "previous") {
+      if (!list.length) return "There are no stories in this view.";
+      const nextIndex = Math.max(0, Math.min(list.length - 1, index + (action === "next" ? 1 : -1)));
+      const next = list[nextIndex];
+      if (readerArticle) openArticleReader(next, readerCloseButton.current ?? document.body);
+      else {
+        setHandSelectedUrl(next.url);
+        storyListElement.current?.children[nextIndex]?.scrollIntoView({ block: "center", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+      }
+      return `${readerArticle ? "Opened" : "Selected"}: ${next.title}`;
+    }
+    if (action === "bookmark") {
+      const current = readerArticle ?? list[index];
+      return current ? bookmarkWithHand(current) : "There is no article to bookmark.";
+    }
+    return readerArticle ? "Tap an article's Play control first to start narration." : "Open a story or start headline playback first.";
+  });
+
   return (
     <main className="signal-dashboard" id="top">
+      <HandGestureControls />
       <header className="site-header">
         <a className="brand" href="#top" aria-label="Signal home">
           <img className="brand-mark" src="/icons/signal-medallion-64.png" alt="" aria-hidden="true" />
@@ -4032,7 +4080,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           <>
             <ol className="story-list" ref={storyListElement}>
               {filteredArticles.map((article, index) => (
-                <li key={article.url}>
+                <li key={article.url} className={handSelectedUrl === article.url ? "hand-gesture-story-selected" : undefined}>
                 <a
                   href={article.url}
                   className={article.imageUrl ? "story-link has-image" : "story-link"}
@@ -4622,6 +4670,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
             openArticleReader(article, document.activeElement instanceof HTMLElement ? document.activeElement : document.body, true);
           }}
           onClose={closeHeadlinePlayer}
+          onHandBookmark={bookmarkWithHand}
         />
       )}
 

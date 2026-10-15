@@ -1,0 +1,24 @@
+.hand-gesture-dock { position: fixed; right: max(12px, env(safe-area-inset-right)); bottom: max(12px, env(safe-area-inset-bottom)); z-index: 240; width: min(360px, calc(100vw - 24px)); border: 1px solid var(--line, #b9b4a7); border-radius: 14px; background: var(--paper, #fffdf7); color: var(--ink, #25251f); box-shadow: 0 6px 30px #0003; padding: 10px; font: 13px/1.5 system-ui, sans-serif; }
+.hand-gesture-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.hand-gesture-dock button { border: 1px solid currentColor; border-radius: 8px; padding: 6px 10px; font: inherit; color: inherit; background: transparent; cursor: pointer; min-height: 36px; }
+.hand-gesture-dock button:focus-visible { outline: 3px solid #087e8b; outline-offset: 2px; }
+.hand-gesture-dock p { margin: 8px 0; }
+.hand-camera-indicator { font-size: 11px; font-weight: 700; color: #08794c; }
+.hand-camera-indicator::before { content: "● "; }
+.hand-gesture-status { overflow-wrap: anywhere; }
+.hand-gesture-live { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.hand-gesture-live canvas { width: 96px; height: 72px; border-radius: 8px; background: #25251f; transform: scaleX(-1); }
+.hand-gesture-live label { display: flex; align-items: center; gap: 6px; }
+.hand-gesture-live p { flex-basis: 100%; font-size: 12px; }
+.hand-gesture-guide-open { width: min(480px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow-y: auto; overscroll-behavior: contain; }
+.hand-gesture-guide h2 { margin: 12px 0 6px; font-size: 20px; }
+.hand-gesture-guide ol { padding-left: 22px; list-style: decimal; }
+.hand-gesture-guide dt { font-weight: 700; margin-top: 12px; }
+.hand-gesture-guide dd { margin: 2px 0 0; }
+.hand-gesture-guide-actions { display: flex; gap: 8px; position: sticky; bottom: -10px; padding: 10px 0; background: var(--paper, #fffdf7); border-top: 1px solid var(--line, #b9b4a7); }
+.hand-gesture-pointer { position: fixed; width: 20px; height: 20px; border: 3px solid #087e8b; background: #fff9; border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none; z-index: 9999; }
+.hand-gesture-pointer.is-targeting { background: #0bad7c99; border-color: #05764f; }
+.hand-gesture-highlight, .hand-gesture-story-selected { outline: 3px solid #087e8b !important; outline-offset: 3px; border-radius: 4px; }
+[data-theme="dark"] .hand-gesture-dock { background: #242720; color: #f5f2e9; border-color: #74796c; }
+[data-theme="dark"] .hand-gesture-guide-actions { background: #242720; }
+@media (max-width: 600px) { .hand-gesture-dock:not(.hand-gesture-guide-open) { width: min(300px, calc(100vw - 86px)); } }

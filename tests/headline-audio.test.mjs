@@ -28,6 +28,7 @@ test("browser briefings narrate completion with saved preferences and stop on cl
     let disposed = false;
     const jsx = (type, props) => ({ type, props });
     const modules = {
+      "./hand-gesture-actions": { useHandGestureTarget() {} },
       react: {
         useState(initial) {
           const current = slot++;
@@ -89,6 +90,7 @@ async function recordedPlayerHarness({ lifecycle = false, announcement = false }
   let stateIndex = 0;
   let playCalls = 0;
   let rejectPlay = false;
+  let gesture;
   const handlers = new Map();
   const mediaSession = { setActionHandler(action, handler) { handlers.set(action, handler); }, playbackState: "none" };
   const element = { currentTime: 0, duration: 24, paused: true, ended: false,
@@ -115,6 +117,7 @@ async function recordedPlayerHarness({ lifecycle = false, announcement = false }
   };
   const jsx = (type, props) => ({ type, props });
   const modules = {
+    "./hand-gesture-actions": { useHandGestureTarget(_priority, active, handler) { gesture = active ? handler : null; } },
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "./headline-audio": { audioHeadlineIndex, preparedAudioCache },
@@ -151,6 +154,7 @@ async function recordedPlayerHarness({ lifecycle = false, announcement = false }
   render();
   assert.ok(findAudio(tree), "The prepared recording must render audio controls");
   return { articles, heard, get controls() { return controls.current; }, element,
+    async gesture(action) { const result = await gesture?.(action); render(); return result; },
     get events() { return findAudio(tree); }, render, handlers, mediaSession,
     get playCalls() { return playCalls; }, blockPlayback() { rejectPlay = true; },
   };
@@ -183,6 +187,23 @@ test("closing full news restores the recorded briefing at its playhead and retur
   player.render({ suspended: true });
   player.render({ suspended: false });
   assert.equal(player.playCalls, 2, "Later article interruptions also resume");
+});
+
+test("hand gestures control recorded headlines, handle blocked playback and yield bookmarks to the parent", async () => {
+  const player = await recordedPlayerHarness();
+  assert.match(await player.gesture("resume"), /resumed/);
+  assert.equal(player.element.paused, false);
+  assert.match(await player.gesture("pause"), /paused/);
+  assert.equal(player.element.paused, true);
+  await player.gesture("next");
+  assert.equal(player.element.currentTime, 6);
+  await player.gesture("previous");
+  assert.equal(player.element.currentTime, 0);
+  assert.equal(await player.gesture("bookmark"), undefined);
+  player.blockPlayback();
+  assert.match(await player.gesture("resume"), /Tap Play/);
+  player.render({ suspended: true });
+  assert.equal(await player.gesture("next"), undefined);
 });
 
 test("closing a reader keeps manually paused and completed briefings stopped", async () => {

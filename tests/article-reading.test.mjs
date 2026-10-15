@@ -17,6 +17,7 @@ const jsx = (type, props) => ({ type, props });
 function load(code, modules, globals = {}) {
   const exports = {};
   runInNewContext(code, { exports, require: (name) => {
+    if (name === "./hand-gesture-actions" && !(name in modules)) return { useHandGestureTarget() {} };
     assert.ok(name in modules, `Unexpected dependency: ${name}`);
     return modules[name];
   }, ...globals });
@@ -152,7 +153,9 @@ async function narrationHarness(mode, { streaming = false } = {}) {
     getAttribute: () => "native-stream", removeAttribute() {}, load() {},
   };
   let streamReport;
+  let gesture;
   const modules = {
+    "./hand-gesture-actions": { useHandGestureTarget(_priority, _active, handler) { gesture = handler; } },
     react, "react/jsx-runtime": { jsx, jsxs: jsx },
     "./headline-audio": { ...audio, preparedAudioCache: {
       get: () => streaming ? undefined : ({ blob: new Blob(["recording"]), starts: sections.map((_, index) => index * 3) }),
@@ -197,10 +200,12 @@ async function narrationHarness(mode, { streaming = false } = {}) {
       pending.forEach((effect) => effect.cleanup?.());
       pending.forEach((effect) => { effect.pending = false; effect.cleanup = effect.callback(); });
     } while (dirty);
+    return tree;
   }
   render();
   if (streaming) { await new Promise(setImmediate); render(); }
   return { sections, reports, element, controllers, render,
+    async gesture(action) { const result = await gesture(action); render(); return result; },
     reportStream(status) { streamReport(status); render(); },
     get events() { return find(tree, (node) => node.type === "audio")?.props; },
     click(text) { const button = find(tree, (node) => node.type === "button" && node.props.children === text); assert.ok(button, `Missing button: ${text}`); button.props.onClick(); render(); },
@@ -263,4 +268,18 @@ test("browser narration waits for speech to start, follows sections and preserve
   assert.deepEqual(player.reports.at(-1), { section: player.sections[1], playing: false });
   player.click("Stop");
   assert.deepEqual(player.reports.at(-1), { section: null, playing: false });
+});
+
+test("palm and fist gestures pause and resume both article narration modes without navigating", async () => {
+  for (const mode of ["browser", "recorded"]) {
+    const player = await narrationHarness(mode);
+    if (mode === "browser") player.click("Play");
+    else player.element.paused = false;
+    assert.match(await player.gesture("pause"), /paused/);
+    if (mode === "recorded") assert.equal(player.element.paused, true);
+    else assert.ok(find(player.render(), (node) => node.type === "button" && node.props.children === "Play"));
+    assert.match(await player.gesture("resume"), /resumed/);
+    if (mode === "recorded") assert.equal(player.element.paused, false);
+    assert.equal(await player.gesture("next"), undefined, "Article navigation belongs to the reader");
+  }
 });

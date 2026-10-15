@@ -1,4 +1,5 @@
 "use client";
+import { useHandGestureTarget } from "./hand-gesture-actions";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ArticleAudioPlayerProps } from "./ArticleAudioPlayer";
@@ -131,6 +132,16 @@ export default function BrowserArticleAudioPlayer({ title, paragraphs, autoPrepa
     setVoicesReady(true);
     ensurePlayback(part)?.setPaused(false);
   }
+
+  useHandGestureTarget(30, true, (action) => {
+    if (action !== "pause" && action !== "resume") return undefined;
+    if (action === "pause") {
+      if (!paused && !completed) togglePlayback();
+      return "Article narration paused.";
+    }
+    if (paused || completed) togglePlayback();
+    return "Article narration resumed. Tap Play if your browser requires it.";
+  });
 
   function moveTo(part: number) {
     setError("");

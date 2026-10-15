@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useHandGestureTarget } from "./hand-gesture-actions";
 import type { FollowedArticle } from "./NewsDashboard";
 import ScreenOffAudioPlayer, { type ScreenOffAudioControls } from "./ScreenOffAudioPlayer";
 import BriefingMarketPrice from "./BriefingMarketPrice";
@@ -29,9 +30,10 @@ type HeadlinePlayerProps = {
   onOpenArticle: (article: FollowedArticle) => void;
   onListenArticle: (article: FollowedArticle) => void;
   onClose: () => void;
+  onHandBookmark?: (article: FollowedArticle) => Promise<string>;
 };
 
-export default function HeadlinePlayer({ articles, marketQuote, startWithScreenOffAudio = false, suspended = false, onArticleRead, onOpenArticle, onListenArticle, onClose }: HeadlinePlayerProps) {
+export default function HeadlinePlayer({ articles, marketQuote, startWithScreenOffAudio = false, suspended = false, onArticleRead, onOpenArticle, onListenArticle, onClose, onHandBookmark }: HeadlinePlayerProps) {
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const [seconds, setSeconds] = useState(6);
@@ -69,6 +71,18 @@ export default function HeadlinePlayer({ articles, marketQuote, startWithScreenO
     playback.current?.setPaused(true);
     setPaused(true);
   }
+
+  useHandGestureTarget(20, !suspended, (action) => {
+    if (action === "bookmark") return article && onHandBookmark ? onHandBookmark(article) : "No current headline to bookmark.";
+    if (screenOffAudio) return undefined;
+    if (action === "pause") { pausePlayback(); return "Headline playback paused."; }
+    if (action === "resume") { setPaused(false); return "Headline playback resumed. Tap Resume if your browser blocks audio."; }
+    if (action === "next" || action === "previous") {
+      setIndex((current) => Math.max(0, Math.min(articles.length, current + (action === "next" ? 1 : -1))));
+      return action === "next" ? "Next headline." : "Previous headline.";
+    }
+    return "Open the article to scroll its text.";
+  });
 
   useEffect(() => {
     mounted.current = true;

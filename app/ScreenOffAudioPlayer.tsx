@@ -1,6 +1,7 @@
 "use client";
 
 import { type ReactNode, type Ref, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { useHandGestureTarget } from "./hand-gesture-actions";
 import type { FollowedArticle } from "./NewsDashboard";
 import { audioHeadlineIndex, briefingNarrationTitles, preparedAudioCache, prepareHeadlineAudio, type PreparedHeadlineAudio, type ReadingVoicePreferences } from "./headline-audio";
 import ReadingVoiceSelector, { useReadingVoices } from "./ReadingVoiceSelector";
@@ -108,6 +109,17 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
     onIndexChange(next);
   }
   function move(direction: number) { navigate(index + direction); }
+  useHandGestureTarget(25, !suspended, async (action) => {
+    if (action === "bookmark") return undefined;
+    if (!track || !audio.current) return "Prepare the recording and tap Play first.";
+    if (action === "pause") { pause(); return "Audio briefing paused."; }
+    if (action === "resume") {
+      try { await audio.current.play(); return "Audio briefing resumed."; }
+      catch { return "Your browser requires a tap. Tap Play to resume the briefing."; }
+    }
+    if (action === "next" || action === "previous") { move(action === "next" ? 1 : -1); return action === "next" ? "Next headline." : "Previous headline."; }
+    return "Open the article to scroll its text.";
+  });
   useImperativeHandle(ref, () => ({ pause, toggle, move }));
   useEffect(() => { actions.current = { pause, toggle, move }; });
 

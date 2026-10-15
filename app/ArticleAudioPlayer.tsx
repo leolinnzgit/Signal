@@ -1,4 +1,5 @@
 "use client";
+import { useHandGestureTarget } from "./hand-gesture-actions";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { recordedArticleNarrationSections, audioHeadlineIndex, preparedAudioCache, prepareArticleAudio, type ArticleNarrationSection, type PreparedHeadlineAudio, type ReadingVoicePreferences } from "./headline-audio";
@@ -52,6 +53,14 @@ function RecordedArticleAudioPlayer({ title, source, paragraphs, autoPrepare = f
   const restorePosition = useRef(true);
   const recordingKey = useRef("");
   const restoredStreamPosition = useRef(false);
+
+  useHandGestureTarget(30, true, async (action) => {
+    if (action !== "pause" && action !== "resume") return undefined;
+    if (action === "pause") { resumePlayback.current = false; audio.current?.pause(); return "Article narration paused."; }
+    if (!url || !audio.current) return "Tap Read full news aloud to prepare audio first.";
+    try { await audio.current.play(); return "Article narration resumed."; }
+    catch { return "Your browser requires a tap. Tap Play to resume reading."; }
+  });
 
   useEffect(() => {
     if (!attempt || readingVoices.loading) return;

@@ -144,6 +144,29 @@ IIS for a persistent personal deployment.
   password reset, login lockout, rate-limited account endpoints, and optional
   Google account sign-in with password linking.
 
+## Hands-free hand gestures
+
+Open **Hand gestures** at the bottom right of the feed, headline player, or
+article reader. Tap **Start camera** and allow the front camera. The guide starts
+in **Practice only** mode: recognised gestures appear as status messages without
+changing the app. Turn practice off and close the guide when ready.
+
+Rest the phone on a stand in good light and show one whole hand to the camera.
+Swipe an open hand left/right for the next/previous headline or story, move it
+up/down to scroll, hold a palm still for about one second to pause, hold a fist
+briefly to resume, and hold a thumbs-up to save the current article. To select,
+point your index finger until the on-screen dot outlines a reading button or
+story, then pinch thumb and index finger together. Release or lower the hand
+briefly between commands. Existing bookmarks remain saved.
+
+Camera frames are processed locally by a worker using the bundled MediaPipe
+model and WASM files. Video is neither uploaded nor recorded. Camera use is
+optional, consumes extra battery, requires HTTPS (or localhost), and ends when
+Signal becomes hidden, is closed, or **Stop camera** is pressed. It never starts
+automatically. Audio may require an on-screen Play tap before gestures can resume
+it. Other pop-up windows suspend reading gestures. Lighting, hand visibility and
+browser performance affect recognition; the normal touch controls remain usable.
+
 ## Technology
 
 | Area | Implementation |
