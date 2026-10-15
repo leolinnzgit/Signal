@@ -149,3 +149,17 @@ test("ordinary blinks seen on slow frames are ignored", () => {
   detector.update(both, 1500);
   assert.deepEqual(frames(detector, open, 2000, 4000, 500), []);
 });
+
+test("asymmetric bilateral blinks and softer closures still confirm a long blink", () => {
+  const detector = ready();
+  frames(detector, { faceCount: 1, left: 0.42, right: 0.34 }, 700, 1100);
+  assert.deepEqual(frames(detector, open, 1200, 1400), ["toggle-playback"]);
+});
+
+test("an ordinary short blink does not disarm an immediately following deliberate blink", () => {
+  const detector = ready();
+  detector.update(both, 700);
+  assert.equal(detector.update(open, 800).state, "ready");
+  frames(detector, both, 900, 1300);
+  assert.deepEqual(frames(detector, open, 1400, 1600), ["toggle-playback"]);
+});

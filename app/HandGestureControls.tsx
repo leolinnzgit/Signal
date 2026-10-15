@@ -7,6 +7,8 @@ import { handGesturesBlocked, runHandGestureAction } from "./hand-gesture-action
 import { createEyeGestureDetector, EYE_TRACKING_LABELS, type EyeFrame, type EyeTracking } from "./eye-gestures";
 import "./hand-gestures.css";
 
+const MODE_STORAGE_KEY = "signal-gesture-mode";
+
 // Pinching is limited to reading/navigation controls. Account, sharing, delete,
 // and other unrelated actions are deliberately outside the hand pointer.
 const SELECTABLE = [
@@ -21,7 +23,10 @@ export default function HandGestureControls() {
   const [hostHeight, setHostHeight] = useState(0);
   const [guide, setGuide] = useState(false);
   const [practice, setPractice] = useState(false);
-  const [mode, setMode] = useState<"hands" | "eyes">("hands");
+  const [mode, setMode] = useState<"hands" | "eyes">(() => {
+    try { return localStorage.getItem(MODE_STORAGE_KEY) === "hands" ? "hands" : "eyes"; }
+    catch { return "eyes"; }
+  });
   const [eyeTracking, setEyeTracking] = useState<EyeTracking>("missing");
   const [eyeScores, setEyeScores] = useState<EyeFrame | null>(null);
   const [state, setState] = useState<"off" | "starting" | "on">("off");
@@ -39,6 +44,16 @@ export default function HandGestureControls() {
   const selected = useRef<{ element: HTMLElement; since: number } | null>(null);
   const busy = useRef(false);
   const eyeDetector = useRef(createEyeGestureDetector());
+
+  function saveMode(nextMode: "hands" | "eyes") {
+    setMode(nextMode);
+    try { localStorage.setItem(MODE_STORAGE_KEY, nextMode); } catch { /* Storage is optional. */ }
+  }
+
+  function changeMode(nextMode: "hands" | "eyes") {
+    saveMode(nextMode);
+    if (state !== "off") void start(nextMode, true);
+  }
 
   function clearSelection() {
     selected.current?.element.classList.remove("hand-gesture-highlight");
@@ -119,16 +134,19 @@ export default function HandGestureControls() {
     finally { busy.current = false; }
   }
 
-  async function start() {
-    if (state !== "off") return;
+  async function start(targetMode: "hands" | "eyes" = mode, restart = false) {
+    if (state !== "off" && !restart) return;
     if (!window.isSecureContext) { setStatus("Camera gestures need a secure HTTPS connection."); return; }
     if (!navigator.mediaDevices?.getUserMedia || !window.Worker || !window.createImageBitmap) {
       setStatus("Camera gestures are unavailable in this browser. Try an up-to-date Chrome or Samsung Internet."); return;
     }
+    saveMode(targetMode);
     const currentSession = ++session.current;
     const isCurrent = () => session.current === currentSession;
+    cleanup.current?.(); cleanup.current = null;
+    clearSelection(); setPointer(null); setPointing(false); setTracking("missing");
     eyeDetector.current.reset(); setEyeScores(null); setEyeTracking("missing");
-    setState("starting"); setStatus(`Allow the front camera to start ${mode === "eyes" ? "eye controls" : "hand gestures"}…`);
+    setState("starting"); setStatus(`Allow the front camera to start ${targetMode === "eyes" ? "eye controls" : "hand gestures"}…`);
     let stream: MediaStream | null = null;
     let worker: Worker | null = null;
     let timer = 0;
@@ -141,13 +159,13 @@ export default function HandGestureControls() {
     };
     cleanup.current = release;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 15, max: 20 } }, audio: false });
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 24, max: 30 } }, audio: false });
       if (!isCurrent()) { release(); return; }
       stream.getVideoTracks().forEach((track) => track.addEventListener("ended", () => { if (isCurrent()) stop("Camera disconnected. Start again to reconnect."); }));
       video = document.createElement("video"); video.muted = true; video.playsInline = true; video.srcObject = stream;
       await video.play();
       if (!isCurrent()) { release(); return; }
-      setStatus(`Loading private ${mode === "eyes" ? "eye" : "hand"} recognition…`);
+      setStatus(`Loading private ${targetMode === "eyes" ? "eye" : "hand"} recognition…`);
       worker = new Worker(new URL("./hand-gesture.worker.ts", import.meta.url));
       const detector = createHandGestureDetector();
       let lastVideoTime = -1;
@@ -156,7 +174,7 @@ export default function HandGestureControls() {
       cleanup.current = () => { window.clearTimeout(responseTimer); originalRelease(); };
       const capture = async () => {
         if (!isCurrent() || !video || !worker) return;
-        if (video.readyState < 2 || video.currentTime === lastVideoTime) { timer = window.setTimeout(capture, 80); return; }
+        if (video.readyState < 2 || video.currentTime === lastVideoTime) { timer = window.setTimeout(capture, 20); return; }
         lastVideoTime = video.currentTime;
         try {
           const context = preview.current?.getContext("2d");
@@ -171,16 +189,23 @@ export default function HandGestureControls() {
         if (!isCurrent()) return;
         window.clearTimeout(responseTimer);
         if (data.type === "ready") {
-          window.clearTimeout(startupTimer); setState("on"); setStatus(mode === "eyes" ? "Look at the camera with both eyes open until Eyes ready appears." : "Ready. Show one hand inside the camera preview."); void capture();
+          window.clearTimeout(startupTimer); setState("on"); setStatus(targetMode === "eyes" ? "Look at the camera with both eyes open until Eyes ready appears." : "Ready. Show one hand inside the camera preview."); void capture();
         } else if (data.type === "result") {
-          if (mode === "eyes") {
+          if (targetMode === "eyes") {
             const frame = data.eye ?? { faceCount: 0 };
             const result = eyeDetector.current.update(frame, Number.isFinite(data.timestamp) ? data.timestamp! : performance.now());
             setEyeTracking(result.state); setEyeScores(frame);
+            const context = preview.current?.getContext("2d");
+            if (context && preview.current && frame.points?.length) {
+              context.fillStyle = "#23db92";
+              for (const point of frame.points) {
+                context.beginPath(); context.arc(point.x * preview.current.width, point.y * preview.current.height, 2, 0, Math.PI * 2); context.fill();
+              }
+            }
             if (handGesturesBlocked()) eyeDetector.current.reset();
             else if (result.action) void perform(result.action);
-            // Face results are already slow on phones; sample again promptly.
-            timer = window.setTimeout(capture, 30);
+            // Sample again promptly so blinks and winks are captured across several frames.
+            timer = window.setTimeout(capture, 16);
             return;
           }
           const result = detector.update(data, Number.isFinite(data.timestamp) ? data.timestamp! : performance.now());
@@ -195,13 +220,13 @@ export default function HandGestureControls() {
           // A pinch uses the target held just before fingertips close together.
           if (result.action) void perform(result.action);
           updatePointer(result.pointer);
-          timer = window.setTimeout(capture, 80);
+          timer = window.setTimeout(capture, 40);
         } else if (data.type === "error") stop("Camera recognition could not load or run. Stop and try again in Chrome or Samsung Internet.");
       };
       worker.onerror = () => { if (isCurrent()) stop("Camera recognition is unavailable. Try restarting it or updating your browser."); };
       startupTimer = window.setTimeout(() => { if (isCurrent()) stop("Camera recognition took too long to load. Please try again."); }, 60000);
       const assetRoot = new URL("/hand-gestures/v1/", location.origin).href;
-      worker.postMessage({ type: "init", mode, wasmRoot: assetRoot, modelPath: `${assetRoot}${mode === "eyes" ? "face-landmarker.bin" : "gesture-recognizer.bin"}` });
+      worker.postMessage({ type: "init", mode: targetMode, wasmRoot: assetRoot, modelPath: `${assetRoot}${targetMode === "eyes" ? "face-landmarker.bin" : "gesture-recognizer.bin"}` });
     } catch (error) {
       release();
       if (!isCurrent()) return;
@@ -247,25 +272,24 @@ export default function HandGestureControls() {
     </>}
     {guide && <section id="hand-gesture-guide" className="hand-gesture-guide" aria-labelledby="hand-gesture-title">
       <h2 id="hand-gesture-title">Read hands-free</h2>
-      <label className="gesture-mode-choice">Control mode <select value={mode} disabled={state !== "off"} onChange={(event) => setMode(event.target.value as "hands" | "eyes")}><option value="hands">Hand gestures</option><option value="eyes">Eye winks &amp; long blink</option></select></label>
-      {state !== "off" && <p>Stop the camera to change control mode.</p>}
+      <label className="gesture-mode-choice">Control mode <select value={mode} onChange={(event) => changeMode(event.target.value as "hands" | "eyes")}><option value="eyes">Eye winks &amp; long blink</option><option value="hands">Hand gestures</option></select></label>
       {mode === "eyes" ? <>
-        <p>Rest your phone on a stand in good light. Face the front camera with your whole face in view. Keep both eyes naturally open until <strong>Eyes ready</strong> appears. The eye meters show how closed each eye looks to Signal.</p>
+        <p>Rest your phone on a stand in good light. Face the front camera with your whole face in view. Keep both eyes naturally open until <strong>Eyes ready</strong> appears. Green dots and the eye meters show how Signal sees your eyes.</p>
         <ol>
-          <li>Choose <strong>Practise gestures</strong> first to learn without changing Signal.</li>
-          <li>Hold a wink for about half a second, or close both eyes for about one second. Reopen both eyes and keep them open briefly to confirm the command.</li>
-          <li>Wait for <strong>Eyes ready</strong> before repeating. Turn off <strong>Practice only</strong> when ready to control Signal.</li>
+          <li>Tap <strong>Start eye controls</strong> and allow camera access. Wait for <strong>Eyes ready</strong> in the preview.</li>
+          <li>Close both eyes for about half a second to a second, or wink one eye briefly, then reopen both eyes to confirm the command.</li>
+          <li>To practise without changing Signal, choose <strong>Practise gestures</strong>.</li>
         </ol>
         <dl>
           <dt>Wink your right eye</dt><dd>Keep your left eye open. Hold briefly, then reopen both eyes for the next topic in the feed, or the next story / headline in the reader or player.</dd>
           <dt>Wink your left eye</dt><dd>Keep your right eye open. Hold briefly, then reopen both eyes for the previous topic, story or headline. Left and right mean your own eyes, as shown in the mirrored preview.</dd>
-          <dt>Long blink with both eyes</dt><dd>Close both eyes for about one second, then reopen. In the news feed this moves to the next topic. While narration or headline playback is open it pauses or resumes instead. Start audio using its on-screen Play button first. Your browser may require another Play tap to resume.</dd>
+          <dt>Long blink with both eyes</dt><dd>Close both eyes for about half a second to a second, then reopen. In the news feed this moves to the next topic. While narration or headline playback is open it pauses or resumes instead. Start audio using its on-screen Play button first. Your browser may require another Play tap to resume.</dd>
         </dl>
-        <p>Brief blinks are ignored. Closing your eyes for more than about 3 seconds cancels the command. Losing face tracking also cancels it. Signal adjusts to how open your eyes normally look while you face the camera. Glasses, reflections, lighting and slow camera processing can affect recognition; use the touch controls if needed.</p>
+        <p>Brief natural blinks are ignored. Closing your eyes for more than about 3 seconds cancels the command. Losing face tracking also cancels it. Signal adjusts to how open your eyes normally look while you face the camera. Glasses, reflections, lighting and slow camera processing can affect recognition; use the touch controls if needed.</p>
       </> : <>
       <p>Rest your phone on a stand. Face the front camera in good light and show one whole hand with fingers spread. Wait for <strong>Hand detected</strong> in the preview, then move your hand. Green dots show the hand Signal can see.</p>
       <ol>
-        <li>Tap <strong>Start gestures</strong> and allow camera access. This guide closes and gestures control Signal.</li>
+        <li>Tap <strong>Start hand gestures</strong> and allow camera access. This guide closes and gestures control Signal.</li>
         <li>In the news feed, swipe an open hand left for the next topic or right for the previous topic.</li>
         <li>To learn without changing anything, choose <strong>Practise gestures</strong>. Turn off <strong>Practice only</strong> and close this guide when ready.</li>
       </ol>
@@ -279,12 +303,13 @@ export default function HandGestureControls() {
       </dl>
       <p>Lower your hand briefly between commands. Point at a story’s title and pinch to open it. Other pop-up windows suspend reading gestures. Tap the floating hand button to reopen this guide or stop the camera.</p>
       </>}
-      <p>Only the selected control mode runs. Other pop-up windows suspend commands. Reopen this floating guide to practise or stop the camera.</p>
+      <p>Only the selected control mode runs. Other pop-up windows suspend commands. Reopen this floating guide to switch modes, practise or stop the camera.</p>
       <p>Video is processed on your device and is not recorded or uploaded. Camera use consumes extra battery. The camera stops when Signal is hidden or you tap Stop camera. It never starts automatically.</p>
       <div className="hand-gesture-guide-actions">
         {state === "off" && <>
-          <button type="button" onClick={() => { setPractice(false); setGuide(false); void start(); }}>Start gestures</button>
-          <button type="button" onClick={() => { setPractice(true); void start(); }}>Practise gestures</button>
+          <button type="button" onClick={() => { setPractice(false); setGuide(false); void start(mode); }}>{mode === "eyes" ? "Start eye controls" : "Start hand gestures"}</button>
+          <button type="button" onClick={() => { const other = mode === "eyes" ? "hands" : "eyes"; setPractice(false); setGuide(false); void start(other); }}>{mode === "eyes" ? "Start hand gestures" : "Start eye controls"}</button>
+          <button type="button" onClick={() => { setPractice(true); void start(mode); }}>Practise gestures</button>
         </>}
         {state === "on" && <button type="button" onClick={() => { setPractice(false); setGuide(false); }}>Use gestures now</button>}
         <button type="button" onClick={() => setGuide(false)}>Close guide</button>

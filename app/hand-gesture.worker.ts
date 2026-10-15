@@ -1,10 +1,13 @@
 import { FaceLandmarker, FilesetResolver, GestureRecognizer } from "@mediapipe/tasks-vision";
 
+const EYE_LANDMARKS = [33, 133, 159, 145, 263, 362, 386, 374];
 let recognizer: GestureRecognizer | null = null;
 let face: FaceLandmarker | null = null;
 self.onmessage = async ({ data }: MessageEvent) => {
   try {
     if (data.type === "init") {
+      recognizer = null;
+      face = null;
       const vision = await FilesetResolver.forVisionTasks(data.wasmRoot);
       if (data.mode === "eyes") face = await FaceLandmarker.createFromOptions(vision, {
         baseOptions: { modelAssetPath: data.modelPath, delegate: "CPU" },
@@ -23,10 +26,15 @@ self.onmessage = async ({ data }: MessageEvent) => {
         if (face) {
           const result = face.detectForVideo(bitmap, data.timestamp);
           const scores = result.faceBlendshapes[0]?.categories;
+          const landmarks = result.faceLandmarks[0];
+          const points = landmarks
+            ? EYE_LANDMARKS.map((index) => landmarks[index]).filter(Boolean).map(({ x, y }) => ({ x, y }))
+            : undefined;
           self.postMessage({ type: "result", timestamp: data.timestamp, eye: {
             faceCount: result.faceLandmarks.length,
             left: scores?.find((score) => score.categoryName === "eyeBlinkLeft")?.score,
             right: scores?.find((score) => score.categoryName === "eyeBlinkRight")?.score,
+            points,
           } });
         } else if (recognizer) {
           const result = recognizer.recognizeForVideo(bitmap, data.timestamp);

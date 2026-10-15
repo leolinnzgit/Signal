@@ -4,7 +4,7 @@ export type HandFrame = { landmarks: HandPoint[][]; gestures: { categoryName: st
 export type HandTracking = "missing" | "multiple" | "tracking";
 export const HAND_ACTION_LABELS: Record<HandAction, string> = {
   next: "Next topic / headline", previous: "Previous topic / headline", "scroll-up": "Scroll up", "scroll-down": "Scroll down",
-  pause: "Pause reading", resume: "Resume reading", "toggle-playback": "Pause / resume reading", bookmark: "Bookmark article", select: "Select highlighted control",
+  pause: "Pause reading", resume: "Resume reading", "toggle-playback": "Next topic / pause or resume reading", bookmark: "Bookmark article", select: "Select highlighted control",
 };
 
 export function handGestureTopic(topics: readonly string[], current: string, direction: 1 | -1): string | null {
