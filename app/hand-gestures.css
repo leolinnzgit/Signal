@@ -1,4 +1,5 @@
-.hand-gesture-dock { position: fixed; right: max(12px, env(safe-area-inset-right)); bottom: max(12px, env(safe-area-inset-bottom)); z-index: 240; width: min(360px, calc(100vw - 24px)); border: 1px solid var(--line, #b9b4a7); border-radius: 14px; background: var(--paper, #fffdf7); color: var(--ink, #25251f); box-shadow: 0 6px 30px #0003; padding: 10px; font: 13px/1.5 system-ui, sans-serif; }
+.hand-gesture-dock { --floating-navigation-inset: clamp(1rem, 3vw, 2rem); position: fixed; left: max(var(--floating-navigation-inset), env(safe-area-inset-left, 0px)); right: auto; bottom: max(var(--floating-navigation-inset), env(safe-area-inset-bottom, 0px)); z-index: 240; width: min(360px, calc(100vw - 24px)); border: 1px solid var(--line, #b9b4a7); border-radius: 14px; background: var(--paper, #fffdf7); color: var(--ink, #25251f); box-shadow: 0 6px 30px #0003; padding: 10px; font: 13px/1.5 system-ui, sans-serif; }
+.hand-gesture-dock.hand-gesture-side-right { left: auto; right: max(var(--floating-navigation-inset), env(safe-area-inset-right, 0px)); }
 .hand-gesture-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .hand-gesture-dock button { border: 1px solid currentColor; border-radius: 8px; padding: 6px 10px; font: inherit; color: inherit; background: transparent; cursor: pointer; min-height: 36px; }
 .hand-gesture-dock button:focus-visible { outline: 3px solid #087e8b; outline-offset: 2px; }
@@ -10,7 +11,7 @@
 .hand-gesture-live canvas { width: 96px; height: 72px; border-radius: 8px; background: #25251f; transform: scaleX(-1); }
 .hand-gesture-live label { display: flex; align-items: center; gap: 6px; }
 .hand-gesture-live p { flex-basis: 100%; font-size: 12px; }
-.hand-gesture-guide-open { width: min(480px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow-y: auto; overscroll-behavior: contain; }
+.hand-gesture-guide-open { bottom: max(12px, env(safe-area-inset-bottom, 0px)); width: min(480px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow-y: auto; overscroll-behavior: contain; }
 .hand-gesture-guide h2 { margin: 12px 0 6px; font-size: 20px; }
 .hand-gesture-guide ol { padding-left: 22px; list-style: decimal; }
 .hand-gesture-guide dt { font-weight: 700; margin-top: 12px; }
@@ -22,14 +23,16 @@
 [data-theme="dark"] .hand-gesture-dock { background: #242720; color: #f5f2e9; border-color: #74796c; }
 [data-theme="dark"] .hand-gesture-guide-actions { background: #242720; }
 .hand-gesture-dock:not(.hand-gesture-guide-open) { width: auto; padding: 0; border: 0; background: transparent; box-shadow: none; }
-.hand-gesture-dock .hand-gesture-launch { display: inline-flex; position: relative; align-items: center; justify-content: center; gap: 8px; width: 56px; height: 56px; padding: 0; border-radius: 50%; border: 1px solid var(--line); background: var(--content-background); color: var(--page-text); box-shadow: 0 4px 18px #0003; font-size: 24px; }
+.hand-gesture-dock .hand-gesture-launch { display: inline-flex; position: relative; align-items: center; justify-content: center; gap: 8px; width: 3rem; height: 3rem; padding: 0; border-radius: 50%; border: 1px solid var(--page-text, var(--line)); background: var(--page-background, var(--content-background)); color: var(--page-text); box-shadow: 0 0.75rem 2rem var(--shadow, #0003); font-size: 1.25rem; }
 .hand-gesture-button-label { display: none; }
 .hand-gesture-guide-open .hand-gesture-launch { width: auto; height: auto; min-height: 38px; padding: 6px 10px; border-radius: 8px; font-size: 16px; box-shadow: none; }
 .hand-gesture-guide-open .hand-gesture-button-label { display: inline; font-size: 13px; }
-.hand-gesture-camera-dot { position: absolute; top: 3px; right: 3px; width: 11px; height: 11px; background: #13a469; border: 2px solid var(--content-background); border-radius: 50%; }
-.hand-gesture-toast { position: absolute; bottom: calc(100% + 8px); right: 0; width: min(290px, calc(100vw - 32px)); padding: 10px 12px; background: var(--content-background); color: var(--page-text); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 4px 18px #0002; }
+.hand-gesture-camera-dot { position: absolute; top: 2px; right: 2px; width: 11px; height: 11px; background: #13a469; border: 2px solid var(--content-background); border-radius: 50%; }
+.hand-gesture-toast { position: absolute; bottom: calc(100% + 8px); left: 0; right: auto; width: min(290px, calc(100vw - 32px)); padding: 10px 12px; background: var(--content-background); color: var(--page-text); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 4px 18px #0002; }
+.hand-gesture-side-right .hand-gesture-toast { left: auto; right: 0; }
 .hand-gesture-guide-actions { flex-wrap: wrap; }
-.hand-gesture-monitor { position: absolute; bottom: calc(100% + 8px); right: 0; width: 160px; padding: 7px; border: 1px solid var(--line); border-radius: 12px; background: var(--content-background); color: var(--page-text); box-shadow: 0 4px 18px #0002; pointer-events: none; }
+.hand-gesture-monitor { position: absolute; bottom: calc(100% + 8px); left: 0; right: auto; width: 160px; padding: 7px; border: 1px solid var(--line); border-radius: 12px; background: var(--content-background); color: var(--page-text); box-shadow: 0 4px 18px #0002; pointer-events: none; }
+.hand-gesture-side-right .hand-gesture-monitor { left: auto; right: 0; }
 .hand-gesture-monitor canvas { display: block; width: 144px; height: 108px; transform: scaleX(-1); border-radius: 7px; background: #25251f; }
 .hand-gesture-monitor p { margin: 5px 0 0; font-size: 12px; font-weight: 600; }
 .hand-gesture-monitor small { font-size: 11px; color: var(--text-muted); }
@@ -37,8 +40,7 @@
 .hand-gesture-dock .hand-gesture-preview-toggle { pointer-events: auto; min-height: 24px; padding: 2px 7px; border-radius: 6px; font-size: 11px; line-height: 1.2; }
 .hand-gesture-dock .hand-is-tracked { color: #08794c; }
 [data-theme="dark"] .hand-gesture-dock .hand-is-tracked { color: #54dfa5; }
-.hand-gesture-toast.above-monitor { bottom: calc(100% + 96px); }
-.hand-gesture-dock:has(.hand-gesture-monitor.has-preview) .hand-gesture-toast.above-monitor { bottom: calc(100% + 205px); }
+.hand-gesture-toast.above-monitor { bottom: calc(100% + 205px); }
 .gesture-mode-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .gesture-mode-choice { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-weight: 700; }
 .gesture-mode-choice select { max-width: 100%; min-height: 40px; padding: 6px; font: inherit; background: var(--content-background); color: var(--page-text); border: 1px solid var(--line); border-radius: 6px; }
@@ -49,3 +51,7 @@
 .hand-gesture-monitor:has(.eye-gesture-scores) { width: 194px; }
 .hand-gesture-monitor:has(.eye-gesture-scores) canvas { width: 178px; height: 134px; }
 .hand-gesture-dock:has(.eye-gesture-scores) .hand-gesture-toast.above-monitor { bottom: calc(100% + 315px); }
+@media (max-width: 640px) {
+  .hand-gesture-dock { --floating-navigation-inset: 1rem; }
+  .hand-gesture-dock:not(.hand-gesture-guide-open) .hand-gesture-launch { width: 2.75rem; height: 2.75rem; }
+}

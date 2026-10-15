@@ -40,6 +40,8 @@ export default function HandGestureControls() {
     try { return localStorage.getItem(PREVIEW_STORAGE_KEY) !== "false"; }
     catch { return true; }
   });
+  const [floatingSide, setFloatingSide] = useState<"left" | "right">("left");
+  const [navOffset, setNavOffset] = useState(0);
   const preview = useRef<HTMLCanvasElement>(null);
   const session = useRef(0);
   const cleanup = useRef<(() => void) | null>(null);
@@ -81,12 +83,24 @@ export default function HandGestureControls() {
       const target = document.querySelector(".article-reader-backdrop") ?? player ?? document.querySelector(".signal-dashboard");
       setHost((current) => current === target ? current : target);
       setHostHeight(Math.min(innerHeight, target?.getBoundingClientRect().height ?? innerHeight));
+      const nav = document.querySelector<HTMLElement>(".floating-navigation");
+      let nextSide: "left" | "right" = "left";
+      if (nav) {
+        nextSide = nav.classList.contains("floating-navigation-right") ? "right" : "left";
+      } else {
+        try { nextSide = localStorage.getItem("signal-floating-navigation-side") === "right" ? "right" : "left"; }
+        catch { nextSide = "left"; }
+      }
+      setFloatingSide(nextSide);
+      const navRect = nav && target?.classList.contains("signal-dashboard") ? nav.getBoundingClientRect() : null;
+      setNavOffset(navRect && navRect.height > 0 ? Math.max(0, Math.round(innerHeight - navRect.top + 10)) : 0);
     };
     updateHost();
     const observer = new MutationObserver(updateHost);
-    observer.observe(document.body, { childList: true, subtree: true });
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
     document.addEventListener("fullscreenchange", updateHost);
     window.addEventListener("resize", updateHost);
+    window.addEventListener("scroll", updateHost, { passive: true });
     const hidden = () => { if (document.hidden) stop("Camera stopped while Signal was hidden. Start it again when ready."); };
     const leave = () => stop();
     document.addEventListener("visibilitychange", hidden);
@@ -95,6 +109,7 @@ export default function HandGestureControls() {
       session.current++; cleanup.current?.(); clearSelection(); observer.disconnect();
       document.removeEventListener("fullscreenchange", updateHost);
       window.removeEventListener("resize", updateHost);
+      window.removeEventListener("scroll", updateHost);
       document.removeEventListener("visibilitychange", hidden);
       window.removeEventListener("pagehide", leave);
     };
@@ -255,26 +270,31 @@ export default function HandGestureControls() {
     <label>Your left eye <meter min={0} max={1} value={eyeScores.left ?? 0} /> {Math.round((eyeScores.left ?? 0) * 100)}% closed</label>
     <label>Your right eye <meter min={0} max={1} value={eyeScores.right ?? 0} /> {Math.round((eyeScores.right ?? 0) * 100)}% closed</label>
   </div>;
-  return createPortal(<div className={`hand-gesture-dock${guide ? " hand-gesture-guide-open" : ""}`} style={guide ? { maxHeight: Math.max(160, hostHeight - 24) } : undefined} data-hand-gesture-ui>
+  const dockStyle = guide
+    ? { maxHeight: Math.max(160, hostHeight - 24) }
+    : navOffset > 0
+      ? { bottom: `${navOffset}px` }
+      : undefined;
+  return createPortal(<div className={`hand-gesture-dock hand-gesture-side-${floatingSide}${guide ? " hand-gesture-guide-open" : ""}`} style={dockStyle} data-hand-gesture-ui>
     <div className="hand-gesture-bar">
       <button type="button" className={`hand-gesture-launch${state !== "off" ? " camera-active" : ""}`} onClick={() => setGuide((value) => !value)} aria-label="Hand and eye gesture guide" title={`Hand and eye gesture guide${state !== "off" ? ` · camera ${state === "starting" ? "starting" : "on"}${practice ? " · practice only" : ""}` : ""}`} aria-expanded={guide} aria-controls="hand-gesture-guide"><span aria-hidden="true">{mode === "eyes" ? "👁" : "✋"}</span><span className="hand-gesture-button-label">Hand &amp; eye controls</span>{state !== "off" && <span className="hand-gesture-camera-dot" aria-hidden="true" />}</button>
       {guide && state !== "off" && <span className="hand-camera-indicator">Camera {state === "starting" ? "starting" : "on"}</span>}
       {guide && state !== "off" && <button type="button" onClick={() => stop()}>Stop camera</button>}
     </div>
-    {!guide && state === "on" && <div className={`hand-gesture-monitor${showPreview ? " has-preview" : ""}`}>
-      {showPreview && <canvas ref={preview} width={160} height={120} aria-label="Live mirrored camera tracking preview" />}
+    {!guide && state === "on" && showPreview && <div className="hand-gesture-monitor has-preview">
+      <canvas ref={preview} width={160} height={120} aria-label="Live mirrored camera tracking preview" />
       <p className={isTracked ? "hand-is-tracked" : ""} role="status">{trackingText}</p>
-      {showPreview && eyeFeedback}
+      {eyeFeedback}
       <div className="hand-gesture-monitor-footer">
         <small>{practice ? "Practice only" : "Controls active"}</small>
-        <button type="button" className="hand-gesture-preview-toggle" onClick={() => updatePreview(!showPreview)}>{showPreview ? "Hide preview" : "Show preview"}</button>
+        <button type="button" className="hand-gesture-preview-toggle" onClick={() => updatePreview(false)}>Hide preview</button>
       </div>
     </div>}
-    {!guide && toast && <p className={`hand-gesture-toast${state === "on" ? " above-monitor" : ""}`} role="status">{practice ? "Practice only · " : ""}{status}</p>}
+    {!guide && toast && <p className={`hand-gesture-toast${state === "on" && showPreview ? " above-monitor" : ""}`} role="status">{practice ? "Practice only · " : ""}{status}</p>}
     {guide && <>
       <p className="hand-gesture-status" role="status">{status}</p>
-      {state === "on" && <div className="hand-gesture-live">
-        {showPreview && <canvas ref={preview} width={160} height={120} aria-label="Mirrored front camera preview" />}
+      {state === "on" && showPreview && <div className="hand-gesture-live">
+        <canvas ref={preview} width={160} height={120} aria-label="Mirrored front camera preview" />
         <p className={isTracked ? "hand-is-tracked" : ""} role="status">{trackingText}</p>
         {eyeFeedback}
         <label><input type="checkbox" checked={practice} onChange={(event) => { setPractice(event.target.checked); clearSelection(); }} /> Practice only</label>
@@ -286,7 +306,10 @@ export default function HandGestureControls() {
       <h2 id="hand-gesture-title">Read hands-free</h2>
       <div className="gesture-mode-row">
         <label className="gesture-mode-choice">Control mode <select value={mode} onChange={(event) => changeMode(event.target.value as "hands" | "eyes")}><option value="eyes">Eye winks, blink &amp; head turns</option><option value="hands">Hand gestures</option></select></label>
-        {state === "off" && <label className="gesture-preview-choice"><input type="checkbox" checked={showPreview} onChange={(event) => updatePreview(event.target.checked)} /> Show camera preview</label>}
+        {(state === "off" || !showPreview) && <>
+          {state === "on" && <label className="gesture-preview-choice"><input type="checkbox" checked={practice} onChange={(event) => { setPractice(event.target.checked); clearSelection(); }} /> Practice only</label>}
+          <label className="gesture-preview-choice"><input type="checkbox" checked={showPreview} onChange={(event) => updatePreview(event.target.checked)} /> Show camera preview</label>
+        </>}
       </div>
       {mode === "eyes" ? <>
         <p>Rest your phone on a stand in good light. Face the front camera with your whole face in view. Keep both eyes naturally open until <strong>Eyes ready</strong> appears. Green dots and the eye meters show how Signal sees your eyes and nose.</p>
