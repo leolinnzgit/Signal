@@ -155,6 +155,8 @@ while the camera is on; tap it to reopen the guide or stop the camera.
 The small live preview shows **Hand detected**, **No hand in view**, or
 **Show just one hand**, with green dots over tracked hand landmarks. The preview
 can be hidden in the guide. **Use gestures now** leaves practice and closes the guide.
+Opening the guide does not suspend gestures. Only the explicit **Practice only**
+option prevents recognised gestures from changing Signal.
 
 Rest the phone on a stand in good light and show one whole hand to the camera.
 In the news feed, swipe an open hand left/right for the next/previous followed

@@ -30,8 +30,8 @@ export default function HandGestureControls() {
   const preview = useRef<HTMLCanvasElement>(null);
   const session = useRef(0);
   const cleanup = useRef<(() => void) | null>(null);
-  const live = useRef({ practice, guide });
-  live.current = { practice, guide };
+  const live = useRef({ practice });
+  live.current = { practice };
   const selected = useRef<{ element: HTMLElement; since: number } | null>(null);
   const busy = useRef(false);
 
@@ -80,7 +80,7 @@ export default function HandGestureControls() {
   }, [status, guide, state]);
 
   function updatePointer(point: HandPoint | undefined) {
-    if (!point || live.current.practice || live.current.guide) { clearSelection(); setPointer(null); setPointing(false); return; }
+    if (!point || live.current.practice) { clearSelection(); setPointer(null); setPointing(false); return; }
     const x = Math.max(10, Math.min(innerWidth - 10, point.x * innerWidth));
     const y = Math.max(10, Math.min(innerHeight - 10, point.y * innerHeight));
     setPointer({ x, y });
@@ -98,7 +98,7 @@ export default function HandGestureControls() {
   async function perform(action: HandAction) {
     if (busy.current) return;
     const label = HAND_ACTION_LABELS[action];
-    if (live.current.practice || live.current.guide) { setStatus(`Practice: ${label}. No action taken.`); return; }
+    if (live.current.practice) { setStatus(`Practice: ${label}. No action taken.`); return; }
     if (handGesturesBlocked()) { setStatus("Close the pop-up window before using reading gestures."); return; }
     if (action === "select") {
       const target = selected.current;
@@ -218,7 +218,7 @@ export default function HandGestureControls() {
         <p className={tracking === "tracking" ? "hand-is-tracked" : ""} role="status">{trackingText}</p>
         <label><input type="checkbox" checked={practice} onChange={(event) => { setPractice(event.target.checked); clearSelection(); }} /> Practice only</label>
         <label><input type="checkbox" checked={showPreview} onChange={(event) => setShowPreview(event.target.checked)} /> Show tracking preview while using gestures</label>
-        {guide && <p>Close this guide to control Signal. While this guide is open, gestures only practise.</p>}
+        <p>{practice ? "Practice only: gestures are recognised without changing Signal." : "Controls active: gestures work while this guide is open."}</p>
       </div>}
     </>}
     {guide && <section id="hand-gesture-guide" className="hand-gesture-guide" aria-labelledby="hand-gesture-title">
