@@ -172,6 +172,12 @@ public sealed class ArticleReaderService(
                 continue;
             }
             var extracted = ExtractArticle(html, currentUri);
+            if (!extracted.Available && extracted.Reason == InsufficientTextReason
+                && StuffArticleApiUri(currentUri) is { } stuffApiUri)
+            {
+                var stuffArticle = await ReadStuffArticleAsync(currentUri, stuffApiUri, cancellationToken);
+                if (stuffArticle is not null) return stuffArticle;
+            }
             if (!extracted.Available && extracted.Reason == InsufficientTextReason && pageRenderer is not null)
             {
                 var rendered = await pageRenderer.RenderAsync(currentUri, html, cancellationToken);
@@ -182,6 +188,73 @@ public sealed class ArticleReaderService(
         }
 
         return Unavailable("The publisher did not make this article available to Signal Reader.");
+    }
+
+    internal static Uri? StuffArticleApiUri(Uri articleUri)
+    {
+        if (articleUri.Scheme != Uri.UriSchemeHttps
+            || (!articleUri.IsDefaultPort && articleUri.Port != 443)
+            || !string.IsNullOrEmpty(articleUri.UserInfo)
+            || !(articleUri.Host.Equals("www.stuff.co.nz", StringComparison.OrdinalIgnoreCase)
+                || articleUri.Host.Equals("stuff.co.nz", StringComparison.OrdinalIgnoreCase)))
+            return null;
+
+        var segments = articleUri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length == 0 || segments[0] is "api" or "rss" or "assets" or "media") return null;
+        var ids = segments.Where(segment => segment.Length is >= 6 and <= 12
+            && segment.All(character => character is >= '0' and <= '9')).ToArray();
+        return ids.Length == 1
+            ? new Uri($"https://www.stuff.co.nz/api/v1.0/stuff/story/{ids[0]}")
+            : null;
+    }
+
+    private async Task<ArticleReaderResult?> ReadStuffArticleAsync(
+        Uri articleUri, Uri apiUri, CancellationToken cancellationToken)
+    {
+        try
+        {
+            // This is the public response used by Stuff's article page. It is only
+            // used for explicitly open stories after the page itself has no text.
+            apiUri = await ValidatePublicArticleUriAsync(apiUri.AbsoluteUri, cancellationToken);
+            using var request = new HttpRequestMessage(HttpMethod.Get, apiUri);
+            request.Headers.Accept.ParseAdd("application/json");
+            using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            if (!response.IsSuccessStatusCode
+                || !(response.Content.Headers.ContentType?.MediaType?.Contains("json", StringComparison.OrdinalIgnoreCase) ?? false))
+                return null;
+            using var document = JsonDocument.Parse(await ReadLimitedHtmlAsync(response.Content, cancellationToken));
+            var story = document.RootElement;
+            if (story.ValueKind != JsonValueKind.Object
+                || !story.TryGetProperty("id", out var id)
+                || !string.Equals(id.ToString(), apiUri.Segments[^1], StringComparison.Ordinal)
+                || !JsonString(story, "type").Equals("ARTICLE", StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            var access = JsonString(story, "contentAccess");
+            if (access.Length == 0) return null;
+            if (!access.Equals("open", StringComparison.OrdinalIgnoreCase))
+                return Unavailable("This story appears to require a subscription or publisher login.");
+            if (!story.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Object
+                || !content.TryGetProperty("contentBody", out var body) || body.ValueKind != JsonValueKind.Object)
+                return null;
+
+            var metadata = JsonSerializer.Serialize(new Dictionary<string, object?>
+            {
+                ["@type"] = "NewsArticle",
+                ["articleBody"] = JsonString(body, "body"),
+                ["author"] = story.TryGetProperty("author", out var author) ? author.Clone() : null,
+                ["publisher"] = new { name = FirstNonEmpty(JsonString(story, "mainPublicationName"), "Stuff") },
+                ["datePublished"] = JsonString(story, "publishedDate"),
+            });
+            var extracted = ExtractArticle($"<script type='application/ld+json'>{metadata}</script>", articleUri);
+            return extracted.Available ? extracted : null;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or InvalidOperationException
+            || exception is OperationCanceledException && !cancellationToken.IsCancellationRequested)
+        {
+            logger.LogDebug(exception, "Could not read Stuff's public article response for {ArticleUrl}.", articleUri);
+            return null;
+        }
     }
 
     private async Task<Uri?> ResolveGoogleNewsAsync(Uri uri, string html, CancellationToken token)

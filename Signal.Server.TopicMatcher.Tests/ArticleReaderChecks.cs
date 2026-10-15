@@ -66,6 +66,7 @@ internal static class ArticleReaderChecks
             }
             catch (ArgumentException) { }
         }
+        await StuffArticleChecks.RunAsync();
         await RunGoogleNewsAsync();
         Console.WriteLine("Article reader passed metadata, DOM parsing, paywall, browser fallback, cache and URL checks.");
     }
