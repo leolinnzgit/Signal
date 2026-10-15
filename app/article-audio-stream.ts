@@ -5,9 +5,9 @@ type Stream = { url: string; statusUrl: string; status?: ArticleAudioStreamStatu
 const readyStreams = new Map<string, Stream>();
 
 export async function openArticleAudioStream(parts: string[], language: string, voices: ReadingVoicePreferences, signal: AbortSignal,
-  onStatus: (status: ArticleAudioStreamStatus) => void, fetcher: typeof fetch = fetch) {
+  onStatus: (status: ArticleAudioStreamStatus) => void, fetcher: typeof fetch = fetch, seconds = 3) {
   signal.throwIfAborted();
-  const key = JSON.stringify([parts, language, normalizeReadingVoices(voices)]);
+  const key = JSON.stringify([parts, language, normalizeReadingVoices(voices), seconds]);
   let stream = readyStreams.get(key);
   const readStatus = async (candidate: Stream) => {
     const response = await fetcher(candidate.statusUrl, { credentials: "same-origin", cache: "no-store", signal });
@@ -33,7 +33,7 @@ export async function openArticleAudioStream(parts: string[], language: string, 
     const response = await fetcher("/api/article-audio-stream", {
       method: "POST", credentials: "same-origin", cache: "no-store", signal,
       headers: { "Content-Type": "application/json", "X-XSRF-TOKEN": token },
-      body: JSON.stringify({ titles: parts, seconds: 3, language, voices: normalizeReadingVoices(voices) }),
+      body: JSON.stringify({ titles: parts, seconds, language, voices: normalizeReadingVoices(voices) }),
     });
     const data = await response.json().catch(() => null) as Stream & { error?: string } | null;
     if (!response.ok) throw new Error(data?.error || "Streaming audio is unavailable. Try again or prepare a recording.");

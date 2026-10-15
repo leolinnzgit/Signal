@@ -26,13 +26,19 @@ internal sealed class AzureSpeechSynthesizer(IOptions<AzureSpeechOptions> option
         config.SetSpeechSynthesisOutputFormat(SpeechSynthesisOutputFormat.Audio16Khz32KBitRateMonoMp3);
         using var synth = new SpeechSynthesizer(config, null);
         using var abort = CancellationTokenSource.CreateLinkedTokenSource(token);
-        var chunks = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(64) { SingleReader = true, FullMode = BoundedChannelFullMode.Wait });
+        // Azure can deliver many tiny MP3 fragments in a burst. Limit queued
+        // bytes rather than fragment count so normal browser backpressure does
+        // not cancel synthesis after only a few kilobytes of audio.
+        var chunks = Channel.CreateUnbounded<byte[]>(new UnboundedChannelOptions { SingleReader = true });
+        long queuedBytes = 0;
         synth.BookmarkReached += (_, args) => bookmark(args.Text, args.AudioOffset);
         synth.Synthesizing += (_, args) =>
         {
             var bytes = args.Result.AudioData;
-            if (bytes.Length > 0 && !chunks.Writer.TryWrite(bytes))
+            if (bytes.Length == 0) return;
+            if (Interlocked.Add(ref queuedBytes, bytes.Length) > 2 * 1024 * 1024 || !chunks.Writer.TryWrite(bytes))
             {
+                Interlocked.Add(ref queuedBytes, -bytes.Length);
                 chunks.Writer.TryComplete(new HeadlineAudioUnavailableException("stream", "The audio connection is too slow. Try again or prepare a recording."));
                 abort.Cancel();
             }
@@ -52,7 +58,11 @@ internal sealed class AzureSpeechSynthesizer(IOptions<AzureSpeechOptions> option
         var producing = ProduceAsync();
         try
         {
-            await foreach (var chunk in chunks.Reader.ReadAllAsync(token)) await write(chunk, token);
+            await foreach (var chunk in chunks.Reader.ReadAllAsync(token))
+            {
+                Interlocked.Add(ref queuedBytes, -chunk.Length);
+                await write(chunk, token);
+            }
             await producing;
             return duration;
         }

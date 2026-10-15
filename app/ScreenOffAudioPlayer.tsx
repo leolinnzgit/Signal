@@ -7,6 +7,7 @@ import { audioHeadlineIndex, briefingNarrationTitles, preparedAudioCache, prepar
 import ReadingVoiceSelector, { useReadingVoices } from "./ReadingVoiceSelector";
 import BriefingMarketPrice from "./BriefingMarketPrice";
 import type { MarketQuote } from "./market-quote";
+import { openArticleAudioStream } from "./article-audio-stream";
 
 export type ScreenOffAudioControls = { pause: () => void; toggle: () => void; move: (direction: number) => void };
 type Props = {
@@ -29,7 +30,11 @@ type Props = {
 };
 
 export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenControl, articles, marketQuote, initialIndex, suspended = false, seconds, rate, onRateChange, onArticleRead, onIndexChange, onOpenArticle, onListenArticle, onClose, onExit }: Props) {
-  const [track, setTrack] = useState<{ url: string; starts: number[] } | null>(null);
+  const [track, setTrack] = useState<{ url: string; streaming: boolean } | null>(null);
+  const [starts, setStarts] = useState<number[]>([]);
+  const [streamComplete, setStreamComplete] = useState(false);
+  const [useStream, setUseStream] = useState(true);
+  const [, setBufferVersion] = useState(0);
   const [error, setError] = useState("");
   const [paused, setPaused] = useState(true);
   const [preparedCount, setPreparedCount] = useState(0);
@@ -42,6 +47,7 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
   const resumeAfterReader = useRef(false);
   const restorePosition = useRef(true);
   const recordingKey = useRef("");
+  const positionRestored = useRef(false);
   const actions = useRef<ScreenOffAudioControls | null>(null);
   const completed = index >= articles.length;
   const article = articles[index];
@@ -57,15 +63,42 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
     const ready = preparedAudioCache.get(titles, seconds, navigator.language, readingVoices.preferences);
     setError("");
     setTrack(null);
+    setStarts([]);
+    setStreamComplete(false);
+    setPaused(true);
+    positionRestored.current = false;
     setPreparedCount(0);
     const useRecording = (prepared: PreparedHeadlineAudio) => {
         if (abort.signal.aborted) return;
         resumeTime.current = restorePosition.current ? preparedAudioCache.position(recordingKey.current) ?? null : null;
         restorePosition.current = true;
         url = URL.createObjectURL(prepared.blob);
-        setTrack({ url, starts: prepared.starts });
+        setStarts(prepared.starts);
+        setTrack({ url, streaming: false });
     };
     if (ready) useRecording(ready);
+    else if (useStream && readingVoices.streaming && titles.length <= 200 && titles.join("").length <= 40_000) {
+      // A single native media request keeps streaming with the screen locked.
+      // Polling only supplies display timing; it never drives audio playback.
+      recordingKey.current += ":stream";
+      resumeTime.current = restorePosition.current ? preparedAudioCache.position(recordingKey.current) ?? null : null;
+      restorePosition.current = true;
+      void openArticleAudioStream(titles, navigator.language, readingVoices.preferences, abort.signal, (status) => {
+        if (abort.signal.aborted) return;
+        setStarts(status.starts);
+        setPreparedCount(Math.min(status.starts.length, articles.length));
+        setStreamComplete(status.complete);
+        if (status.error) {
+          audio.current?.pause();
+          setError(status.error);
+          setPaused(true);
+        }
+      }, undefined, seconds).then((streamUrl) => {
+        if (!abort.signal.aborted) setTrack({ url: streamUrl, streaming: true });
+      }).catch((reason: unknown) => {
+        if (!abort.signal.aborted) setError(reason instanceof Error ? reason.message : "The audio stream could not be opened.");
+      });
+    }
     else void prepareHeadlineAudio(titles, seconds, navigator.language, abort.signal, undefined,
       (prepared) => { if (!abort.signal.aborted) setPreparedCount(Math.min(prepared, articles.length)); }, 15_000, readingVoices.preferences)
       .then(useRecording)
@@ -73,7 +106,7 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
         if (!abort.signal.aborted) setError(reason instanceof Error ? reason.message : "Audio could not be prepared.");
       });
     return () => { abort.abort(); if (url) URL.revokeObjectURL(url); };
-  }, [articles, seconds, preparationAttempt, readingVoices.loading, readingVoices.preferences.en, readingVoices.preferences.zh]);
+  }, [articles, seconds, preparationAttempt, readingVoices.loading, readingVoices.preferences.en, readingVoices.preferences.zh, readingVoices.streaming, useStream]);
 
   function selectVoice(language: keyof ReadingVoicePreferences, id: string) {
     if (readingVoices.preferences[language] === id) return;
@@ -90,8 +123,34 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
   useEffect(() => {
     const element = audio.current;
     const key = recordingKey.current;
-    return () => { if (element) preparedAudioCache.savePosition(key, element.ended ? 0 : element.currentTime); element?.pause(); };
+    return () => {
+      if (!element) return;
+      preparedAudioCache.savePosition(key, element.ended ? 0 : element.currentTime);
+      element.pause();
+      element.removeAttribute("src");
+      element.load();
+    };
   }, [track]);
+
+  function canSeek(time: number) {
+    const element = audio.current;
+    if (!element || !Number.isFinite(time)) return false;
+    if (!track?.streaming) return Number.isFinite(element.duration) && time <= element.duration;
+    for (let range = 0; range < element.buffered.length; range++) {
+      if (time >= element.buffered.start(range) && time <= element.buffered.end(range)) return true;
+    }
+    return false;
+  }
+
+  function restorePlaybackPosition() {
+    if (positionRestored.current || !audio.current) return;
+    const position = resumeTime.current ?? (initialPosition.current === 0 ? 0 : starts[initialPosition.current]);
+    if (position === undefined || !canSeek(position)) return;
+    positionRestored.current = true;
+    audio.current.currentTime = position;
+  }
+  function updateBuffer() { restorePlaybackPosition(); setBufferVersion((version) => version + 1); }
+  useEffect(restorePlaybackPosition, [starts, streamComplete]);
 
   function pause() { audio.current?.pause(); setPaused(true); }
   function toggle() {
@@ -103,8 +162,10 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
   function navigate(nextIndex: number) {
     if (!track || !audio.current) return;
     const next = Math.max(0, Math.min(articles.length - 1, nextIndex));
+    if (!canSeek(starts[next])) return;
     lastIndex.current = next;
-    audio.current.currentTime = track.starts[next];
+    positionRestored.current = true;
+    audio.current.currentTime = starts[next];
     setIndex(next);
     onIndexChange(next);
   }
@@ -125,8 +186,9 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
 
   function syncPosition(seeking = false) {
     if (!track || !audio.current) return;
+    if (!positionRestored.current || !starts.length) return;
     preparedAudioCache.savePosition(recordingKey.current, audio.current.ended ? 0 : audio.current.currentTime);
-    const next = audioHeadlineIndex(track.starts, audio.current.currentTime);
+    const next = audioHeadlineIndex(starts, audio.current.currentTime);
     const first = seeking || next < lastIndex.current ? next : lastIndex.current;
     // Metadata loading, restoring a position, and seeking while paused also
     // update the playhead. Only listening should consume unread stories.
@@ -152,7 +214,7 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
       ["stop", () => actions.current?.pause()],
       ["nexttrack", () => actions.current?.move(1)],
       ["previoustrack", () => actions.current?.move(-1)],
-      ["seekto", (details) => { if (audio.current && Number.isFinite(details.seekTime)) audio.current.currentTime = Math.max(0, Math.min(audio.current.duration, details.seekTime!)); }],
+      ["seekto", (details) => { if (audio.current && Number.isFinite(details.seekTime) && canSeek(details.seekTime!)) audio.current.currentTime = Math.max(0, details.seekTime!); }],
     ];
     for (const [action, handler] of handlers) {
       try { session.setActionHandler(action, handler); } catch { /* Some browsers support only play and pause. */ }
@@ -203,8 +265,8 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
       {!track ? <div className="article-reader-state" role="status">
         {!error && <span className="article-reader-loader" aria-hidden="true" />}
         <strong>{error ? "Audio unavailable" : "Loading your audio briefing"}</strong>
-        {!error && <p>{preparedCount} of {articles.length} headlines ready</p>}
-        <p>{error || "Loading saved audio and preparing any new headlines. Keep Signal open until it is ready, then tap Play and turn off the screen."}</p>
+        {!error && !useStream && <p>{preparedCount} of {articles.length} headlines ready</p>}
+        <p>{error || (useStream && readingVoices.streaming ? "Opening your audio stream. Tap Play to listen while the remaining headlines are generated." : "Loading saved audio and preparing any new headlines. Keep Signal open until it is ready, then tap Play and turn off the screen.")}</p>
         {error && <button type="button" onClick={() => setPreparationAttempt((attempt) => attempt + 1)}>Try again</button>}
       </div> : completed ? <div className="headline-player-complete"><h2>All caught up.</h2><p>You’ve reached the end of this audio briefing.</p></div> : <div className="headline-player-story">
         {article.imageUrl && (
@@ -224,21 +286,28 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
     <div className="screen-off-audio-controls">
       <ReadingVoiceSelector {...readingVoices} selectVoice={selectVoice} active playbackActive={!paused} onPreviewStart={pause} />
       {track && <>
-        <p>Tap Play, then turn off the screen. Your phone’s media controls can pause or resume the briefing.</p>
+        <p>{track.streaming && !streamComplete ? "Tap Play to start listening while the rest of the briefing is generated. You can turn off the screen." : "Tap Play, then turn off the screen. Your phone’s media controls can pause or resume the briefing."}</p>
         <audio ref={audio} src={track.url} controls preload="auto" aria-label="Screen-off audio briefing"
-          onLoadedMetadata={() => { if (audio.current) audio.current.currentTime = Math.min(resumeTime.current ?? track.starts[initialPosition.current] ?? 0, audio.current.duration); }}
+          onLoadedMetadata={updateBuffer} onCanPlay={updateBuffer} onProgress={updateBuffer}
           onPlay={() => { setPaused(false); setError(""); syncPosition(); }} onPause={() => setPaused(true)}
           onTimeUpdate={() => syncPosition()} onSeeking={() => syncPosition(true)}
           onEnded={() => { syncPosition(); setIndex(articles.length); onIndexChange(articles.length); setPaused(true); }}
-          onError={() => { setError("The audio could not be played. Try preparing it again."); setPaused(true); }} />
-        {error && <p role="alert">{error}</p>}
+          onError={() => { setError("The audio could not be played. Try again or prepare a recording instead."); setPaused(true); }} />
+        {track.streaming && !streamComplete && !error && <p role="status">Streaming audio · {preparedCount} of {articles.length} headlines generated. Skip controls become available as audio arrives.</p>}
+        {error && <><p role="alert">{error}</p><button type="button" onClick={() => setPreparationAttempt((attempt) => attempt + 1)}>Try again</button></>}
         <div className="headline-player-transport">
-          <button type="button" disabled={index === 0} onClick={() => move(-1)} aria-label="Previous headline">&#8592;</button>
+          <button type="button" disabled={index === 0 || !canSeek(starts[index - 1])} onClick={() => move(-1)} aria-label="Previous headline">&#8592;</button>
           <button type="button" className="headline-player-toggle" onClick={toggle} aria-label={paused ? "Play audio briefing" : "Pause audio briefing"}>{paused ? "Play" : "Pause"}</button>
-          <button type="button" disabled={index >= articles.length - 1} onClick={() => move(1)} aria-label="Next headline">&#8594;</button>
+          <button type="button" disabled={index >= articles.length - 1 || !canSeek(starts[index + 1])} onClick={() => move(1)} aria-label="Next headline">&#8594;</button>
           <label>Speaking speed <select value={rate} onChange={(event) => onRateChange(Number(event.target.value))}>{Array.from(new Set([0.8, 0.95, 1, 1.1, 1.2, rate])).sort().map((value) => <option key={value} value={value}>{value}×</option>)}</select></label>
         </div>
       </>}
+      {readingVoices.streaming && <button type="button" onClick={() => {
+        pause();
+        initialPosition.current = Math.min(index, articles.length - 1);
+        restorePosition.current = false;
+        setUseStream((current) => !current);
+      }}>{useStream ? "Prepare recording instead" : "Stream audio instead"}</button>}
       {/Android/i.test(navigator.userAgent) && <details className="screen-off-audio-help">
         <summary>Audio stops after pressing Home?</summary>
         <p>On Samsung phones, check Settings → Battery → Background usage limits. Remove Signal from Sleeping apps or Deep sleeping apps, and add it to Never sleeping apps. If Signal isn’t listed, check the browser you used to install it.</p>

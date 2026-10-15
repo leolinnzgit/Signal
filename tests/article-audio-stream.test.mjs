@@ -58,6 +58,17 @@ test("cancelling streaming clears status work and rejects requests before sendin
   assert.equal(h.requests.length, before);
 });
 
+test("briefing streams send the selected headline interval and keep replay caches separate", async () => {
+  const h = harness((path) => path === "/api/auth/csrf" ? reply({ token: "csrf" })
+    : path === "/api/article-audio-stream" ? reply({ url, statusUrl: `${url}/status`, status: { starts: [0], complete: true, duration: 16, error: null } })
+    : reply({ starts: [0], complete: true, duration: 16, error: null }));
+  const signal = new AbortController().signal;
+  await h.open(["Briefing headline"], "en", {}, signal, () => {}, h.fetch, 15);
+  assert.equal(JSON.parse(h.requests[1].options.body).seconds, 15);
+  await h.open(["Briefing headline"], "en", {}, signal, () => {}, h.fetch, 3);
+  assert.equal(h.requests.filter((request) => request.options.method === "POST").length, 2);
+});
+
 test("streaming rejects foreign playback URLs and stops on server synthesis errors", async () => {
   const invalid = harness((path) => path === "/api/auth/csrf" ? reply({ token: "csrf" }) : reply({ url: "https://foreign.example/audio", statusUrl: "https://foreign.example/status" }));
   await assert.rejects(invalid.open(["Invalid"], "en", {}, new AbortController().signal, () => {}, invalid.fetch), /could not be opened/);

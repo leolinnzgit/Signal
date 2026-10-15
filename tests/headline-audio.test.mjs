@@ -74,7 +74,7 @@ test("browser briefings narrate completion with saved preferences and stop on cl
 
 // Replay the rendered player's media events without a browser or speech server.
 // Effects that fetch recordings are replaced with an already prepared track.
-async function recordedPlayerHarness({ lifecycle = false, announcement = false } = {}) {
+async function recordedPlayerHarness({ lifecycle = false, announcement = false, streaming = false } = {}) {
   const playerSource = await readFile(new URL("../app/ScreenOffAudioPlayer.tsx", import.meta.url), "utf8");
   const playerCode = ts.transpileModule(playerSource, { compilerOptions: {
     module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX,
@@ -91,23 +91,30 @@ async function recordedPlayerHarness({ lifecycle = false, announcement = false }
   let playCalls = 0;
   let rejectPlay = false;
   let gesture;
+  let reportStatus;
+  let streamedTitles;
+  let recordings = 0;
   const handlers = new Map();
   const mediaSession = { setActionHandler(action, handler) { handlers.set(action, handler); }, playbackState: "none" };
   const element = { currentTime: 0, duration: 24, paused: true, ended: false,
+    buffered: { length: 1, start: () => 0, end: () => bufferedEnd },
+    removeAttribute() {}, load() {},
     pause() { this.paused = true; },
     play() { playCalls++; if (rejectPlay) return Promise.reject(new Error("Playback blocked")); this.paused = false; return Promise.resolve(); },
   };
+  let bufferedEnd = 24;
   const react = {
     useState(initial) {
       const slot = stateIndex++;
-      if (!(slot in states)) states[slot] = slot === 0 ? { url: "blob:briefing", starts: announcement ? [0, 6, 12, 18, 24] : [0, 6, 12, 18] } : initial;
+      if (!(slot in states)) states[slot] = !streaming && slot === 0 ? { url: "blob:briefing", streaming: false }
+        : !streaming && slot === 1 ? announcement ? [0, 6, 12, 18, 24] : [0, 6, 12, 18] : initial;
       return [states[slot], (value) => { states[slot] = typeof value === "function" ? value(states[slot]) : value; }];
     },
     useRef(initial) { const slot = refIndex++; return refs[slot] ??= { current: initial }; },
     useEffect(callback, dependencies) {
       const slot = effectIndex++;
       // Supply an existing recording; run the remaining playback effects normally.
-      if (!lifecycle || dependencies?.[0] === articles) return;
+      if (!lifecycle || (!streaming && dependencies?.[0] === articles)) return;
       const previous = effects[slot];
       if (!dependencies || !previous || dependencies.some((value, index) => !Object.is(value, previous.dependencies[index]))) {
         effects[slot] = { dependencies, callback, cleanup: previous?.cleanup, pending: true };
@@ -120,15 +127,21 @@ async function recordedPlayerHarness({ lifecycle = false, announcement = false }
     "./hand-gesture-actions": { useHandGestureTarget(_priority, active, handler) { gesture = active ? handler : null; } },
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "./headline-audio": { audioHeadlineIndex, preparedAudioCache },
-    "./ReadingVoiceSelector": { default: () => null, useReadingVoices: () => ({ loading: false, preferences: { en: "", zh: "" } }) },
+    "./headline-audio": { audioHeadlineIndex, briefingNarrationTitles, preparedAudioCache: {
+      key: (...args) => preparedAudioCache.key(...args), get: () => undefined, position: () => undefined, savePosition() {},
+    }, prepareHeadlineAudio: async () => { recordings++; return { blob: new Blob(), starts: [0, 6, 12, 18, 24] }; } },
+    "./article-audio-stream": { openArticleAudioStream: async (parts, _language, _voices, _signal, onStatus) => {
+      streamedTitles = parts; reportStatus = onStatus; return "/api/article-audio-stream/briefing";
+    } },
+    "./ReadingVoiceSelector": { default: () => null, useReadingVoices: () => ({ loading: false, streaming, preferences: { en: "", zh: "" } }) },
     "./BriefingMarketPrice": { default: () => null },
   };
   const exports = {};
   runInNewContext(playerCode, { exports, require: (name) => {
     assert.ok(name in modules, `Unexpected player dependency: ${name}`);
     return modules[name];
-  }, navigator: { userAgent: "Android", language: "en", mediaSession }, window: {} });
+  }, navigator: { userAgent: "Android", language: "en", mediaSession }, window: {}, AbortController,
+    URL: { createObjectURL: () => "blob:briefing", revokeObjectURL() {} } });
   function findAudio(node) {
     if (!node || typeof node !== "object") return;
     if (node.type === "audio") return node.props;
@@ -152,13 +165,59 @@ async function recordedPlayerHarness({ lifecycle = false, announcement = false }
     return tree;
   }
   render();
+  if (streaming) { await Promise.resolve(); render(); }
   assert.ok(findAudio(tree), "The prepared recording must render audio controls");
+  findAudio(tree).onLoadedMetadata();
   return { articles, heard, get controls() { return controls.current; }, element,
     async gesture(action) { const result = await gesture?.(action); render(); return result; },
     get events() { return findAudio(tree); }, render, handlers, mediaSession,
     get playCalls() { return playCalls; }, blockPlayback() { rejectPlay = true; },
+    get streamedTitles() { return streamedTitles; }, get recordings() { return recordings; },
+    report(status) { reportStatus(status); return render(); },
+    bufferUntil(time) { bufferedEnd = time; findAudio(tree).onProgress(); return render(); },
   };
 }
+
+test("briefing streaming exposes Play before generation and timing updates keep the same audio request playing", async () => {
+  const player = await recordedPlayerHarness({ lifecycle: true, streaming: true });
+  const src = player.events.src;
+  assert.equal(player.recordings, 0, "Streaming must not wait for the complete WAV");
+  assert.equal(player.streamedTitles.at(-1), BRIEFING_COMPLETE_MESSAGE);
+  player.element.duration = Infinity;
+  player.bufferUntil(4);
+  player.report({ starts: [0], complete: false });
+  player.element.paused = false;
+  player.events.onPlay();
+  player.controls.move(1);
+  assert.equal(player.element.currentTime, 0, "An unavailable headline must not seek to undefined");
+  player.report({ starts: [0, 6], complete: false });
+  player.controls.move(1);
+  assert.equal(player.element.currentTime, 0, "An unbuffered headline must not seek beyond received audio");
+  player.bufferUntil(14);
+  player.controls.move(1);
+  assert.equal(player.element.currentTime, 6);
+  player.report({ starts: [0, 6, 12, 18, 24], complete: true });
+  assert.equal(player.events.src, src, "Completion must not reload the source and interrupt playback");
+  assert.equal(player.element.paused, false);
+});
+
+test("a failed briefing stream keeps a complete recording fallback available", async () => {
+  const player = await recordedPlayerHarness({ lifecycle: true, streaming: true });
+  const tree = player.report({ starts: [0], complete: false, error: "Speech service interrupted" });
+  assert.equal(player.element.paused, true);
+  assert.match(JSON.stringify(tree), /Speech service interrupted/);
+  function findFallback(node) {
+    if (!node || typeof node !== "object") return;
+    if (node.type === "button" && node.props.children === "Prepare recording instead") return node.props;
+    return [node.props?.children].flat(Infinity).map(findFallback).find(Boolean);
+  }
+  findFallback(tree).onClick();
+  player.render();
+  await new Promise(setImmediate);
+  player.render();
+  assert.equal(player.recordings, 1);
+  assert.equal(player.events.src, "blob:briefing");
+});
 
 test("closing full news restores the recorded briefing at its playhead and returns media controls", async () => {
   const player = await recordedPlayerHarness({ lifecycle: true });
