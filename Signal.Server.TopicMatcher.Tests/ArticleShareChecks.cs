@@ -107,7 +107,79 @@ internal static class ArticleShareChecks
             await page.ScreenshotAsync(new() { Path = $"work/shared-story-{language}-{width}.png", FullPage = true });
             await page.CloseAsync();
         }
-        Console.WriteLine("Hosted pages passed desktop/phone layout, Chinese and Arabic text, CSP, voice selection and switching, synchronized highlights, forward/backward seeking, pause/resume, completion and failed-audio retry checks.");
+        await RunAudioScrollAsync(browser, audioScript);
+        Console.WriteLine("Hosted pages passed desktop/phone layout, Chinese and Arabic text, CSP, voice selection and switching, synchronized highlights, viewport following, reduced motion, forward/backward seeking, pause/resume, completion and failed-audio retry checks.");
+    }
+
+    private static async Task RunAudioScrollAsync(Microsoft.Playwright.IBrowser browser, string audioScript)
+    {
+        foreach (var width in new[] { 390, 1280 })
+        {
+            var reducedMotion = width == 390;
+            var page = await browser.NewPageAsync(new() {
+                ViewportSize = new() { Width = width, Height = 844 },
+                ReducedMotion = reducedMotion ? Microsoft.Playwright.ReducedMotion.Reduce : Microsoft.Playwright.ReducedMotion.NoPreference
+            });
+            var text = string.Join(" ", Enumerable.Repeat("This long paragraph explains the local news in detail so readers can follow along with the narration.", 30));
+            var html = SharedArticlePage.Render(new SharedNewsArticle {
+                Id = new string('b', 48), Title = "A long shared story", Source = "Example", Language = "en",
+                OriginalUrl = "https://example.com/story", ParagraphsJson = JsonSerializer.Serialize(new[] { text, text, text }) }, "/");
+            await page.AddInitScriptAsync("""
+                window.playback = { paused: true, currentTime: 0 };
+                window.scrollOptions = [];
+                const scroll = Element.prototype.scrollIntoView;
+                Element.prototype.scrollIntoView = function(options) {
+                    window.scrollOptions.push(options);
+                    return scroll.call(this, options);
+                };
+                Object.defineProperties(HTMLMediaElement.prototype, {
+                    paused: { get: () => playback.paused },
+                    currentTime: { get: () => playback.currentTime, set: value => playback.currentTime = value },
+                    ended: { get: () => false }
+                });
+                HTMLMediaElement.prototype.load = function() {};
+                HTMLMediaElement.prototype.play = function() {
+                    playback.paused = false;
+                    this.dispatchEvent(new Event('playing'));
+                    return Promise.resolve();
+                };
+                """);
+            await page.RouteAsync("https://shared.example.test/**", route => {
+                var url = new Uri(route.Request.Url);
+                var (type, body) = url.AbsolutePath.EndsWith("/timing")
+                    ? ("application/json", "{\"starts\":[0,10,20,30],\"sections\":[0,1,2,3],\"complete\":true}")
+                    : url.AbsolutePath.EndsWith("/voices")
+                        ? ("application/json", "{\"selected\":\"\",\"voices\":[]}")
+                        : url.AbsolutePath.EndsWith("shared-story-audio.js")
+                            ? ("text/javascript", audioScript) : ("text/html", html);
+                return route.FulfillAsync(new() { ContentType = type, Body = body });
+            });
+            await page.GotoAsync("https://shared.example.test/shared/" + new string('b', 48));
+            await page.GetByRole(Microsoft.Playwright.AriaRole.Button, new() { Name = "Play audio" }).ClickAsync();
+            await Microsoft.Playwright.Assertions.Expect(page.Locator("h1")).ToHaveClassAsync(new System.Text.RegularExpressions.Regex("audio-current"));
+            await page.EvaluateAsync("playback.currentTime = 20; document.querySelector('audio').dispatchEvent(new Event('timeupdate'))");
+            await ExpectSectionOnScreenAsync(2);
+            Require(await page.EvaluateAsync<string>("scrollOptions.at(-1).behavior") == (reducedMotion ? "instant" : "smooth"), "Audio following must honor reduced motion.");
+            await page.EvaluateAsync("playback.currentTime = 10; document.querySelector('audio').dispatchEvent(new Event('seeked'))");
+            await ExpectSectionOnScreenAsync(1);
+            await page.EvaluateAsync("playback.paused = true; document.querySelector('audio').dispatchEvent(new Event('pause')); scrollTo(0, 0); playback.currentTime = 30; document.querySelector('audio').dispatchEvent(new Event('seeked'))");
+            Require(await page.EvaluateAsync<bool>("scrollY === 0 && !document.querySelector('.audio-current')"), "Paused seeking must not scroll the page or keep a speaking highlight.");
+            await page.EvaluateAsync("document.querySelector('audio').play()");
+            await ExpectSectionOnScreenAsync(3);
+            await page.ScreenshotAsync(new() { Path = $"work/shared-story-audio-follow-{width}.png" });
+            await page.CloseAsync();
+
+            async Task ExpectSectionOnScreenAsync(int section)
+            {
+                await page.WaitForFunctionAsync("""
+                    section => {
+                        const element = document.querySelector(`[data-audio-section='${section}']`);
+                        const top = element.getBoundingClientRect().top;
+                        return element.classList.contains('audio-current') && Math.abs(top - 32) < 4;
+                    }
+                    """, section);
+            }
+        }
     }
 
     public static async Task RunAsync()

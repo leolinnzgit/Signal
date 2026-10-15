@@ -27,6 +27,15 @@
     if (current) {
       current.classList.add("audio-current");
       current.setAttribute("aria-current", "true");
+      const bounds = current.getBoundingClientRect();
+      const viewportHeight = window.visualViewport?.height || window.innerHeight;
+      if (bounds.top < 32 || bounds.bottom > viewportHeight - 32) {
+        current.scrollIntoView({
+          behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
+          block: "start",
+          inline: "nearest",
+        });
+      }
     }
   }
 

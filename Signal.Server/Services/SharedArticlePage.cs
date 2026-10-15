@@ -35,7 +35,7 @@ public static class SharedArticlePage
             <audio id="story-audio" controls preload="none" data-src="{Encode(homePath)}shared/{Encode(article.Id)}/audio" hidden aria-label="Story audio"></audio>
             <p id="audio-status" role="status" aria-live="polite"></p>
             </section>
-            <script src="{Encode(homePath)}shared-story-audio.js?v=2" defer></script>
+            <script src="{Encode(homePath)}shared-story-audio.js?v=3" defer></script>
             <div class="body">{string.Join("\n", paragraphs.Select((text, index) => $"<p dir=\"auto\" data-audio-section=\"{index + 1}\">{Encode(text)}</p>"))}</div>
             <footer lang="en"><a href="{Encode(article.OriginalUrl)}" target="_blank" rel="noopener noreferrer">Read the original article ↗</a><p>Saved and shared with Signal</p></footer>
             </article></main>
