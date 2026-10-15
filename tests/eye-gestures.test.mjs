@@ -58,17 +58,17 @@ test("face loss, multiple faces, malformed scores, or a frame gap cancel a closu
   }
   const detector = ready();
   frames(detector, both, 700, 1800);
-  assert.deepEqual(frames(detector, open, 2600, 3600), []);
+  assert.deepEqual(frames(detector, open, 2900, 3900), []);
 });
 
 test("uncertain eye scores do not arm controls or build a hold", () => {
   const detector = createEyeGestureDetector();
-  const uncertain = { faceCount: 1, left: 0.5, right: 0.5 };
+  const uncertain = { faceCount: 1, left: 0.6, right: 0.6 };
   frames(detector, uncertain, 0, 1000);
   frames(detector, both, 1100, 2200);
   assert.deepEqual(frames(detector, open, 2300, 3200), []);
   frames(detector, both, 3300, 3900);
-  frames(detector, uncertain, 4000, 4500);
+  frames(detector, { faceCount: 1, left: 0.35, right: 0.35 }, 4000, 4500);
   assert.deepEqual(frames(detector, open, 4600, 5500), []);
 });
 
@@ -118,4 +118,34 @@ test("switching the closed eye without reopening cancels instead of changing dir
   frames(detector, left, 700, 1600);
   frames(detector, right, 1700, 2200);
   assert.deepEqual(frames(detector, open, 2300, 3300), []);
+});
+
+test("a wink that squints the other eye is still a wink, not a long blink", () => {
+  const detector = ready();
+  frames(detector, { faceCount: 1, left: 0.42, right: 0.8 }, 700, 1300);
+  assert.deepEqual(frames(detector, open, 1400, 1700), ["next"]);
+});
+
+test("higher resting scores from looking down at a phone still arm and recognise winks", () => {
+  const detector = createEyeGestureDetector();
+  const resting = { faceCount: 1, left: 0.42, right: 0.38 };
+  assert.deepEqual(frames(detector, resting, 0, 600), []);
+  assert.equal(detector.update(resting, 700).state, "ready");
+  frames(detector, { faceCount: 1, left: 0.92, right: 0.45 }, 800, 1500);
+  assert.deepEqual(frames(detector, resting, 1600, 1900), ["previous"]);
+});
+
+test("slow frames with a half-open frame while reopening still confirm", () => {
+  const detector = createEyeGestureDetector();
+  frames(detector, open, 0, 1000, 500);
+  frames(detector, right, 1500, 2000, 500);
+  detector.update({ faceCount: 1, left: 0.1, right: 0.4 }, 2500);
+  assert.deepEqual(frames(detector, open, 3000, 3600, 600), ["next"]);
+});
+
+test("ordinary blinks seen on slow frames are ignored", () => {
+  const detector = createEyeGestureDetector();
+  frames(detector, open, 0, 1000, 500);
+  detector.update(both, 1500);
+  assert.deepEqual(frames(detector, open, 2000, 4000, 500), []);
 });

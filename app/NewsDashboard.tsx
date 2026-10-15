@@ -2951,8 +2951,9 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
 
   useHandGestureTarget(10, true, async (action) => {
     if (headlineQueue && !readerArticle) return "Use the headline player's controls for this action.";
-    if (!readerArticle && (action === "next" || action === "previous")) {
-      const topic = handGestureTopic(preferences.topics, selectedTopic, action === "next" ? 1 : -1);
+    // The feed has no narration to pause, so an eye long blink moves on a topic.
+    if (!readerArticle && (action === "next" || action === "previous" || action === "toggle-playback")) {
+      const topic = handGestureTopic(preferences.topics, selectedTopic, action === "previous" ? -1 : 1);
       if (!topic) return "Follow a topic first to switch topics with your hand.";
       selectTopicFilter(topic);
       return `Topic: ${topic}`;

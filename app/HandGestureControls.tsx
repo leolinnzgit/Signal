@@ -179,7 +179,8 @@ export default function HandGestureControls() {
             setEyeTracking(result.state); setEyeScores(frame);
             if (handGesturesBlocked()) eyeDetector.current.reset();
             else if (result.action) void perform(result.action);
-            timer = window.setTimeout(capture, 80);
+            // Face results are already slow on phones; sample again promptly.
+            timer = window.setTimeout(capture, 30);
             return;
           }
           const result = detector.update(data, Number.isFinite(data.timestamp) ? data.timestamp! : performance.now());
@@ -252,15 +253,15 @@ export default function HandGestureControls() {
         <p>Rest your phone on a stand in good light. Face the front camera with your whole face in view. Keep both eyes naturally open until <strong>Eyes ready</strong> appears. The eye meters show how closed each eye looks to Signal.</p>
         <ol>
           <li>Choose <strong>Practise gestures</strong> first to learn without changing Signal.</li>
-          <li>Hold a wink for about one second, or close both eyes for 1–2 seconds. Reopen both eyes and keep them open briefly to confirm the command.</li>
+          <li>Hold a wink for about half a second, or close both eyes for about one second. Reopen both eyes and keep them open briefly to confirm the command.</li>
           <li>Wait for <strong>Eyes ready</strong> before repeating. Turn off <strong>Practice only</strong> when ready to control Signal.</li>
         </ol>
         <dl>
           <dt>Wink your right eye</dt><dd>Keep your left eye open. Hold briefly, then reopen both eyes for the next topic in the feed, or the next story / headline in the reader or player.</dd>
           <dt>Wink your left eye</dt><dd>Keep your right eye open. Hold briefly, then reopen both eyes for the previous topic, story or headline. Left and right mean your own eyes, as shown in the mirrored preview.</dd>
-          <dt>Long blink with both eyes</dt><dd>Close both eyes for 1–2 seconds, then reopen to pause or resume narration. Start audio using its on-screen Play button first. Your browser may require another Play tap to resume.</dd>
+          <dt>Long blink with both eyes</dt><dd>Close both eyes for about one second, then reopen. In the news feed this moves to the next topic. While narration or headline playback is open it pauses or resumes instead. Start audio using its on-screen Play button first. Your browser may require another Play tap to resume.</dd>
         </dl>
-        <p>Brief blinks are ignored. Closing your eyes for more than about 2.5 seconds cancels the command. Losing face tracking also cancels it. Glasses, reflections, lighting and slow camera processing can affect recognition; use the touch controls if needed.</p>
+        <p>Brief blinks are ignored. Closing your eyes for more than about 3 seconds cancels the command. Losing face tracking also cancels it. Signal adjusts to how open your eyes normally look while you face the camera. Glasses, reflections, lighting and slow camera processing can affect recognition; use the touch controls if needed.</p>
       </> : <>
       <p>Rest your phone on a stand. Face the front camera in good light and show one whole hand with fingers spread. Wait for <strong>Hand detected</strong> in the preview, then move your hand. Green dots show the hand Signal can see.</p>
       <ol>
