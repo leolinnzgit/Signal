@@ -13,6 +13,9 @@ using Signal.Server.Controllers;
 using Signal.Server.Models;
 using Signal.Server.Services;
 
+await SharedCommentChecks.RunAsync();
+if (args.Contains("--shared-comments-browser")) { await SharedCommentChecks.RunBrowserAsync(); return; }
+if (args.Contains("--shared-comments-only")) return;
 await AudioCacheStorageChecks.RunAsync();
 if (args.Contains("--audio-cache-only")) return;
 await SharedArticleAudioChecks.RunAsync();

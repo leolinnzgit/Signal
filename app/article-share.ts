@@ -31,7 +31,7 @@ export type ArticleShareSnapshot = {
 };
 
 export async function createHostedArticleShare(
-  article: { url: string; title: string; source: string; summary: string },
+  article: { url: string; title: string; source: string; summary: string; discussionUrl?: string },
   snapshot?: ArticleShareSnapshot,
   fetcher: ArticleUrlFetcher = fetch,
 ): Promise<{ path: string; title: string; language: string; summaryOnly: boolean }> {
@@ -43,7 +43,7 @@ export async function createHostedArticleShare(
     method: "POST", credentials: "same-origin", cache: "no-store",
     headers: { "Content-Type": "application/json", "X-XSRF-TOKEN": auth.token },
     body: JSON.stringify({ url: article.url, title: article.title, source: article.source,
-      summary: article.summary, snapshot }),
+      summary: article.summary, snapshot, discussionUrl: article.discussionUrl ?? article.url }),
   });
   if (!response.ok) {
     const error = await response.json().catch(() => null) as { error?: string } | null;

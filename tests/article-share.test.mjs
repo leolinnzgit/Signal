@@ -133,3 +133,16 @@ test("rejects external and malformed hosted page paths", async () => {
       /incomplete story link/);
   }
 });
+
+test("preserves the feed URL for comments when sharing a resolved reader article", async () => {
+  const calls = [];
+  const discussionUrl = "https://news.example.test/feed-story";
+  await sharing.createHostedArticleShare({ ...data, discussionUrl, source: "Publisher", summary: "" }, undefined,
+    async (input, init) => {
+      calls.push({ input, init });
+      return { ok: true, async json() { return calls.length === 1 ? { token: "csrf" }
+        : { path: `/shared/${"a".repeat(48)}`, title: data.title, language: "", summaryOnly: true }; } };
+    });
+  assert.equal(JSON.parse(calls[1].init.body).discussionUrl, discussionUrl);
+  assert.equal(JSON.parse(calls[1].init.body).url, data.url);
+});

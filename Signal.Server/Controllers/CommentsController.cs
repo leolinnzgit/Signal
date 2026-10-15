@@ -43,7 +43,7 @@ public sealed class CommentsController(
             cancellationToken);
         var newCount = afterId.HasValue
             ? await database.NewsComments.CountAsync(
-                comment => comment.Id > afterId.Value && comment.UserId != userId,
+                comment => comment.Id > afterId.Value && (comment.UserId == null || comment.UserId != userId),
                 cancellationToken)
             : 0;
 
@@ -159,10 +159,11 @@ public sealed class CommentsController(
 
     private async Task<Dictionary<string, string>> LoadFriendshipStatesAsync(
         string currentUserId,
-        IEnumerable<string> authorIds,
+        IEnumerable<string?> authorIds,
         CancellationToken cancellationToken)
     {
         var ids = authorIds
+            .OfType<string>()
             .Where(id => id != currentUserId)
             .Distinct(StringComparer.Ordinal)
             .ToArray();
@@ -192,11 +193,11 @@ public sealed class CommentsController(
             comment.Body,
             AsUtc(comment.CreatedAtUtc),
             new CommentAuthorResponse(
-                comment.UserId,
-                PublicName(comment.User),
-                $"/api/social/users/{Uri.EscapeDataString(comment.UserId)}/photo"),
+                comment.UserId ?? "",
+                comment.User is null ? "Anonymous" : PublicName(comment.User),
+                comment.UserId is null ? "" : $"/api/social/users/{Uri.EscapeDataString(comment.UserId)}/photo"),
             comment.UserId == currentUserId,
-            comment.UserId == currentUserId
+            comment.UserId is null ? "anonymous" : comment.UserId == currentUserId
                 ? "self"
                 : friendshipStates.GetValueOrDefault(comment.UserId, "none"));
 

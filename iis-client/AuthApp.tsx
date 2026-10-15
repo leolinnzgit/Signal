@@ -33,7 +33,7 @@ type NewsComment = {
   createdAt: string;
   author: CommentAuthor;
   canDelete: boolean;
-  friendshipState: "self" | "none" | "outgoing" | "incoming" | "friends";
+  friendshipState: "self" | "none" | "outgoing" | "incoming" | "friends" | "anonymous";
 };
 
 type CommentPage = {
@@ -681,7 +681,7 @@ function SocialAvatar({
   return (
     <span className="social-avatar" aria-hidden="true">
       {showInitial ? user.name.charAt(0).toUpperCase() : null}
-      <img src={user.profilePhotoUrl} alt="" onError={(event) => { event.currentTarget.hidden = true; }} />
+      {user.profilePhotoUrl && <img src={user.profilePhotoUrl} alt="" onError={(event) => { event.currentTarget.hidden = true; }} />}
     </span>
   );
 }

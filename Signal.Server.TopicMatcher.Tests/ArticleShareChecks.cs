@@ -206,6 +206,12 @@ internal static class ArticleShareChecks
         Require(network.Calls == 0, "Sharing an existing translation fetched or translated the article again.");
         var repeated = await CreateAsync(controller, request);
         Require(repeated.GetProperty("path").GetString() == path && await database.SharedNewsArticles.CountAsync() == 1, "Identical shares created multiple pages.");
+        var feedLinked = await CreateAsync(controller, request with { DiscussionUrl = "https://news.example.test/original-feed-story" });
+        var feedLinkedId = feedLinked.GetProperty("path").GetString()!.Split('/').Last();
+        Require((await database.SharedNewsArticles.SingleAsync(item => item.Id == feedLinkedId)).DiscussionUrl
+            == "https://news.example.test/original-feed-story", "Reader sharing lost the original feed discussion URL.");
+        Require(await controller.Create(request with { DiscussionUrl = "javascript:alert(1)" }, CancellationToken.None)
+            is BadRequestObjectResult, "Invalid discussion URL was accepted.");
         var french = await CreateAsync(controller, request with { Snapshot = snapshot with { Title = "Titre", Paragraphs = ["Texte français."], Language = "fr" } });
         Require(french.GetProperty("path").GetString() != path, "Different languages reused the same page.");
         var revised = await CreateAsync(controller, request with { Snapshot = snapshot with { Paragraphs = ["新版本。"] } });

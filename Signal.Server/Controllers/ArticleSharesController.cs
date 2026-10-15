@@ -19,7 +19,7 @@ public sealed class ArticleSharesController(
     ILogger<ArticleSharesController> logger) : ControllerBase
 {
     public sealed record ArticleSnapshot(string Title, string[] Paragraphs, string Language, string Byline);
-    public sealed record CreateShareRequest(string Url, string Title, string Source, string Summary, ArticleSnapshot? Snapshot);
+    public sealed record CreateShareRequest(string Url, string Title, string Source, string Summary, ArticleSnapshot? Snapshot, string? DiscussionUrl = null);
 
     [Authorize]
     [EnableRateLimiting("account")]
@@ -35,6 +35,9 @@ public sealed class ArticleSharesController(
             || !Uri.TryCreate(request.Url, UriKind.Absolute, out var original)
             || original.Scheme != "https" || !string.IsNullOrEmpty(original.UserInfo))
             return BadRequest(new { error = "Choose a story with a valid title and HTTPS publisher link." });
+
+        var discussionUrl = CommentsController.NormalizeUrl(request.DiscussionUrl ?? request.Url);
+        if (discussionUrl is null) return BadRequest(new { error = "Choose a valid news discussion link." });
 
         var snapshot = request.Snapshot;
         var summaryOnly = false;
@@ -80,6 +83,7 @@ public sealed class ArticleSharesController(
             Id = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant(),
             UserId = userId,
             OriginalUrl = original.AbsoluteUri,
+            DiscussionUrl = discussionUrl,
             Title = snapshot.Title,
             Source = request.Source,
             Byline = snapshot.Byline,
@@ -90,7 +94,7 @@ public sealed class ArticleSharesController(
         };
         // A link represents this exact version, independent of later translations or feed retention.
         articleShare.ContentHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
-            JsonSerializer.Serialize(new { articleShare.OriginalUrl, articleShare.Title, articleShare.Source,
+            JsonSerializer.Serialize(new { articleShare.OriginalUrl, articleShare.DiscussionUrl, articleShare.Title, articleShare.Source,
                 articleShare.Byline, articleShare.Language, articleShare.ParagraphsJson, articleShare.SummaryOnly }))));
         var existing = await database.SharedNewsArticles.AsNoTracking()
             .SingleOrDefaultAsync(item => item.UserId == userId && item.ContentHash == articleShare.ContentHash, token);

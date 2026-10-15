@@ -2817,7 +2817,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     setSharingUrls((current) => new Set(current).add(article.url));
     try {
       const [saved, friendsResult] = await Promise.all([
-        createHostedArticleShare({ ...article, url: snapshot && readerContent.status === "ready"
+        createHostedArticleShare({ ...article, discussionUrl: article.url, url: snapshot && readerContent.status === "ready"
           ? readerContent.article.finalUrl : article.url }, snapshot),
         friendShareStore?.loadFriends().then((friends) => ({ friends, error: "" }))
           .catch(() => ({ friends: [], error: "Your friends could not be loaded. You can still copy or share the link." }))

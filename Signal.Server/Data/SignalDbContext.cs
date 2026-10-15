@@ -130,7 +130,7 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
             comment.HasKey(item => item.Id);
             comment.Property(item => item.ArticleUrl).HasMaxLength(2048).IsRequired();
             comment.Property(item => item.ArticleTitle).HasMaxLength(500).IsRequired();
-            comment.Property(item => item.UserId).HasMaxLength(450).IsRequired();
+            comment.Property(item => item.UserId).HasMaxLength(450);
             comment.Property(item => item.Body).HasMaxLength(2000).IsRequired();
             comment.HasIndex(item => new { item.ArticleUrl, item.CreatedAtUtc });
             comment.HasIndex(item => item.UserId);
