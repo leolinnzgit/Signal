@@ -4183,7 +4183,10 @@ button.local-weather {
 .comment-list header strong { font-size: 0.8rem; }
 .comment-list time { color: var(--text-faint); font-size: 0.62rem; }
 .comment-list p { margin: 0.55rem 0; color: var(--text-body); line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.comment-list p.comment-reply-context { margin: 0.45rem 0 0.25rem; padding-left: 0.65rem; border-left: 2px solid var(--red); color: var(--text-muted); font-size: 0.72rem; line-height: 1.4; }
+.comment-list p.comment-reply-context strong { color: var(--page-text); font-weight: 700; }
 .comment-edit-form { display: grid; gap: 0.55rem; margin: 0.65rem 0; }
+.comment-reply-form label { color: var(--red); font-size: 0.62rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; }
 .comment-edit-form textarea {
   width: 100%;
   min-height: 5.5rem;

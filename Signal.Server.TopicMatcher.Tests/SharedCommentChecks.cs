@@ -108,13 +108,24 @@ internal static class SharedCommentChecks
         Require(await comments.Delete(named.Id, default) is ForbidResult, "Reader can delete another guest's named comment.");
         var blankName = (SharedCommentsController.PublicComment)((OkObjectResult)await controller.Create(share.Id, new("Still anonymous", " \t \n "), default)).Value!;
         Require(blankName.Author == "Anonymous", "Blank name did not retain anonymous posting.");
+        Require(await comments.Create(new(share.DiscussionUrl, "Story", "Missing parent", 999_999), default) is BadRequestObjectResult,
+            "Reply to missing comment was accepted.");
+        var reply = (CommentResponse)((OkObjectResult)await comments.Create(new(share.DiscussionUrl, "Story", "Thanks for sharing this!", named.Id), default)).Value!;
+        Require(reply.ParentCommentId == named.Id && reply.ReplyTo is { Id: var replyTargetId, AuthorName: "Jamie Lee", Body: "A named reader's thoughts" } && replyTargetId == named.Id,
+            "Reply did not return parent comment context.");
+        newsPage = (CommentPageResponse)((OkObjectResult)await comments.Get(share.DiscussionUrl)).Value!;
+        var loadedReply = newsPage.Comments.Single(item => item.Id == reply.Id);
+        Require(loadedReply.ParentCommentId == named.Id && loadedReply.ReplyTo?.AuthorName == "Jamie Lee",
+            "Loaded thread lost parent comment reply context.");
         // Existing shared links have no stored feed URL and continue using their original URL.
         otherVersion.DiscussionUrl = "";
         await database.SaveChangesAsync();
         var legacy = (SharedCommentsController.PublicComment)((OkObjectResult)await controller.Create(otherVersion.Id, new("Legacy link"), default)).Value!;
         Require((await database.NewsComments.FindAsync(legacy.Id))!.ArticleUrl == share.OriginalUrl, "Existing shared link cannot accept comments.");
+        Require(await comments.Create(new(share.DiscussionUrl, "Story", "Cross-story reply", legacy.Id), default) is BadRequestObjectResult,
+            "Reply across different stories was accepted.");
         Require(await database.Database.SqlQueryRaw<long>("SELECT COUNT(*) AS Value FROM pragma_foreign_key_check").SingleAsync() == 0, "Upgrade damaged foreign keys.");
-        Console.WriteLine("Shared comments passed legacy schema upgrade, preserved IDs/authors, anonymous posting, URL linkage, news/latest views, privacy, ownership, validation, pagination and optional guest names.");
+        Console.WriteLine("Shared comments passed legacy schema upgrade, preserved IDs/authors, anonymous posting, URL linkage, news/latest views, privacy, ownership, validation, pagination, optional guest names and comment replies.");
     }
 
     public static async Task RunBrowserAsync()

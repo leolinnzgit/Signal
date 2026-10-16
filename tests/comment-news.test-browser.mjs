@@ -62,7 +62,16 @@ try {
         if (route.request().method() === "POST") {
           const request = route.request().postDataJSON();
           assert.equal(request.articleUrl, storyUrl);
-          const created = { ...thread.at(-1), id: thread.length + 1, body: request.body, canDelete: true, friendshipState: "self" };
+          const parent = request.parentCommentId ? thread.find(item => item.id === request.parentCommentId) : null;
+          const created = {
+            ...thread.at(-1),
+            id: thread.length + 1,
+            body: request.body,
+            canDelete: true,
+            friendshipState: "self",
+            parentCommentId: parent?.id ?? null,
+            replyTo: parent ? { id: parent.id, authorName: parent.author.name, body: parent.body } : null,
+          };
           thread.push(created);
           return route.fulfill({ json: created });
         }
@@ -108,6 +117,12 @@ try {
     await inline.getByRole("button", { name: "Post comment", exact: true }).click();
     await inline.getByText("Posted below the news article", { exact: true }).waitFor();
     assert.equal(await inline.getByLabel("Join the discussion", { exact: true }).inputValue(), "");
+    const jamieItem = inline.locator(".comment-list > li").filter({ hasText: "A reader's comment" });
+    await jamieItem.getByRole("button", { name: "Reply", exact: true }).click();
+    await jamieItem.getByLabel("Reply to Jamie", { exact: true }).fill("Replying directly to Jamie");
+    await jamieItem.getByRole("button", { name: "Post reply", exact: true }).click();
+    await inline.getByText("Replying directly to Jamie", { exact: true }).waitFor();
+    await inline.locator(".comment-reply-context").filter({ hasText: "Replying to Jamie: A reader's comment" }).waitFor();
     await inline.getByRole("heading", { name: "Comments", exact: true }).scrollIntoViewIfNeeded();
     await page.screenshot({ path: `work/reader-comments-${width}.png` });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);

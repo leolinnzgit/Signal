@@ -26,6 +26,12 @@ type CommentAuthor = {
   profilePhotoUrl: string;
 };
 
+type CommentReplyTarget = {
+  id: number;
+  authorName: string;
+  body: string;
+};
+
 type NewsComment = {
   id: number;
   articleUrl: string;
@@ -35,6 +41,8 @@ type NewsComment = {
   author: CommentAuthor;
   canDelete: boolean;
   friendshipState: "self" | "none" | "outgoing" | "incoming" | "friends" | "anonymous";
+  parentCommentId?: number | null;
+  replyTo?: CommentReplyTarget | null;
 };
 
 type CommentPage = {
@@ -1358,6 +1366,8 @@ function ArticleComments({ article, onOpenCommunity, composerLast = false }: {
   const [friendBusy, setFriendBusy] = useState<Set<string>>(() => new Set());
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingBody, setEditingBody] = useState("");
+  const [replyingId, setReplyingId] = useState<number | null>(null);
+  const [replyBody, setReplyBody] = useState("");
   const [commentEmojiPickerOpen, setCommentEmojiPickerOpen] = useState(false);
   const [newCommentCount, setNewCommentCount] = useState(0);
   const [error, setError] = useState("");
@@ -1385,6 +1395,8 @@ function ArticleComments({ article, onOpenCommunity, composerLast = false }: {
   useEffect(() => {
     latestCommentId.current = 0;
     setNewCommentCount(0);
+    setReplyingId(null);
+    setReplyBody("");
     void loadComments();
   }, [article.url]);
 
@@ -1442,6 +1454,52 @@ function ArticleComments({ article, onOpenCommunity, composerLast = false }: {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function submitReply(event: FormEvent, parentComment: NewsComment) {
+    event.preventDefault();
+    if (!replyBody.trim()) return;
+    setBusy(true);
+    setError("");
+    try {
+      const created = await postJson<NewsComment>("/api/comments", {
+        articleUrl: article.url,
+        articleTitle: article.title,
+        body: replyBody,
+        parentCommentId: parentComment.id,
+      });
+      const replyTarget: CommentReplyTarget = created.replyTo ?? {
+        id: parentComment.id,
+        authorName: parentComment.author.name,
+        body: parentComment.body.replace(/\s+/g, " ").trim().slice(0, 160),
+      };
+      const withReply: NewsComment = {
+        ...created,
+        parentCommentId: created.parentCommentId ?? parentComment.id,
+        replyTo: replyTarget,
+      };
+      setComments((current) => [...current, withReply]);
+      latestCommentId.current = Math.max(latestCommentId.current, created.id);
+      setTotal((current) => current + 1);
+      setReplyingId(null);
+      setReplyBody("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Your reply could not be posted.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function resolveReplyTarget(comment: NewsComment): CommentReplyTarget | null {
+    if (comment.replyTo) return comment.replyTo;
+    if (!comment.parentCommentId) return null;
+    const parent = comments.find((item) => item.id === comment.parentCommentId);
+    if (!parent) return null;
+    return {
+      id: parent.id,
+      authorName: parent.author.name,
+      body: parent.body.replace(/\s+/g, " ").trim().slice(0, 160),
+    };
   }
 
   function insertCommentEmoji(emoji: string) {
@@ -1566,7 +1624,9 @@ function ArticleComments({ article, onOpenCommunity, composerLast = false }: {
           !error && <p className="social-empty">No comments yet. Start the conversation.</p>
         ) : (
           <ol className="comment-list" ref={commentList}>
-            {comments.map((comment) => (
+            {comments.map((comment) => {
+              const replyTarget = resolveReplyTarget(comment);
+              return (
               <li key={comment.id}>
                 {!comment.canDelete && comment.friendshipState === "none" ? (
                   <button
@@ -1584,6 +1644,11 @@ function ArticleComments({ article, onOpenCommunity, composerLast = false }: {
                 )}
                 <div>
                   <header><strong>{comment.author.name}</strong><time dateTime={comment.createdAt}>{formatSocialTime(comment.createdAt)}</time></header>
+                  {replyTarget && (
+                    <p className="comment-reply-context">
+                      <strong>Replying to {replyTarget.authorName}:</strong> <span>{replyTarget.body}</span>
+                    </p>
+                  )}
                   {editingId === comment.id ? (
                     <form className="comment-edit-form" onSubmit={(event) => void saveComment(event, comment.id)}>
                       <textarea
@@ -1604,9 +1669,23 @@ function ArticleComments({ article, onOpenCommunity, composerLast = false }: {
                     <p>{comment.body}</p>
                   )}
                   <div className="comment-actions">
+                    {editingId !== comment.id && (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => {
+                          setReplyingId(replyingId === comment.id ? null : comment.id);
+                          setReplyBody("");
+                          setEditingId(null);
+                          setEditingBody("");
+                        }}
+                      >
+                        Reply
+                      </button>
+                    )}
                     {comment.canDelete && editingId !== comment.id && (
                       <>
-                        <button type="button" disabled={busy} onClick={() => { setEditingId(comment.id); setEditingBody(comment.body); }}>Edit</button>
+                        <button type="button" disabled={busy} onClick={() => { setEditingId(comment.id); setEditingBody(comment.body); setReplyingId(null); setReplyBody(""); }}>Edit</button>
                         <button type="button" disabled={busy} onClick={() => void removeComment(comment.id)}>Delete</button>
                       </>
                     )}
@@ -1619,9 +1698,29 @@ function ArticleComments({ article, onOpenCommunity, composerLast = false }: {
                     {comment.friendshipState === "friends" && <span>Friends</span>}
                     {comment.friendshipState === "incoming" && <button type="button" onClick={onOpenCommunity}>Review friend request</button>}
                   </div>
+                  {replyingId === comment.id && (
+                    <form className="comment-edit-form comment-reply-form" onSubmit={(event) => void submitReply(event, comment)}>
+                      <label htmlFor={`${commentInputId}-reply-${comment.id}`}>Reply to {comment.author.name}</label>
+                      <textarea
+                        id={`${commentInputId}-reply-${comment.id}`}
+                        value={replyBody}
+                        onChange={(event) => setReplyBody(event.target.value)}
+                        placeholder={`Reply to ${comment.author.name}…`}
+                        maxLength={2000}
+                        rows={3}
+                        autoFocus
+                      />
+                      <div>
+                        <span>{replyBody.length}/2000</span>
+                        <button type="button" disabled={busy} onClick={() => { setReplyingId(null); setReplyBody(""); }}>Cancel</button>
+                        <button type="submit" disabled={busy || !replyBody.trim()}>{busy ? "Posting…" : "Post reply"}</button>
+                      </div>
+                    </form>
+                  )}
                 </div>
               </li>
-            ))}
+              );
+            })}
           </ol>
         )}
       {composerLast && composer}

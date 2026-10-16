@@ -19,6 +19,8 @@ public sealed class NewsComment
     [MaxLength(80)]
     public string GuestName { get; set; } = "";
 
+    public long? ParentCommentId { get; set; }
+
     [Required]
     public string Body { get; set; } = "";
 
