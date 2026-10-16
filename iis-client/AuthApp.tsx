@@ -1,4 +1,4 @@
-import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useId, useRef, useState } from "react";
 import { updateInstalledAppBadge } from "../app/app-badge";
 import { prepareProfilePhoto } from "../app/profile-photo";
 import { preparedAudioCache } from "../app/headline-audio";
@@ -586,6 +586,8 @@ export default function AuthApp() {
         <NewsDashboard
           user={{ displayName: user.displayName, email: user.email, fullName: null, isLocalPreview: false, profilePhotoUrl: user.profilePhotoUrl }}
           articleToOpen={articleToOpen}
+          renderArticleComments={(article, closeReader) => <ArticleComments key={article.url} article={article} composerLast
+            onOpenCommunity={() => { closeReader(); setCommunityOpen(true); }} />}
           onSignOut={() => void signOut()}
           onManageAccount={() => { setCommunityOpen(false); setLatestCommentsOpen(false); setDiscussionArticle(null); setAccountOpen(true); }}
           onOpenCommunity={() => { setAccountOpen(false); setLatestCommentsOpen(false); setDiscussionArticle(null); setCommunityOpen(true); }}
@@ -1316,9 +1318,40 @@ function DiscussionPanel({
   onClose: () => void;
   onOpenCommunity: () => void;
 }) {
+  return (
+    <div className="social-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="discussion-panel" role="dialog" aria-modal="true" aria-labelledby="discussion-title">
+        <header className="social-panel-header">
+          <div>
+            <p className="eyebrow">Public discussion</p>
+            <h2 id="discussion-title">Comments</h2>
+          </div>
+          <button className="social-close" type="button" onClick={onClose} aria-label="Close comments">×</button>
+        </header>
+        <div className="discussion-article">
+          <span>{article.source}</span>
+          <h3>{article.title}</h3>
+          <a href={signalArticlePath(article)} onClick={(event) => {
+            if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+            event.preventDefault();
+            onOpenArticle(article);
+          }}>Read story in Signal →</a>
+        </div>
+        <ArticleComments key={article.url} article={article} onOpenCommunity={onOpenCommunity} />
+      </section>
+    </div>
+  );
+}
+
+function ArticleComments({ article, onOpenCommunity, composerLast = false }: {
+  article: DiscussionArticle;
+  onOpenCommunity: () => void;
+  composerLast?: boolean;
+}) {
   const [comments, setComments] = useState<NewsComment[]>([]);
   const [total, setTotal] = useState(0);
-  const [hasMore, setHasMore] = useState(false);
+  const commentInputId = useId();
+  const hasMore = total > comments.length;
   const [body, setBody] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -1342,7 +1375,6 @@ function DiscussionPanel({
       setComments((current) => beforeId ? [...page.comments, ...current] : page.comments);
       if (!beforeId) latestCommentId.current = page.comments.at(-1)?.id ?? 0;
       setTotal(page.total);
-      setHasMore(page.hasMore);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Comments could not be loaded.");
     } finally {
@@ -1373,7 +1405,6 @@ function DiscussionPanel({
           return Array.from(merged.values()).sort((left, right) => left.id - right.id);
         });
         setTotal(page.total);
-        setHasMore((current) => current || page.hasMore);
       } catch {
         // Keep the current discussion visible and retry quietly on the next interval.
       }
@@ -1476,30 +1507,12 @@ function DiscussionPanel({
     }
   }
 
-  return (
-    <div className="social-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="discussion-panel" role="dialog" aria-modal="true" aria-labelledby="discussion-title">
-        <header className="social-panel-header">
-          <div>
-            <p className="eyebrow">Public discussion</p>
-            <h2 id="discussion-title">Comments</h2>
-          </div>
-          <button className="social-close" type="button" onClick={onClose} aria-label="Close comments">×</button>
-        </header>
-        <div className="discussion-article">
-          <span>{article.source}</span>
-          <h3>{article.title}</h3>
-          <a href={signalArticlePath(article)} onClick={(event) => {
-            if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-            event.preventDefault();
-            onOpenArticle(article);
-          }}>Read story in Signal →</a>
-        </div>
+  const composer = (
         <form className="comment-composer" onSubmit={submit}>
-          <label htmlFor="new-comment">Join the discussion</label>
+          <label htmlFor={commentInputId}>Join the discussion</label>
           <textarea
             ref={commentInput}
-            id="new-comment"
+            id={commentInputId}
             value={body}
             onChange={(event) => setBody(event.target.value)}
             placeholder="Share a thoughtful comment…"
@@ -1527,7 +1540,15 @@ function DiscussionPanel({
           </div>
           <div className="comment-composer-footer"><span>{body.length}/2000</span><button type="submit" disabled={busy || !body.trim()}>{busy ? "Posting…" : "Post comment"}</button></div>
         </form>
+  );
+
+  return (
+    <div className="article-comments">
+      {!composerLast && composer}
         {error && <p className="social-error" role="alert">{error}</p>}
+        {error && comments.length === 0 && !loading && (
+          <button className="social-load-more" type="button" onClick={() => void loadComments()}>Try again</button>
+        )}
         <div className="comment-list-heading"><strong>{total} {total === 1 ? "comment" : "comments"}</strong></div>
         {newCommentCount > 0 && (
           <button className="new-comments-notice" type="button" onClick={showLatestComment} aria-live="polite">
@@ -1542,7 +1563,7 @@ function DiscussionPanel({
         {loading && comments.length === 0 ? (
           <p className="social-empty">Loading comments…</p>
         ) : comments.length === 0 ? (
-          <p className="social-empty">No comments yet. Start the conversation.</p>
+          !error && <p className="social-empty">No comments yet. Start the conversation.</p>
         ) : (
           <ol className="comment-list" ref={commentList}>
             {comments.map((comment) => (
@@ -1603,7 +1624,7 @@ function DiscussionPanel({
             ))}
           </ol>
         )}
-      </section>
+      {composerLast && composer}
     </div>
   );
 }

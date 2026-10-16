@@ -3681,6 +3681,13 @@ button.local-weather {
   padding: clamp(2rem, 5vw, 4.5rem) clamp(1.15rem, 4vw, 3rem) 5rem;
 }
 
+.article-reader-comments { width: min(100%, 52rem); margin: 0 auto; padding: 0 clamp(1.15rem, 4vw, 3rem) 3rem; border-top: 1px solid var(--line); }
+.article-reader-comments > h3 { margin: 1.5rem 0 0; font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif; font-size: 1.6rem; font-weight: 600; }
+.article-reader-comments .comment-composer, .article-reader-comments .comment-list-heading, .article-reader-comments .comment-list { padding-right: 0; padding-left: 0; }
+.article-reader-comments .social-error, .article-reader-comments .social-empty, .article-reader-comments .social-load-more, .article-reader-comments .new-comments-notice { margin-right: 0; margin-left: 0; }
+.article-reader-comments .comment-list header { flex-wrap: wrap; }
+.article-reader-comments .comment-list header strong { min-width: 0; overflow-wrap: anywhere; }
+
 .article-reader-image {
   display: block;
   width: 100%;

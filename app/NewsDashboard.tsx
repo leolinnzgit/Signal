@@ -1,6 +1,6 @@
 "use client";
 
-import { type CSSProperties, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type ReactNode, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { updateInstalledAppBadge } from "./app-badge";
 import { createHostedArticleShare, shareArticle } from "./article-share";
@@ -724,6 +724,7 @@ type NewsDashboardProps = {
     profilePhotoUrl?: string | null;
   };
   articleToOpen?: SignalArticleLink | null;
+  renderArticleComments?: (article: FollowedArticle, closeReader: () => void) => ReactNode;
   signOutPath?: string | null;
   onSignOut?: () => void;
   onManageAccount?: () => void;
@@ -742,7 +743,7 @@ type NewsDashboardProps = {
 
 type PushNotificationStatus = "checking" | "unsupported" | "off" | "enabling" | "on" | "disabling" | "denied" | "error";
 
-export default function NewsDashboard({ user, articleToOpen, signOutPath, onSignOut, onManageAccount, onOpenCommunity, onOpenLatestComments, onOpenDiscussion, communityUnreadCount = 0, latestCommentUnreadCount = 0, preferencesStore, articleStore, summarySender, refreshStore, pushNotificationStore, friendShareStore }: NewsDashboardProps) {
+export default function NewsDashboard({ user, articleToOpen, renderArticleComments, signOutPath, onSignOut, onManageAccount, onOpenCommunity, onOpenLatestComments, onOpenDiscussion, communityUnreadCount = 0, latestCommentUnreadCount = 0, preferencesStore, articleStore, summarySender, refreshStore, pushNotificationStore, friendShareStore }: NewsDashboardProps) {
   const [preferences, setPreferences] = useState<NewsPreferences>(DEFAULTS);
   const [topicInput, setTopicInput] = useState("");
   const [rssInput, setRssInput] = useState("");
@@ -4621,6 +4622,12 @@ export default function NewsDashboard({ user, articleToOpen, signOutPath, onSign
                     <a href={readerOriginalUrl} target="_blank" rel="noreferrer">View original article &#8599;</a>
                   </div>
                 </article>
+              )}
+              {renderArticleComments && (
+                <section className="article-reader-comments" aria-labelledby="reader-comments-title">
+                  <h3 id="reader-comments-title">Comments</h3>
+                  {renderArticleComments(readerArticle, closeArticleReader)}
+                </section>
               )}
             </div>
           </section>
