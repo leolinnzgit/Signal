@@ -4370,6 +4370,8 @@ button.local-weather {
 .latest-comments-list > li > button:hover b,
 .latest-comments-list > li > button:focus-visible b { color: var(--red); }
 .latest-comments-list > li > button:focus-visible { outline: 2px solid var(--red); outline-offset: 3px; }
+.latest-comment-story-link { display: inline-block; margin: 0 0 1.15rem 2.85rem; color: var(--red); font-size: 0.75rem; font-weight: 700; text-underline-offset: 0.2rem; }
+.latest-comment-story-link:focus-visible, .discussion-article a:focus-visible { outline: 2px solid var(--red); outline-offset: 3px; }
 .latest-comment-copy { display: grid; min-width: 0; flex: 1 1 auto; gap: 0.35rem; }
 .latest-comment-copy > span { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; }
 .latest-comment-copy strong { font-size: 0.72rem; }

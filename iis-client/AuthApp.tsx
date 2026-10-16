@@ -2,6 +2,7 @@ import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import { updateInstalledAppBadge } from "../app/app-badge";
 import { prepareProfilePhoto } from "../app/profile-photo";
 import { preparedAudioCache } from "../app/headline-audio";
+import { parseSignalArticleLink, signalArticlePath, type SignalArticleLink } from "../app/article-link";
 import NewsDashboard, { type ArticleHistoryPage, type ArticleStore, type FollowedArticle, type FriendShareStore, type NewsPreferences, type NewsSummary, type PreferencesStore, type PushNotificationStore, type PushSubscriptionPayload, type TopicBriefing, type TopicRefreshStore } from "../app/NewsDashboard";
 
 type SessionUser = {
@@ -380,6 +381,7 @@ export default function AuthApp() {
   const [latestComments, setLatestComments] = useState<NewsComment[]>([]);
   const [latestCommentUnread, setLatestCommentUnread] = useState(0);
   const [discussionArticle, setDiscussionArticle] = useState<DiscussionArticle | null>(null);
+  const [articleToOpen, setArticleToOpen] = useState<SignalArticleLink | null>(() => parseSignalArticleLink(window.location.search));
   const [socialUnread, setSocialUnread] = useState(0);
   const lastSeenCommentId = useRef(0);
   const latestCommentsOpenRef = useRef(false);
@@ -500,6 +502,15 @@ export default function AuthApp() {
     };
   }, [user]);
 
+  function openCommentArticle(article: DiscussionArticle) {
+    setAccountOpen(false);
+    setCommunityOpen(false);
+    setDiscussionArticle(null);
+    setLatestCommentsOpen(false);
+    latestCommentsOpenRef.current = false;
+    setArticleToOpen({ ...article });
+  }
+
   function openLatestComments() {
     setAccountOpen(false);
     setCommunityOpen(false);
@@ -560,6 +571,7 @@ export default function AuthApp() {
       setSocialUnread(0);
       socialUnreadRef.current = 0;
       socialSummaryInitialized.current = false;
+      setArticleToOpen(null);
       setNotice("You’re signed out.");
       setView("login");
       window.history.replaceState({}, "", "/");
@@ -573,6 +585,7 @@ export default function AuthApp() {
       <>
         <NewsDashboard
           user={{ displayName: user.displayName, email: user.email, fullName: null, isLocalPreview: false, profilePhotoUrl: user.profilePhotoUrl }}
+          articleToOpen={articleToOpen}
           onSignOut={() => void signOut()}
           onManageAccount={() => { setCommunityOpen(false); setLatestCommentsOpen(false); setDiscussionArticle(null); setAccountOpen(true); }}
           onOpenCommunity={() => { setAccountOpen(false); setLatestCommentsOpen(false); setDiscussionArticle(null); setCommunityOpen(true); }}
@@ -603,6 +616,7 @@ export default function AuthApp() {
         {discussionArticle && (
           <DiscussionPanel
             article={discussionArticle}
+            onOpenArticle={openCommentArticle}
             onClose={() => setDiscussionArticle(null)}
             onOpenCommunity={() => { setDiscussionArticle(null); setCommunityOpen(true); }}
           />
@@ -610,6 +624,7 @@ export default function AuthApp() {
         {latestCommentsOpen && (
           <LatestCommentsPanel
             comments={latestComments}
+            onOpenArticle={openCommentArticle}
             onClose={() => { setLatestCommentsOpen(false); latestCommentsOpenRef.current = false; }}
             onOpenDiscussion={(comment) => {
               setLatestCommentsOpen(false);
@@ -1243,10 +1258,12 @@ function LatestCommentsPanel({
   comments,
   onClose,
   onOpenDiscussion,
+  onOpenArticle,
 }: {
   comments: NewsComment[];
   onClose: () => void;
   onOpenDiscussion: (comment: NewsComment) => void;
+  onOpenArticle: (article: DiscussionArticle) => void;
 }) {
   return (
     <div className="social-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
@@ -1273,6 +1290,12 @@ function LatestCommentsPanel({
                   </span>
                   <span className="social-person-arrow" aria-hidden="true">→</span>
                 </button>
+                <a className="latest-comment-story-link" href={signalArticlePath({ url: comment.articleUrl, title: comment.articleTitle, source: "Signal community" })}
+                  onClick={(event) => {
+                    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                    event.preventDefault();
+                    onOpenArticle({ url: comment.articleUrl, title: comment.articleTitle, source: "Signal community" });
+                  }}>Read story in Signal →</a>
               </li>
             ))}
           </ol>
@@ -1286,8 +1309,10 @@ function DiscussionPanel({
   article,
   onClose,
   onOpenCommunity,
+  onOpenArticle,
 }: {
   article: DiscussionArticle;
+  onOpenArticle: (article: DiscussionArticle) => void;
   onClose: () => void;
   onOpenCommunity: () => void;
 }) {
@@ -1464,7 +1489,11 @@ function DiscussionPanel({
         <div className="discussion-article">
           <span>{article.source}</span>
           <h3>{article.title}</h3>
-          <a href={article.url} target="_blank" rel="noreferrer">Open article ↗</a>
+          <a href={signalArticlePath(article)} onClick={(event) => {
+            if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+            event.preventDefault();
+            onOpenArticle(article);
+          }}>Read story in Signal →</a>
         </div>
         <form className="comment-composer" onSubmit={submit}>
           <label htmlFor="new-comment">Join the discussion</label>

@@ -25,7 +25,7 @@ public static class SharedArticlePage
             <header><a class="brand" href="{Encode(homePath)}" lang="en">SIGNAL<span>Shared story</span></a></header>
             <main><article>
             <div class="meta" lang="en"><span>{Encode(article.Source)}</span>{languageNote}</div>
-            <h1 dir="auto" data-audio-section="0">{Encode(article.Title)}</h1>
+            <h1 id="story-title" dir="auto" data-audio-section="0">{Encode(article.Title)}</h1>
             {(article.Byline.Length > 0 ? $"<p class=\"byline\" dir=\"auto\">{Encode(article.Byline)}</p>" : "")}
             <div lang="en">{notice}</div>
             <section class="shared-audio" lang="en" aria-label="Listen to this story">
@@ -57,7 +57,7 @@ public static class SharedArticlePage
             <button id="comments-older" type="button" hidden>Load older comments</button>
             <ol id="comment-list" aria-label="Story comments"></ol>
             </section>
-            <script src="{Encode(homePath)}shared-story-comments.js?v=2" defer></script>
+            <script src="{Encode(homePath)}shared-story-comments.js?v=3" defer></script>
             </article></main>
             """);
     }
@@ -102,6 +102,7 @@ public static class SharedArticlePage
         .shared-comments button{font:inherit;font-size:.85rem;padding:.65rem .9rem;border:1px solid var(--line);border-radius:.3rem;background:var(--paper);color:var(--ink);cursor:pointer}.shared-comments button:disabled{opacity:.6;cursor:wait}.shared-comments [hidden]{display:none}
         #comment-submit{background:var(--ink);color:var(--paper)}.shared-comments :focus-visible{outline:2px solid var(--accent);outline-offset:3px}.comments-toolbar{display:flex;align-items:center;justify-content:space-between;gap:1rem;margin:1.5rem 0 1rem;font-size:.85rem}
         #comment-list{list-style:none;padding:0;margin:1rem 0}#comment-list li{border-top:1px solid var(--line);padding:1rem 0}#comment-list p{white-space:pre-wrap;line-height:1.65;margin:.6rem 0 0}.comment-meta{display:flex;flex-wrap:wrap;gap:.5rem 1rem;align-items:baseline;font-size:.85rem}.comment-meta time{color:var(--muted);font-size:.75rem}
+        .comment-story-link{display:inline-block;margin-top:.7rem;font-size:.8rem}
         @media print{#comment-form,.comments-toolbar,#comments-older,#comment-status{display:none}}
         :root{--highlight:#f5e2af}
         @media(prefers-color-scheme:dark){:root{--paper:#191a18;--ink:#edeae2;--muted:#aaa79f;--line:#3b3c36;--accent:#ef8176;--highlight:#51422a}}

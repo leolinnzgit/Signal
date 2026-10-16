@@ -159,6 +159,8 @@ internal static class SharedCommentChecks
             await Microsoft.Playwright.Assertions.Expect(page.Locator("#comment-status")).ToContainTextAsync("Comment posted anonymously");
             Require(await page.Locator("#comment-list li").CountAsync() == 1 && await page.Locator("#comment-list img").CountAsync() == 0, "Comment was not shown safely as text.");
             Require(await page.Locator("#comment-body").InputValueAsync() == "", "Successful submission did not clear draft.");
+            Require(await page.Locator("#comment-list li a").GetAttributeAsync("href") == "#story-title"
+                && await page.Locator("#story-title").CountAsync() == 1, "Shared comment has no link back to its Signal story.");
             await page.ReloadAsync();
             await Microsoft.Playwright.Assertions.Expect(page.Locator("#comment-list li")).ToHaveCountAsync(1);
             const string guestName = "Jamie <img src=x onerror=alert(1)>";

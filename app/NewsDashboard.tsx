@@ -4,6 +4,7 @@ import { type CSSProperties, FormEvent, useCallback, useEffect, useMemo, useRef,
 
 import { updateInstalledAppBadge } from "./app-badge";
 import { createHostedArticleShare, shareArticle } from "./article-share";
+import type { SignalArticleLink } from "./article-link";
 import HeadlinePlayer from "./HeadlinePlayer";
 import HandGestureControls from "./HandGestureControls";
 import { useHandGestureTarget } from "./hand-gesture-actions";
@@ -722,6 +723,7 @@ type NewsDashboardProps = {
     isLocalPreview: boolean;
     profilePhotoUrl?: string | null;
   };
+  articleToOpen?: SignalArticleLink | null;
   signOutPath?: string | null;
   onSignOut?: () => void;
   onManageAccount?: () => void;
@@ -740,7 +742,7 @@ type NewsDashboardProps = {
 
 type PushNotificationStatus = "checking" | "unsupported" | "off" | "enabling" | "on" | "disabling" | "denied" | "error";
 
-export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAccount, onOpenCommunity, onOpenLatestComments, onOpenDiscussion, communityUnreadCount = 0, latestCommentUnreadCount = 0, preferencesStore, articleStore, summarySender, refreshStore, pushNotificationStore, friendShareStore }: NewsDashboardProps) {
+export default function NewsDashboard({ user, articleToOpen, signOutPath, onSignOut, onManageAccount, onOpenCommunity, onOpenLatestComments, onOpenDiscussion, communityUnreadCount = 0, latestCommentUnreadCount = 0, preferencesStore, articleStore, summarySender, refreshStore, pushNotificationStore, friendShareStore }: NewsDashboardProps) {
   const [preferences, setPreferences] = useState<NewsPreferences>(DEFAULTS);
   const [topicInput, setTopicInput] = useState("");
   const [rssInput, setRssInput] = useState("");
@@ -853,6 +855,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   );
   const requestSequence = useRef(0);
   const historyRequestSequence = useRef(0);
+  const openedArticleRequest = useRef<SignalArticleLink | null>(null);
   const headerElement = useRef<HTMLElement>(null);
   const heroElement = useRef<HTMLElement>(null);
   const controlPanelElement = useRef<HTMLDivElement>(null);
@@ -2683,10 +2686,10 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const readerSummaryParagraphs = useMemo(() => [readerArticle?.summary || readerArticle?.title || ""],
     [readerArticle?.summary, readerArticle?.title]);
 
-  function openArticleReader(article: FollowedArticle, trigger: HTMLElement, listen = false) {
+  function openArticleReader(article: FollowedArticle, trigger: HTMLElement, listen = false, stayInSignal = false) {
     weatherAudio.stop();
     readerTrigger.current = trigger;
-    markArticleRead(article);
+    if (!stayInSignal || articles.some((item) => item.url === article.url) || historyArticles.some((item) => item.url === article.url)) markArticleRead(article);
     setReaderArticle(article);
     setReaderTranslation(null);
     setReaderAudioRequested(listen);
@@ -2703,15 +2706,24 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           setReaderContent({ status: "ready", article: data.article });
           return;
         }
-        if (listen) setReaderContent({ status: "unavailable", reason: data.reason || "The publisher did not provide the full article text for reading aloud." });
+        if (listen || stayInSignal) setReaderContent({ status: "unavailable", reason: data.reason || "The publisher did not provide the full article text to Signal." });
         else openOriginalAfterReaderFailure(article.url, requestId);
       })
       .catch(() => {
         if (requestId !== readerRequestSequence.current) return;
-        if (listen) setReaderContent({ status: "unavailable", reason: "The full article could not be loaded. You can read it on the publisher’s website." });
+        if (listen || stayInSignal) setReaderContent({ status: "unavailable", reason: "The full article could not be loaded. You can read it on the publisher’s website." });
         else openOriginalAfterReaderFailure(article.url, requestId);
       });
   }
+
+  useEffect(() => {
+    if (!articleToOpen || openedArticleRequest.current === articleToOpen) return;
+    openedArticleRequest.current = articleToOpen;
+    const article = articles.find((item) => item.url === articleToOpen.url)
+      ?? historyArticles.find((item) => item.url === articleToOpen.url)
+      ?? { ...articleToOpen, publishedAt: "", summary: "", topics: [], providers: [] };
+    openArticleReader(article, headerElement.current?.querySelector<HTMLButtonElement>(".latest-comments-button") ?? document.body, false, true);
+  }, [articleToOpen, articles, historyArticles]);
 
   function markArticleRead(article: FollowedArticle, fromLatest = feedView === "latest") {
     if (article.isRead) return;
@@ -4546,7 +4558,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               </div>
               <div className="article-reader-meta">
                 <span>{readerArticle.source}</span>
-                <span>{formatAge(readerArticle.publishedAt)}</span>
+                {readerArticle.publishedAt && <span>{formatAge(readerArticle.publishedAt)}</span>}
               </div>
               <h2 id="article-reader-title" lang={readerTranslation?.language} dir="auto"><ArticleReadingText text={readerTranslation?.title ?? readerArticle.title} paragraphIndex={-1} section={readerReading.section} /></h2>
               <p>
@@ -4577,7 +4589,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               )}
               {readerContent.status === "ready" && (
                 <article className="article-reader-content">
-                  <ArticleTranslationControls key={readerArticle.url} url={readerArticle.url} title={readerArticle.title}
+                  <ArticleTranslationControls key={`translation-${readerArticle.url}`} url={readerArticle.url} title={readerArticle.title}
                     translated={readerTranslation !== null} onChange={updateReaderTranslation} />
                   {readerTranslation ? <ArticleAudioPlayer key={`${readerArticle.url}-${readerTranslation.language}`}
                     title={readerTranslation.title} source={readerArticle.source} paragraphs={readerTranslation.paragraphs}

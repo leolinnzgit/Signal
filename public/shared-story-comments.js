@@ -39,7 +39,11 @@
     text.dir = "auto";
     text.textContent = comment.body;
     header.append(name, time);
-    item.append(header, text);
+    const storyLink = document.createElement("a");
+    storyLink.href = "#story-title";
+    storyLink.className = "comment-story-link";
+    storyLink.textContent = "Back to story ↑";
+    item.append(header, text, storyLink);
     return item;
   }
 
