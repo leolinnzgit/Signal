@@ -853,6 +853,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   );
   const requestSequence = useRef(0);
   const historyRequestSequence = useRef(0);
+  const headerElement = useRef<HTMLElement>(null);
   const heroElement = useRef<HTMLElement>(null);
   const controlPanelElement = useRef<HTMLDivElement>(null);
   const quickTopicSearchDialog = useRef<HTMLDialogElement>(null);
@@ -1823,6 +1824,24 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     updateBackToTopVisibility();
     window.addEventListener("scroll", updateBackToTopVisibility, { passive: true });
     return () => window.removeEventListener("scroll", updateBackToTopVisibility);
+  }, []);
+
+  useEffect(() => {
+    const header = headerElement.current;
+    const dashboard = header?.parentElement;
+    if (!header || !dashboard) return;
+    const updateHeaderOffset = () => {
+      dashboard.style.setProperty("--site-header-offset", `${Math.ceil(header.getBoundingClientRect().height)}px`);
+    };
+    updateHeaderOffset();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateHeaderOffset);
+    observer?.observe(header);
+    window.addEventListener("resize", updateHeaderOffset);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", updateHeaderOffset);
+      dashboard.style.removeProperty("--site-header-offset");
+    };
   }, []);
 
   useEffect(() => {
@@ -2988,7 +3007,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   return (
     <main className="signal-dashboard" id="top">
       <HandGestureControls />
-      <header className="site-header">
+      <header ref={headerElement} className="site-header">
         <a className="brand" href="#top" aria-label="Signal home">
           <img className="brand-mark" src="/icons/signal-medallion-64.png" alt="" aria-hidden="true" />
           <span>SIGNAL</span>

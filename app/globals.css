@@ -762,7 +762,7 @@ main {
 .hero.compact {
   position: sticky;
   z-index: 24;
-  top: var(--site-header-height);
+  top: var(--site-header-offset, var(--site-header-height));
   padding-top: 1.15rem;
   padding-bottom: 1.3rem;
   border-bottom: 1px solid var(--line);
@@ -4409,6 +4409,17 @@ footer a { color: var(--paper); text-decoration: none; }
 .footer-dot { width: 5px; height: 5px; margin: 0 0.4rem 0.05rem 0; box-shadow: none; }
 
 @media (max-width: 900px) {
+  .site-header { flex-wrap: wrap; gap: 0.5rem; padding-block: 0.65rem; }
+  .site-header > .brand { margin-right: auto; }
+  .header-actions { display: contents; }
+  .header-actions .live-status { display: none; }
+  .header-actions > button { min-width: 2rem; min-height: 2rem; justify-content: center; padding: 0.34rem; margin-right: 0; }
+  .theme-toggle-label, .app-install-label, .community-button-label, .latest-comments-button-label { display: none; }
+  .header-actions .community-unread { position: absolute; top: -0.35rem; right: -0.35rem; }
+  .current-user { flex: 0 0 100%; min-width: 0; padding: 0.55rem 0 0; border-left: 0; border-top: 1px solid var(--line); }
+  .user-identity { flex: 1 1 auto; min-width: 0; max-width: none; }
+  .user-identity strong, .user-identity small { overflow: visible; text-overflow: clip; white-space: normal; overflow-wrap: anywhere; line-height: 1.4; }
+  .current-user > button, .current-user > a, .preview-session { flex: 0 0 auto; }
   .hero { grid-template-columns: minmax(0, 1fr); gap: 1.5rem; }
   .hero.compact { gap: 0; padding-top: 0.85rem; padding-bottom: 0.85rem; }
   .hero.compact .hero-copy { display: none; }
@@ -4489,9 +4500,9 @@ footer a { color: var(--paper); text-decoration: none; }
   .header-actions .live-status { display: none; }
   .current-user { gap: 0.45rem; padding-left: 0; border-left: 0; }
   .user-avatar { width: 1.75rem; height: 1.75rem; }
-  .user-identity { max-width: 7rem; }
-  .user-identity strong { font-size: 0.62rem; }
-  .user-identity small { display: none; }
+  .user-identity { max-width: none; }
+  .user-identity strong { font-size: 0.7rem; }
+  .user-identity small { display: block; }
   .current-user a { font-size: 0.58rem; }
   .hero { padding-top: 2.25rem; padding-bottom: 2.25rem; }
   .hero h1 { font-size: clamp(2.25rem, 10vw, 3.1rem); }
