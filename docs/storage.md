@@ -21,3 +21,23 @@ libraries for other operating systems. Deployment removes only known obsolete
 runtime folders that the current package and dependency manifest do not use.
 Obsolete generated frontend bundles are removed after a seven-day grace period;
 the current package's assets are always retained.
+
+## Development checkout
+
+The development folder can accumulate several GiB of old release copies, probe
+builds and .NET output. Preview the cleanup with:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Clear-SignalBuildArtifacts.ps1 -IncludeReleaseCopies -WhatIf
+```
+
+Remove `-WhatIf` to delete those generated files after builds and deployments
+have finished. Release copies and source archives are removed only when their
+commit is already in the current Git history. Junctions to the shared
+`node_modules` are removed without following them. Unexpected links, tracked
+files, databases, patches and Git backups block cleanup.
+
+The script preserves installed dependencies, the current `iis-publish` package,
+local `App_Data`, operational scripts and work in progress. The next build
+recreates the deleted output. The deployed IIS application is outside the
+checkout and is unaffected by this cleanup.
