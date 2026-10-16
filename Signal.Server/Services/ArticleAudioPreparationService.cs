@@ -1,6 +1,5 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 using Signal.Server.Data;
 
 namespace Signal.Server.Services;
@@ -8,7 +7,6 @@ namespace Signal.Server.Services;
 public sealed class ArticleAudioPreparationService(
     IServiceScopeFactory scopeFactory,
     HeadlineAudioService audio,
-    IOptions<KokoroSpeechOptions> options,
     IWebHostEnvironment environment,
     ILogger<ArticleAudioPreparationService> logger) : BackgroundService, IArticleAudioPrewarmer
 {
@@ -51,8 +49,7 @@ public sealed class ArticleAudioPreparationService(
                 try
                 {
                     if (job.Article && !job.Extracted) await ExtractAsync(job, stoppingToken);
-                    // Cloud requests prepare several parts together; local inference stays small.
-                    var batch = job.Parts.Skip(job.Index).Take(audio.EngineName == "azure-neural" ? 4 : 1).ToArray();
+                    var batch = job.Parts.Skip(job.Index).Take(4).ToArray();
                     var ready = await audio.TryPrepareInBackgroundAsync(new HeadlineAudioRequest(batch, 3), stoppingToken);
                     if (!ready)
                     {
@@ -138,7 +135,7 @@ public sealed class ArticleAudioPreparationService(
             var path = Path.Combine(directory, "article-audio-preparation.json");
             var temporary = path + ".tmp";
             await File.WriteAllTextAsync(temporary, JsonSerializer.Serialize(new {
-                Engine = audio.EngineName, Enabled, CpuThreads = audio.EngineName == "kokoro-local" ? (int?)options.Value.KokoroThreads : null,
+                Engine = audio.EngineName, Enabled,
                 QueuedArticles = queue.Count, Active = active, PreparedParts = preparedParts,
                 PreparedArticles = preparedArticles, FailedArticles = failedArticles, UpdatedAt = DateTimeOffset.UtcNow
             }), token);

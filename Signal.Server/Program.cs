@@ -151,11 +151,6 @@ builder.Services.AddSingleton(service => new AzureSpeechAudioRenderer(
     service.GetRequiredService<Microsoft.Extensions.Options.IOptions<AzureSpeechOptions>>(),
     service.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(AzureSpeechAudioRenderer)),
     service.GetRequiredService<IAzureSpeechSynthesizer>(), Path.Combine(dataDirectory, "HeadlineAudioClips")));
-builder.Services.Configure<KokoroSpeechOptions>(builder.Configuration.GetSection(AzureSpeechOptions.SectionName));
-builder.Services.AddSingleton<IKokoroSpeechWorker, KokoroSpeechWorker>();
-builder.Services.AddSingleton(service => new KokoroAudioRenderer(
-    service.GetRequiredService<Microsoft.Extensions.Options.IOptions<KokoroSpeechOptions>>(),
-    service.GetRequiredService<IKokoroSpeechWorker>(), builder.Environment.ContentRootPath));
 builder.Services.AddSingleton<HeadlineAudioService>();
 builder.Services.AddSingleton(service => new ArticleAudioStreamService(service.GetRequiredService<AzureSpeechAudioRenderer>(), service.GetRequiredService<IAzureSpeechStreamer>()));
 builder.Services.AddSingleton(service => new SharedArticleAudioService(service.GetRequiredService<AzureSpeechAudioRenderer>(),

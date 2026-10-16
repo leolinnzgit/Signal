@@ -88,53 +88,14 @@ for the isolated cloud-adapter checks. They use a fake synthesizer and require n
 account or billable calls. Actual Azure voice quality and the deployed IIS identity
 must be checked after entering a real resource key.
 
-## Local Kokoro recordings
+## Prepare audio when news arrives
 
-Double-click **Install Signal Kokoro.cmd** after publishing the updated server.
-The script uses [uv](https://docs.astral.sh/uv/getting-started/installation/), a
-private Python 3.12 environment, pinned packages and verified ONNX model downloads.
-It tests English and Mandarin before setting `Speech:Provider` to `Kokoro` in the
-private production configuration and restarting Signal. Existing settings,
-including Azure credentials, are preserved. No account or API key is needed.
-
-Refresh Signal and select **Recorded audio**. Defaults are Emma (British English)
-and Xiaobei (Mandarin); the voice picker exposes the installed English and Mandarin
-voices and supports previews. PCs default to Recorded audio. Kokoro provides
-its own voices; the sound will differ from the browser voice.
-
-Models and Python remain in `C:\sites\SignalHost\App_Data\Kokoro`, preserved by
-deployment. Downloads require internet during setup; synthesis runs locally on CPU
-and sends no article text to a speech service. There are no speech API fees.
-The full precision model is used because it was substantially faster than the
-quantized model on this server. It requires about 354 MB for model assets plus
-Python and its packages; allow at least 1 GB during a fresh installation.
-
-On the current server, example English and Mandarin clips took roughly 1.3 times
-their spoken duration to prepare once the model loaded. Short requests also have
-startup overhead. Articles are prepared in small batches with progress shown;
-first preparation can take several minutes for a long story. A persistent worker
-keeps the model warm, and the bounded seven-day clip cache reuses repeated text.
-Recorded playback and screen-off controls work after preparation finishes.
-
-Run `dotnet run --project Signal.Server.TopicMatcher.Tests -- --kokoro-only` for
-adapter checks without models. Use `--kokoro-live` on a server with the default
-installation to validate real English/Mandarin output and worker cancellation.
-The installer also saves `sample-en.wav` and `sample-zh.wav` in the private runtime
-folder for listening. Pass `-SitePath`, `-EnglishVoice`, `-ChineseVoice`, or
-`-Threads` to `scripts/Install-SignalKokoro.ps1` to customize installation.
-
-References: [Kokoro model](https://huggingface.co/hexgrad/Kokoro-82M),
-[ONNX runtime adapter](https://github.com/thewh1teagle/kokoro-onnx),
-[pinned model release](https://github.com/thewh1teagle/kokoro-onnx/releases/tag/model-files-v1.1).
-
-### Prepare audio when news arrives
-
-With Azure (the primary speech provider) or Kokoro enabled, newly saved news
+With Azure (the primary speech provider) enabled, newly saved news
 automatically queues background recordings. Azure preparation is enabled by
 default without changing the production key, region, or voice settings.
 Headlines are prepared first; Signal then extracts each readable full article and
-prepares the same parts used by Listen (up to 900 characters for Azure or 300
-for Kokoro). The briefing's closing announcement is also cached. When extraction is
+prepares the same parts used by Listen (up to 900 characters). The briefing's
+closing announcement is also cached. When extraction is
 unavailable, it prepares the title and feed summary. Saving news and refreshing
 topics do not wait for synthesis. The default English/Chinese voices are used;
 choosing another voice prepares that recording when requested.
@@ -149,9 +110,8 @@ Preparing new Azure text uses the configured Speech resource, including text
 that the user may not subsequently listen to. Identical saved text and voices
 reuse clips across users and server restarts.
 
-Kokoro already uses four CPU threads inside one synthesis process. Background
-work runs at reduced Windows process priority. A recorded playback request with missing
-clips cancels background inference and takes priority; ready cached playback
+A recorded playback request with missing clips cancels background preparation
+and takes priority; ready cached playback
 bypasses synthesis entirely. Background work waits five seconds after a foreground
 request so consecutive article batches can finish without repeated interruptions.
 Cancelled background parts remain queued for retry. Clips completed earlier are
@@ -162,10 +122,8 @@ repeated saves, and discards older pending work when full. Restarting Signal
 restores up to 128 recent stories seen in the last day. An article can still show
 preparation progress if its background job has not finished, its cache expired,
 or the user selects another voice. Background preparation requires the server to
-remain running. Kokoro uses local CPU while work is pending; Azure uses the
-configured cloud Speech resource.
+remain running. Azure uses the configured cloud Speech resource.
 
-Set `Speech:Prewarm` to `false` to disable Azure automatic preparation, or
-`Speech:KokoroPrewarm` to `false` to disable Kokoro automatic preparation. Private
+Set `Speech:Prewarm` to `false` to disable Azure automatic preparation. Private
 progress counters are saved in `App_Data/article-audio-preparation.json`; article
 text and URLs are excluded from that status file.

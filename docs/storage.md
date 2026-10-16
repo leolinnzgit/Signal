@@ -21,6 +21,3 @@ libraries for other operating systems. Deployment removes only known obsolete
 runtime folders that the current package and dependency manifest do not use.
 Obsolete generated frontend bundles are removed after a seven-day grace period;
 the current package's assets are always retained.
-
-The optional Kokoro installation includes its local model and Python environment;
-Azure does not use it. It is preserved until the owner requests its removal.

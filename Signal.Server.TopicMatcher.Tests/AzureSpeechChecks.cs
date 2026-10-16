@@ -23,8 +23,7 @@ internal static class AzureSpeechChecks
         {
             using var client = new HttpClient();
             var renderer = new AzureSpeechAudioRenderer(Options.Create(settings), client, synth, directory);
-            var disabled = Options.Create(new KokoroSpeechOptions { Provider = settings.Provider });
-            var service = new HeadlineAudioService(renderer, new KokoroAudioRenderer(disabled, new UnusedKokoroWorker(), directory));
+            var service = new HeadlineAudioService(renderer);
             var request = new HeadlineAudioRequest(["Signal audio is ready.", "語音已準備好。", "Signal audio is ready."], 3,
                 Voices: new Dictionary<string, string> { ["en"] = "kokoro/bf_emma", ["zh"] = "kokoro/zf_xiaobei" });
             Assert(await service.TryPrepareInBackgroundAsync(request, timeout.Token), "Live Azure could not save its background recording.");
@@ -225,9 +224,4 @@ internal static class AzureSpeechChecks
         public Task<AzureSpeechBatch> SynthesizeAsync(string ssml, CancellationToken token) { Calls++; return inner.SynthesizeAsync(ssml, token); }
     }
 
-    private sealed class UnusedKokoroWorker : IKokoroSpeechWorker
-    {
-        public Task<byte[][]> GenerateAsync(IReadOnlyList<KokoroClip> clips, CancellationToken token, bool background = false)
-            => throw new Exception("Azure narration invoked Kokoro.");
-    }
 }

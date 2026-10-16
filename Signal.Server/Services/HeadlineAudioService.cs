@@ -25,25 +25,16 @@ public sealed class HeadlineAudioService
     private readonly TimeSpan queueTimeout;
     private readonly AzureSpeechAudioRenderer? azure;
     private readonly bool windowsOnly;
-    private readonly KokoroAudioRenderer? kokoro;
     private readonly object backgroundLock = new();
     private CancellationTokenSource? backgroundRendering;
     private int foregroundRequests;
     private DateTime lastForegroundActivity;
 
-    public string EngineName => kokoro?.Enabled == true ? "kokoro-local" : azure?.Enabled == true ? "azure-neural" : "isolated-process";
-    public int MaximumBatchCharacters => kokoro?.Enabled == true ? 300 : 15_000;
-    public bool BackgroundPreparationEnabled => azure?.Enabled == true ? azure.BackgroundPreparationEnabled : kokoro?.BackgroundPreparationEnabled == true;
+    public string EngineName => azure?.Enabled == true ? "azure-neural" : "isolated-process";
+    public int MaximumBatchCharacters => 15_000;
+    public bool BackgroundPreparationEnabled => azure?.BackgroundPreparationEnabled == true;
     public int ArticlePartLength => Math.Min(900, MaximumBatchCharacters);
     internal const string BriefingCompleteMessage = "All caught up. You've reached the end of your audio briefing.";
-
-    public HeadlineAudioService(AzureSpeechAudioRenderer azure, KokoroAudioRenderer kokoro)
-        : this(kokoro.Enabled ? kokoro.GenerateAsync : azure.Enabled ? azure.GenerateAsync : HeadlineAudioWorker.GenerateAsync,
-            TimeSpan.FromSeconds(kokoro.Enabled ? 180 : azure.Enabled ? 90 : 45), TimeSpan.FromSeconds(30), !kokoro.Enabled && !azure.Enabled)
-    {
-        this.azure = azure;
-        this.kokoro = kokoro;
-    }
 
     public HeadlineAudioService(AzureSpeechAudioRenderer azure)
         : this(azure.Enabled ? azure.GenerateAsync : HeadlineAudioWorker.GenerateAsync,
@@ -54,7 +45,6 @@ public sealed class HeadlineAudioService
 
     public async Task<IReadOnlyList<NarrationVoice>> GetVoicesAsync(CancellationToken token)
     {
-        if (kokoro?.Enabled == true) return kokoro.GetVoices();
         if (azure?.Enabled == true) return await azure.GetVoicesAsync(token);
         return OperatingSystem.IsWindows() ? HeadlineAudioVoiceCatalog.GetInstalled() : [];
     }
@@ -91,7 +81,6 @@ public sealed class HeadlineAudioService
             throw new PlatformNotSupportedException("Screen-off audio is unavailable on this server.");
         lock (backgroundLock) lastForegroundActivity = DateTime.UtcNow;
         // Ready recordings bypass synthesis and never interrupt background work.
-        if (kokoro?.Enabled == true && kokoro.GetCached(request) is { } cached) return cached;
         if (azure?.Enabled == true && await azure.GetCachedAsync(request, cancellationToken) is { } cloudCached) return cloudCached;
         lock (backgroundLock)
         {
@@ -109,8 +98,8 @@ public sealed class HeadlineAudioService
             try
             {
                 var rendering = render(request, deadline.Token);
-                // Local and cloud workers close their connection before releasing the queue.
-                return azure?.Enabled == true || kokoro?.Enabled == true ? await rendering : await rendering.WaitAsync(deadline.Token);
+                // The cloud worker closes its connection before releasing the queue.
+                return azure?.Enabled == true ? await rendering : await rendering.WaitAsync(deadline.Token);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
@@ -128,7 +117,6 @@ public sealed class HeadlineAudioService
     {
         if (!BackgroundPreparationEnabled) return false;
         token.ThrowIfCancellationRequested();
-        if (kokoro?.Enabled == true && kokoro.GetCached(request) is not null) return true;
         if (azure?.Enabled == true && await azure.GetCachedAsync(request, token) is not null) return true;
         CancellationTokenSource deadline;
         lock (backgroundLock)
@@ -142,11 +130,8 @@ public sealed class HeadlineAudioService
         }
         try
         {
-            if (azure?.Enabled == true) await azure.GenerateAsync(request, deadline.Token);
-            else await kokoro!.PrepareAsync(request, deadline.Token);
-            var saved = azure?.Enabled == true
-                ? await azure.GetCachedAsync(request, deadline.Token) is not null
-                : kokoro!.GetCached(request) is not null;
+            await azure!.GenerateAsync(request, deadline.Token);
+            var saved = await azure.GetCachedAsync(request, deadline.Token) is not null;
             if (!saved)
                 throw new HeadlineAudioUnavailableException("cache", "Background audio could not be saved in the recording cache.");
             return true;

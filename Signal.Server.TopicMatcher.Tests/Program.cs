@@ -40,11 +40,6 @@ if (args.Contains("--article-stream-only")) return;
 
 ArticleAudioPreparationChecks.Run();
 await ArticleAudioPreparationChecks.RunHostedAsync();
-await ArticleAudioPreparationChecks.RunHostedAsync(useAzure: true);
-await KokoroSpeechChecks.RunAsync();
-if (args.Contains("--kokoro-live")) { await KokoroSpeechChecks.RunLiveAsync(); return; }
-if (args.Contains("--kokoro-only")) return;
-
 await AzureSpeechChecks.RunAsync();
 if (args.Contains("--azure-speech-only")) return;
 
