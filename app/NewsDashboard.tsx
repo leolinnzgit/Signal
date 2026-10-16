@@ -4700,7 +4700,8 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
       {headlineQueue && (
         <HeadlinePlayer
           articles={headlineQueue}
-          marketQuote={marketQuote?.topic.toLowerCase() === selectedTopic.toLowerCase() ? marketQuote : null}
+          marketTopic={selectedTopic === ALL_TOPICS ? undefined : selectedTopic}
+          tickerOverrides={preferences.tickerOverrides}
           suspended={readerArticle !== null}
           startWithScreenOffAudio={preferScreenOffAudio(navigator.userAgent, appInstalled)}
           onArticleRead={(article) => markArticleRead(article, true)}

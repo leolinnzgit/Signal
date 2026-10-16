@@ -6,7 +6,7 @@ import { useHandGestureTarget } from "./hand-gesture-actions";
 import type { FollowedArticle } from "./NewsDashboard";
 import ScreenOffAudioPlayer, { type ScreenOffAudioControls } from "./ScreenOffAudioPlayer";
 import BriefingMarketPrice from "./BriefingMarketPrice";
-import type { MarketQuote } from "./market-quote";
+import { useBriefingMarketQuote } from "./useBriefingMarketQuote";
 import { BRIEFING_COMPLETE_MESSAGE } from "./headline-audio";
 import {
   createHeadlinePlayback,
@@ -23,7 +23,8 @@ import {
 
 type HeadlinePlayerProps = {
   articles: FollowedArticle[];
-  marketQuote?: MarketQuote | null;
+  marketTopic?: string;
+  tickerOverrides?: Record<string, string>;
   startWithScreenOffAudio?: boolean;
   suspended?: boolean;
   onArticleRead: (article: FollowedArticle) => void;
@@ -33,7 +34,7 @@ type HeadlinePlayerProps = {
   onHandBookmark?: (article: FollowedArticle) => Promise<string>;
 };
 
-export default function HeadlinePlayer({ articles, marketQuote, startWithScreenOffAudio = false, suspended = false, onArticleRead, onOpenArticle, onListenArticle, onClose, onHandBookmark }: HeadlinePlayerProps) {
+export default function HeadlinePlayer({ articles, marketTopic, tickerOverrides = {}, startWithScreenOffAudio = false, suspended = false, onArticleRead, onOpenArticle, onListenArticle, onClose, onHandBookmark }: HeadlinePlayerProps) {
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const [seconds, setSeconds] = useState(6);
@@ -58,6 +59,7 @@ export default function HeadlinePlayer({ articles, marketQuote, startWithScreenO
   const readUrls = useRef(new Set<string>());
   const completed = index >= articles.length;
   const article = articles[index];
+  const marketQuote = useBriefingMarketQuote(article?.topics ?? [], article ? marketTopic : undefined, tickerOverrides);
   const title = completed && articles.length ? BRIEFING_COMPLETE_MESSAGE : article?.title;
   const speechLanguage = headlineSpeechLanguage(title ?? "", navigator.language);
   const languageKey = speechLanguage.split("-")[0].toLowerCase();

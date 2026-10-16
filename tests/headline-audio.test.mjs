@@ -43,6 +43,7 @@ test("browser briefings narrate completion with saved preferences and stop on cl
       "react-dom": { createPortal: (node) => node },
       "./ScreenOffAudioPlayer": { default: () => null },
       "./BriefingMarketPrice": { default: () => null },
+      "./useBriefingMarketQuote": { useBriefingMarketQuote: () => null },
       "./headline-audio": { BRIEFING_COMPLETE_MESSAGE },
       "./headline-playback": { ...playbackModule, createHeadlinePlayback(options) {
         calls.push(options);

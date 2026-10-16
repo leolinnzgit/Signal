@@ -15,6 +15,17 @@ reached the end of your audio briefing.” Browser voice uses the selected voice
 and speed. Recorded briefings include the announcement in the audio track, so
 it also plays with the screen off. Muted browser briefings finish silently.
 
+Headline playback shows a stock quote for the current headline's followed topics,
+including when playback starts from **All topics**. Saved ticker overrides apply
+in both audio modes. Quotes update as the briefing advances; topics without a
+stock match do not retain the previous company's price. Quotes are reused for
+five minutes and refreshed during longer briefings.
+
+Run `node tests/briefing-market.test-browser.mjs` to check quote lookup, automatic
+headline transitions, recorded playback, saved tickers, and the All topics
+dashboard path. Set `SIGNAL_PLAYWRIGHT_MODULE` to the host's Playwright module
+and `SIGNAL_BROWSER_CHANNEL=msedge` when needed.
+
 The **Reading voice** section starts hidden. Select **Show** to choose or preview
 a voice, and **Hide** to collapse it. Hiding the section stops any voice preview
 without stopping the main narration; saved voice choices are retained.
