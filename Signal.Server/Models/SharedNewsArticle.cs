@@ -6,6 +6,7 @@ public sealed class SharedNewsArticle
     public string UserId { get; set; } = "";
     public ApplicationUser User { get; set; } = null!;
     public string ContentHash { get; set; } = "";
+    public string? ShareKey { get; set; }
     public string OriginalUrl { get; set; } = "";
     public string DiscussionUrl { get; set; } = "";
     public string Title { get; set; } = "";

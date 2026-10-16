@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 using Signal.Server.Controllers;
@@ -215,7 +216,7 @@ internal static class ArticleShareChecks
         var french = await CreateAsync(controller, request with { Snapshot = snapshot with { Title = "Titre", Paragraphs = ["Texte français."], Language = "fr" } });
         Require(french.GetProperty("path").GetString() != path, "Different languages reused the same page.");
         var revised = await CreateAsync(controller, request with { Snapshot = snapshot with { Paragraphs = ["新版本。"] } });
-        Require(revised.GetProperty("path").GetString() != path, "Changed text overwrote an existing link.");
+        Require(revised.GetProperty("path").GetString() == path, "Changed text created a second hosted URL for the same news story.");
 
         // Read in a fresh context, without an authenticated identity or access to the source.
         await using var freshDatabase = new SignalDbContext(options);
@@ -239,7 +240,7 @@ internal static class ArticleShareChecks
             request with { Snapshot = snapshot with { Paragraphs = [" "] } },
             request with { Snapshot = snapshot with { Paragraphs = [new string('x', 80_001)] } }
         }) Require(await controller.Create(invalid, CancellationToken.None) is BadRequestObjectResult, "Invalid or oversized public share was accepted.");
-        var unsafeText = await CreateAsync(controller, request with { Snapshot = snapshot with {
+        var unsafeText = await CreateAsync(controller, request with { Url = "https://93.184.216.34/unsafe-story", Snapshot = snapshot with {
             Title = "<script>alert(1)</script>", Paragraphs = ["<img src=x onerror=alert(1)>"] } });
         var unsafePage = (ContentResult)await anonymous.Read(unsafeText.GetProperty("path").GetString()!.Split('/').Last(), CancellationToken.None);
         Require(!unsafePage.Content!.Contains("<script>") && !unsafePage.Content.Contains("<img ")
@@ -258,7 +259,87 @@ internal static class ArticleShareChecks
             && fullPage.Content.Contains("https://93.184.216.34/resolved-story") && !fullPage.Content.Contains("Feed summary"), "Original share did not save the full reader text and resolved publisher link.");
         var other = await CreateAsync(CreateController(database, reader, "other"), request);
         Require(other.GetProperty("path").GetString() != path, "Different users shared ownership of a page.");
-        Console.WriteLine("Hosted article sharing passed persisted translations, immutable versions, deduplication, anonymous reading, authorization, text escaping, input limits and summary fallback checks.");
+        await RunReuseChecksAsync();
+        Console.WriteLine("Hosted article sharing passed stable news URLs, saved translations, legacy link reuse, concurrent creation, anonymous reading, authorization, text escaping, input limits and summary fallback checks.");
+    }
+
+    private static async Task RunReuseChecksAsync()
+    {
+        using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<SignalDbContext>().UseSqlite(connection).Options;
+        await using var database = new SignalDbContext(options);
+        await database.Database.EnsureCreatedAsync();
+        database.Users.Add(new ApplicationUser { Id = "owner", UserName = "owner" });
+        var first = new SharedNewsArticle { Id = new string('1', 48), UserId = "owner", ContentHash = "legacy-first",
+            OriginalUrl = "https://93.184.216.34/legacy", Title = "First saved title", Source = "Publisher",
+            ParagraphsJson = "[\"First saved text.\"]", CreatedAtUtc = DateTime.UtcNow.AddDays(-2) };
+        var later = new SharedNewsArticle { Id = new string('2', 48), UserId = "owner", ContentHash = "legacy-later",
+            OriginalUrl = first.OriginalUrl, DiscussionUrl = first.OriginalUrl, Title = "Later saved title",
+            ParagraphsJson = "[\"Later saved text.\"]", CreatedAtUtc = DateTime.UtcNow.AddDays(-1) };
+        database.SharedNewsArticles.AddRange(first, later);
+        database.NewsComments.Add(new NewsComment { ArticleUrl = first.OriginalUrl, ArticleTitle = first.Title, Body = "Keep this discussion", GuestName = "Jamie" });
+        await database.SaveChangesAsync();
+        // Upgrade the deployed schema without removing any historical URL or snapshot.
+        await database.Database.ExecuteSqlRawAsync("DROP INDEX IX_SharedNewsArticles_UserId_ShareKey; ALTER TABLE SharedNewsArticles DROP COLUMN ShareKey;");
+        await SharedArticleLinkSchema.UpgradeAsync(database);
+        await SharedArticleLinkSchema.UpgradeAsync(database);
+        Require(await database.SharedNewsArticles.CountAsync() == 2 && await database.NewsComments.CountAsync() == 1,
+            "Share-key upgrade removed a hosted page or comment.");
+        var network = new UnavailableHandler();
+        using var client = new HttpClient(network);
+        using var cache = new MemoryCache(new MemoryCacheOptions());
+        var reader = new ArticleReaderService(client, cache, NullLogger<ArticleReaderService>.Instance);
+        var controller = CreateController(database, reader, "owner");
+        var request = new ArticleSharesController.CreateShareRequest(first.OriginalUrl, "Updated feed title", "Updated source", "Updated summary", null);
+        var reused = await CreateAsync(controller, request);
+        Require(reused.GetProperty("path").GetString() == "/shared/" + first.Id && reused.GetProperty("title").GetString() == first.Title,
+            "Legacy sharing did not reuse the oldest saved page and its metadata.");
+        Require(network.Calls == 0, "Sharing an existing hosted story fetched the publisher again.");
+        var snapshot = new ArticleSharesController.ArticleSnapshot("Updated reader title", ["Updated reader paragraphs."], "", "Updated byline");
+        var readerShare = await CreateAsync(controller, request with { Snapshot = snapshot });
+        Require(readerShare.GetProperty("path").GetString() == reused.GetProperty("path").GetString()
+            && await database.SharedNewsArticles.CountAsync() == 2, "Reader content changes created another URL.");
+        var existingPage = (ContentResult)await controller.Read(first.Id, default);
+        var laterPage = (ContentResult)await controller.Read(later.Id, default);
+        Require(existingPage.Content!.Contains("First saved text.") && laterPage.Content!.Contains("Later saved text."),
+            "Reusing a link rewrote an already shared page.");
+        Require((await database.NewsComments.SingleAsync()).GuestName == "Jamie", "Reusing a link changed its discussion.");
+        var different = await CreateAsync(controller, request with { Url = "https://93.184.216.34/different-story", Snapshot = snapshot });
+        Require(different.GetProperty("path").GetString() != reused.GetProperty("path").GetString(), "Different stories reused one hosted page.");
+        controller.Request.PathBase = "/signal";
+        var nested = await CreateAsync(controller, request);
+        Require(nested.GetProperty("path").GetString() == "/signal/shared/" + first.Id, "Reused URL lost the hosting path base.");
+
+        var winner = new ShareRaceInterceptor(options);
+        var racingOptions = new DbContextOptionsBuilder<SignalDbContext>().UseSqlite(connection).AddInterceptors(winner).Options;
+        await using var racingDatabase = new SignalDbContext(racingOptions);
+        var raced = await CreateAsync(CreateController(racingDatabase, reader, "owner"), request with {
+            Url = "https://93.184.216.34/concurrent-story", Snapshot = snapshot });
+        Require(raced.GetProperty("path").GetString() == "/shared/" + new string('3', 48)
+            && raced.GetProperty("title").GetString() == "Concurrent saved version"
+            && await database.SharedNewsArticles.CountAsync(item => item.DiscussionUrl == "https://93.184.216.34/concurrent-story") == 1,
+            "Concurrent requests with different saved text did not reuse one URL.");
+    }
+
+    private sealed class ShareRaceInterceptor(DbContextOptions<SignalDbContext> options) : SaveChangesInterceptor
+    {
+        private bool inserted;
+        public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(DbContextEventData eventData,
+            InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            var pending = eventData.Context!.ChangeTracker.Entries<SharedNewsArticle>()
+                .FirstOrDefault(entry => entry.State == EntityState.Added)?.Entity;
+            if (inserted || pending is null) return result;
+            inserted = true;
+            await using var other = new SignalDbContext(options);
+            other.SharedNewsArticles.Add(new SharedNewsArticle { Id = new string('3', 48), UserId = pending.UserId,
+                ShareKey = pending.ShareKey, ContentHash = "concurrent-different-text", OriginalUrl = pending.OriginalUrl,
+                DiscussionUrl = pending.DiscussionUrl, Language = pending.Language, Title = "Concurrent saved version",
+                ParagraphsJson = "[\"The first request already saved this story.\"]", CreatedAtUtc = DateTime.UtcNow });
+            await other.SaveChangesAsync(cancellationToken);
+            return result;
+        }
     }
 
     private static ArticleSharesController CreateController(SignalDbContext database, ArticleReaderService reader, string? userId) => new(database, reader, NullLogger<ArticleSharesController>.Instance)

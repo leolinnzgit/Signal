@@ -407,6 +407,7 @@ await using (var scope = app.Services.CreateAsyncScope())
     await database.Database.ExecuteSqlRawAsync(
         "CREATE INDEX IF NOT EXISTS \"IX_NewsComments_UserId\" ON \"NewsComments\" (\"UserId\");");
     await AnonymousCommentSchema.UpgradeAsync(database);
+    await SharedArticleLinkSchema.UpgradeAsync(database);
     await database.Database.ExecuteSqlRawAsync("""
         CREATE TABLE IF NOT EXISTS "FriendRelationships" (
             "Id" INTEGER NOT NULL CONSTRAINT "PK_FriendRelationships" PRIMARY KEY AUTOINCREMENT,

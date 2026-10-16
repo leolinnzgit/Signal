@@ -38,6 +38,7 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
             article.Property(item => item.Id).HasMaxLength(48);
             article.Property(item => item.UserId).HasMaxLength(450).IsRequired();
             article.HasIndex(item => new { item.UserId, item.ContentHash }).IsUnique();
+            article.HasIndex(item => new { item.UserId, item.ShareKey }).IsUnique();
             article.HasOne(item => item.User).WithMany()
                 .HasForeignKey(item => item.UserId).OnDelete(DeleteBehavior.Cascade);
         });

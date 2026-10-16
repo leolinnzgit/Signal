@@ -51,7 +51,13 @@ public sealed class ArticleSharesController(
                 || snapshot.Paragraphs.Sum(text => (long)text.Length) > 80_000)
                 return BadRequest(new { error = "The saved article text is incomplete or too large. Please reopen the story." });
         }
-        else
+        var language = snapshot?.Language ?? "";
+        var shareKey = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+            JsonSerializer.Serialize(new { Url = discussionUrl, Language = language }))));
+        var existing = await FindExistingAsync(userId, discussionUrl, original.AbsoluteUri, language, shareKey, token);
+        if (existing is not null) return ShareResponse(existing);
+
+        if (snapshot is null)
         {
             try
             {
@@ -84,6 +90,7 @@ public sealed class ArticleSharesController(
             UserId = userId,
             OriginalUrl = original.AbsoluteUri,
             DiscussionUrl = discussionUrl,
+            ShareKey = shareKey,
             Title = snapshot.Title,
             Source = request.Source,
             Byline = snapshot.Byline,
@@ -92,29 +99,38 @@ public sealed class ArticleSharesController(
             SummaryOnly = summaryOnly,
             CreatedAtUtc = DateTime.UtcNow,
         };
-        // A link represents this exact version, independent of later translations or feed retention.
+        // Preserve the first saved reading view; later shares reuse its URL and discussion.
         articleShare.ContentHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
             JsonSerializer.Serialize(new { articleShare.OriginalUrl, articleShare.DiscussionUrl, articleShare.Title, articleShare.Source,
                 articleShare.Byline, articleShare.Language, articleShare.ParagraphsJson, articleShare.SummaryOnly }))));
-        var existing = await database.SharedNewsArticles.AsNoTracking()
-            .SingleOrDefaultAsync(item => item.UserId == userId && item.ContentHash == articleShare.ContentHash, token);
+        // Extraction can take time. Check again in case another request saved the story meanwhile.
+        existing = await FindExistingAsync(userId, discussionUrl, original.AbsoluteUri, language, shareKey, token);
         if (existing is null)
         {
             database.SharedNewsArticles.Add(articleShare);
             try { await database.SaveChangesAsync(token); }
             catch (DbUpdateException)
             {
-                // Concurrent shares of the same version should return the same link.
+                // The unique story/language key also protects concurrent requests with different snapshots.
                 database.Entry(articleShare).State = EntityState.Detached;
-                existing = await database.SharedNewsArticles.AsNoTracking()
-                    .SingleOrDefaultAsync(item => item.UserId == userId && item.ContentHash == articleShare.ContentHash, token);
+                existing = await FindExistingAsync(userId, discussionUrl, original.AbsoluteUri, language, shareKey, token);
                 if (existing is null) throw;
             }
         }
-        var saved = existing ?? articleShare;
-        return Ok(new { path = $"{Request.PathBase}/shared/{saved.Id}", title = saved.Title,
-            language = saved.Language, summaryOnly = saved.SummaryOnly });
+        return ShareResponse(existing ?? articleShare);
     }
+
+    private Task<SharedNewsArticle?> FindExistingAsync(string userId, string discussionUrl, string originalUrl,
+        string language, string shareKey, CancellationToken token) => database.SharedNewsArticles.AsNoTracking()
+        .Where(item => item.UserId == userId && (item.ShareKey == shareKey
+            || (item.Language == language && (item.DiscussionUrl == discussionUrl
+                || (item.DiscussionUrl == "" && item.OriginalUrl == originalUrl)))))
+        .OrderBy(item => item.CreatedAtUtc).ThenBy(item => item.Id)
+        .FirstOrDefaultAsync(token);
+
+    private IActionResult ShareResponse(SharedNewsArticle saved) =>
+        Ok(new { path = $"{Request.PathBase}/shared/{saved.Id}", title = saved.Title,
+            language = saved.Language, summaryOnly = saved.SummaryOnly });
 
     [AllowAnonymous]
     [HttpGet("shared/{id}")]
