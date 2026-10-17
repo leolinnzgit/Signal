@@ -6,6 +6,7 @@ import { updateInstalledAppBadge } from "./app-badge";
 import { createHostedArticleShare, shareArticle } from "./article-share";
 import type { SignalArticleLink } from "./article-link";
 import HeadlinePlayer from "./HeadlinePlayer";
+import { createUnreadHeadlineQueue } from "./headline-queue";
 import HandGestureControls from "./HandGestureControls";
 import { useHandGestureTarget } from "./hand-gesture-actions";
 import { handGestureTopic } from "./hand-gestures";
@@ -837,6 +838,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     setReaderReading({ section: null, playing: false });
   }, []);
   const [headlineQueue, setHeadlineQueue] = useState<FollowedArticle[] | null>(null);
+  const headlineDuplicates = useRef(new Map<string, FollowedArticle[]>());
   const headlineFullscreenRequested = useRef(false);
   const [readerContent, setReaderContent] = useState<ReaderContent>({ status: "idle" });
   const [topicPendingRemoval, setTopicPendingRemoval] = useState<string | null>(null);
@@ -1629,10 +1631,11 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     [articles, feedView, historyArticles],
   );
 
-  const unreadArticles = useMemo(
-    () => articles.filter((article) => !article.isRead),
+  const unreadHeadlineQueue = useMemo(
+    () => createUnreadHeadlineQueue(articles),
     [articles],
   );
+  const unreadArticles = unreadHeadlineQueue.articles;
 
   const closeHeadlinePlayer = useCallback(() => {
     setHeadlineQueue(null);
@@ -1646,6 +1649,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     if (unreadArticles.length === 0) return;
     weatherAudio.stop();
     // Snapshot the queue so refreshes and read-status updates cannot skip titles.
+    headlineDuplicates.current = unreadHeadlineQueue.duplicates;
     setHeadlineQueue([...unreadArticles]);
     if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent) && !document.fullscreenElement && document.documentElement.requestFullscreen) {
       headlineFullscreenRequested.current = true;
@@ -2726,26 +2730,30 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     openArticleReader(article, headerElement.current?.querySelector<HTMLButtonElement>(".latest-comments-button") ?? document.body, false, true);
   }, [articleToOpen, articles, historyArticles]);
 
-  function markArticleRead(article: FollowedArticle, fromLatest = feedView === "latest") {
-    if (article.isRead) return;
+  function markArticleRead(article: FollowedArticle, fromLatest = feedView === "latest", copies = [article]) {
+    const unread = copies.filter((copy) => !copy.isRead);
+    if (unread.length === 0) return;
+    const readUrls = new Set(unread.map((copy) => copy.url));
     const readAt = new Date().toISOString();
     const caughtUpTopics = fromLatest
-      ? article.topics.filter((topic) => !articles.some((candidate) =>
-          candidate.url !== article.url
+      ? Array.from(new Set(unread.flatMap((copy) => copy.topics))).filter((topic) => !articles.some((candidate) =>
+          !readUrls.has(candidate.url)
           && !candidate.isRead
           && candidate.topics.some((candidateTopic) =>
             candidateTopic.toLowerCase() === topic.toLowerCase())))
       : [];
-    setArticles((current) => current.map((item) => item.url === article.url
+    setArticles((current) => current.map((item) => readUrls.has(item.url)
       ? { ...item, isRead: true }
       : item));
-    setHistoryArticles((current) => current.map((item) => item.url === article.url
+    setHistoryArticles((current) => current.map((item) => readUrls.has(item.url)
       ? { ...item, isRead: true, readAt }
       : item));
     if (articleStore) {
-      void articleStore.setRead(article.url).catch(() => {
-        setNotice("The story opened, but its read status could not be saved.");
-      });
+      for (const url of readUrls) {
+        void articleStore.setRead(url).catch(() => {
+          setNotice("The story opened, but its read status could not be saved.");
+        });
+      }
     }
     if (caughtUpTopics.length > 0) {
       const viewedAt = new Date().toISOString();
@@ -4704,7 +4712,9 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           tickerOverrides={preferences.tickerOverrides}
           suspended={readerArticle !== null}
           startWithScreenOffAudio={preferScreenOffAudio(navigator.userAgent, appInstalled)}
-          onArticleRead={(article) => markArticleRead(article, true)}
+          onArticleRead={(article) => {
+            markArticleRead(article, true, headlineDuplicates.current.get(article.url) ?? [article]);
+          }}
           onOpenArticle={(article) => {
             openArticleReader(article, document.activeElement instanceof HTMLElement ? document.activeElement : document.body);
           }}
