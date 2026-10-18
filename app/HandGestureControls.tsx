@@ -275,9 +275,19 @@ export default function HandGestureControls() {
     : navOffset > 0
       ? { bottom: `${navOffset}px` }
       : undefined;
+  function toggleCamera() {
+    if (state !== "off") {
+      stop();
+      return;
+    }
+    setPractice(false);
+    setGuide(false);
+    void start(mode);
+  }
+
   return createPortal(<div className={`hand-gesture-dock hand-gesture-side-${floatingSide}${guide ? " hand-gesture-guide-open" : ""}`} style={dockStyle} data-hand-gesture-ui>
     <div className="hand-gesture-bar">
-      <button type="button" className={`hand-gesture-launch${state !== "off" ? " camera-active" : ""}`} onClick={() => setGuide((value) => !value)} aria-label="Hand and eye gesture guide" title={`Hand and eye gesture guide${state !== "off" ? ` · camera ${state === "starting" ? "starting" : "on"}${practice ? " · practice only" : ""}` : ""}`} aria-expanded={guide} aria-controls="hand-gesture-guide"><span aria-hidden="true">{mode === "eyes" ? "👁" : "✋"}</span><span className="hand-gesture-button-label">Hand &amp; eye controls</span>{state !== "off" && <span className="hand-gesture-camera-dot" aria-hidden="true" />}</button>
+      <button type="button" className={`hand-gesture-launch${state !== "off" ? " camera-active" : ""}`} onClick={toggleCamera} aria-pressed={state !== "off"} aria-label={state === "off" ? "Enable gesture camera" : "Disable gesture camera"} title={state === "off" ? "Enable gesture camera" : `Disable gesture camera · camera ${state === "starting" ? "starting" : "on"}${practice ? " · practice only" : ""}`}><span aria-hidden="true">{mode === "eyes" ? "👁" : "✋"}</span><span className="hand-gesture-button-label">{state === "off" ? "Start camera" : "Stop camera"}</span>{state !== "off" && <span className="hand-gesture-camera-dot" aria-hidden="true" />}</button>
       {guide && state !== "off" && <span className="hand-camera-indicator">Camera {state === "starting" ? "starting" : "on"}</span>}
       {guide && state !== "off" && <button type="button" onClick={() => stop()}>Stop camera</button>}
     </div>
