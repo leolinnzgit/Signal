@@ -36,6 +36,39 @@ internal static class ArticleReaderChecks
         Require(!paid.Available && paid.Reason.Contains("subscription"), "Paid metadata must block extraction of hidden text.");
         var shortArticle = reader.ExtractArticle("<article><p>Not enough text for a complete article.</p></article>", ArticleUri);
         Require(!shortArticle.Available && shortArticle.Reason == ArticleReaderService.InsufficientTextReason, "Missing text must not claim a publisher block.");
+        foreach (var challenge in new[] {
+            $"<title>Attention Required! | Cloudflare</title><article>{Body}</article>",
+            $"<title>Just a moment...</title><script src='/cdn-cgi/challenge-platform/example.js'></script><article>{Body}</article>"
+        })
+        {
+            var blocked = reader.ExtractArticle(challenge, ArticleUri);
+            Require(!blocked.Available && blocked.Article is null && blocked.Reason == ArticleReaderService.BotProtectionReason,
+                "Bot verification prose must not become a readable article.");
+        }
+        Require(reader.ExtractArticle($"<title>Cloudflare explains bot protection</title><article>{Body}</article>", ArticleUri).Available,
+            "News about bot protection must remain readable.");
+
+        foreach (var status in new[] { HttpStatusCode.Forbidden, HttpStatusCode.Unauthorized, HttpStatusCode.PaymentRequired })
+        {
+            using var deniedClient = new HttpClient(new FixtureHandler("", status));
+            using var deniedCache = new MemoryCache(new MemoryCacheOptions());
+            var deniedRenderer = new FixtureRenderer(null);
+            var denied = await new ArticleReaderService(deniedClient, deniedCache, NullLogger<ArticleReaderService>.Instance, deniedRenderer)
+                .ReadAsync(ArticleUri.AbsoluteUri, CancellationToken.None);
+            Require(!denied.Available && denied.Article is null && deniedRenderer.Calls == 0
+                && (status == HttpStatusCode.Forbidden ? denied.Reason == ArticleReaderService.PublisherBlockedReason : denied.Reason.Contains("subscription")),
+                "HTTP access blocks must be distinguished from login and subscription requirements without rendering.");
+        }
+        foreach (var status in new[] { HttpStatusCode.OK, HttpStatusCode.Forbidden, HttpStatusCode.ServiceUnavailable })
+        {
+            using var challengeClient = new HttpClient(new ChallengeHandler(status));
+            using var challengeCache = new MemoryCache(new MemoryCacheOptions());
+            var challengeRenderer = new FixtureRenderer(null);
+            var challenge = await new ArticleReaderService(challengeClient, challengeCache, NullLogger<ArticleReaderService>.Instance, challengeRenderer)
+                .ReadAsync(ArticleUri.AbsoluteUri, CancellationToken.None);
+            Require(!challenge.Available && challenge.Article is null && challenge.Reason == ArticleReaderService.BotProtectionReason
+                && challengeRenderer.Calls == 0, "Explicit bot challenges must stop before extraction or browser rendering, regardless of HTTP status.");
+        }
         var hugeBody = JsonSerializer.Serialize(new Dictionary<string, object> { ["@type"] = "Article", ["articleBody"] = new string('a', 35_000) });
         var hugeArticle = reader.ExtractArticle($"<script type='application/ld+json'>{hugeBody}</script>", ArticleUri);
         Require(hugeArticle.Available && hugeArticle.Article!.Paragraphs.Sum(p => p.Length) == 30_000, "Article text must remain bounded.");
@@ -155,6 +188,16 @@ internal static class ArticleReaderChecks
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
             Task.FromResult(new HttpResponseMessage(status) { Content = new StringContent(html, System.Text.Encoding.UTF8, "text/html") });
+    }
+
+    private sealed class ChallengeHandler(HttpStatusCode status) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var response = new HttpResponseMessage(status) { Content = new StringContent($"<article>{Body}</article>", System.Text.Encoding.UTF8, "text/html") };
+            response.Headers.Add("cf-mitigated", "challenge");
+            return Task.FromResult(response);
+        }
     }
 
     private sealed class GoogleFixtureHandler(string? target, bool missingMetadata = false, HttpStatusCode resolutionStatus = HttpStatusCode.OK) : HttpMessageHandler

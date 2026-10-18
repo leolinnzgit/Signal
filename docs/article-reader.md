@@ -43,6 +43,14 @@ rather than assuming the publisher blocked it. Some articles will still need
 the original page, especially when login, bot verification or unsupported
 publisher scripts are required.
 
+HTTP 403 responses now explain that the publisher blocked Signal's request,
+without implying that a subscription is required. Explicit Cloudflare challenge
+headers and verification page titles produce a bot-protection explanation and
+the original-page link. Verification prose is never presented as article text.
+For example, Android Authority's Pixel-versus-Galaxy article (3721606) returned
+a Cloudflare 403 during diagnosis; its public RSS feed contained only the opening
+paragraphs, so it could not provide a full-text fallback.
+
 Run the extraction regression checks:
 
 ```powershell

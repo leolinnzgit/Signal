@@ -26,6 +26,8 @@ public sealed class ArticleReaderService(
 {
     internal const string InsufficientTextReason = "Signal Reader could not find enough article text on this page.";
     internal const string GoogleNewsResolutionReason = "Google News did not provide the publisher link this time. Try again later, or open the original story.";
+    internal const string PublisherBlockedReason = "This publisher blocked Signal Reader's request. Open the original article in your browser to read it.";
+    internal const string BotProtectionReason = "This publisher's bot protection blocked Signal Reader. Open the original article in your browser to read it.";
 
     private const int MaximumArticleBytes = 2_000_000;
     private const int MaximumParagraphs = 80;
@@ -145,9 +147,14 @@ public sealed class ArticleReaderService(
                 continue;
             }
 
-            if (response.StatusCode is HttpStatusCode.PaymentRequired
-                or HttpStatusCode.Unauthorized
-                or HttpStatusCode.Forbidden)
+            if (response.Headers.TryGetValues("cf-mitigated", out var mitigations)
+                && mitigations.Any(value => value.Equals("challenge", StringComparison.OrdinalIgnoreCase)))
+                return Unavailable(BotProtectionReason);
+
+            if (response.StatusCode == HttpStatusCode.Forbidden)
+                return Unavailable(PublisherBlockedReason);
+
+            if (response.StatusCode is HttpStatusCode.PaymentRequired or HttpStatusCode.Unauthorized)
             {
                 return Unavailable("This publisher requires a subscription or direct access.");
             }
@@ -275,6 +282,14 @@ public sealed class ArticleReaderService(
     {
         try
         {
+            // Verification pages can contain enough prose to pass readability.
+            // Identify the page itself, rather than mentions of Cloudflare in news.
+            var title = new HtmlParser().ParseDocument(html).Title?.Trim() ?? "";
+            if (title.Equals("Attention Required! | Cloudflare", StringComparison.OrdinalIgnoreCase)
+                || (title.Equals("Just a moment...", StringComparison.OrdinalIgnoreCase)
+                    && html.Contains("/cdn-cgi/challenge-platform/", StringComparison.OrdinalIgnoreCase)))
+                return Unavailable(BotProtectionReason);
+
             var structured = ExtractStructuredArticle(html);
             // Paid metadata is authoritative even if hidden text is present in the HTML.
             if (structured.IsPaywalled)
