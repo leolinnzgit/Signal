@@ -265,7 +265,7 @@ export default function HandGestureControls() {
   // Keep pointer display aligned with viewport-based elementFromPoint targeting.
   const containingBlock = getComputedStyle(host).transform !== "none" ? host.getBoundingClientRect() : null;
   const trackingText = mode === "eyes" ? EYE_TRACKING_LABELS[eyeTracking] : tracking === "tracking" ? "Hand detected" : tracking === "multiple" ? "Show just one hand" : "No hand in view";
-  const isTracked = mode === "eyes" ? ["ready", "turn-left", "turn-right"].includes(eyeTracking) : tracking === "tracking";
+  const isTracked = mode === "eyes" ? ["ready", "turn-left", "turn-right", "nod"].includes(eyeTracking) : tracking === "tracking";
   const eyeFeedback = mode === "eyes" && eyeScores?.faceCount === 1 && <div className="eye-gesture-scores" aria-label="Eye closure feedback">
     <label>Your left eye <meter min={0} max={1} value={eyeScores.left ?? 0} /> {Math.round((eyeScores.left ?? 0) * 100)}% closed</label>
     <label>Your right eye <meter min={0} max={1} value={eyeScores.right ?? 0} /> {Math.round((eyeScores.right ?? 0) * 100)}% closed</label>
@@ -315,10 +315,11 @@ export default function HandGestureControls() {
         <p>Rest your phone on a stand in good light. Face the front camera with your whole face in view. Keep both eyes naturally open until <strong>Eyes ready</strong> appears. Green dots and the eye meters show how Signal sees your eyes and nose.</p>
         <ol>
           <li>Tap <strong>Start eye controls</strong> and allow camera access. Wait for <strong>Eyes ready</strong> in the preview.</li>
-          <li>Blink both eyes deliberately, wink one eye, or turn your head slightly left or right.</li>
+          <li>Nod your head, turn your head slightly left or right, blink both eyes deliberately, or wink one eye.</li>
           <li>To practise without changing Signal, choose <strong>Practise gestures</strong>.</li>
         </ol>
         <dl>
+          <dt>Nod your head</dt><dd>Nod your head down slightly, then return to the centre to play or pause while narration or headline playback is open (or move to the next topic in the news feed).</dd>
           <dt>Turn your head right or left</dt><dd>Turn your head slightly right for the next topic in the feed (or next story / headline), or left for the previous one, then return your head to the centre.</dd>
           <dt>Wink your right eye</dt><dd>Keep your left eye open. Hold briefly, then reopen both eyes for the next topic in the feed, or the next story / headline in the reader or player.</dd>
           <dt>Wink your left eye</dt><dd>Keep your right eye open. Hold briefly, then reopen both eyes for the previous topic, story or headline. Left and right mean your own eyes, as shown in the mirrored preview.</dd>

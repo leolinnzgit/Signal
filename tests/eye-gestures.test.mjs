@@ -172,3 +172,21 @@ test("turning head right or left navigates once and requires returning to centre
   assert.deepEqual(frames(detector, { ...open, yaw: 0 }, 2100, 2300), []);
   assert.deepEqual(frames(detector, { ...open, yaw: -0.16 }, 2400, 2800), ["previous"]);
 });
+
+test("nodding head down toggles playback once and requires returning to centre before repeating", () => {
+  const detector = createEyeGestureDetector();
+  assert.deepEqual(frames(detector, { ...open, yaw: 0, pitch: 0.12 }, 0, 400), []);
+  assert.deepEqual(frames(detector, { ...open, yaw: 0, pitch: 0.24 }, 500, 900), ["toggle-playback"]);
+  assert.deepEqual(frames(detector, { ...open, yaw: 0, pitch: 0.24 }, 1000, 2000), []);
+  assert.deepEqual(frames(detector, { ...open, yaw: 0, pitch: 0.12 }, 2100, 2300), []);
+  assert.deepEqual(frames(detector, { ...open, yaw: 0, pitch: 0.24 }, 2400, 2800), ["toggle-playback"]);
+});
+
+test("quick head nod on slower phone frames confirms when returning to centre without double-firing on eyelids", () => {
+  const detector = createEyeGestureDetector();
+  assert.deepEqual(frames(detector, { ...open, yaw: 0, pitch: 0.10 }, 0, 600, 300), []);
+  assert.equal(detector.update({ ...both, yaw: 0, pitch: 0.22 }, 900).action, undefined);
+  assert.equal(detector.update({ ...open, yaw: 0, pitch: 0.10 }, 1200).action, "toggle-playback");
+  assert.deepEqual(frames(detector, { ...open, yaw: 0, pitch: 0.10 }, 1500, 2400, 300), []);
+});
+

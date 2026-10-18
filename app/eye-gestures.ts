@@ -1,7 +1,7 @@
 import type { HandAction, HandPoint } from "./hand-gestures";
 
-export type EyeFrame = { faceCount: number; left?: number; right?: number; yaw?: number; points?: HandPoint[] };
-export type EyeTracking = "missing" | "multiple" | "calibrating" | "ready" | "left" | "right" | "both" | "reopen" | "turn-left" | "turn-right";
+export type EyeFrame = { faceCount: number; left?: number; right?: number; yaw?: number; pitch?: number; points?: HandPoint[] };
+export type EyeTracking = "missing" | "multiple" | "calibrating" | "ready" | "left" | "right" | "both" | "reopen" | "turn-left" | "turn-right" | "nod";
 type Pose = "left" | "right" | "both";
 const actionFor = (pose: Pose): HandAction => pose === "both" ? "toggle-playback" : pose === "right" ? "next" : "previous";
 
@@ -19,9 +19,12 @@ const COOLDOWN_MS = 650;
 const WINK_CONTRAST = 0.18;     // a wink's closed eye must close clearly more than the other
 const MAX_BASELINE = 0.4;
 const HEAD_TURN_THRESHOLD = 0.10;
+const HEAD_NOD_THRESHOLD = 0.085;
 const HEAD_RESET_THRESHOLD = 0.055;
 const HEAD_HOLD_MS = 90;
+const HEAD_NOD_RETURN_MS = 650;
 const MAX_YAW_BASE = 0.15;
+const MAX_PITCH_BASE = 0.45;
 
 const clamp = (value: number, low: number, high: number) => Math.min(high, Math.max(low, value));
 // Resting blink scores vary by person, glasses and camera angle (looking down
@@ -29,8 +32,9 @@ const clamp = (value: number, low: number, high: number) => Math.min(high, Math.
 const closedAt = (base: number) => clamp(base + 0.18, 0.26, 0.68);
 const openAt = (base: number) => clamp(base + 0.10, 0.18, closedAt(base) - 0.06);
 
-/** Unmirrored model scores refer to the user's own eyes and head yaw.
- * Positive yaw is turning the head to the user's right; negative is left. */
+/** Unmirrored model scores refer to the user's own eyes, head yaw and head pitch.
+ * Positive yaw is turning the head to the user's right; negative is left.
+ * Positive pitch delta is nodding the head down. */
 export function createEyeGestureDetector() {
   let lastTime = -Infinity;
   let openSince: number | null = null;
@@ -41,16 +45,17 @@ export function createEyeGestureDetector() {
   let cooldownUntil = 0;
   let base: { left: number; right: number } | null = null;
   let yawBase: number | null = null;
+  let pitchBase: number | null = null;
   let headArmed = false;
-  let headTurn: { dir: "left" | "right"; since: number } | null = null;
+  let headTurn: { dir: "left" | "right" | "nod"; since: number } | null = null;
   function clear() {
     openSince = null; lastOpenAt = -Infinity; armed = false; candidate = null;
     pending = undefined; headArmed = false; headTurn = null;
   }
   return {
-    reset() { clear(); lastTime = -Infinity; cooldownUntil = 0; base = null; yawBase = null; },
+    reset() { clear(); lastTime = -Infinity; cooldownUntil = 0; base = null; yawBase = null; pitchBase = null; },
     update(frame: EyeFrame, now: number): { state: EyeTracking; action?: HandAction } {
-      const { left, right, yaw } = frame;
+      const { left, right, yaw, pitch } = frame;
       if (!Number.isFinite(now)) { clear(); return { state: "calibrating" }; }
       if (now <= lastTime || now - lastTime > FRAME_GAP_MS) clear();
       lastTime = now;
@@ -60,34 +65,57 @@ export function createEyeGestureDetector() {
       }
       base ??= { left: Math.min(left, MAX_BASELINE), right: Math.min(right, MAX_BASELINE) };
 
-      // Head-turn detection (yaw > 0 is user's right, yaw < 0 is user's left).
+      // Head-turn (yaw > 0 is user's right, yaw < 0 is user's left) and
+      // head-nod (pitch > pitchBase is nodding down) detection.
       let headTurning = false;
-      if ( yaw !== undefined && Number.isFinite(yaw)) {
-        yawBase ??= clamp(yaw, -MAX_YAW_BASE, MAX_YAW_BASE);
-        const deltaYaw = yaw - yawBase;
+      const hasYaw = yaw !== undefined && Number.isFinite(yaw);
+      const hasPitch = pitch !== undefined && Number.isFinite(pitch);
+      if (hasYaw || hasPitch) {
+        if (hasYaw) yawBase ??= clamp(yaw, -MAX_YAW_BASE, MAX_YAW_BASE);
+        if (hasPitch) pitchBase ??= clamp(pitch, -MAX_PITCH_BASE, MAX_PITCH_BASE);
+        const deltaYaw = hasYaw ? yaw - yawBase! : 0;
         const absYaw = Math.abs(deltaYaw);
-        if (absYaw <= HEAD_RESET_THRESHOLD) {
-          yawBase = clamp(yawBase + deltaYaw * 0.08, -MAX_YAW_BASE, MAX_YAW_BASE);
+        const deltaPitch = hasPitch ? pitch - pitchBase! : 0;
+        const absPitch = Math.abs(deltaPitch);
+        const yawCentred = !hasYaw || absYaw <= HEAD_RESET_THRESHOLD;
+        const pitchCentred = !hasPitch || deltaPitch <= HEAD_RESET_THRESHOLD;
+        if (hasYaw && absYaw <= HEAD_RESET_THRESHOLD) {
+          yawBase = clamp(yawBase! + deltaYaw * 0.08, -MAX_YAW_BASE, MAX_YAW_BASE);
+        }
+        if (hasPitch && deltaPitch <= HEAD_RESET_THRESHOLD) {
+          pitchBase = clamp(pitchBase! + deltaPitch * 0.08, -MAX_PITCH_BASE, MAX_PITCH_BASE);
+        }
+        if (yawCentred && pitchCentred) {
+          if (headArmed && headTurn?.dir === "nod" && now >= cooldownUntil &&
+              now - headTurn.since >= HEAD_HOLD_MS && now - headTurn.since <= HEAD_NOD_RETURN_MS) {
+            headTurn = null; armed = false; openSince = now;
+            cooldownUntil = now + COOLDOWN_MS;
+            headArmed = !hasPitch || absPitch <= HEAD_RESET_THRESHOLD;
+            return { state: "nod", action: "toggle-playback" };
+          }
           headTurn = null;
-          if (now >= cooldownUntil) headArmed = true;
-        } else if (absYaw >= HEAD_TURN_THRESHOLD) {
+          if (!hasPitch || absPitch <= HEAD_RESET_THRESHOLD) headArmed = true;
+        } else if (absYaw >= HEAD_TURN_THRESHOLD || deltaPitch >= HEAD_NOD_THRESHOLD) {
           headTurning = true;
-          const dir: "left" | "right" = deltaYaw > 0 ? "right" : "left";
-          // Turning the head foreshortens one eye; cancel any eye candidate so a
-          // head turn cannot also queue a wink.
+          const nodRatio = hasPitch ? deltaPitch / HEAD_NOD_THRESHOLD : 0;
+          const turnRatio = hasYaw ? absYaw / HEAD_TURN_THRESHOLD : 0;
+          const dir: "left" | "right" | "nod" = nodRatio >= 1 && nodRatio >= turnRatio
+            ? "nod"
+            : deltaYaw > 0 ? "right" : "left";
+          const state: EyeTracking = dir === "nod" ? "nod" : dir === "right" ? "turn-right" : "turn-left";
+          const action: HandAction = dir === "nod" ? "toggle-playback" : dir === "right" ? "next" : "previous";
+          // Turning or nodding the head foreshortens the eyes; cancel any eye
+          // candidate so a head gesture cannot also queue a wink or blink.
           candidate = null; pending = undefined;
           if (headArmed && now >= cooldownUntil) {
             if (!headTurn || headTurn.dir !== dir) headTurn = { dir, since: now };
             else if (now - headTurn.since >= HEAD_HOLD_MS) {
               headArmed = false; headTurn = null; armed = false; openSince = now;
               cooldownUntil = now + COOLDOWN_MS;
-              return {
-                state: dir === "right" ? "turn-right" : "turn-left",
-                action: dir === "right" ? "next" : "previous",
-              };
+              return { state, action };
             }
           }
-          return { state: dir === "right" ? "turn-right" : "turn-left" };
+          return { state };
         }
       }
 
@@ -183,11 +211,12 @@ export function createEyeGestureDetector() {
 export const EYE_TRACKING_LABELS: Record<EyeTracking, string> = {
   missing: "No face in view", multiple: "Show just one face",
   calibrating: "Look at the camera with both eyes open",
-  ready: "Eyes & head ready · blink, wink or turn head",
+  ready: "Eyes & head ready · blink, wink, nod or turn head",
   left: "Left wink · hold, then open both eyes",
   right: "Right wink · hold, then open both eyes",
   both: "Long blink · hold, then open both eyes",
   reopen: "Keep both eyes open to confirm",
   "turn-left": "Head turned left · previous",
   "turn-right": "Head turned right · next",
+  nod: "Head nod · play or pause",
 };

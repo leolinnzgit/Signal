@@ -37,11 +37,15 @@ self.onmessage = async ({ data }: MessageEvent) => {
           const yaw = rightCheek && leftCheek && nose && faceWidth > 0.05
             ? ((rightCheek.x + leftCheek.x) / 2 - nose.x) / faceWidth
             : undefined;
+          const pitch = rightCheek && leftCheek && nose && faceWidth > 0.05
+            ? (nose.y - (rightCheek.y + leftCheek.y) / 2) / faceWidth
+            : undefined;
           self.postMessage({ type: "result", timestamp: data.timestamp, eye: {
             faceCount: result.faceLandmarks.length,
             left: scores?.find((score) => score.categoryName === "eyeBlinkLeft")?.score,
             right: scores?.find((score) => score.categoryName === "eyeBlinkRight")?.score,
             yaw,
+            pitch,
             points,
           } });
         } else if (recognizer) {
