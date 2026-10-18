@@ -23,7 +23,7 @@ function storyUrlKey(value: string) {
   } catch { return value.trim(); }
 }
 
-export function createUnreadHeadlineQueue<T extends HeadlineArticle>(articles: T[]) {
+function groupHeadlineArticles<T extends HeadlineArticle>(articles: T[]) {
   const parents = articles.map((_, index) => index);
   const identities = new Map<string, number>();
   function root(index: number): number {
@@ -51,12 +51,50 @@ export function createUnreadHeadlineQueue<T extends HeadlineArticle>(articles: T
     group.push(article);
     groups.set(key, group);
   });
+  return Array.from(groups.values());
+}
+
+export function createUnreadHeadlineQueue<T extends HeadlineArticle>(articles: T[]) {
   const queue: T[] = [];
   const duplicates = new Map<string, T[]>();
-  for (const group of groups.values()) {
+  for (const group of groupHeadlineArticles(articles)) {
     if (group.some((article) => article.isRead)) continue;
     queue.push(group[0]);
     duplicates.set(group[0].url, group);
   }
   return { articles: queue, duplicates };
+}
+
+export function shuffleHeadlineArticles<T>(articles: readonly T[], random: () => number = Math.random): T[] {
+  const shuffled = [...articles];
+  for (let index = shuffled.length - 1; index > 0; index--) {
+    const value = random();
+    const bounded = Number.isFinite(value) ? Math.min(0.999999999999, Math.max(0, value)) : 0;
+    const pick = Math.floor(bounded * (index + 1));
+    [shuffled[index], shuffled[pick]] = [shuffled[pick], shuffled[index]];
+  }
+  if (random === Math.random && shuffled.length > 1 && shuffled.every((item, index) => item === articles[index])) {
+    [shuffled[0], shuffled[1]] = [shuffled[1], shuffled[0]];
+  }
+  return shuffled;
+}
+
+export function createRandomHeadlineQueue<T extends HeadlineArticle>(
+  articles: T[],
+  random: () => number = Math.random,
+) {
+  const groups = groupHeadlineArticles(articles);
+  const unreadGroups = groups.filter((group) => !group.some((article) => article.isRead));
+  const activeGroups = unreadGroups.length > 0 ? unreadGroups : groups;
+  const representatives: T[] = [];
+  const duplicates = new Map<string, T[]>();
+  for (const group of activeGroups) {
+    representatives.push(group[0]);
+    duplicates.set(group[0].url, group);
+  }
+  return {
+    articles: shuffleHeadlineArticles(representatives, random),
+    duplicates,
+    includesRead: unreadGroups.length === 0 && activeGroups.length > 0,
+  };
 }

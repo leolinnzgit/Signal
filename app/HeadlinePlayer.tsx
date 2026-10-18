@@ -26,6 +26,7 @@ type HeadlinePlayerProps = {
   marketTopic?: string;
   tickerOverrides?: Record<string, string>;
   startWithScreenOffAudio?: boolean;
+  randomized?: boolean;
   suspended?: boolean;
   onArticleRead: (article: FollowedArticle) => void;
   onOpenArticle: (article: FollowedArticle) => void;
@@ -34,7 +35,7 @@ type HeadlinePlayerProps = {
   onHandBookmark?: (article: FollowedArticle) => Promise<string>;
 };
 
-export default function HeadlinePlayer({ articles, marketTopic, tickerOverrides = {}, startWithScreenOffAudio = false, suspended = false, onArticleRead, onOpenArticle, onListenArticle, onClose, onHandBookmark }: HeadlinePlayerProps) {
+export default function HeadlinePlayer({ articles, marketTopic, tickerOverrides = {}, startWithScreenOffAudio = false, randomized = false, suspended = false, onArticleRead, onOpenArticle, onListenArticle, onClose, onHandBookmark }: HeadlinePlayerProps) {
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const [seconds, setSeconds] = useState(6);
@@ -274,7 +275,7 @@ export default function HeadlinePlayer({ articles, marketTopic, tickerOverrides 
     <><div className="headline-player-backdrop" aria-hidden="true" style={suspended ? { display: "none" } : undefined} />
     <section ref={dialog} className={playerClass} style={suspended ? { display: "none" } : undefined} role="dialog" aria-modal="true" aria-label="Unread headline playback">
       <header className="headline-player-header">
-        <span className="headline-player-label"><span className="pulse" aria-hidden="true" /> Unread headlines</span>
+        <span className="headline-player-label"><span className="pulse" aria-hidden="true" /> {randomized ? "Random headlines" : "Unread headlines"}</span>
         <div className="headline-player-header-actions">
           <span>{completed ? `${articles.length} / ${articles.length}` : `${index + 1} / ${articles.length}`}</span>
           {fullscreenControl}
@@ -288,7 +289,7 @@ export default function HeadlinePlayer({ articles, marketTopic, tickerOverrides 
           <div className="headline-player-complete">
             <span aria-hidden="true">&#10003;</span>
             <h2>All caught up.</h2>
-            <p>You’ve seen all {articles.length} unread {articles.length === 1 ? "headline" : "headlines"} in this briefing.</p>
+            <p>You’ve seen all {articles.length} {randomized ? "recent" : "unread"} {articles.length === 1 ? "headline" : "headlines"} in this briefing.</p>
             <button type="button" onClick={onClose}>Back to news</button>
           </div>
         ) : (

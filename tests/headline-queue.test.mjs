@@ -3,7 +3,7 @@ import test from "node:test";
 import { readFile } from "node:fs/promises";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
-import { createUnreadHeadlineQueue } from "../app/headline-queue.ts";
+import { createRandomHeadlineQueue, createUnreadHeadlineQueue, shuffleHeadlineArticles } from "../app/headline-queue.ts";
 
 const story = (title, path, extra = {}) => ({ title, url: `https://news.example/${path}`, ...extra });
 
@@ -62,17 +62,51 @@ test("does not merge unrelated stories with empty titles or URLs", () => {
   assert.deepEqual(createUnreadHeadlineQueue([]).articles, []);
 });
 
+test("random headline queue shuffles deduplicated unread news first and falls back to all recent news when all are read", () => {
+  const first = story("First unread", "one");
+  const firstDuplicate = story("first unread!", "one-copy");
+  const readStory = story("Already read", "two", { isRead: true });
+  const second = story("Second unread", "three");
+  const third = story("Third unread", "four");
+  const input = [first, firstDuplicate, readStory, second, third];
+
+  const unreadRandom = createRandomHeadlineQueue(input, () => 0);
+  assert.equal(unreadRandom.includesRead, false);
+  assert.deepEqual(unreadRandom.articles, [second, third, first]);
+  assert.deepEqual(unreadRandom.duplicates.get(first.url), [first, firstDuplicate]);
+  assert.deepEqual(input, [first, firstDuplicate, readStory, second, third]);
+
+  const allReadInput = input.map((article) => ({ ...article, isRead: true }));
+  const fallbackRandom = createRandomHeadlineQueue(allReadInput, () => 0);
+  assert.equal(fallbackRandom.includesRead, true);
+  assert.deepEqual(fallbackRandom.articles, [allReadInput[2], allReadInput[3], allReadInput[4], allReadInput[0]]);
+  assert.deepEqual(fallbackRandom.duplicates.get(allReadInput[0].url), [allReadInput[0], allReadInput[1]]);
+
+  assert.deepEqual(createRandomHeadlineQueue([]), {
+    articles: [],
+    duplicates: new Map(),
+    includesRead: false,
+  });
+  assert.deepEqual(shuffleHeadlineArticles(["only"]), ["only"]);
+});
+
 test("dashboard saves all heard copies and catches up their topics without consuming unrelated news", async () => {
   const source = await readFile(new URL("../app/NewsDashboard.tsx", import.meta.url), "utf8");
   const ast = ts.createSourceFile("NewsDashboard.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   let declaration;
+  let randomDeclaration;
   function visit(node) {
     if (ts.isFunctionDeclaration(node) && node.name?.text === "markArticleRead") declaration = node;
+    if (ts.isFunctionDeclaration(node) && node.name?.text === "startRandomHeadlinePlayback") randomDeclaration = node;
     ts.forEachChild(node, visit);
   }
   visit(ast);
   assert.ok(declaration);
+  assert.ok(randomDeclaration);
   const code = ts.transpileModule(declaration.getText(ast), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const randomCode = ts.transpileModule(randomDeclaration.getText(ast), {
     compilerOptions: { target: ts.ScriptTarget.ES2022 },
   }).outputText;
   const articles = [
@@ -83,10 +117,23 @@ test("dashboard saves all heard copies and catches up their topics without consu
   let latest = articles;
   let history = articles;
   let topics = ["Markets", "Economy", "Technology"].map((topic) => ({ topic, hasUnread: true }));
+  let queued = null;
+  let randomized = false;
+  let weatherStopped = 0;
+  const headlineDuplicates = { current: new Map() };
+  const headlineFullscreenRequested = { current: false };
   const saved = [];
   const viewed = [];
   const context = {
     articles, feedView: "latest",
+    createRandomHeadlineQueue: (items) => createRandomHeadlineQueue(items, () => 0),
+    weatherAudio: { stop() { weatherStopped++; } },
+    headlineDuplicates,
+    headlineFullscreenRequested,
+    setHeadlineQueueRandomized: (value) => { randomized = value; },
+    setHeadlineQueue: (value) => { queued = value; },
+    navigator: { userAgent: "Windows" },
+    document: { fullscreenElement: null, documentElement: {} },
     setArticles: (update) => { latest = update(latest); },
     setHistoryArticles: (update) => { history = update(history); },
     setTopicRefreshStates: (update) => { topics = update(topics); },
@@ -94,7 +141,12 @@ test("dashboard saves all heard copies and catches up their topics without consu
     refreshStore: { async markViewed(topic) { viewed.push(topic); } },
     setNotice: (notice) => assert.fail(notice),
   };
-  runInNewContext(`${code}\nthis.markRead = markArticleRead;`, context);
+  runInNewContext(`${code}\n${randomCode}\nthis.markRead = markArticleRead;\nthis.startRandom = startRandomHeadlinePlayback;`, context);
+  context.startRandom();
+  assert.equal(weatherStopped, 1);
+  assert.equal(randomized, true);
+  assert.deepEqual(queued, [articles[2], articles[0]]);
+  assert.deepEqual(headlineDuplicates.current.get(articles[0].url), [articles[0], articles[1]]);
   const queue = createUnreadHeadlineQueue(articles);
   context.markRead(queue.articles[0], true, queue.duplicates.get(queue.articles[0].url));
   await new Promise((resolve) => setImmediate(resolve));

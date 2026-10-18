@@ -6,7 +6,7 @@ import { updateInstalledAppBadge } from "./app-badge";
 import { createHostedArticleShare, shareArticle } from "./article-share";
 import type { SignalArticleLink } from "./article-link";
 import HeadlinePlayer from "./HeadlinePlayer";
-import { createUnreadHeadlineQueue } from "./headline-queue";
+import { createRandomHeadlineQueue, createUnreadHeadlineQueue } from "./headline-queue";
 import HandGestureControls from "./HandGestureControls";
 import { useHandGestureTarget } from "./hand-gesture-actions";
 import { handGestureTopic } from "./hand-gestures";
@@ -838,6 +838,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     setReaderReading({ section: null, playing: false });
   }, []);
   const [headlineQueue, setHeadlineQueue] = useState<FollowedArticle[] | null>(null);
+  const [headlineQueueRandomized, setHeadlineQueueRandomized] = useState(false);
   const headlineDuplicates = useRef(new Map<string, FollowedArticle[]>());
   const headlineFullscreenRequested = useRef(false);
   const [readerContent, setReaderContent] = useState<ReaderContent>({ status: "idle" });
@@ -1637,8 +1638,15 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   );
   const unreadArticles = unreadHeadlineQueue.articles;
 
+  const randomHeadlinePool = useMemo(
+    () => createRandomHeadlineQueue(articles),
+    [articles],
+  );
+  const randomArticles = randomHeadlinePool.articles;
+
   const closeHeadlinePlayer = useCallback(() => {
     setHeadlineQueue(null);
+    setHeadlineQueueRandomized(false);
     if (headlineFullscreenRequested.current && document.fullscreenElement) {
       void document.exitFullscreen().catch(() => {});
     }
@@ -1650,6 +1658,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     weatherAudio.stop();
     // Snapshot the queue so refreshes and read-status updates cannot skip titles.
     headlineDuplicates.current = unreadHeadlineQueue.duplicates;
+    setHeadlineQueueRandomized(false);
     setHeadlineQueue([...unreadArticles]);
     if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent) && !document.fullscreenElement && document.documentElement.requestFullscreen) {
       headlineFullscreenRequested.current = true;
@@ -1659,6 +1668,25 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         }
       }).catch(() => {
         // The player still fills the viewport when native full screen is unavailable.
+        headlineFullscreenRequested.current = false;
+      });
+    }
+  }
+
+  function startRandomHeadlinePlayback() {
+    const queue = createRandomHeadlineQueue(articles);
+    if (queue.articles.length === 0) return;
+    weatherAudio.stop();
+    headlineDuplicates.current = queue.duplicates;
+    setHeadlineQueueRandomized(true);
+    setHeadlineQueue(queue.articles);
+    if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent) && !document.fullscreenElement && document.documentElement.requestFullscreen) {
+      headlineFullscreenRequested.current = true;
+      void document.documentElement.requestFullscreen().then(() => {
+        if (!headlineFullscreenRequested.current && document.fullscreenElement) {
+          void document.exitFullscreen().catch(() => {});
+        }
+      }).catch(() => {
         headlineFullscreenRequested.current = false;
       });
     }
@@ -4710,6 +4738,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           articles={headlineQueue}
           marketTopic={selectedTopic === ALL_TOPICS ? undefined : selectedTopic}
           tickerOverrides={preferences.tickerOverrides}
+          randomized={headlineQueueRandomized}
           suspended={readerArticle !== null}
           startWithScreenOffAudio={preferScreenOffAudio(navigator.userAgent, appInstalled)}
           onArticleRead={(article) => {
@@ -4736,6 +4765,30 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
             title={unreadArticles.length > 0 ? `Play unread headlines (${unreadArticles.length})` : "All headlines are read"}
           >
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+          </button>
+          <button
+            type="button"
+            className="floating-play-random"
+            disabled={randomArticles.length === 0}
+            onClick={startRandomHeadlinePlayback}
+            aria-label={
+              unreadArticles.length > 0
+                ? `Random audio play for ${unreadArticles.length} unread recent ${unreadArticles.length === 1 ? "news story" : "news stories"}`
+                : randomArticles.length > 0
+                  ? `Random audio play for ${randomArticles.length} recent ${randomArticles.length === 1 ? "news story" : "news stories"}`
+                  : "No recent news to play randomly"
+            }
+            title={
+              unreadArticles.length > 0
+                ? `Randomly play unread news (${unreadArticles.length})`
+                : randomArticles.length > 0
+                  ? `Randomly play recent news (${randomArticles.length})`
+                  : "No recent news to play"
+            }
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5" />
+            </svg>
           </button>
           <button
             ref={quickTopicSearchButton}
