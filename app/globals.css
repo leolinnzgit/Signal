@@ -2929,7 +2929,6 @@ button.local-weather {
   line-height: 1;
 }
 
-.share-button svg,
 .listen-story-button svg,
 .comment-button svg {
   width: 1rem;
@@ -2940,6 +2939,28 @@ button.local-weather {
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 1.6;
+}
+
+.share-button {
+  border-color: var(--text-faint);
+  color: var(--page-text);
+}
+
+.share-button svg,
+.article-reader-share svg {
+  width: 1.125rem;
+  height: 1.125rem;
+  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.share-button:focus-visible {
+  outline: 2px solid var(--red);
+  outline-offset: 3px;
 }
 
 .share-button:hover,
@@ -3619,7 +3640,6 @@ button.local-weather {
 
 .article-reader-actions { flex-wrap: wrap; }
 .article-reader-actions .article-reader-share { display: inline-flex; align-items: center; gap: 0.45rem; width: auto; padding: 0.55rem 0.75rem; font-size: 0.72rem; font-weight: 700; }
-.article-reader-share svg { width: 1rem; height: 1rem; }
 .article-reader-share:disabled { opacity: 0.5; cursor: wait; }
 
 .article-reader-actions .article-reader-follow {
