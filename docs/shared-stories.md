@@ -25,8 +25,12 @@ and is removed with its recording.
 The server must have Azure Speech configured through the existing Speech settings.
 
 The saved translation remains in the language chosen when sharing. Sharing a
-different language or revised text creates another page; existing links retain
-their content. Sharing the same version again reuses its link.
+different language creates another page. Re-sharing a story in the same language
+reuses its existing link and preserves a previously saved full reading view.
+If the existing page contains only a feed summary, sharing again retries extraction
+or uses the current reader snapshot. When full text is available, Signal upgrades
+that page in place, retaining its URL, creation date and discussion. Failed retries
+leave the summary available.
 
 If the publisher does not expose full text, Signal saves a clearly labelled
 headline and feed summary, with a link to the full article. Shared pages remain

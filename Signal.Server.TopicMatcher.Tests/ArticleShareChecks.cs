@@ -260,6 +260,7 @@ internal static class ArticleShareChecks
         var other = await CreateAsync(CreateController(database, reader, "other"), request);
         Require(other.GetProperty("path").GetString() != path, "Different users shared ownership of a page.");
         await RunReuseChecksAsync();
+        await RunSummaryUpgradeChecksAsync();
         Console.WriteLine("Hosted article sharing passed stable news URLs, saved translations, legacy link reuse, concurrent creation, anonymous reading, authorization, text escaping, input limits and summary fallback checks.");
     }
 
@@ -320,6 +321,58 @@ internal static class ArticleShareChecks
             && raced.GetProperty("title").GetString() == "Concurrent saved version"
             && await database.SharedNewsArticles.CountAsync(item => item.DiscussionUrl == "https://93.184.216.34/concurrent-story") == 1,
             "Concurrent requests with different saved text did not reuse one URL.");
+    }
+
+    private static async Task RunSummaryUpgradeChecksAsync()
+    {
+        using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<SignalDbContext>().UseSqlite(connection).Options;
+        await using var database = new SignalDbContext(options);
+        await database.Database.EnsureCreatedAsync();
+        database.Users.AddRange(new ApplicationUser { Id = "owner" }, new ApplicationUser { Id = "other" });
+        await database.SaveChangesAsync();
+        using var client = new HttpClient(new UnavailableHandler());
+        using var cache = new MemoryCache(new MemoryCacheOptions());
+        var reader = new ArticleReaderService(client, cache, NullLogger<ArticleReaderService>.Instance);
+        var owner = CreateController(database, reader, "owner");
+        var request = new ArticleSharesController.CreateShareRequest("https://93.184.216.34/recoverable", "Story", "Publisher", "Feed summary", null);
+        var summary = await CreateAsync(owner, request);
+        var id = summary.GetProperty("path").GetString()!.Split('/').Last();
+        var original = await database.SharedNewsArticles.AsNoTracking().SingleAsync(item => item.Id == id);
+        var other = await CreateAsync(CreateController(database, reader, "other"), request);
+        database.NewsComments.Add(new NewsComment { ArticleUrl = request.Url, ArticleTitle = request.Title, Body = "Keep the discussion", GuestName = "Reader" });
+        await database.SaveChangesAsync();
+        var failedRetry = await CreateAsync(owner, request);
+        Require(failedRetry.GetProperty("path").GetString() == summary.GetProperty("path").GetString()
+            && failedRetry.GetProperty("summaryOnly").GetBoolean(), "Failed extraction retries must retain the summary and its existing URL.");
+        cache.Set("article-reader:" + request.Url, new ArticleReaderResult(true, "", new ReaderArticle(
+            "https://93.184.216.34/publisher-story", "Reporter", "Publisher", "", ["Full first paragraph.", "Full final paragraph."])), TimeSpan.FromMinutes(1));
+        var upgraded = await CreateAsync(owner, request);
+        var saved = await database.SharedNewsArticles.AsNoTracking().SingleAsync(item => item.Id == id);
+        Require(upgraded.GetProperty("path").GetString() == summary.GetProperty("path").GetString()
+            && !upgraded.GetProperty("summaryOnly").GetBoolean() && !saved.SummaryOnly
+            && saved.OriginalUrl == "https://93.184.216.34/publisher-story" && saved.Byline == "Reporter"
+            && saved.ParagraphsJson.Contains("Full final paragraph.") && saved.ContentHash != original.ContentHash,
+            "Re-sharing a summary must save recovered full text and publisher metadata at the original URL.");
+        Require(saved.CreatedAtUtc == original.CreatedAtUtc && saved.DiscussionUrl == original.DiscussionUrl
+            && saved.ShareKey == original.ShareKey && await database.SharedNewsArticles.CountAsync() == 2
+            && (await database.NewsComments.SingleAsync()).Body == "Keep the discussion",
+            "Upgrading summary text must retain the page identity, creation date, discussion and comments.");
+        var page = (ContentResult)await CreateController(database, reader, null).Read(id, default);
+        Require(page.Content!.Contains("Full final paragraph.") && !page.Content.Contains("Headline and feed summary"),
+            "The original public link must render the recovered full article.");
+        var otherId = other.GetProperty("path").GetString()!.Split('/').Last();
+        var otherSaved = await database.SharedNewsArticles.AsNoTracking().SingleAsync(item => item.Id == otherId);
+        Require(otherSaved.SummaryOnly, "Recovering one owner's share must not change another owner's saved page.");
+        var changedSnapshot = new ArticleSharesController.ArticleSnapshot("New title", ["Replacement text."], "", "New reporter");
+        await CreateAsync(owner, request with { Snapshot = changedSnapshot });
+        Require((await database.SharedNewsArticles.AsNoTracking().SingleAsync(item => item.Id == id)).ParagraphsJson == saved.ParagraphsJson,
+            "A recovered full snapshot must remain preserved on subsequent shares.");
+        var snapshotUpgrade = await CreateAsync(CreateController(database, reader, "other"), request with { Snapshot = changedSnapshot });
+        Require(snapshotUpgrade.GetProperty("path").GetString() == other.GetProperty("path").GetString()
+            && !snapshotUpgrade.GetProperty("summaryOnly").GetBoolean(), "A supplied reader snapshot must also upgrade an existing summary in place.");
+        Console.WriteLine("Summary shares recovered full text in place while preserving URLs, comments, ownership and full snapshots.");
     }
 
     private sealed class ShareRaceInterceptor(DbContextOptions<SignalDbContext> options) : SaveChangesInterceptor

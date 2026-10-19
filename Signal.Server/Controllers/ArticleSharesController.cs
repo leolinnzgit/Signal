@@ -55,7 +55,7 @@ public sealed class ArticleSharesController(
         var shareKey = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
             JsonSerializer.Serialize(new { Url = discussionUrl, Language = language }))));
         var existing = await FindExistingAsync(userId, discussionUrl, original.AbsoluteUri, language, shareKey, token);
-        if (existing is not null) return ShareResponse(existing);
+        if (existing is { SummaryOnly: false }) return ShareResponse(existing);
 
         if (snapshot is null)
         {
@@ -99,10 +99,8 @@ public sealed class ArticleSharesController(
             SummaryOnly = summaryOnly,
             CreatedAtUtc = DateTime.UtcNow,
         };
-        // Preserve the first saved reading view; later shares reuse its URL and discussion.
-        articleShare.ContentHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
-            JsonSerializer.Serialize(new { articleShare.OriginalUrl, articleShare.DiscussionUrl, articleShare.Title, articleShare.Source,
-                articleShare.Byline, articleShare.Language, articleShare.ParagraphsJson, articleShare.SummaryOnly }))));
+        // Preserve full reading views; summary-only placeholders can gain full text.
+        articleShare.ContentHash = ContentHash(articleShare);
         // Extraction can take time. Check again in case another request saved the story meanwhile.
         existing = await FindExistingAsync(userId, discussionUrl, original.AbsoluteUri, language, shareKey, token);
         if (existing is null)
@@ -117,8 +115,31 @@ public sealed class ArticleSharesController(
                 if (existing is null) throw;
             }
         }
+        if (existing is { SummaryOnly: true } && !articleShare.SummaryOnly)
+        {
+            articleShare.DiscussionUrl = existing.DiscussionUrl;
+            articleShare.ContentHash = ContentHash(articleShare);
+            // Upgrade the saved placeholder in place so links and discussions survive.
+            // The condition ensures a concurrent request cannot replace a full snapshot.
+            await database.SharedNewsArticles
+                .Where(item => item.Id == existing.Id && item.UserId == userId && item.SummaryOnly)
+                .ExecuteUpdateAsync(update => update
+                    .SetProperty(item => item.OriginalUrl, articleShare.OriginalUrl)
+                    .SetProperty(item => item.Title, articleShare.Title)
+                    .SetProperty(item => item.Source, articleShare.Source)
+                    .SetProperty(item => item.Byline, articleShare.Byline)
+                    .SetProperty(item => item.ParagraphsJson, articleShare.ParagraphsJson)
+                    .SetProperty(item => item.ContentHash, articleShare.ContentHash)
+                    .SetProperty(item => item.SummaryOnly, false), token);
+            existing = await database.SharedNewsArticles.AsNoTracking().SingleAsync(item => item.Id == existing.Id, token);
+        }
         return ShareResponse(existing ?? articleShare);
     }
+
+    private static string ContentHash(SharedNewsArticle article) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+            JsonSerializer.Serialize(new { article.OriginalUrl, article.DiscussionUrl, article.Title, article.Source,
+                article.Byline, article.Language, article.ParagraphsJson, article.SummaryOnly }))));
 
     private Task<SharedNewsArticle?> FindExistingAsync(string userId, string discussionUrl, string originalUrl,
         string language, string shareKey, CancellationToken token) => database.SharedNewsArticles.AsNoTracking()
