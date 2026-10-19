@@ -48,6 +48,15 @@ internal static class ArticleReaderChecks
         Require(reader.ExtractArticle($"<title>Cloudflare explains bot protection</title><article>{Body}</article>", ArticleUri).Available,
             "News about bot protection must remain readable.");
 
+        using (var negotiationClient = new HttpClient(new ContentNegotiationHandler()))
+        using (var negotiationCache = new MemoryCache(new MemoryCacheOptions()))
+        {
+            var negotiationReader = new ArticleReaderService(negotiationClient, negotiationCache, NullLogger<ArticleReaderService>.Instance);
+            var negotiated = await negotiationReader.ReadAsync(ArticleUri.AbsoluteUri, CancellationToken.None);
+            Require(negotiated.Available && negotiated.Article!.Paragraphs.Count == 5,
+                "Publishers requiring a wildcard Accept fallback must return the full article instead of HTTP 406.");
+        }
+
         foreach (var status in new[] { HttpStatusCode.Forbidden, HttpStatusCode.Unauthorized, HttpStatusCode.PaymentRequired })
         {
             using var deniedClient = new HttpClient(new FixtureHandler("", status));
@@ -188,6 +197,19 @@ internal static class ArticleReaderChecks
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
             Task.FromResult(new HttpResponseMessage(status) { Content = new StringContent(html, System.Text.Encoding.UTF8, "text/html") });
+    }
+
+    private sealed class ContentNegotiationHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var acceptsHtml = request.Headers.Accept.Any(value => value.MediaType == "text/html");
+            var acceptsFallback = request.Headers.Accept.Any(value => value.MediaType == "*/*" && value.Quality is > 0 and < 1);
+            var response = acceptsHtml && acceptsFallback
+                ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent($"<article>{Body}</article>", System.Text.Encoding.UTF8, "text/html") }
+                : new HttpResponseMessage(HttpStatusCode.NotAcceptable);
+            return Task.FromResult(response);
+        }
     }
 
     private sealed class ChallengeHandler(HttpStatusCode status) : HttpMessageHandler

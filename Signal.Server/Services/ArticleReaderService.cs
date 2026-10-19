@@ -129,7 +129,9 @@ public sealed class ArticleReaderService(
         for (var redirectCount = 0; redirectCount <= MaximumRedirects; redirectCount++)
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, currentUri);
-            request.Headers.Accept.ParseAdd("text/html,application/xhtml+xml;q=0.9");
+            // Some publishers return HTTP 406 without a general fallback, even
+            // though they serve HTML. Keep HTML preferred and validate the response below.
+            request.Headers.Accept.ParseAdd("text/html,application/xhtml+xml;q=0.9,*/*;q=0.8");
             using var response = await httpClient.SendAsync(
                 request,
                 HttpCompletionOption.ResponseHeadersRead,

@@ -5,6 +5,11 @@ article text with a Readability-based DOM extraction using SmartReader. Short
 metadata excerpts no longer prevent HTML extraction. If those results are too
 short, the reader checks the page's actual paragraph containers.
 
+Article requests prefer HTML and include a lower-priority wildcard `Accept`
+fallback. IT Brief returns HTTP 406 without this fallback, despite serving a
+public HTML article. Signal still checks the response content type before
+extracting text.
+
 Google News RSS links first resolve to the publisher's public HTTPS article.
 Signal reads the signed redirect parameters from Google's page and requests the
 publisher URL from Google's fixed article-link endpoint. Both Reader and **Open
