@@ -481,6 +481,90 @@ await using (var scheduleDatabase = new SignalDbContext(scheduleOptions))
         "Robots");
     if (secondDeviceBriefing.Topics.Single(item => item.Topic == "Robots").HasUnread)
         throw new InvalidOperationException("A second device still received the topic as unread after it was viewed.");
+
+    const string dwRdfXml = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:dc="http://purl.org/dc/elements/1.1/">
+          <channel rdf:about="https://www.dw.com/">
+            <title>Deutsche Welle</title>
+          </channel>
+          <item rdf:about="https://www.dw.com/en/ai-assisted-dying-doris-dörrie-s-new-film-addresses-prospect-of-care-robots/a-79659715?maca=en-rss-en-all-1573-rdf">
+            <title>AI-assisted dying? Doris Dörrie&apos;s new film addresses prospect of care robots</title>
+            <link>https://www.dw.com/en/ai-assisted-dying-doris-dörrie-s-new-film-addresses-prospect-of-care-robots/a-79659715?maca=en-rss-en-all-1573-rdf</link>
+            <description>While the world debates the dangers of artificial intelligence, filmmaker Doris Dörrie explores care robots.</description>
+            <dc:date>2026-10-15T13:24:00Z</dc:date>
+          </item>
+        </rdf:RDF>
+        """;
+    var parsedDwArticles = NewsService.ParsePublisherFeed(
+        dwRdfXml,
+        new Uri("https://rss.dw.com/rdf/rss-en-all"),
+        ["Robots"]).ToArray();
+    if (parsedDwArticles.Length != 1
+        || parsedDwArticles[0].PublishedAt != new DateTimeOffset(2026, 10, 15, 13, 24, 0, TimeSpan.Zero)
+        || parsedDwArticles[0].Url != "https://www.dw.com/en/ai-assisted-dying-doris-d%C3%B6rrie-s-new-film-addresses-prospect-of-care-robots/a-79659715?maca=en-rss-en-all-1573-rdf")
+    {
+        throw new InvalidOperationException("Publisher RDF feed parsing did not preserve dc:date or normalize non-ASCII article URLs.");
+    }
+
+    if (NewsService.ParseDate("Sat, 17 Oct 2026 21:33:38 EDT") != new DateTimeOffset(2026, 10, 18, 1, 33, 38, TimeSpan.Zero))
+        throw new InvalidOperationException("Publisher feed date parsing did not handle named timezone abbreviations.");
+
+    const string dwInitialUrl = "https://www.dw.com/en/ai-assisted-euthanasia-new-film-addresses-prospect-of-care-robots/a-79659715?maca=en-rss-en-all-1573-rdf";
+    const string dwRevisedRawUrl = "https://www.dw.com/en/ai-assisted-dying-doris-dörrie-s-new-film-addresses-prospect-of-care-robots/a-79659715?maca=en-rss-en-all-1573-rdf";
+    if (ArticleIdentity.GetStoryUrlKey(dwInitialUrl) != ArticleIdentity.GetStoryUrlKey(dwRevisedRawUrl))
+        throw new InvalidOperationException("Story URL identity did not match revised Deutsche Welle slugs for the same article ID.");
+    if (!ArticleIdentity.GetUrlLookupCandidates(dwRevisedRawUrl).Contains(dwRevisedRawUrl, StringComparer.Ordinal))
+        throw new InvalidOperationException("URL lookup candidates did not include raw Unicode URLs alongside percent-encoded URLs.");
+
+    var initialDwArticle = new TopicBriefingArticle(
+        "AI-assisted euthanasia? New film addresses prospect of care robots",
+        dwInitialUrl,
+        "Deutsche Welle",
+        new DateTimeOffset(2026, 10, 15, 13, 24, 0, TimeSpan.Zero),
+        "Care robots film.",
+        "",
+        ["Robots"],
+        ["Google News"],
+        false,
+        false);
+    var initialDwStored = await refreshService.StoreArticlesAsync(
+        "schedule-user",
+        [initialDwArticle],
+        new DateTime(2026, 10, 15, 13, 33, 0, DateTimeKind.Utc),
+        CancellationToken.None);
+    initialDwStored.NewArticles.Single().IsRead = true;
+    initialDwStored.NewArticles.Single().ReadAtUtc = new DateTime(2026, 10, 15, 18, 11, 0, DateTimeKind.Utc);
+    await scheduleDatabase.SaveChangesAsync();
+
+    var revisedDwArticle = new TopicBriefingArticle(
+        "AI-assisted dying? Doris Dörrie's new film addresses prospect of care robots",
+        dwRevisedRawUrl,
+        "Deutsche Welle",
+        new DateTimeOffset(2026, 10, 15, 13, 24, 0, TimeSpan.Zero),
+        "Care robots film.",
+        "",
+        ["Robots"],
+        ["Google News"],
+        false,
+        false);
+    var revisedDwStored = await refreshService.StoreArticlesAsync(
+        "schedule-user",
+        [revisedDwArticle],
+        new DateTime(2026, 10, 15, 15, 34, 0, DateTimeKind.Utc),
+        CancellationToken.None);
+    if (revisedDwStored.NewArticles.Count != 0 || revisedDwStored.TopicKeys.Count != 0)
+        throw new InvalidOperationException("A revised slug for an already-read story triggered duplicate unread state or notifications.");
+
+    var deduplicatedBriefing = await refreshService.LoadBriefingAsync(
+        "schedule-user",
+        CancellationToken.None,
+        "Robots");
+    var dwBriefingMatches = deduplicatedBriefing.Articles
+        .Where(article => article.Url.Contains("79659715", StringComparison.Ordinal))
+        .ToArray();
+    if (dwBriefingMatches.Length != 1 || !dwBriefingMatches[0].IsRead)
+        throw new InvalidOperationException("Briefing did not deduplicate revised publisher slugs or preserve read state.");
 }
 
 Console.WriteLine("Per-topic refresh state, cross-device unread cursors and Latest filtering passed independent scheduling checks.");

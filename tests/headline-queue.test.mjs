@@ -28,6 +28,33 @@ test("URL aliases match despite tracking, fragments, query order and trailing sl
   assert.deepEqual(queue.duplicates.get(first.url), [first, copy]);
 });
 
+test("publisher article IDs suppress revised slugs and headlines once read", () => {
+  const dwRead = {
+    title: "AI-assisted euthanasia? New film addresses prospect of care robots",
+    url: "https://www.dw.com/en/ai-assisted-euthanasia-new-film-addresses-prospect-of-care-robots/a-79659715?maca=en-rss-en-all-1573-rdf",
+    isRead: true,
+  };
+  const dwRevised = {
+    title: "AI-assisted dying? Doris Dörrie's new film addresses prospect of care robots",
+    url: "https://www.dw.com/en/ai-assisted-dying-doris-dörrie-s-new-film-addresses-prospect-of-care-robots/a-79659715?maca=en-rss-en-all-1573-rdf",
+    isRead: false,
+  };
+  const cnaFirst = {
+    title: "Early CNA headline",
+    url: "https://www.channelnewsasia.com/business/early-cna-headline-6470476",
+    isRead: false,
+  };
+  const cnaRevised = {
+    title: "Revised CNA headline",
+    url: "https://www.channelnewsasia.com/business/revised-cna-headline-6470476",
+    isRead: false,
+  };
+  const queue = createUnreadHeadlineQueue([dwRevised, dwRead, cnaFirst, cnaRevised]);
+  assert.deepEqual(queue.articles, [cnaFirst]);
+  assert.deepEqual(queue.duplicates.get(cnaFirst.url), [cnaFirst, cnaRevised]);
+  assert.deepEqual(queue.duplicates.get(cnaRevised.url), [cnaFirst, cnaRevised]);
+});
+
 test("read copies suppress all linked aliases, including title and URL bridges", () => {
   const first = story("Original headline", "one");
   const second = story("Updated headline", "two");

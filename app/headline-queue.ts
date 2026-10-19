@@ -8,16 +8,41 @@ function headlineKey(title: string) {
     .replace(/[.!?。！？]+$/u, "").trim();
 }
 
+function normalizePublisherPath(host: string, pathname: string) {
+  if (host === "dw.com") {
+    const match = pathname.match(/^\/(?:([a-z]{2}(?:-[a-z]{2})?)\/)?[^/]+\/(a-\d+)\/?$/i);
+    if (match) return match[1] ? `/${match[1].toLowerCase()}/${match[2].toLowerCase()}` : `/${match[2].toLowerCase()}`;
+  } else if (host === "channelnewsasia.com") {
+    const match = pathname.match(/^\/([^/]+)\/[^/]*-(\d{6,})\/?$/i);
+    if (match) return `/${match[1].toLowerCase()}/${match[2]}`;
+  } else if (host === "cbc.ca") {
+    const match = pathname.match(/^\/news(?:\/[^/]+)+\/[^/]*-(\d+\.\d+)\/?$/i);
+    if (match) return `/news/${match[1]}`;
+  } else if (host === "abc.net.au") {
+    const match = pathname.match(/^\/news\/\d{4}-\d{2}-\d{2}\/[^/]+\/(\d{6,})\/?$/i);
+    if (match) return `/news/${match[1]}`;
+  } else if (host === "stuff.co.nz") {
+    const match = pathname.match(/^\/(?:[^/]+\/)*(\d{8,})\/[^/]+\/?$/i);
+    if (match) return `/${match[1]}`;
+  }
+  return pathname;
+}
+
 function storyUrlKey(value: string) {
   try {
     const url = new URL(value);
     url.hash = "";
+    url.hostname = url.hostname.toLowerCase().replace(/^www\./, "");
     for (const name of Array.from(url.searchParams.keys())) {
-      if (/^utm_/i.test(name) || /^(fbclid|gclid|dclid|msclkid|mc_cid|mc_eid|_hsenc|_hsmi)$/i.test(name)) {
+      if (
+        /^(?:utm_|syn-)/i.test(name)
+        || /^(fbclid|gclid|dclid|msclkid|mc_cid|mc_eid|_hsenc|_hsmi|maca|cmp|traffic_source|at_medium|at_campaign)$/i.test(name)
+      ) {
         url.searchParams.delete(name);
       }
     }
     url.searchParams.sort();
+    url.pathname = normalizePublisherPath(url.hostname, url.pathname);
     if (url.pathname.length > 1) url.pathname = url.pathname.replace(/\/+$/, "");
     return url.href;
   } catch { return value.trim(); }
@@ -60,7 +85,7 @@ export function createUnreadHeadlineQueue<T extends HeadlineArticle>(articles: T
   for (const group of groupHeadlineArticles(articles)) {
     if (group.some((article) => article.isRead)) continue;
     queue.push(group[0]);
-    duplicates.set(group[0].url, group);
+    for (const copy of group) duplicates.set(copy.url, group);
   }
   return { articles: queue, duplicates };
 }
@@ -90,7 +115,7 @@ export function createRandomHeadlineQueue<T extends HeadlineArticle>(
   const duplicates = new Map<string, T[]>();
   for (const group of activeGroups) {
     representatives.push(group[0]);
-    duplicates.set(group[0].url, group);
+    for (const copy of group) duplicates.set(copy.url, group);
   }
   return {
     articles: shuffleHeadlineArticles(representatives, random),

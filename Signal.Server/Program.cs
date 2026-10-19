@@ -627,10 +627,53 @@ await using (var scope = app.Services.CreateAsyncScope())
                     "ViewedContentVersion" = 0;
                 """);
         }
+
+        await database.Database.ExecuteSqlRawAsync("""
+            UPDATE "StoredNewsArticles"
+            SET "PublishedAtUtc" = "FirstSeenAtUtc"
+            WHERE julianday("LastSeenAtUtc") - julianday("FirstSeenAtUtc") > 0.1
+              AND abs(julianday("PublishedAtUtc") - julianday("LastSeenAtUtc")) < 0.001;
+            """);
     }
     finally
     {
         await database.Database.CloseConnectionAsync();
+    }
+
+    var nonAsciiArticles = await database.StoredNewsArticles
+        .Where(item => item.Url.Contains("dörrie") || item.Url.Contains("jürgen"))
+        .ToListAsync();
+    if (nonAsciiArticles.Count > 0)
+    {
+        foreach (var item in nonAsciiArticles)
+        {
+            var normalizedUrl = ArticleIdentity.NormalizeUrl(item.Url);
+            if (normalizedUrl is not null && !string.Equals(item.Url, normalizedUrl, StringComparison.Ordinal))
+            {
+                var duplicateExists = await database.StoredNewsArticles.AnyAsync(
+                    other => other.UserId == item.UserId && other.Id != item.Id && other.Url == normalizedUrl);
+                if (!duplicateExists) item.Url = normalizedUrl;
+            }
+            if (!item.IsRead)
+            {
+                var storyKey = ArticleIdentity.GetStoryUrlKey(item.Url);
+                if (storyKey.Length > 0)
+                {
+                    var candidates = await database.StoredNewsArticles
+                        .AsNoTracking()
+                        .Where(other => other.UserId == item.UserId && other.IsRead && other.Source == item.Source)
+                        .ToListAsync();
+                    var readMatch = candidates.FirstOrDefault(other =>
+                        string.Equals(ArticleIdentity.GetStoryUrlKey(other.Url), storyKey, StringComparison.Ordinal));
+                    if (readMatch is not null)
+                    {
+                        item.IsRead = true;
+                        item.ReadAtUtc ??= readMatch.ReadAtUtc ?? DateTime.UtcNow;
+                    }
+                }
+            }
+        }
+        await database.SaveChangesAsync();
     }
 
     var existingPreferences = await database.UserNewsPreferences.AsNoTracking().ToArrayAsync();
