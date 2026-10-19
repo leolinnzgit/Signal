@@ -294,6 +294,27 @@ await using (var historyDatabase = new SignalDbContext(historyOptions))
         .ToArrayAsync();
     if (filteredMatches.Length != 1 || filteredMatches[0] != "New AI research")
         throw new InvalidOperationException("History topic and source filters did not combine correctly.");
+
+    var bodyArticle = await historyDatabase.StoredNewsArticles.FirstAsync(item => item.Title == "Technology policy changes");
+    var articleUrl = bodyArticle.Url;
+    var readerResult = new ArticleReaderResult(true, "", new ReaderArticle(articleUrl, "", "", "",
+        ["The report examines semiconductor manufacturing and quantum computing."]));
+    await ArticleHistorySearch.StoreReaderTextAsync(historyDatabase, articleUrl, readerResult, default);
+    var fullTextMatches = await ArticleHistorySearch.Apply(
+            historyDatabase.StoredNewsArticles.AsNoTracking().Where(item => item.UserId == "history-user"),
+            "  GUARDIAN\tQuantum  manufacturing ")
+        .Select(item => item.Title).ToArrayAsync();
+    if (fullTextMatches.Length != 1 || fullTextMatches[0] != bodyArticle.Title)
+        throw new InvalidOperationException("Full text search failed to combine article body and metadata terms in SQLite.");
+    if (await ArticleHistorySearch.Apply(historyDatabase.StoredNewsArticles.AsNoTracking(), "quantum missing").AnyAsync())
+        throw new InvalidOperationException("Full text search did not require every search term.");
+    if (await ArticleHistorySearch.Apply(historyDatabase.StoredNewsArticles.AsNoTracking()
+            .Where(item => item.UserId == "other-user"), "quantum").AnyAsync())
+        throw new InvalidOperationException("Full text search escaped the user's saved stories.");
+    await ArticleHistorySearch.StoreReaderTextAsync(historyDatabase, articleUrl,
+        new ArticleReaderResult(false, "Unavailable", null), default);
+    if (!await ArticleHistorySearch.Apply(historyDatabase.StoredNewsArticles.AsNoTracking(), "quantum").AnyAsync())
+        throw new InvalidOperationException("An unavailable extraction erased previously searchable article text.");
 }
 
 Console.WriteLine("Article history search and filters passed cross-field, topic and source checks.");

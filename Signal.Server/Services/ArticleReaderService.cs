@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 using Microsoft.Extensions.Caching.Memory;
 using AngleSharp.Dom;
 using AngleSharp.Html.Parser;
+using Signal.Server.Data;
 
 namespace Signal.Server.Services;
 
@@ -22,7 +23,8 @@ public sealed class ArticleReaderService(
     HttpClient httpClient,
     IMemoryCache cache,
     ILogger<ArticleReaderService> logger,
-    IArticlePageRenderer? pageRenderer = null)
+    IArticlePageRenderer? pageRenderer = null,
+    IServiceScopeFactory? scopeFactory = null)
 {
     internal const string InsufficientTextReason = "Signal Reader could not find enough article text on this page.";
     internal const string GoogleNewsResolutionReason = "Google News did not provide the publisher link this time. Try again later, or open the original story.";
@@ -63,14 +65,31 @@ public sealed class ArticleReaderService(
         var initialUri = await ValidatePublicArticleUriAsync(value, cancellationToken);
         var cacheKey = $"article-reader:{initialUri.AbsoluteUri}";
         if (cache.TryGetValue(cacheKey, out ArticleReaderResult? cached) && cached is not null)
+        {
+            await StoreSearchTextAsync(value, cached, cancellationToken);
             return cached;
+        }
 
         var result = await FetchAndExtractAsync(initialUri, cancellationToken);
         cache.Set(
             cacheKey,
             result,
             result.Available ? TimeSpan.FromMinutes(30) : TimeSpan.FromMinutes(5));
+        await StoreSearchTextAsync(value, result, cancellationToken);
         return result;
+    }
+
+    private async Task StoreSearchTextAsync(string url, ArticleReaderResult result, CancellationToken token)
+    {
+        if (scopeFactory is null || !result.Available) return;
+        try
+        {
+            await using var scope = scopeFactory.CreateAsyncScope();
+            await ArticleHistorySearch.StoreReaderTextAsync(
+                scope.ServiceProvider.GetRequiredService<SignalDbContext>(), url, result, token);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+        catch (Exception exception) { logger.LogWarning(exception, "Could not save article text for search."); }
     }
 
     public async Task<string> ResolveUrlAsync(string value, CancellationToken cancellationToken)

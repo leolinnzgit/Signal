@@ -755,6 +755,8 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [topicPickerOpen, setTopicPickerOpen] = useState(false);
   const [topicPickerQuery, setTopicPickerQuery] = useState("");
   const [quickTopicSearchOpen, setQuickTopicSearchOpen] = useState(false);
+  const [quickSearchMode, setQuickSearchMode] = useState<"topics" | "text">("topics");
+  const [quickTextQuery, setQuickTextQuery] = useState("");
   const [sourcePickerOpen, setSourcePickerOpen] = useState(false);
   const [sourcePickerQuery, setSourcePickerQuery] = useState("");
   const [sourcesExpanded, setSourcesExpanded] = useState(false);
@@ -1995,6 +1997,10 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   }, [quickTopicSearchOpen]);
 
   useEffect(() => {
+    if (quickTopicSearchOpen) quickTopicSearchInput.current?.focus({ preventScroll: true });
+  }, [quickSearchMode, quickTopicSearchOpen]);
+
+  useEffect(() => {
     if (!topicPendingRemoval) return;
     const focusFrame = window.requestAnimationFrame(() => topicRemovalCancelButton.current?.focus());
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -2594,7 +2600,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     setNotice("The additional clock has been removed.");
   }
 
-  function changeFeedView(next: "latest" | "history" | "bookmarks") {
+  function changeFeedView(next: "latest" | "history" | "bookmarks", search = "") {
     setFeedView(next);
     setSelectedTopic(ALL_TOPICS);
     setSelectedProvider(ALL_PROVIDERS);
@@ -2604,10 +2610,10 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     setSourcePickerOpen(false);
     setSourcePickerQuery("");
     setSourcesExpanded(false);
-    setHistorySearchInput("");
-    setHistorySearch("");
+    setHistorySearchInput(search);
+    setHistorySearch(search);
     setHistoryError("");
-    if (next !== "latest") void loadHistoryPage(next, "", 0);
+    if (next !== "latest") void loadHistoryPage(next, search, 0);
   }
 
   function markTopicViewed(topic: string) {
@@ -2625,7 +2631,17 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     setTopicPickerQuery("");
     setSourcePickerOpen(false);
     setSourcePickerQuery("");
+    setQuickTextQuery(historySearch);
     setQuickTopicSearchOpen(true);
+  }
+
+  function submitQuickTextSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const search = quickTextQuery.trim().replace(/\s+/g, " ").slice(0, 100);
+    if (!search || !articleStore) return;
+    closeQuickTopicSearch();
+    changeFeedView(feedView === "bookmarks" ? "bookmarks" : "history", search);
+    window.requestAnimationFrame(() => document.getElementById("history-search")?.focus());
   }
 
   function closeQuickTopicSearch() {
@@ -3894,7 +3910,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                 type="search"
                 value={historySearchInput}
                 onChange={(event) => setHistorySearchInput(event.target.value)}
-                placeholder="Titles, summaries, publishers or topics"
+                placeholder="Article text, titles, summaries, publishers or topics"
                 maxLength={100}
               />
               {historySearch && <button type="button" className="history-search-clear" onClick={clearHistorySearch}>Clear</button>}
@@ -4133,7 +4149,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           <div className="loading-list" aria-label="Loading saved stories">{Array.from({ length: 4 }, (_, index) => <div className="loading-row" key={index} />)}</div>
         ) : feedView !== "latest" && filteredArticles.length === 0 ? (
           historySearch || selectedTopic !== ALL_TOPICS || selectedProvider !== ALL_PROVIDERS ? (
-            <div className="message-card"><p className="message-kicker">No matches</p><h3>Try broader filters.</h3><p>No saved stories match the current search and filters. Search checks titles, summaries, publishers and topics.</p><button onClick={clearHistoryFiltersAndSearch}>Clear search and filters</button></div>
+            <div className="message-card"><p className="message-kicker">No matches</p><h3>Try broader filters.</h3><p>No saved stories match the current search and filters. Search checks available article text, titles, summaries, publishers and topics.</p><button onClick={clearHistoryFiltersAndSearch}>Clear search and filters</button></div>
           ) : (
             <div className="message-card"><p className="message-kicker">Nothing saved here yet</p><h3>{feedView === "bookmarks" ? "Bookmark a story to keep it." : "Refresh your briefing to build history."}</h3><p>{feedView === "bookmarks" ? "Use the bookmark button beside any story. Bookmarks are never removed by automatic cleanup." : "Signal stores refreshed stories in your account and removes old unbookmarked items using your cleanup setting."}</p></div>
           )
@@ -4676,6 +4692,12 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           className="topic-filter-picker quick-topic-search"
           id="quick-topic-search"
           aria-labelledby="quick-topic-search-title"
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              closeQuickTopicSearch();
+            }
+          }}
           onCancel={(event) => {
             event.preventDefault();
             closeQuickTopicSearch();
@@ -4691,11 +4713,25 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         >
           <div className="topic-filter-picker-heading">
             <div>
-              <strong id="quick-topic-search-title">Search topics</strong>
-              <span aria-live="polite">{pickerTopics.length} of {preferences.topics.length} followed</span>
+              <strong id="quick-topic-search-title">Search</strong>
+              <span aria-live="polite">{quickSearchMode === "text" ? `Search saved ${feedView === "bookmarks" ? "bookmarks" : "stories"}` : `${pickerTopics.length} of ${preferences.topics.length} followed`}</span>
             </div>
-            <button type="button" onClick={closeQuickTopicSearch} aria-label="Close topic search">&#215;</button>
+            <button type="button" onClick={closeQuickTopicSearch} aria-label="Close search">&#215;</button>
           </div>
+          {articleStore && <div className="quick-search-modes" role="group" aria-label="Search mode">
+            <button type="button" aria-pressed={quickSearchMode === "topics"} onClick={() => setQuickSearchMode("topics")}>Topics</button>
+            <button type="button" aria-pressed={quickSearchMode === "text"} onClick={() => setQuickSearchMode("text")}>Full text</button>
+          </div>}
+          {quickSearchMode === "text" && articleStore ? (
+            <form className="quick-text-search" role="search" onSubmit={submitQuickTextSearch}>
+              <label htmlFor="quick-text-query">Search {feedView === "bookmarks" ? "bookmarks" : "all saved stories"}</label>
+              <input ref={quickTopicSearchInput} id="quick-text-query" type="search" value={quickTextQuery} maxLength={100}
+                onChange={(event) => setQuickTextQuery(event.target.value)}
+                placeholder="Enter words to find in stories" aria-describedby="quick-text-help" />
+              <p id="quick-text-help">Search titles, summaries, publishers, topics and article text captured by Signal Reader. Results include all your {feedView === "bookmarks" ? "bookmarks" : "saved stories"}, across topics and sources.</p>
+              <button type="submit" disabled={!quickTextQuery.trim()}>Search stories</button>
+            </form>
+          ) : <>
           <input
             ref={quickTopicSearchInput}
             type="search"
@@ -4730,6 +4766,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
               ? "Follow a topic using Add or manage topics to start your briefing."
               : "No followed topics match that search."}</p>}
           </div>
+          </>}
         </dialog>
       )}
 
@@ -4795,11 +4832,11 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
             type="button"
             className="floating-topic-search"
             onClick={openQuickTopicSearch}
-            aria-label="Search topics"
+            aria-label="Search topics or full text"
             aria-haspopup="dialog"
             aria-controls="quick-topic-search"
             aria-expanded={quickTopicSearchOpen}
-            title="Search topics"
+            title="Search topics or full text"
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <circle cx="10.5" cy="10.5" r="6.5" />
