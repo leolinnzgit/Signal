@@ -43,6 +43,34 @@ reduced-motion preference and does not move keyboard focus.
 
 Validate the client with `npm run iis:typecheck` and `npm run test:client`.
 
+## Headline audio briefings and random playback
+
+Signal provides both sequential and randomized audio briefings across your followed topics:
+
+- **Play unread headlines**: The primary floating play button starts a briefing of unread headlines,
+  presenting each headline title for at least six seconds with pause, skip, and speed controls.
+- **Random headline audio briefings**: Tapping the random / shuffle briefing option compiles recent
+  headlines from across all followed topics in randomized order. Duplicate stories are filtered out
+  automatically so repeated headlines do not re-appear within the same briefing.
+- **Stream before completion**: Long or random audio briefings begin streaming and playing ready clips
+  immediately rather than waiting for the entire batch of headlines to finish speech synthesis in the background.
+- **Stock quotes during playback**: Headline playback displays relevant market quotes for followed topics
+  matching the currently playing headline, including during **All topics** playback. Quotes update dynamically
+  as playback advances and are refreshed during extended briefings.
+
+## Minimized players and navigation
+
+- **Continuous minimized playback**: Minimizing the full-screen headline player or the article reader
+  does not stop audio narration. Playback transitions seamlessly into a floating, minimised audio dock at
+  the bottom of the screen with compact play/pause and stop controls.
+- **Back navigation**: Pressing the browser or system Back button while in the full-screen audio player
+  or reader returns cleanly to the previous dashboard view without leaving orphaned state or abruptly cutting
+  off media session controls.
+- **Hands-free head & eye gestures**: Listeners can nod their head up and down to toggle play/pause during
+  playback, turn their head left or right to move between headlines or stories, or use deliberate eye winks
+  and long blinks. Gestures can run with the camera preview monitor hidden.
+
+
 ## Azure neural recordings
 
 Recorded audio uses Windows voices until an alternative provider is configured. With

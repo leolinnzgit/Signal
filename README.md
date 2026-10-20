@@ -31,14 +31,17 @@ IIS for a persistent personal deployment.
   summaries. This preference applies to all notification-enabled devices on
   your account; notification permission is still enabled separately per device.
 - Store article history in SQLite with topic and source filters, pagination,
-  and multi-term search.
+  and multi-term full text search accessible from the search icon.
 - Bookmark stories indefinitely while automatically purging unbookmarked
   history on a configurable schedule (from 1 day to 1 year).
 - Track read status and show unread indicators whenever a topic receives new
   stories.
-- Play unread headlines across all topics with the floating play button. The
-  full-screen, title-only briefing shows each title for at least six seconds, with pause,
-  previous/next, and speed controls. Read-aloud is on by default in supported
+- Play unread headlines across all topics or start a random headline briefing with
+  the floating play button. The full-screen, title-only briefing shows each title
+  for at least six seconds, with pause, previous/next, shuffle, and speed controls.
+  Random briefings compile recent headlines across followed topics without duplicating
+  stories, streaming audio clips progressively so listening begins immediately before
+  the entire batch finishes cloud speech preparation. Read-aloud is on by default in supported
   browsers and finishes each title before advancing; the voice toggle mutes it.
   Automatic voice selection prefers voices labelled Natural, Neural, Enhanced,
   Premium, or Google when available, with a relaxed default speaking speed and
@@ -62,8 +65,11 @@ IIS for a persistent personal deployment.
   Tap Play if the browser blocks automatic playback.
   Closing the reader cancels preparation and stops its narration. Publishers that
   block extraction show an explanation and a link to read the original article.
-  With voice on, narration continues when you switch tabs or minimize the
-  browser. Muted playback pauses while hidden, and manual Pause always applies.
+  With voice on, narration continues when you switch tabs, minimize the
+  browser, or minimize the player window into the floating dock at the bottom
+  of the screen. Pressing the browser or system Back button returns cleanly to
+  the previous view without interrupting playback unexpectedly. Muted playback
+  pauses while hidden, and manual Pause always applies.
   On PC, playback opens in a windowed player. Choose **Full screen** to expand it,
   and **Exit full screen** to return to the window without interrupting audio.
   Leaving native fullscreen keeps the briefing running; use **Close** or
@@ -117,7 +123,13 @@ IIS for a persistent personal deployment.
   publisher's original page when extraction is blocked or paywalled.
 - Display feed images when publishers provide them.
 - Discuss articles with other Signal users through per-article comment
-  threads and a site-wide latest-comments feed.
+  threads and a site-wide latest-comments feed, with direct threaded replies
+  and full discussions displayed directly below stories in Signal Reader.
+- Share stories via public hosted links with optional Azure audio narration.
+  Recipients can read and listen without an account and participate in story
+  discussions with an optional guest name or anonymously. Re-sharing updates
+  summary-only pages to full article text in place when available, preserving
+  URLs and existing comments.
 - Find friends by email, send and accept friend requests, and see real-time
   online presence.
 - Send direct messages to friends with an emoji picker, paginated message
@@ -147,11 +159,12 @@ IIS for a persistent personal deployment.
 ## Hands-free hand and eye gestures
 
 Tap the floating **hand button** at the bottom right of the feed, headline player,
-or article reader to open the guide. Tap **Start gestures** and allow the front
-camera; the guide closes and gestures control Signal. **Practise gestures** is
-an optional mode that recognises gestures without changing the app. Turn off
-**Practice only** and close the guide when ready. The button shows a green dot
-while the camera is on; tap it to reopen the guide or stop the camera.
+or article reader to directly toggle the camera on/off or open the guide. Tap
+**Start gestures** and allow the front camera; the guide closes and gestures
+control Signal. **Practise gestures** is an optional mode that recognises gestures
+without changing the app. Turn off **Practice only** and close the guide when ready.
+The button shows a green dot while the camera is on; tap it to toggle the camera
+or reopen the guide.
 The small live preview shows **Hand detected**, **No hand in view**, or
 **Show just one hand**, with green dots over tracked hand landmarks. The preview
 can be hidden in the guide. **Use gestures now** leaves practice and closes the guide.
@@ -183,13 +196,13 @@ For eye and head controls, open the floating guide and select **Eye winks, blink
 You can switch between eye and hand controls at any time, and toggle **Show camera preview**
 (or tap **Hide preview** on the floating monitor) to hide the live video box while keeping
 controls active. Choose **Practise gestures** to learn first.
-Look at the camera with both eyes open until **Eyes ready** appears. Turn your
-head slightly right for the next topic/story/headline or left for the previous
-one, then return your head to the centre. You can also wink your right eye for
-next, wink your left eye for previous, or blink both eyes deliberately (for
-about a quarter-second or longer) for the next topic in the news feed or to
-pause/resume narration or headline playback when one is open. Eye closures
-confirm after reopening both eyes.
+Look at the camera with both eyes open until **Eyes ready** appears. Nod your
+head up and down to play or pause audio playback. Turn your head slightly right
+for the next topic/story/headline or left for the previous one, then return your
+head to the centre. You can also wink your right eye for next, wink your left eye
+for previous, or blink both eyes deliberately (for about a quarter-second or longer)
+for the next topic in the news feed or to pause/resume narration or headline playback
+when one is open. Eye closures confirm after reopening both eyes.
 Thresholds adapt to each eye's normal open reading (for example when looking
 down at a phone), and a wink still counts if the other eye squints slightly.
 Quick involuntary blinks are ignored; closures longer than 3 seconds, lost face
@@ -225,7 +238,7 @@ Signal.Server.TopicMatcher.Tests/   Server-side integration and unit tests
 Signal.GmailSetup/                  Windows Gmail OAuth setup utility
 public/                             Shared images, icons, manifest, service worker
 tests/                              Client unit and rendered HTML tests
-scripts/                            Configuration helper scripts (Google Login)
+scripts/                            Configuration, watchdog, host relocation, and maintenance scripts
 work/                               IIS deployment, backup, and operational scripts
 build/                              Build plugins for earlier Sites/Vinext platform
 app/                                Earlier OpenAI Sites/Vinext implementation
@@ -347,7 +360,7 @@ with the path to your client secret JSON file:
 ```
 
 The included setup utility is intended for an IIS installation at
-`C:\inetpub\Signal`. Its generated credential file belongs in `App_Data` and
+`C:\sites\SignalHost`. Its generated credential file belongs in `App_Data` and
 must never be committed.
 
 ### SMTP
@@ -411,7 +424,7 @@ npm test
 
 The included scripts deploy Signal as an ASP.NET Core application named
 `Signal`, using the `SignalAppPool` application pool and local HTTPS on port
-`8443`. The default physical path is `C:\inetpub\Signal`.
+`8443`. The default physical path is `C:\sites\SignalHost`.
 
 ### IIS prerequisites
 
@@ -468,9 +481,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\work\setup-signal-iis.ps1
 ```
 
 The setup script stops without overwriting an existing `Signal` IIS site or a
-non-empty `C:\inetpub\Signal` directory. On a clean installation it:
+non-empty `C:\sites\SignalHost` directory. On a clean installation it:
 
-1. Copies the validated `iis-publish` package to `C:\inetpub\Signal`.
+1. Copies the validated `iis-publish` package to `C:\sites\SignalHost`.
 2. Creates `SignalAppPool` with **No Managed Code**, integrated mode, and
    `AlwaysRunning` enabled.
 3. Creates the `Signal` website.
@@ -497,7 +510,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\work\enable-signal-uac-fre
 ```
 
 Windows asks for administrator approval once. The script grants the current
-Windows account **Modify** permission only on `C:\inetpub\Signal`. Later routine
+Windows account **Modify** permission only on `C:\sites\SignalHost`. Later routine
 deployments can then use application-offline mode without stopping IIS or
 requesting UAC approval.
 
@@ -539,8 +552,12 @@ appsettings.Production.json
 ```
 
 Database backups are stored in
-`C:\inetpub\Signal\App_Data\backups`. Retention keeps the latest 10 backups plus
-one daily backup for up to 30 days. Do not use `-SkipBackup` for a normal
+`C:\sites\SignalHost\App_Data\backups` as compressed `.db.zip` files. Each ZIP
+contains one transactionally consistent SQLite database snapshot. Compression
+is verified against the original using SHA-256 before the uncompressed snapshot
+is removed. Retention keeps only the latest 7 backups, recognizing both ZIP
+and older uncompressed backups, including legacy feed-update snapshots. Do not use
+`-SkipBackup` for a normal
 deployment.
 
 The deployment result is recorded in `work\full-deploy-result.json`, including
@@ -596,8 +613,8 @@ This sets `startMode: AlwaysRunning`, `processModel.idleTimeout: 00:00:00`, and
 
 ### Disaster recovery backups
 
-Routine deployments create automatic unencrypted SQLite database backups in
-`C:\inetpub\Signal\App_Data\backups`. For full-system disaster recovery, run
+Routine deployments create automatic unencrypted ZIP-compressed SQLite database backups in
+`C:\sites\SignalHost\App_Data\backups`. For full-system disaster recovery, run
 `New-SignalDisasterRecoveryBackup.ps1` from an elevated prompt:
 
 ```powershell
@@ -623,7 +640,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File `
   .\work\Set-SignalDataAcl.ps1
 ```
 
-This script restricts access to `C:\inetpub\Signal\App_Data` and its backups folder
+This script restricts access to `C:\sites\SignalHost\App_Data` and its backups folder
 so that only `IIS AppPool\SignalAppPool`, `NT AUTHORITY\SYSTEM`, `Administrators`,
 and the designated deployment user have access, removing inheritance and any broader
 user access.
@@ -632,17 +649,31 @@ user access.
 
 When hosting Signal publicly via Tailscale Funnel (`https://signal.tail445c22.ts.net/`),
 routing issues may occasionally occur after Windows network or adapter changes. Helper
-scripts in `work/` assist with diagnosing and fixing tunnel connectivity:
+scripts assist with automated monitoring and diagnosing tunnel connectivity:
 
+- `scripts/Install-SignalPublicWatchdog.ps1`: Registers an unattended scheduled task
+  (`Signal Public Watchdog`) that validates public relay addresses via DNS-over-HTTPS and
+  triggers bounded recovery with a 20-minute cooldown if all relays fail. See
+  [public access recovery](docs/public-access-recovery.md).
 - `work/Repair-SignalTunnelRouting.ps1`: Configures the Tailscale Windows service with
   `TS_BIND_TO_INTERFACE_BY_ROUTE=true` and restarts the service.
 - `work/Restore-SignalTunnel.ps1`: Restarts the Tailscale service, inspects funnel status,
   and tests HTTPS responses from the public funnel domain.
 
+### Host relocation and workspace cleanup
+
+- **Move IIS installation path**: To relocate the IIS site from `C:\inetpub\Signal` to
+  `C:\sites\SignalHost`, run `scripts/Move-SignalHost.ps1` from an elevated prompt. The script
+  stops the runtime, verifies file hashes, updates IIS site physical paths, and restarts
+  Signal.
+- **Clean build artifacts**: Run `scripts/Clear-SignalBuildArtifacts.ps1` to safely prune
+  old release packages, probe builds, and build caches from the workspace without touching
+  operational data or installed packages. See [disk storage](docs/storage.md).
+
 ### Production configuration and secrets
 
 Put production-only settings in the preserved
-`C:\inetpub\Signal\appsettings.Production.json` file or in application-pool
+`C:\sites\SignalHost\appsettings.Production.json` file or in application-pool
 environment variables. Recycle `SignalAppPool` after changing application-pool
 variables. Never place API keys, client secrets, mail credentials, OAuth token
 files, the SQLite database, or data-protection keys in the repository.
@@ -667,12 +698,14 @@ mailbox must also accept delivery.
   inspect the application pool's recent failures in Windows Event Viewer.
 - **HTTP 500.30 or immediate pool shutdown**: inspect the Windows **Application**
   log for ASP.NET Core Module errors and verify that the pool identity can modify
-  `C:\inetpub\Signal\App_Data`.
+  `C:\sites\SignalHost\App_Data`.
 - **Deployment appears stuck in maintenance mode**: read
   `work\full-deploy-result.json`. If no deployment process is still running,
-  remove `C:\inetpub\Signal\app_offline.htm` and retry the local health check.
+  remove `C:\sites\SignalHost\app_offline.htm` and retry the local health check.
 - **Database-related startup failure**: preserve the failed database, then
   restore a verified backup from `App_Data\backups` while Signal is offline.
+  For a `.db.zip` backup, first extract its `.db` file into a staging folder,
+  check it with SQLite `PRAGMA quick_check`, then restore it as `signal.db`.
   Back up the entire `App_Data` directory before any manual recovery.
 - **Local certificate warning**: use `https://localhost:8443`; the self-signed
   certificate is created for `localhost`, not for a LAN IP or public hostname.

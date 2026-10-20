@@ -14,8 +14,16 @@ stories and translations stay in the database; listening again regenerates the
 MP3. Hourly maintenance enforces both caches' limits even when no one plays audio
 and removes abandoned audio temporary files older than a day.
 
-Routine publication creates compressed, SQLite-consistent backups and retains
-the latest seven. Production settings, saved articles, and application data are
+Routine publication creates compressed, SQLite-consistent backups in
+`C:\sites\SignalHost\App_Data\backups` as `.db.zip` archives and retains
+the latest seven (recognizing both ZIP and legacy uncompressed snapshots).
+Each ZIP contains a transactionally consistent SQLite database snapshot whose
+compression is verified against the original using SHA-256 before the uncompressed
+snapshot is removed. To restore a backup, extract the `.db` file to a staging directory,
+validate it with SQLite `PRAGMA quick_check`, and restore it as `signal.db` while IIS
+is offline. For full-system disaster recovery, `New-SignalDisasterRecoveryBackup.ps1`
+creates AES-256 encrypted 7-Zip archives of the entire `App_Data` folder.
+Production settings, saved articles, and application data are
 preserved. The IIS build stages a fresh Windows x64 package to exclude native
 libraries for other operating systems. Deployment removes only known obsolete
 runtime folders that the current package and dependency manifest do not use.

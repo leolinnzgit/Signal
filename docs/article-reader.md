@@ -54,7 +54,24 @@ headers and verification page titles produce a bot-protection explanation and
 the original-page link. Verification prose is never presented as article text.
 For example, Android Authority's Pixel-versus-Galaxy article (3721606) returned
 a Cloudflare 403 during diagnosis; its public RSS feed contained only the opening
-paragraphs, so it could not provide a full-text fallback.
+paragraphs, so it could not provide a full-text fallback. Open Stuff articles
+are extracted directly from public article response data where available.
+
+## Story discussions and comments
+
+The reader displays a full discussion section directly beneath the article:
+
+- Signed-in users can participate in discussions, post new comments, and reply
+  directly to comments.
+- Discussions are shared with public hosted story links (`/shared/{id}`), allowing
+  comments from guests or anonymous readers to appear in the reader and vice versa.
+- Comments inside Signal link directly back to their associated story in the reader.
+
+## Full-text story search
+
+Signal includes full-text search accessible via the search icon in the header. Search
+matches against saved article text as well as story titles and publisher metadata across
+your history.
 
 Run the extraction regression checks:
 
