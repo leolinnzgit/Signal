@@ -89,10 +89,32 @@ try {
   await page.getByRole("button", { name: "Close headline playback", exact: true }).waitFor();
   await page.getByRole("button", { name: "Play audio briefing", exact: true }).click();
   await page.waitForFunction(() => { const audio = document.querySelector('audio[aria-label="Screen-off audio briefing"]'); window.briefingAudio = audio; return audio && !audio.paused; });
+  async function minimizeAndRestore(audioSelector, audioReference, historyDepth) {
+    const position = await page.evaluate(name => window[name].currentTime, audioReference);
+    await page.getByRole("button", { name: "Minimize audio player", exact: true }).click();
+    await page.getByRole("button", { name: "Restore audio player", exact: true }).waitFor();
+    await page.waitForFunction(depth => history.state.signalPlayerNavigation.views.length === depth, historyDepth);
+    assert.equal(await page.evaluate(() => document.body.style.position), "", "Minimizing releases the feed scroll lock");
+    assert.equal(await page.locator("#root").evaluate(root => root.inert), false, "The feed accepts interaction");
+    await page.evaluate(() => window.scrollTo(0, 150));
+    assert.equal(await page.evaluate(() => window.scrollY > 0 || document.documentElement.scrollHeight <= innerHeight), true, "The feed can scroll while audio plays");
+    await page.waitForFunction(({ name, position }) => !window[name].paused && window[name].currentTime > position + 0.25, { name: audioReference, position });
+    if (audioReference === "briefingAudio") await page.screenshot({ path: "work/minimized-audio-mobile.png" });
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Restore audio player", exact: true }).click();
+    await page.getByRole("button", { name: "Minimize audio player", exact: true }).waitFor();
+    assert.equal(await page.evaluate(({ selector, name }) => document.querySelector(selector) === window[name] && !window[name].paused, { selector: audioSelector, name: audioReference }), true,
+      "Restoring preserves the same playing audio element");
+  }
+  const briefingSelector = 'audio[aria-label="Screen-off audio briefing"]';
+  for (let repeat = 0; repeat < 2; repeat++) await minimizeAndRestore(briefingSelector, "briefingAudio", 0);
   await page.getByRole("button", { name: "Read full news aloud", exact: true }).click();
   await page.getByRole("button", { name: "Close article reader", exact: true }).waitFor();
+  await page.waitForFunction(() => { const audio = document.querySelector('.article-reader audio'); window.articleAudio = audio; return audio && !audio.paused; });
+  await minimizeAndRestore(".article-reader audio", "articleAudio", 0);
   await page.goBack();
   await page.getByRole("button", { name: "Close article reader", exact: true }).waitFor({ state: "detached" });
+  await page.getByRole("button", { name: "Restore audio player", exact: true }).click();
   await page.getByRole("button", { name: "Close headline playback", exact: true }).waitFor();
   await page.goBack();
   await page.getByRole("button", { name: "Close headline playback", exact: true }).waitFor({ state: "detached" });
@@ -100,9 +122,23 @@ try {
   assert.equal(page.url(), `${base}?dashboard`);
   await page.getByRole("button", { name: "Listen to Navigation test story", exact: true }).click();
   await page.getByRole("button", { name: "Close article reader", exact: true }).waitFor();
+  await page.waitForFunction(() => { const audio = document.querySelector('.article-reader audio'); window.articleAudio = audio; return audio && !audio.paused; });
+  await minimizeAndRestore(".article-reader audio", "articleAudio", 0);
   await page.goBack();
   await page.getByRole("button", { name: "Close article reader", exact: true }).waitFor({ state: "detached" });
   assert.equal(page.url(), `${base}?dashboard`);
+  assert.equal(await page.evaluate(() => window.articleAudio.paused && !window.articleAudio.isConnected), true, "Back still stops restored article audio");
+  // Check a desktop layout too, including the stop control while minimized.
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.getByRole("button", { name: "Listen to Navigation test story", exact: true }).click();
+  await page.waitForFunction(() => { const audio = document.querySelector('.article-reader audio'); window.articleAudio = audio; return audio && !audio.paused; });
+  await page.getByRole("button", { name: "Minimize audio player", exact: true }).click();
+  await page.getByRole("button", { name: "Restore audio player", exact: true }).waitFor();
+  await page.screenshot({ path: "work/minimized-audio-desktop.png" });
+  await page.getByRole("button", { name: "Stop audio and close player", exact: true }).click();
+  await page.waitForFunction(() => !document.querySelector(".article-reader audio"));
+  assert.equal(await page.evaluate(() => window.articleAudio.paused && !window.articleAudio.isConnected), true, "Stopping the minimized player stops audio");
   assert.deepEqual(errors, []);
+  console.log("PASS minimize/restore keeps briefing and article audio playing; feed unlocks; minimized stop stops audio");
   console.log("PASS Android dashboard: screen-off briefing → full article → briefing → feed; article audio → feed");
 } finally { await browser?.close(); await server.close(); }

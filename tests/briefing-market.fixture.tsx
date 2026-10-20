@@ -15,11 +15,13 @@ const articles = [
 
 function Fixture() {
   const [playing, setPlaying] = useState(false);
+  const [minimized, setMinimized] = useState(false);
   const query = new URLSearchParams(location.search);
   if (query.has("dashboard")) return <NewsDashboard user={{ displayName: "Preview", email: "preview@localhost", fullName: null, isLocalPreview: true }} />;
   return <main>
     <button onClick={() => setPlaying(true)}>Start briefing</button>
     {playing && <HeadlinePlayer articles={articles} startWithScreenOffAudio={query.has("recorded")}
+      minimized={minimized} onMinimize={() => setMinimized(true)} onRestore={() => setMinimized(false)}
       marketTopic={query.has("selected") ? "NVIDIA" : undefined}
       tickerOverrides={query.has("override") ? { nViDiA: "NVDA:NASDAQ" } : {}}
       onArticleRead={() => {}} onOpenArticle={() => {}} onListenArticle={() => {}} onClose={() => setPlaying(false)} />}

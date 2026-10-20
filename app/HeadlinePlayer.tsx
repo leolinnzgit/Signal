@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import MinimizedAudioPlayer from "./MinimizedAudioPlayer";
 import { useHandGestureTarget } from "./hand-gesture-actions";
 import type { FollowedArticle } from "./NewsDashboard";
 import ScreenOffAudioPlayer, { type ScreenOffAudioControls } from "./ScreenOffAudioPlayer";
@@ -28,6 +29,9 @@ type HeadlinePlayerProps = {
   startWithScreenOffAudio?: boolean;
   randomized?: boolean;
   suspended?: boolean;
+  minimized?: boolean;
+  onMinimize: () => void;
+  onRestore: () => void;
   onArticleRead: (article: FollowedArticle) => void;
   onOpenArticle: (article: FollowedArticle) => void;
   onListenArticle: (article: FollowedArticle) => void;
@@ -35,7 +39,7 @@ type HeadlinePlayerProps = {
   onHandBookmark?: (article: FollowedArticle) => Promise<string>;
 };
 
-export default function HeadlinePlayer({ articles, marketTopic, tickerOverrides = {}, startWithScreenOffAudio = false, randomized = false, suspended = false, onArticleRead, onOpenArticle, onListenArticle, onClose, onHandBookmark }: HeadlinePlayerProps) {
+export default function HeadlinePlayer({ articles, marketTopic, tickerOverrides = {}, startWithScreenOffAudio = false, randomized = false, suspended = false, minimized = false, onMinimize, onRestore, onArticleRead, onOpenArticle, onListenArticle, onClose, onHandBookmark }: HeadlinePlayerProps) {
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const [seconds, setSeconds] = useState(6);
@@ -177,7 +181,7 @@ export default function HeadlinePlayer({ articles, marketTopic, tickerOverrides 
   }, []);
 
   useEffect(() => {
-    if (suspended) return;
+    if (suspended || minimized) return;
     const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const scrollPosition = window.scrollY;
     const previousRootOverflow = document.documentElement.style.overflow;
@@ -248,17 +252,23 @@ export default function HeadlinePlayer({ articles, marketTopic, tickerOverrides 
       window.scrollTo(0, scrollPosition);
       trigger?.focus();
     };
-  }, [articles.length, onClose, suspended]);
+  }, [articles.length, onClose, suspended, minimized]);
 
-  const fullscreenControl = <button type="button" className="headline-player-fullscreen" aria-pressed={fullscreen || expanded}
+  const fullscreenControl = <><button type="button" className="headline-player-fullscreen" onClick={() => {
+    setExpanded(false);
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+    onMinimize();
+  }} aria-label="Minimize audio player">Minimize</button><button type="button" className="headline-player-fullscreen" aria-pressed={fullscreen || expanded}
     aria-label={fullscreen || expanded ? "Exit full screen" : "Enter full screen"} onClick={toggleFullscreen}>
     {fullscreen || expanded ? "Exit full screen" : "Full screen"}
-  </button>;
+  </button></>;
   const playerClass = `headline-player${fullscreen || expanded ? " headline-player-expanded" : ""}`;
+  const hiddenStyle = suspended || minimized ? { display: "none" } : undefined;
+  const miniPlayer = minimized && !suspended ? <MinimizedAudioPlayer title={title ?? "Headline briefing"} onRestore={onRestore} onClose={onClose} /> : null;
 
   if (screenOffAudio) return createPortal(
-    <><div className="headline-player-backdrop" aria-hidden="true" style={suspended ? { display: "none" } : undefined} />
-    <section ref={dialog} className={playerClass} style={suspended ? { display: "none" } : undefined} role="dialog" aria-modal="true" aria-label="Unread headline playback">
+    <>{miniPlayer}<div className="headline-player-backdrop" aria-hidden="true" style={hiddenStyle} />
+    <section ref={dialog} className={playerClass} style={hiddenStyle} role="dialog" aria-modal={!minimized} aria-label="Unread headline playback">
       <ScreenOffAudioPlayer ref={screenOffControls} closeButton={closeButton} articles={articles}
         marketQuote={marketQuote}
         suspended={suspended}
@@ -272,8 +282,8 @@ export default function HeadlinePlayer({ articles, marketTopic, tickerOverrides 
   );
 
   return createPortal(
-    <><div className="headline-player-backdrop" aria-hidden="true" style={suspended ? { display: "none" } : undefined} />
-    <section ref={dialog} className={playerClass} style={suspended ? { display: "none" } : undefined} role="dialog" aria-modal="true" aria-label="Unread headline playback">
+    <>{miniPlayer}<div className="headline-player-backdrop" aria-hidden="true" style={hiddenStyle} />
+    <section ref={dialog} className={playerClass} style={hiddenStyle} role="dialog" aria-modal={!minimized} aria-label="Unread headline playback">
       <header className="headline-player-header">
         <span className="headline-player-label"><span className="pulse" aria-hidden="true" /> {randomized ? "Random headlines" : "Unread headlines"}</span>
         <div className="headline-player-header-actions">

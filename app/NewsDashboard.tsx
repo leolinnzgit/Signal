@@ -6,6 +6,7 @@ import { updateInstalledAppBadge } from "./app-badge";
 import { createHostedArticleShare, shareArticle } from "./article-share";
 import type { SignalArticleLink } from "./article-link";
 import HeadlinePlayer from "./HeadlinePlayer";
+import MinimizedAudioPlayer from "./MinimizedAudioPlayer";
 import { usePlayerBackNavigation } from "./usePlayerBackNavigation";
 import { createRandomHeadlineQueue, createUnreadHeadlineQueue } from "./headline-queue";
 import HandGestureControls from "./HandGestureControls";
@@ -828,6 +829,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [backToTopVisible, setBackToTopVisible] = useState(false);
   const [floatingNavigationSide, setFloatingNavigationSide] = useState<"left" | "right">("left");
   const [readerArticle, setReaderArticle] = useState<FollowedArticle | null>(null);
+  const [readerMinimized, setReaderMinimized] = useState(false);
   const [readerAudioRequested, setReaderAudioRequested] = useState(false);
   const [readerTranslation, setReaderTranslation] = useState<ArticleTranslation | null>(null);
   const [readerReading, setReaderReading] = useState<{ section: ArticleNarrationSection | null; playing: boolean }>({ section: null, playing: false });
@@ -841,6 +843,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     setReaderReading({ section: null, playing: false });
   }, []);
   const [headlineQueue, setHeadlineQueue] = useState<FollowedArticle[] | null>(null);
+  const [headlinesMinimized, setHeadlinesMinimized] = useState(false);
   const [headlineQueueRandomized, setHeadlineQueueRandomized] = useState(false);
   const headlineDuplicates = useRef(new Map<string, FollowedArticle[]>());
   const headlineFullscreenRequested = useRef(false);
@@ -1649,6 +1652,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
 
   const closeHeadlinePlayer = useCallback(() => {
     setHeadlineQueue(null);
+    setHeadlinesMinimized(false);
     setHeadlineQueueRandomized(false);
     if (headlineFullscreenRequested.current && document.fullscreenElement) {
       void document.exitFullscreen().catch(() => {});
@@ -1657,14 +1661,17 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   }, []);
 
   usePlayerBackNavigation([
-    ...(headlineQueue ? ["headlines" as const] : []),
-    ...(readerArticle ? ["reader" as const] : []),
+    ...(headlineQueue && !headlinesMinimized ? ["headlines" as const] : []),
+    ...(readerArticle && !readerMinimized ? ["reader" as const] : []),
   ], (remaining) => {
-    if (!remaining.includes("reader") && readerArticle) closeArticleReader();
-    if (!remaining.includes("headlines") && headlineQueue) closeHeadlinePlayer();
+    if (!remaining.includes("reader") && readerArticle && !readerMinimized) closeArticleReader();
+    if (!remaining.includes("headlines") && headlineQueue && !headlinesMinimized) closeHeadlinePlayer();
   });
 
   function startHeadlinePlayback() {
+    if (readerArticle) closeArticleReader();
+    setHeadlinesMinimized(false);
+    if (headlineQueue) return;
     if (unreadArticles.length === 0) return;
     weatherAudio.stop();
     // Snapshot the queue so refreshes and read-status updates cannot skip titles.
@@ -1685,6 +1692,8 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   }
 
   function startRandomHeadlinePlayback() {
+    if (readerArticle) closeArticleReader();
+    setHeadlinesMinimized(false);
     const queue = createRandomHeadlineQueue(articles);
     if (queue.articles.length === 0) return;
     weatherAudio.stop();
@@ -1949,7 +1958,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   }, [filteredArticles.length, selectedTopic]);
 
   useEffect(() => {
-    if (!readerArticle) return;
+    if (!readerArticle || readerMinimized) return;
     const scrollPosition = window.scrollY;
     const previousRootOverflow = document.documentElement.style.overflow;
     const previousOverflow = document.body.style.overflow;
@@ -1971,16 +1980,16 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
       document.body.style.width = previousWidth;
       window.scrollTo(0, scrollPosition);
     };
-  }, [readerArticle]);
+  }, [readerArticle, readerMinimized]);
 
   useEffect(() => {
-    if (!readerArticle || friendShareArticle) return;
+    if (!readerArticle || readerMinimized || friendShareArticle) return;
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") closeArticleReader();
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [readerArticle, friendShareArticle]);
+  }, [readerArticle, readerMinimized, friendShareArticle]);
 
   useEffect(() => {
     if (!followReading || !readerReading.playing || !readerReading.section) return;
@@ -2746,6 +2755,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
 
   function openArticleReader(article: FollowedArticle, trigger: HTMLElement, listen = false, stayInSignal = false) {
     weatherAudio.stop();
+    setReaderMinimized(false);
     readerTrigger.current = trigger;
     if (!stayInSignal || articles.some((item) => item.url === article.url) || historyArticles.some((item) => item.url === article.url)) markArticleRead(article);
     setReaderArticle(article);
@@ -2839,6 +2849,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   }
 
   function closeArticleReader() {
+    setReaderMinimized(false);
     readerRequestSequence.current += 1;
     setReaderArticle(null);
     setReaderTranslation(null);
@@ -4580,9 +4591,12 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         </div>
       )}
 
+      {readerArticle && readerMinimized && <MinimizedAudioPlayer title={readerTranslation?.title ?? readerArticle.title}
+        onRestore={() => setReaderMinimized(false)} onClose={closeArticleReader} />}
       {readerArticle && (
         <div
           className="article-reader-backdrop"
+          style={readerMinimized ? { display: "none" } : undefined}
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) closeArticleReader();
           }}
@@ -4590,13 +4604,18 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           <section
             className="article-reader"
             role="dialog"
-            aria-modal="true"
+            aria-modal={!readerMinimized}
             aria-labelledby="article-reader-title"
           >
             <header className="article-reader-header">
               <div className="article-reader-toolbar">
                 <span className="article-reader-kicker"><span className="pulse" /> Signal reader</span>
                 <div className="article-reader-actions">
+                  <button type="button" className="article-reader-share" aria-label="Minimize audio player" onClick={() => {
+                    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+                    if (headlineQueue) { headlineFullscreenRequested.current = false; setHeadlinesMinimized(true); }
+                    setReaderMinimized(true);
+                  }}>Minimize</button>
                   <button type="button" className="article-reader-share" disabled={readerContent.status === "loading" || sharingUrls.has(readerArticle.url)}
                     onClick={(event) => void openStoryShare(readerArticle, event.currentTarget)}>
                     <ShareIcon /> Share
@@ -4785,6 +4804,9 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           marketTopic={selectedTopic === ALL_TOPICS ? undefined : selectedTopic}
           tickerOverrides={preferences.tickerOverrides}
           randomized={headlineQueueRandomized}
+          minimized={headlinesMinimized}
+          onMinimize={() => { headlineFullscreenRequested.current = false; setHeadlinesMinimized(true); }}
+          onRestore={() => setHeadlinesMinimized(false)}
           suspended={readerArticle !== null}
           startWithScreenOffAudio={preferScreenOffAudio(navigator.userAgent, appInstalled)}
           onArticleRead={(article) => {

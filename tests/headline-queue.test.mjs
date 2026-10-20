@@ -153,6 +153,8 @@ test("dashboard saves all heard copies and catches up their topics without consu
   const viewed = [];
   const context = {
     articles, feedView: "latest",
+    readerArticle: null,
+    setHeadlinesMinimized: () => {},
     createRandomHeadlineQueue: (items) => createRandomHeadlineQueue(items, () => 0),
     weatherAudio: { stop() { weatherStopped++; } },
     headlineDuplicates,
