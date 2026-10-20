@@ -59,12 +59,12 @@ public sealed class HeadlineAudioService
         this.windowsOnly = windowsOnly;
     }
 
-    internal static string[] Validate(HeadlineAudioRequest request, int maximumCharacters = 20_000)
+    internal static string[] Validate(HeadlineAudioRequest request, int maximumCharacters = 20_000, int maximumTitles = 200)
     {
         if (request.Voices is { } preferences && (preferences.Count > 2
             || preferences.Any(pair => pair.Key is not ("en" or "zh") || pair.Value is null || pair.Value.Length > 160)))
             throw new ArgumentException("Choose an available English or Chinese reading voice.");
-        if (request.Titles is not { Length: > 0 and <= 200 }
+        if (request.Titles is not { Length: > 0 } || request.Titles.Length > maximumTitles
             || request.Seconds is not (3 or 6 or 10 or 15)
             || request.Titles.Any(title => string.IsNullOrWhiteSpace(title) || title.Length > 1_000)
             || request.Titles.Sum(title => title.Length) > maximumCharacters)

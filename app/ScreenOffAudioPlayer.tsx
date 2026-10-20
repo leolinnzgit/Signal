@@ -77,7 +77,7 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
         setTrack({ url, streaming: false });
     };
     if (ready) useRecording(ready);
-    else if (useStream && readingVoices.streaming && titles.length <= 200 && titles.join("").length <= 40_000) {
+    else if (useStream && readingVoices.streaming && titles.length <= 2_001 && titles.join("").length <= 400_000) {
       // A single native media request keeps streaming with the screen locked.
       // Polling only supplies display timing; it never drives audio playback.
       recordingKey.current += ":stream";

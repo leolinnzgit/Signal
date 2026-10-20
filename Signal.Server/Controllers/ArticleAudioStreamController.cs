@@ -16,7 +16,7 @@ public sealed class ArticleAudioStreamController(ArticleAudioStreamService strea
     private string Owner => User.FindFirstValue(ClaimTypes.NameIdentifier) ?? throw new InvalidOperationException("A signed-in user is required.");
     [HttpPost]
     [EnableRateLimiting("audio")]
-    [RequestSizeLimit(250_000)]
+    [RequestSizeLimit(2_500_000)]
     public async Task<IActionResult> Create(HeadlineAudioRequest request, CancellationToken token)
     {
         try

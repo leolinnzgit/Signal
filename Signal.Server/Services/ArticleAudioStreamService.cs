@@ -8,6 +8,9 @@ public sealed record ArticleAudioStreamStatus(double[] Starts, bool Complete, do
 // bytes directly, so playback does not rely on foreground JavaScript timers.
 public sealed class ArticleAudioStreamService
 {
+    // The saved-news view holds up to 2,000 stories, plus the closing announcement.
+    internal const int MaximumTitles = 2_001;
+    internal const int MaximumCharacters = 400_000;
     private readonly AzureSpeechAudioRenderer azure;
     private readonly IAzureSpeechStreamer synth;
     private readonly object gate = new();
@@ -19,8 +22,8 @@ public sealed class ArticleAudioStreamService
     internal async Task<Session> CreateAsync(string owner, HeadlineAudioRequest request, CancellationToken token)
     {
         if (!Enabled) throw new HeadlineAudioUnavailableException("configuration", "Streaming narration needs Azure Speech. Choose recorded audio instead.");
-        // Full articles may contain 40,000 characters; each cloud batch is much smaller.
-        var titles = HeadlineAudioService.Validate(request, 40_000);
+        // Large shuffled briefings still use small cloud batches and start early.
+        var titles = HeadlineAudioService.Validate(request, MaximumCharacters, MaximumTitles);
         var voices = await azure.GetVoicesAsync(token);
         var clips = titles.Select(title =>
         {
@@ -31,7 +34,9 @@ public sealed class ArticleAudioStreamService
         }).ToArray();
         // Serve pre-generated Azure PCM through the same owned media URL.
         // Uncached stories retain early MP3 playback while Azure renders them.
-        var ready = azure.GetCached(clips.Select(AzureSpeechAudioRenderer.NormalizeClip).ToArray(), request.Seconds);
+        // Avoid loading and assembling hours of PCM before opening a long stream.
+        var ready = clips.Length <= 200
+            ? azure.GetCached(clips.Select(AzureSpeechAudioRenderer.NormalizeClip).ToArray(), request.Seconds) : null;
         lock (gate)
         {
             foreach (var expired in sessions.Values.Where(session => !session.Running && session.Created < DateTimeOffset.UtcNow.AddMinutes(-30)).ToArray()) sessions.Remove(expired.Id);
@@ -61,7 +66,7 @@ public sealed class ArticleAudioStreamService
     internal async Task WriteAsync(Session session, Stream output, CancellationToken token)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
-        deadline.CancelAfter(TimeSpan.FromMinutes(5));
+        deadline.CancelAfter(TimeSpan.FromMinutes(10));
         var entered = false;
         try
         {
@@ -74,7 +79,9 @@ public sealed class ArticleAudioStreamService
                 var characters = 0;
                 foreach (var clip in session.Clips.Skip(first))
                 {
-                    if (batch.Count == 10 || (batch.Count > 0 && characters + clip.Text.Length > 1500)) break;
+                    // Get the first headline to the native player promptly; batch
+                    // later headlines while that initial audio is being heard.
+                    if (batch.Count == (first == 0 ? 1 : 10) || (batch.Count > 0 && characters + clip.Text.Length > 1500)) break;
                     batch.Add(clip); characters += clip.Text.Length;
                 }
                 var offset = first;
@@ -135,7 +142,7 @@ public sealed class ArticleAudioStreamService
         {
             lock (gate)
             {
-                if (audio is null || audio.Length + bytes.Length > 16 * 1024 * 1024) throw new HeadlineAudioUnavailableException("stream", "This article is too long to stream. Try a shorter article.");
+                if (audio is null || audio.Length + bytes.Length > 64 * 1024 * 1024) throw new HeadlineAudioUnavailableException("stream", "This briefing is too long to stream. Try a shorter briefing.");
                 audio.Write(bytes);
             }
         }

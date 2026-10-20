@@ -75,12 +75,12 @@ test("browser briefings narrate completion with saved preferences and stop on cl
 
 // Replay the rendered player's media events without a browser or speech server.
 // Effects that fetch recordings are replaced with an already prepared track.
-async function recordedPlayerHarness({ lifecycle = false, announcement = false, streaming = false } = {}) {
+async function recordedPlayerHarness({ lifecycle = false, announcement = false, streaming = false, articleCount = 4 } = {}) {
   const playerSource = await readFile(new URL("../app/ScreenOffAudioPlayer.tsx", import.meta.url), "utf8");
   const playerCode = ts.transpileModule(playerSource, { compilerOptions: {
     module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX,
   } }).outputText;
-  const articles = Array.from({ length: 4 }, (_, index) => ({ title: `News ${index}`, url: `https://example.com/${index}`, source: "News" }));
+  const articles = Array.from({ length: articleCount }, (_, index) => ({ title: `News ${index}`, url: `https://example.com/${index}`, source: "News" }));
   const heard = [];
   const controls = { current: null };
   const refs = [];
@@ -200,6 +200,17 @@ test("briefing streaming exposes Play before generation and timing updates keep 
   player.report({ starts: [0, 6, 12, 18, 24], complete: true });
   assert.equal(player.events.src, src, "Completion must not reload the source and interrupt playback");
   assert.equal(player.element.paused, false);
+});
+
+test("large random briefings expose Play without preparing the whole queue", async () => {
+  for (const articleCount of [199, 200, 500, 2_000]) {
+    const player = await recordedPlayerHarness({ lifecycle: true, streaming: true, articleCount });
+    assert.equal(player.recordings, 0, `${articleCount} stories must keep streaming instead of waiting for a full recording`);
+    assert.equal(player.streamedTitles.length, articleCount + 1);
+    assert.equal(player.streamedTitles.at(-1), BRIEFING_COMPLETE_MESSAGE);
+    assert.match(player.events.src, /article-audio-stream/);
+    assert.equal(player.heard.length, 0, "Opening a large stream cannot consume unread stories");
+  }
 });
 
 test("a failed briefing stream keeps a complete recording fallback available", async () => {

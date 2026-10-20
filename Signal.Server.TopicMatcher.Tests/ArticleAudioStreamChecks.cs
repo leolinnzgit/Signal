@@ -22,7 +22,7 @@ internal static class ArticleAudioStreamChecks
         using var output = new MemoryStream();
         var writing = service.WriteAsync(session, output, CancellationToken.None);
         await synth.FirstBytes.Task.WaitAsync(TimeSpan.FromSeconds(3));
-        Assert(output.Length > 0 && !writing.IsCompleted && !session.Status.Complete && session.Status.Starts.SequenceEqual([0d]),
+        Assert(output.Length > 0 && !writing.IsCompleted && !session.Status.Complete && session.Status.Starts.SequenceEqual([0d]) && synth.BatchSizes.SequenceEqual([1]),
             "The first audio bytes were buffered until synthesis completed.");
         synth.Release.SetResult();
         await writing;
@@ -46,6 +46,22 @@ internal static class ArticleAudioStreamChecks
         await service.WriteAsync(longSession, longOutput, CancellationToken.None);
         Assert(longSession.Status.Complete && longSession.Status.Starts.Length == 32 && synth.LargestCharacters <= 1500
             && longSession.Status.Starts.Zip(longSession.Status.Starts.Skip(1)).All(pair => pair.Second > pair.First), "Long articles exceeded a cloud batch or lost timestamps between batches.");
+        var briefing = new HeadlineAudioRequest(Enumerable.Range(0, 2_000).Select(index => $"Headline {index}: " + new string('a', 30)).Append(HeadlineAudioService.BriefingCompleteMessage).ToArray());
+        var largeSession = await service.CreateAsync("briefing-owner", briefing, CancellationToken.None);
+        largeSession.TryStart(); using var largeOutput = new MemoryStream();
+        await service.WriteAsync(largeSession, largeOutput, CancellationToken.None);
+        Assert(largeSession.Status.Complete && largeSession.Status.Starts.Length == 2_001
+            && largeSession.Status.Starts.Zip(largeSession.Status.Starts.Skip(1)).All(pair => pair.Second > pair.First)
+            && synth.BatchSizes.Max() <= 10 && synth.LargestCharacters <= 1500,
+            "A large briefing could not stream every headline and its closing announcement in bounded batches.");
+        foreach (var invalid in new[] {
+            briefing with { Titles = briefing.Titles.Append("One too many").ToArray() },
+            new HeadlineAudioRequest(Enumerable.Repeat(new string('a', 1_000), 401).ToArray())
+        })
+        {
+            try { await service.CreateAsync("invalid-owner", invalid, CancellationToken.None); throw new Exception("An oversized stream was accepted."); }
+            catch (ArgumentException) { }
+        }
         Console.WriteLine("Article streaming passed early bytes, owner isolation, duplicate-start protection, cancellation, voice fallback, replay and bounded multi-batch timing.");
     }
 
@@ -61,12 +77,14 @@ internal static class ArticleAudioStreamChecks
     {
         internal TaskCompletionSource FirstBytes = new(TaskCreationOptions.RunContinuationsAsynchronously), Release = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal readonly List<string> Voices = [], Texts = [];
+        internal readonly List<int> BatchSizes = [];
         internal int LargestCharacters;
         internal void Reset() { FirstBytes = new(TaskCreationOptions.RunContinuationsAsynchronously); Release = new(TaskCreationOptions.RunContinuationsAsynchronously); }
         public async Task<TimeSpan> StreamAsync(string ssml, Func<byte[], CancellationToken, Task> write, Action<string, ulong> bookmark, CancellationToken token)
         {
             XNamespace ns = "http://www.w3.org/2001/10/synthesis";
             var voices = XDocument.Parse(ssml).Root!.Elements(ns + "voice").ToArray();
+            BatchSizes.Add(voices.Length);
             var characters = 0;
             for (var index = 0; index < voices.Length; index++)
             {
