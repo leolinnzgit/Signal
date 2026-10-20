@@ -3460,6 +3460,11 @@ button.local-weather {
 .friend-share-actions { flex-wrap: wrap; }
 .friend-share-link { display: grid; gap: 0.6rem; margin-top: 1.25rem; }
 .friend-share-link label { font-size: 0.8rem; font-weight: 600; }
+.friend-share-link-row { display: flex; align-items: stretch; gap: 0.6rem; min-width: 0; }
+.friend-share-link-row button { flex: 0 0 auto; padding: 0.65rem 0.9rem; border: 1px solid var(--line); border-radius: 5px; background: transparent; color: var(--page-text); font: inherit; font-size: 0.8rem; font-weight: 700; white-space: nowrap; cursor: pointer; }
+.friend-share-link-row button:hover { border-color: var(--page-text); }
+.friend-share-link-row button:focus-visible { outline: 2px solid var(--red); outline-offset: 3px; }
+.friend-share-link-row button:disabled { cursor: wait; opacity: 0.5; }
 .friend-share-link input { width: 100%; min-width: 0; padding: 0.7rem; border: 1px solid var(--line); border-radius: 5px; background: var(--paper); color: var(--ink); font: inherit; font-size: 0.8rem; }
 .friend-share-link a, .friend-share-link p { font-size: 0.8rem; line-height: 1.5; }
 

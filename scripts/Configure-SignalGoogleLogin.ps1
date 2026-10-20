@@ -1,6 +1,6 @@
 param(
     [string]$ClientId = "488666576021-n1l40v87ueebg7jq9iau40j87jj1chbb.apps.googleusercontent.com",
-    [string]$SitePath = "C:\inetpub\Signal"
+    [string]$SitePath = "C:\sites\SignalHost"
 )
 
 $ErrorActionPreference = "Stop"

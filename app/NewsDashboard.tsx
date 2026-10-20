@@ -4355,14 +4355,16 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
             {friendShareError && <p className="friend-share-status error" role="alert">{friendShareError}</p>}
             {friendShareUrl && <div className="friend-share-link">
               <label htmlFor="hosted-story-link">Your Signal story link</label>
-              <input id="hosted-story-link" value={friendShareUrl} readOnly onFocus={(event) => event.currentTarget.select()} />
+              <div className="friend-share-link-row">
+                <input id="hosted-story-link" value={friendShareUrl} readOnly onFocus={(event) => event.currentTarget.select()} />
+                <button type="button" disabled={friendShareLoading || Boolean(friendShareBusy)}
+                  onClick={() => void copyStoryLink()}>{friendShareCopied ? "Copied" : "Copy link"}</button>
+              </div>
               <a href={friendShareUrl} target="_blank" rel="noreferrer">Preview shared page ↗</a>
               {friendShareCopied && <p role="status">Link copied. It is ready to paste.</p>}
               {friendShareSummaryOnly && <p>Only the headline and feed summary are available for this story. The shared page links to the full article.</p>}
             </div>}
             <div className="topic-confirmation-actions friend-share-actions">
-              <button type="button" disabled={!friendShareUrl || friendShareLoading || Boolean(friendShareBusy)}
-                onClick={() => void copyStoryLink()}>Copy link</button>
               <button
                 type="button"
                 disabled={!friendShareUrl || friendShareLoading || Boolean(friendShareBusy)}

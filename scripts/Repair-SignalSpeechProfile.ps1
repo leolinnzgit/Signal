@@ -82,7 +82,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Could not restart the specified Signal application pool for verification.' }
         & "$env:windir\System32\curl.exe" --insecure --silent --fail --output NUL --max-time 30 https://localhost:8443/
         if ($LASTEXITCODE -ne 0) { throw 'Signal did not respond after restarting its application pool.' }
-        $healthPath = 'C:\inetpub\Signal\App_Data\headline-audio-health.json'
+        $healthPath = 'C:\sites\SignalHost\App_Data\headline-audio-health.json'
         $verificationDeadline = [DateTimeOffset]::UtcNow.AddSeconds(60)
         $audioPassed = $false
         while ([DateTimeOffset]::UtcNow -lt $verificationDeadline) {
