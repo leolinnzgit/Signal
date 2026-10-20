@@ -6,6 +6,7 @@ import { updateInstalledAppBadge } from "./app-badge";
 import { createHostedArticleShare, shareArticle } from "./article-share";
 import type { SignalArticleLink } from "./article-link";
 import HeadlinePlayer from "./HeadlinePlayer";
+import { usePlayerBackNavigation } from "./usePlayerBackNavigation";
 import { createRandomHeadlineQueue, createUnreadHeadlineQueue } from "./headline-queue";
 import HandGestureControls from "./HandGestureControls";
 import { useHandGestureTarget } from "./hand-gesture-actions";
@@ -1654,6 +1655,14 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     }
     headlineFullscreenRequested.current = false;
   }, []);
+
+  usePlayerBackNavigation([
+    ...(headlineQueue ? ["headlines" as const] : []),
+    ...(readerArticle ? ["reader" as const] : []),
+  ], (remaining) => {
+    if (!remaining.includes("reader") && readerArticle) closeArticleReader();
+    if (!remaining.includes("headlines") && headlineQueue) closeHeadlinePlayer();
+  });
 
   function startHeadlinePlayback() {
     if (unreadArticles.length === 0) return;
