@@ -13,6 +13,12 @@ using Signal.Server.Data;
 using Signal.Server.Models;
 using Signal.Server.Services;
 
+if (args.Length == 1 && args[0] == HeadlineAudioWorker.Argument)
+{
+    Environment.ExitCode = await HeadlineAudioWorker.RunAsync();
+    return;
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
 var dataDirectory = Path.Combine(builder.Environment.ContentRootPath, "App_Data");
@@ -131,7 +137,30 @@ builder.Services.AddRateLimiter(options =>
             AutoReplenishment = true,
         }));
 });
+builder.Services.AddRateLimiter(options => options.AddPolicy("audio", context => RateLimitPartition.GetFixedWindowLimiter(
+    context.User.Identity?.Name ?? context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+    _ => new FixedWindowRateLimiterOptions { PermitLimit = 120, Window = TimeSpan.FromMinutes(1), QueueLimit = 0, AutoReplenishment = true })));
 builder.Services.AddMemoryCache();
+builder.Services.Configure<AzureSpeechOptions>(builder.Configuration.GetSection(AzureSpeechOptions.SectionName));
+builder.Services.AddHttpClient(nameof(AzureSpeechAudioRenderer), client => client.Timeout = TimeSpan.FromSeconds(20))
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
+builder.Services.AddSingleton<AzureSpeechSynthesizer>();
+builder.Services.AddSingleton<IAzureSpeechSynthesizer>(service => service.GetRequiredService<AzureSpeechSynthesizer>());
+builder.Services.AddSingleton<IAzureSpeechStreamer>(service => service.GetRequiredService<AzureSpeechSynthesizer>());
+builder.Services.AddSingleton(service => new AzureSpeechAudioRenderer(
+    service.GetRequiredService<Microsoft.Extensions.Options.IOptions<AzureSpeechOptions>>(),
+    service.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(AzureSpeechAudioRenderer)),
+    service.GetRequiredService<IAzureSpeechSynthesizer>(), Path.Combine(dataDirectory, "HeadlineAudioClips")));
+builder.Services.AddSingleton<HeadlineAudioService>();
+builder.Services.AddSingleton(service => new ArticleAudioStreamService(service.GetRequiredService<AzureSpeechAudioRenderer>(), service.GetRequiredService<IAzureSpeechStreamer>()));
+builder.Services.AddSingleton(service => new SharedArticleAudioService(service.GetRequiredService<AzureSpeechAudioRenderer>(),
+    service.GetRequiredService<IAzureSpeechStreamer>(), Path.Combine(dataDirectory, "SharedArticleAudio")));
+builder.Services.AddHeadlineAudioCompression();
+builder.Services.AddHostedService<HeadlineAudioHealthCheck>();
+builder.Services.AddSingleton<ArticleAudioPreparationService>();
+builder.Services.AddSingleton<IArticleAudioPrewarmer>(service => service.GetRequiredService<ArticleAudioPreparationService>());
+builder.Services.AddHostedService(service => service.GetRequiredService<ArticleAudioPreparationService>());
+builder.Services.AddHostedService<AudioCacheMaintenanceService>();
 builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection(SmtpOptions.SectionName));
 builder.Services.Configure<MarketDataOptions>(builder.Configuration.GetSection(MarketDataOptions.SectionName));
 builder.Services.AddSingleton<GmailOAuthStore>();
@@ -164,6 +193,26 @@ builder.Services.AddHttpClient<MarketDataService>(client =>
     client.DefaultRequestHeaders.UserAgent.ParseAdd("Signal-News-Monitor/2.0");
     client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
 });
+builder.Services.AddSingleton<IArticlePageRenderer, ArticlePageRenderer>();
+builder.Services.Configure<AzureTranslatorOptions>(builder.Configuration.GetSection(AzureTranslatorOptions.SectionName));
+builder.Services.AddSingleton<AzureTranslatorService>();
+builder.Services.AddHttpClient(AzureTranslatorService.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(30))
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
+builder.Services.Configure<AzureLanguageOptions>(builder.Configuration.GetSection(AzureLanguageOptions.SectionName));
+builder.Services.AddSingleton<AzureLanguageSummaryService>();
+builder.Services.AddHttpClient(AzureLanguageSummaryService.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(20))
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
+builder.Services.AddHttpClient(ArticlePageRenderer.HttpClientName, client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(8);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (compatible; SignalReader/2.0)");
+}).ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+{
+    AllowAutoRedirect = false,
+    ConnectCallback = ArticleReaderService.ConnectPublicAsync,
+    AutomaticDecompression = System.Net.DecompressionMethods.All,
+    UseCookies = false,
+});
 builder.Services.AddHttpClient<ArticleReaderService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(20);
@@ -172,6 +221,7 @@ builder.Services.AddHttpClient<ArticleReaderService>(client =>
 }).ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
 {
     AllowAutoRedirect = false,
+    ConnectCallback = ArticleReaderService.ConnectPublicAsync,
     AutomaticDecompression = System.Net.DecompressionMethods.All,
 });
 builder.Services.AddScoped<TopicRefreshService>();
@@ -204,6 +254,7 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseDefaultFiles();
+app.UseResponseCompression();
 app.UseStaticFiles();
 app.UseRouting();
 app.UseAuthentication();
@@ -218,14 +269,36 @@ await using (var scope = app.Services.CreateAsyncScope())
     await database.Database.EnsureCreatedAsync();
     // EnsureCreated does not add new tables to an existing Identity database.
     await database.Database.ExecuteSqlRawAsync("""
+        CREATE TABLE IF NOT EXISTS "SharedNewsArticles" (
+            "Id" TEXT NOT NULL CONSTRAINT "PK_SharedNewsArticles" PRIMARY KEY,
+            "UserId" TEXT NOT NULL,
+            "ContentHash" TEXT NOT NULL,
+            "OriginalUrl" TEXT NOT NULL,
+            "Title" TEXT NOT NULL,
+            "Source" TEXT NOT NULL,
+            "Byline" TEXT NOT NULL,
+            "Language" TEXT NOT NULL,
+            "ParagraphsJson" TEXT NOT NULL,
+            "SummaryOnly" INTEGER NOT NULL,
+            "CreatedAtUtc" TEXT NOT NULL,
+            CONSTRAINT "FK_SharedNewsArticles_AspNetUsers_UserId"
+                FOREIGN KEY ("UserId") REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS "IX_SharedNewsArticles_UserId_ContentHash"
+            ON "SharedNewsArticles" ("UserId", "ContentHash");
+        """);
+    await database.Database.ExecuteSqlRawAsync("""
         CREATE TABLE IF NOT EXISTS "UserNewsPreferences" (
             "UserId" TEXT NOT NULL CONSTRAINT "PK_UserNewsPreferences" PRIMARY KEY,
             "TopicsJson" TEXT NOT NULL,
             "StoryLimit" INTEGER NOT NULL,
             "StoryTitleSize" TEXT NOT NULL DEFAULT 'large',
             "TopicHeaderSize" TEXT NOT NULL DEFAULT 'large',
+            "ShowTopicFiltersWhenPinned" INTEGER NOT NULL DEFAULT 1,
+            "ShowSourceFiltersWhenPinned" INTEGER NOT NULL DEFAULT 1,
             "RefreshMinutes" INTEGER NOT NULL,
             "EmailSummaryEnabled" INTEGER NOT NULL DEFAULT 0,
+            "PushNewsTitlesEnabled" INTEGER NOT NULL DEFAULT 1,
             "ArticleRetentionDays" INTEGER NOT NULL DEFAULT 30,
             "GoogleEnabled" INTEGER NOT NULL,
             "GdeltEnabled" INTEGER NOT NULL,
@@ -233,6 +306,8 @@ await using (var scope = app.Services.CreateAsyncScope())
             "TickerOverridesJson" TEXT NOT NULL DEFAULT '{{}}',
             "WeatherLocationJson" TEXT NOT NULL DEFAULT '{{}}',
             "SecondaryTimeZoneJson" TEXT NOT NULL DEFAULT '{{}}',
+            "TrendRegionsJson" TEXT NOT NULL DEFAULT '[]',
+            "TrendsPerRegion" INTEGER NOT NULL DEFAULT 5,
             "UpdatedAtUtc" TEXT NOT NULL,
             CONSTRAINT "FK_UserNewsPreferences_AspNetUsers_UserId"
                 FOREIGN KEY ("UserId") REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE
@@ -247,6 +322,7 @@ await using (var scope = app.Services.CreateAsyncScope())
             "Source" TEXT NOT NULL,
             "PublishedAtUtc" TEXT NOT NULL,
             "Summary" TEXT NOT NULL,
+            "FullText" TEXT NOT NULL DEFAULT '',
             "ImageUrl" TEXT NOT NULL DEFAULT '',
             "TopicsJson" TEXT NOT NULL,
             "ProvidersJson" TEXT NOT NULL,
@@ -273,6 +349,8 @@ await using (var scope = app.Services.CreateAsyncScope())
             "LastSuccessfulAtUtc" TEXT NULL,
             "NextRefreshAtUtc" TEXT NULL,
             "LastViewedAtUtc" TEXT NULL,
+            "LatestContentVersion" INTEGER NOT NULL DEFAULT 0,
+            "ViewedContentVersion" INTEGER NOT NULL DEFAULT 0,
             "HasUnread" INTEGER NOT NULL DEFAULT 0,
             "LastError" TEXT NOT NULL DEFAULT '',
             CONSTRAINT "PK_TopicRefreshStates" PRIMARY KEY ("UserId", "TopicKey"),
@@ -324,6 +402,8 @@ await using (var scope = app.Services.CreateAsyncScope())
         "CREATE INDEX IF NOT EXISTS \"IX_NewsComments_ArticleUrl_CreatedAtUtc\" ON \"NewsComments\" (\"ArticleUrl\", \"CreatedAtUtc\");");
     await database.Database.ExecuteSqlRawAsync(
         "CREATE INDEX IF NOT EXISTS \"IX_NewsComments_UserId\" ON \"NewsComments\" (\"UserId\");");
+    await AnonymousCommentSchema.UpgradeAsync(database);
+    await SharedArticleLinkSchema.UpgradeAsync(database);
     await database.Database.ExecuteSqlRawAsync("""
         CREATE TABLE IF NOT EXISTS "FriendRelationships" (
             "Id" INTEGER NOT NULL CONSTRAINT "PK_FriendRelationships" PRIMARY KEY AUTOINCREMENT,
@@ -349,6 +429,9 @@ await using (var scope = app.Services.CreateAsyncScope())
             "SenderUserId" TEXT NOT NULL,
             "RecipientUserId" TEXT NOT NULL,
             "Body" TEXT NOT NULL,
+            "SharedArticleTitle" TEXT NOT NULL DEFAULT '',
+            "SharedArticleUrl" TEXT NOT NULL DEFAULT '',
+            "SharedArticleSource" TEXT NOT NULL DEFAULT '',
             "CreatedAtUtc" TEXT NOT NULL,
             "ReadAtUtc" TEXT NULL,
             CONSTRAINT "FK_DirectMessages_AspNetUsers_SenderUserId"
@@ -361,11 +444,28 @@ await using (var scope = app.Services.CreateAsyncScope())
         "CREATE INDEX IF NOT EXISTS \"IX_DirectMessages_SenderUserId_RecipientUserId_CreatedAtUtc\" ON \"DirectMessages\" (\"SenderUserId\", \"RecipientUserId\", \"CreatedAtUtc\");");
     await database.Database.ExecuteSqlRawAsync(
         "CREATE INDEX IF NOT EXISTS \"IX_DirectMessages_RecipientUserId_ReadAtUtc\" ON \"DirectMessages\" (\"RecipientUserId\", \"ReadAtUtc\");");
+    await database.Database.ExecuteSqlRawAsync("""
+        CREATE TABLE IF NOT EXISTS "UserPresences" (
+            "UserId" TEXT NOT NULL CONSTRAINT "PK_UserPresences" PRIMARY KEY,
+            "LastSeenAtUtc" TEXT NOT NULL,
+            CONSTRAINT "FK_UserPresences_AspNetUsers_UserId"
+                FOREIGN KEY ("UserId") REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE
+        );
+        """);
+    await database.Database.ExecuteSqlRawAsync(
+        "CREATE INDEX IF NOT EXISTS \"IX_UserPresences_LastSeenAtUtc\" ON \"UserPresences\" (\"LastSeenAtUtc\");");
 
     await database.Database.OpenConnectionAsync();
     try
     {
         await using var tickerColumnCheck = database.Database.GetDbConnection().CreateCommand();
+        tickerColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('UserNewsPreferences') WHERE name = 'PushNewsTitlesEnabled';";
+        if (Convert.ToInt32(await tickerColumnCheck.ExecuteScalarAsync()) == 0)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"UserNewsPreferences\" ADD COLUMN \"PushNewsTitlesEnabled\" INTEGER NOT NULL DEFAULT 1;");
+        }
+
         tickerColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('UserNewsPreferences') WHERE name = 'TickerOverridesJson';";
         var tickerColumnExists = Convert.ToInt32(await tickerColumnCheck.ExecuteScalarAsync()) > 0;
         if (!tickerColumnExists)
@@ -401,6 +501,67 @@ await using (var scope = app.Services.CreateAsyncScope())
                 "ALTER TABLE \"UserNewsPreferences\" ADD COLUMN \"TopicHeaderSize\" TEXT NOT NULL DEFAULT 'large';");
         }
 
+        await using var showTopicFiltersColumnCheck = database.Database.GetDbConnection().CreateCommand();
+        showTopicFiltersColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('UserNewsPreferences') WHERE name = 'ShowTopicFiltersWhenPinned';";
+        var showTopicFiltersColumnExists = Convert.ToInt32(await showTopicFiltersColumnCheck.ExecuteScalarAsync()) > 0;
+        if (!showTopicFiltersColumnExists)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"UserNewsPreferences\" ADD COLUMN \"ShowTopicFiltersWhenPinned\" INTEGER NOT NULL DEFAULT 1;");
+        }
+
+        await using var showSourceFiltersColumnCheck = database.Database.GetDbConnection().CreateCommand();
+        showSourceFiltersColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('UserNewsPreferences') WHERE name = 'ShowSourceFiltersWhenPinned';";
+        var showSourceFiltersColumnExists = Convert.ToInt32(await showSourceFiltersColumnCheck.ExecuteScalarAsync()) > 0;
+        if (!showSourceFiltersColumnExists)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"UserNewsPreferences\" ADD COLUMN \"ShowSourceFiltersWhenPinned\" INTEGER NOT NULL DEFAULT 1;");
+        }
+
+        await using var trendRegionsColumnCheck = database.Database.GetDbConnection().CreateCommand();
+        trendRegionsColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('UserNewsPreferences') WHERE name = 'TrendRegionsJson';";
+        var trendRegionsColumnExists = Convert.ToInt32(await trendRegionsColumnCheck.ExecuteScalarAsync()) > 0;
+        if (!trendRegionsColumnExists)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"UserNewsPreferences\" ADD COLUMN \"TrendRegionsJson\" TEXT NOT NULL DEFAULT '[]';");
+        }
+
+        await using var trendsPerRegionColumnCheck = database.Database.GetDbConnection().CreateCommand();
+        trendsPerRegionColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('UserNewsPreferences') WHERE name = 'TrendsPerRegion';";
+        var trendsPerRegionColumnExists = Convert.ToInt32(await trendsPerRegionColumnCheck.ExecuteScalarAsync()) > 0;
+        if (!trendsPerRegionColumnExists)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"UserNewsPreferences\" ADD COLUMN \"TrendsPerRegion\" INTEGER NOT NULL DEFAULT 5;");
+        }
+
+        await using var directMessageColumnCheck = database.Database.GetDbConnection().CreateCommand();
+        directMessageColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('DirectMessages') WHERE name = 'SharedArticleTitle';";
+        var sharedArticleTitleColumnExists = Convert.ToInt32(await directMessageColumnCheck.ExecuteScalarAsync()) > 0;
+        if (!sharedArticleTitleColumnExists)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"DirectMessages\" ADD COLUMN \"SharedArticleTitle\" TEXT NOT NULL DEFAULT '';");
+        }
+
+        directMessageColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('DirectMessages') WHERE name = 'SharedArticleUrl';";
+        var sharedArticleUrlColumnExists = Convert.ToInt32(await directMessageColumnCheck.ExecuteScalarAsync()) > 0;
+        if (!sharedArticleUrlColumnExists)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"DirectMessages\" ADD COLUMN \"SharedArticleUrl\" TEXT NOT NULL DEFAULT '';");
+        }
+
+        directMessageColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('DirectMessages') WHERE name = 'SharedArticleSource';";
+        var sharedArticleSourceColumnExists = Convert.ToInt32(await directMessageColumnCheck.ExecuteScalarAsync()) > 0;
+        if (!sharedArticleSourceColumnExists)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"DirectMessages\" ADD COLUMN \"SharedArticleSource\" TEXT NOT NULL DEFAULT '';");
+        }
+
         await using var articleColumnCheck = database.Database.GetDbConnection().CreateCommand();
         articleColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('StoredNewsArticles') WHERE name = 'IsRead';";
         var isReadColumnExists = Convert.ToInt32(await articleColumnCheck.ExecuteScalarAsync()) > 0;
@@ -426,6 +587,13 @@ await using (var scope = app.Services.CreateAsyncScope())
                 "ALTER TABLE \"StoredNewsArticles\" ADD COLUMN \"ImageUrl\" TEXT NOT NULL DEFAULT '';");
         }
 
+        articleColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('StoredNewsArticles') WHERE name = 'FullText';";
+        if (Convert.ToInt32(await articleColumnCheck.ExecuteScalarAsync()) == 0)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"StoredNewsArticles\" ADD COLUMN \"FullText\" TEXT NOT NULL DEFAULT '';");
+        }
+
         await using var topicStateColumnCheck = database.Database.GetDbConnection().CreateCommand();
         topicStateColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('TopicRefreshStates') WHERE name = 'LastViewedAtUtc';";
         var lastViewedColumnExists = Convert.ToInt32(await topicStateColumnCheck.ExecuteScalarAsync()) > 0;
@@ -442,10 +610,78 @@ await using (var scope = app.Services.CreateAsyncScope())
             await database.Database.ExecuteSqlRawAsync(
                 "ALTER TABLE \"TopicRefreshStates\" ADD COLUMN \"HasUnread\" INTEGER NOT NULL DEFAULT 1;");
         }
+
+        topicStateColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('TopicRefreshStates') WHERE name = 'LatestContentVersion';";
+        var latestContentVersionColumnExists = Convert.ToInt32(await topicStateColumnCheck.ExecuteScalarAsync()) > 0;
+        if (!latestContentVersionColumnExists)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"TopicRefreshStates\" ADD COLUMN \"LatestContentVersion\" INTEGER NOT NULL DEFAULT 0;");
+        }
+
+        topicStateColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('TopicRefreshStates') WHERE name = 'ViewedContentVersion';";
+        var viewedContentVersionColumnExists = Convert.ToInt32(await topicStateColumnCheck.ExecuteScalarAsync()) > 0;
+        if (!viewedContentVersionColumnExists)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"TopicRefreshStates\" ADD COLUMN \"ViewedContentVersion\" INTEGER NOT NULL DEFAULT 0;");
+        }
+
+        if (!latestContentVersionColumnExists || !viewedContentVersionColumnExists)
+        {
+            await database.Database.ExecuteSqlRawAsync("""
+                UPDATE "TopicRefreshStates"
+                SET "LatestContentVersion" = CASE WHEN "HasUnread" = 1 THEN 1 ELSE 0 END,
+                    "ViewedContentVersion" = 0;
+                """);
+        }
+
+        await database.Database.ExecuteSqlRawAsync("""
+            UPDATE "StoredNewsArticles"
+            SET "PublishedAtUtc" = "FirstSeenAtUtc"
+            WHERE julianday("LastSeenAtUtc") - julianday("FirstSeenAtUtc") > 0.1
+              AND abs(julianday("PublishedAtUtc") - julianday("LastSeenAtUtc")) < 0.001;
+            """);
     }
     finally
     {
         await database.Database.CloseConnectionAsync();
+    }
+
+    var nonAsciiArticles = await database.StoredNewsArticles
+        .Where(item => item.Url.Contains("dörrie") || item.Url.Contains("jürgen"))
+        .ToListAsync();
+    if (nonAsciiArticles.Count > 0)
+    {
+        foreach (var item in nonAsciiArticles)
+        {
+            var normalizedUrl = ArticleIdentity.NormalizeUrl(item.Url);
+            if (normalizedUrl is not null && !string.Equals(item.Url, normalizedUrl, StringComparison.Ordinal))
+            {
+                var duplicateExists = await database.StoredNewsArticles.AnyAsync(
+                    other => other.UserId == item.UserId && other.Id != item.Id && other.Url == normalizedUrl);
+                if (!duplicateExists) item.Url = normalizedUrl;
+            }
+            if (!item.IsRead)
+            {
+                var storyKey = ArticleIdentity.GetStoryUrlKey(item.Url);
+                if (storyKey.Length > 0)
+                {
+                    var candidates = await database.StoredNewsArticles
+                        .AsNoTracking()
+                        .Where(other => other.UserId == item.UserId && other.IsRead && other.Source == item.Source)
+                        .ToListAsync();
+                    var readMatch = candidates.FirstOrDefault(other =>
+                        string.Equals(ArticleIdentity.GetStoryUrlKey(other.Url), storyKey, StringComparison.Ordinal));
+                    if (readMatch is not null)
+                    {
+                        item.IsRead = true;
+                        item.ReadAtUtc ??= readMatch.ReadAtUtc ?? DateTime.UtcNow;
+                    }
+                }
+            }
+        }
+        await database.SaveChangesAsync();
     }
 
     var existingPreferences = await database.UserNewsPreferences.AsNoTracking().ToArrayAsync();

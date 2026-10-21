@@ -23,6 +23,10 @@ public sealed class TopicRefreshState
 
     public DateTime? LastViewedAtUtc { get; set; }
 
+    public long LatestContentVersion { get; set; }
+
+    public long ViewedContentVersion { get; set; }
+
     public bool HasUnread { get; set; }
 
     [Required]

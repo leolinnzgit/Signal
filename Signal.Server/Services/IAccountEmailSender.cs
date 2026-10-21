@@ -5,7 +5,18 @@ public interface IAccountEmailSender
     Task SendConfirmationAsync(string email, string confirmationUrl, CancellationToken cancellationToken);
     Task SendPasswordResetAsync(string email, string resetUrl, CancellationToken cancellationToken);
     Task SendNewsSummaryAsync(string email, NewsSummaryDigest digest, CancellationToken cancellationToken);
+    Task SendSharedArticleAsync(
+        string email,
+        SharedArticleEmail sharedArticle,
+        CancellationToken cancellationToken);
 }
+
+public sealed record SharedArticleEmail(
+    string SenderName,
+    string Title,
+    string Source,
+    string ArticleUrl,
+    string SignalUrl);
 
 public sealed record NewsSummaryDigest(
     DateTimeOffset RefreshedAt,

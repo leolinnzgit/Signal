@@ -11,6 +11,8 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
 
     public DbSet<StoredNewsArticle> StoredNewsArticles => Set<StoredNewsArticle>();
 
+    public DbSet<SharedNewsArticle> SharedNewsArticles => Set<SharedNewsArticle>();
+
     public DbSet<TopicRefreshState> TopicRefreshStates => Set<TopicRefreshState>();
 
     public DbSet<UserPushSubscription> UserPushSubscriptions => Set<UserPushSubscription>();
@@ -23,9 +25,23 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
 
     public DbSet<DirectMessage> DirectMessages => Set<DirectMessage>();
 
+    public DbSet<UserPresence> UserPresences => Set<UserPresence>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
+
+        builder.Entity<SharedNewsArticle>(article =>
+        {
+            article.ToTable("SharedNewsArticles");
+            article.HasKey(item => item.Id);
+            article.Property(item => item.Id).HasMaxLength(48);
+            article.Property(item => item.UserId).HasMaxLength(450).IsRequired();
+            article.HasIndex(item => new { item.UserId, item.ContentHash }).IsUnique();
+            article.HasIndex(item => new { item.UserId, item.ShareKey }).IsUnique();
+            article.HasOne(item => item.User).WithMany()
+                .HasForeignKey(item => item.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
 
         builder.Entity<UserNewsPreferences>(preferences =>
         {
@@ -37,6 +53,7 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
             preferences.Property(item => item.TickerOverridesJson).IsRequired();
             preferences.Property(item => item.WeatherLocationJson).IsRequired();
             preferences.Property(item => item.SecondaryTimeZoneJson).IsRequired();
+            preferences.Property(item => item.TrendRegionsJson).IsRequired();
             preferences.Property(item => item.StoryTitleSize).HasMaxLength(16).IsRequired();
             preferences.Property(item => item.TopicHeaderSize).HasMaxLength(16).IsRequired();
             preferences.HasOne(item => item.User)
@@ -114,7 +131,7 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
             comment.HasKey(item => item.Id);
             comment.Property(item => item.ArticleUrl).HasMaxLength(2048).IsRequired();
             comment.Property(item => item.ArticleTitle).HasMaxLength(500).IsRequired();
-            comment.Property(item => item.UserId).HasMaxLength(450).IsRequired();
+            comment.Property(item => item.UserId).HasMaxLength(450);
             comment.Property(item => item.Body).HasMaxLength(2000).IsRequired();
             comment.HasIndex(item => new { item.ArticleUrl, item.CreatedAtUtc });
             comment.HasIndex(item => item.UserId);
@@ -143,8 +160,23 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
             message.Property(item => item.SenderUserId).HasMaxLength(450).IsRequired();
             message.Property(item => item.RecipientUserId).HasMaxLength(450).IsRequired();
             message.Property(item => item.Body).HasMaxLength(2000).IsRequired();
+            message.Property(item => item.SharedArticleTitle).HasMaxLength(2000).IsRequired();
+            message.Property(item => item.SharedArticleUrl).HasMaxLength(2048).IsRequired();
+            message.Property(item => item.SharedArticleSource).HasMaxLength(256).IsRequired();
             message.HasIndex(item => new { item.SenderUserId, item.RecipientUserId, item.CreatedAtUtc });
             message.HasIndex(item => new { item.RecipientUserId, item.ReadAtUtc });
+        });
+
+        builder.Entity<UserPresence>(presence =>
+        {
+            presence.ToTable("UserPresences");
+            presence.HasKey(item => item.UserId);
+            presence.Property(item => item.UserId).HasMaxLength(450);
+            presence.HasIndex(item => item.LastSeenAtUtc);
+            presence.HasOne(item => item.User)
+                .WithOne()
+                .HasForeignKey<UserPresence>(item => item.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

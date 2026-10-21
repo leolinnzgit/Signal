@@ -11,7 +11,8 @@ public sealed class TopicRefreshService(
     NewsService newsService,
     IAccountEmailSender emailSender,
     PushNotificationService pushNotificationService,
-    ILogger<TopicRefreshService> logger)
+    ILogger<TopicRefreshService> logger,
+    IArticleAudioPrewarmer? audioPrewarmer = null)
 {
     private const int ProviderConcurrency = 8;
     private const int TopicsPerProviderBatch = 8;
@@ -95,7 +96,7 @@ public sealed class TopicRefreshService(
             var outcomes = await FetchAsync(preferences, topics, cancellationToken);
             var refreshedAt = DateTime.UtcNow;
             var selectedArticles = SelectArticles(outcomes, topics, preferences.StoryLimit);
-            var newlyAvailableTopicKeys = await StoreArticlesAsync(
+            var (newlyAvailableTopicKeys, newArticles) = await StoreArticlesAsync(
                 userId,
                 selectedArticles,
                 refreshedAt,
@@ -115,6 +116,8 @@ public sealed class TopicRefreshService(
                     await pushNotificationService.SendNewStoriesAsync(
                         userId,
                         newlyAvailableTopicKeys,
+                        newArticles,
+                        preferences.PushNewsTitlesEnabled,
                         cancellationToken);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -227,52 +230,78 @@ public sealed class TopicRefreshService(
         IReadOnlyCollection<string> topics,
         int storyLimit)
     {
-        var merged = new Dictionary<string, MutableArticle>(StringComparer.OrdinalIgnoreCase);
+        var byUrl = new Dictionary<string, MutableArticle>(StringComparer.OrdinalIgnoreCase);
         foreach (var outcome in outcomes.Where(item => item.Result is not null))
         {
             foreach (var article in outcome.Result!.Articles)
             {
+                var normalizedUrl = ArticleIdentity.NormalizeUrl(article.Url) ?? article.Url;
                 var matchedTopics = article.MatchedTopics is { Count: > 0 }
                     ? article.MatchedTopics
                     : outcome.Topics;
-                if (!merged.TryGetValue(article.Url, out var existing))
+                if (!byUrl.TryGetValue(normalizedUrl, out var existing))
                 {
                     existing = new MutableArticle(
                         article.Title,
-                        article.Url,
+                        normalizedUrl,
                         article.Source,
                         article.PublishedAt,
                         article.Summary,
                         article.ImageUrl);
-                    merged[article.Url] = existing;
+                    byUrl[normalizedUrl] = existing;
                 }
-                else if (existing.ImageUrl.Length == 0 && article.ImageUrl.Length > 0)
+                else
                 {
-                    existing.ImageUrl = article.ImageUrl;
+                    if (existing.Summary.Length == 0 && article.Summary.Length > 0)
+                        existing.Summary = article.Summary;
+                    if (existing.ImageUrl.Length == 0 && article.ImageUrl.Length > 0)
+                        existing.ImageUrl = article.ImageUrl;
                 }
                 existing.Topics.UnionWith(matchedTopics);
                 existing.Providers.Add(outcome.Result.Provider);
             }
         }
 
-        var sorted = merged.Values
+        var deduplicated = ArticleIdentity.GroupDuplicates(
+                byUrl.Values.OrderByDescending(article => article.PublishedAt).ToArray(),
+                article => article.Title,
+                article => article.Url)
+            .Select(MergeDuplicateGroup)
             .OrderByDescending(article => article.PublishedAt)
             .ToArray();
+
         var included = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var topic in topics)
         {
             foreach (var article in SelectBalanced(
-                sorted.Where(article => article.Topics.Contains(topic)).ToArray(),
+                deduplicated.Where(article => article.Topics.Contains(topic)).ToArray(),
                 Math.Clamp(storyLimit, 10, 500)))
             {
                 included.Add(article.Url);
             }
         }
 
-        return sorted
+        return deduplicated
             .Where(article => included.Contains(article.Url))
             .Select(article => article.ToResponse())
             .ToArray();
+    }
+
+    private static MutableArticle MergeDuplicateGroup(MutableArticle[] group)
+    {
+        var primary = group.FirstOrDefault(article => !ArticleIdentity.IsGoogleNewsWrapperUrl(article.Url))
+            ?? group[0];
+        foreach (var candidate in group)
+        {
+            if (ReferenceEquals(candidate, primary)) continue;
+            primary.Topics.UnionWith(candidate.Topics);
+            primary.Providers.UnionWith(candidate.Providers);
+            if (primary.Summary.Length == 0 && candidate.Summary.Length > 0)
+                primary.Summary = candidate.Summary;
+            if (primary.ImageUrl.Length == 0 && candidate.ImageUrl.Length > 0)
+                primary.ImageUrl = candidate.ImageUrl;
+        }
+        return primary;
     }
 
     private static IEnumerable<MutableArticle> SelectBalanced(
@@ -328,6 +357,7 @@ public sealed class TopicRefreshService(
                     cancellationToken);
             if (state is null) return false;
 
+            state.ViewedContentVersion = state.LatestContentVersion;
             state.HasUnread = false;
             state.LastViewedAtUtc = DateTime.UtcNow;
             await database.SaveChangesAsync(cancellationToken);
@@ -339,62 +369,171 @@ public sealed class TopicRefreshService(
         }
     }
 
-    private async Task<HashSet<string>> StoreArticlesAsync(
+    internal async Task<(HashSet<string> TopicKeys, List<StoredNewsArticle> NewArticles)> StoreArticlesAsync(
         string userId,
         IReadOnlyCollection<TopicBriefingArticle> articles,
         DateTime refreshedAt,
         CancellationToken cancellationToken)
     {
-        var urls = articles.Select(item => item.Url).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var lookupUrls = articles
+            .SelectMany(item => ArticleIdentity.GetUrlLookupCandidates(item.Url))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
         var existing = new List<StoredNewsArticle>();
-        foreach (var urlBatch in urls.Chunk(400))
+        foreach (var urlBatch in lookupUrls.Chunk(400))
         {
             existing.AddRange(await database.StoredNewsArticles
                 .Where(item => item.UserId == userId && urlBatch.Contains(item.Url))
                 .ToListAsync(cancellationToken));
         }
-        var byUrl = existing.ToDictionary(item => item.Url, StringComparer.OrdinalIgnoreCase);
+
+        var recentExisting = await database.StoredNewsArticles
+            .Where(item => item.UserId == userId)
+            .OrderByDescending(item => item.LastSeenAtUtc)
+            .Take(2000)
+            .ToListAsync(cancellationToken);
+
+        var allKnown = existing
+            .Concat(recentExisting)
+            .GroupBy(item => item.Id)
+            .Select(group => group.First())
+            .ToList();
+
+        var byUrl = new Dictionary<string, StoredNewsArticle>(StringComparer.OrdinalIgnoreCase);
+        var byStoryKey = new Dictionary<string, List<StoredNewsArticle>>(StringComparer.Ordinal);
+        var byHeadlineKey = new Dictionary<string, List<StoredNewsArticle>>(StringComparer.Ordinal);
+
+        void IndexStoredArticle(StoredNewsArticle item)
+        {
+            foreach (var candidateUrl in ArticleIdentity.GetUrlLookupCandidates(item.Url))
+                byUrl.TryAdd(candidateUrl, item);
+
+            var storyKey = ArticleIdentity.GetStoryUrlKey(item.Url);
+            if (storyKey.Length > 0)
+            {
+                if (!byStoryKey.TryGetValue(storyKey, out var list))
+                {
+                    list = [];
+                    byStoryKey[storyKey] = list;
+                }
+                if (!list.Contains(item)) list.Add(item);
+            }
+
+            var headlineKey = ArticleIdentity.GetHeadlineKey(item.Title);
+            if (headlineKey.Length > 0)
+            {
+                if (!byHeadlineKey.TryGetValue(headlineKey, out var list))
+                {
+                    list = [];
+                    byHeadlineKey[headlineKey] = list;
+                }
+                if (!list.Contains(item)) list.Add(item);
+            }
+        }
+
+        foreach (var item in allKnown) IndexStoredArticle(item);
+
         var newlyAvailableTopicKeys = new HashSet<string>(StringComparer.Ordinal);
+        var newArticles = new List<StoredNewsArticle>();
 
         foreach (var article in articles)
         {
+            var normalizedUrl = ArticleIdentity.NormalizeUrl(article.Url)
+                ?? article.Url[..Math.Min(article.Url.Length, 2048)];
+            var urlCandidates = ArticleIdentity.GetUrlLookupCandidates(article.Url);
+            StoredNewsArticle? stored = null;
+            foreach (var candidateUrl in urlCandidates)
+            {
+                if (byUrl.TryGetValue(candidateUrl, out stored)) break;
+            }
+
+            var storyKey = ArticleIdentity.GetStoryUrlKey(normalizedUrl);
+            var headlineKey = ArticleIdentity.GetHeadlineKey(article.Title);
+            var aliases = new List<StoredNewsArticle>();
+            if (storyKey.Length > 0 && byStoryKey.TryGetValue(storyKey, out var storyMatches))
+                aliases.AddRange(storyMatches);
+            if (headlineKey.Length > 0 && byHeadlineKey.TryGetValue(headlineKey, out var headlineMatches))
+            {
+                foreach (var match in headlineMatches)
+                {
+                    if (!aliases.Contains(match)) aliases.Add(match);
+                }
+            }
+
+            var isNewRow = false;
             string[] existingTopics;
-            if (!byUrl.TryGetValue(article.Url, out var stored))
+            if (stored is null)
             {
                 stored = new StoredNewsArticle
                 {
                     UserId = userId,
-                    Url = article.Url[..Math.Min(article.Url.Length, 2048)],
+                    Url = normalizedUrl,
                     FirstSeenAtUtc = refreshedAt,
+                    PublishedAtUtc = article.PublishedAt.UtcDateTime,
                 };
                 database.StoredNewsArticles.Add(stored);
-                byUrl[article.Url] = stored;
+                isNewRow = true;
                 existingTopics = [];
             }
             else
             {
                 existingTopics = DeserializeList(stored.TopicsJson);
+                if (!string.Equals(stored.Url, normalizedUrl, StringComparison.Ordinal)
+                    && (!byUrl.TryGetValue(normalizedUrl, out var collision) || ReferenceEquals(collision, stored)))
+                {
+                    stored.Url = normalizedUrl;
+                }
+
+                var incomingPublishedAt = article.PublishedAt.UtcDateTime;
+                var isFallbackNowOnOldRow = stored.FirstSeenAtUtc < refreshedAt.AddMinutes(-2)
+                    && incomingPublishedAt >= refreshedAt.AddMinutes(-2);
+                if (!isFallbackNowOnOldRow)
+                {
+                    stored.PublishedAtUtc = incomingPublishedAt;
+                }
+                else if (stored.PublishedAtUtc > stored.FirstSeenAtUtc.AddMinutes(2))
+                {
+                    stored.PublishedAtUtc = stored.FirstSeenAtUtc;
+                }
             }
+
+            var readAlias = aliases.FirstOrDefault(alias => alias.IsRead);
+            if (readAlias is not null && !stored.IsRead)
+            {
+                stored.IsRead = true;
+                stored.ReadAtUtc ??= readAlias.ReadAtUtc ?? refreshedAt;
+            }
+
             var existingTopicKeys = existingTopics
+                .Concat(aliases.SelectMany(alias => DeserializeList(alias.TopicsJson)))
                 .Select(NormalizeTopicKey)
                 .ToHashSet(StringComparer.Ordinal);
-            foreach (var topic in article.Topics)
+            if (!stored.IsRead)
             {
-                var topicKey = NormalizeTopicKey(topic);
-                if (!existingTopicKeys.Contains(topicKey)) newlyAvailableTopicKeys.Add(topicKey);
+                foreach (var topic in article.Topics)
+                {
+                    var topicKey = NormalizeTopicKey(topic);
+                    if (!existingTopicKeys.Contains(topicKey)) newlyAvailableTopicKeys.Add(topicKey);
+                }
             }
+
+            if (isNewRow && !stored.IsRead && aliases.Count == 0 && !newArticles.Contains(stored))
+                newArticles.Add(stored);
+
             stored.Title = NormalizeText(article.Title, 500);
             stored.Source = NormalizeText(article.Source, 256);
-            stored.PublishedAtUtc = article.PublishedAt.UtcDateTime;
             stored.Summary = NormalizeText(article.Summary, 4000);
             if (article.ImageUrl.Length > 0)
                 stored.ImageUrl = article.ImageUrl[..Math.Min(article.ImageUrl.Length, 2048)];
             stored.TopicsJson = JsonSerializer.Serialize(MergeLists(stored.TopicsJson, article.Topics));
             stored.ProvidersJson = JsonSerializer.Serialize(MergeLists(stored.ProvidersJson, article.Providers));
             stored.LastSeenAtUtc = refreshedAt;
+
+            IndexStoredArticle(stored);
         }
         await database.SaveChangesAsync(cancellationToken);
-        return newlyAvailableTopicKeys;
+        foreach (var article in newArticles) audioPrewarmer?.Enqueue(article.Url, article.Title, article.Summary);
+        return (newlyAvailableTopicKeys, newArticles);
     }
 
     private async Task UpdateStatesAsync(
@@ -433,7 +572,11 @@ public sealed class TopicRefreshService(
             state.Topic = topic;
             state.LastAttemptedAtUtc = refreshedAt;
             if (successful) state.LastSuccessfulAtUtc = refreshedAt;
-            if (newlyAvailableTopicKeys.Contains(key)) state.HasUnread = true;
+            if (newlyAvailableTopicKeys.Contains(key))
+            {
+                state.LatestContentVersion = checked(state.LatestContentVersion + 1);
+            }
+            state.HasUnread = state.LatestContentVersion > state.ViewedContentVersion;
             state.NextRefreshAtUtc = refreshMinutes == 0 ? null : refreshedAt.AddMinutes(refreshMinutes);
             state.LastError = failures.Length == 0
                 ? ""
@@ -459,7 +602,7 @@ public sealed class TopicRefreshService(
             .Take(take)
             .ToArrayAsync(cancellationToken);
         var currentTopics = topics.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var candidates = stored
+        var rawCandidates = stored
             .Select(item => new
             {
                 Item = item,
@@ -468,6 +611,47 @@ public sealed class TopicRefreshService(
             })
             .Where(item => item.Topics.Length > 0 && item.Providers.Any(provider => ProviderEnabled(provider, preferences)))
             .ToArray();
+
+        var candidates = ArticleIdentity.GroupDuplicates(
+                rawCandidates,
+                candidate => candidate.Item.Title,
+                candidate => candidate.Item.Url)
+            .Select(group =>
+            {
+                var primary = group.FirstOrDefault(candidate => !ArticleIdentity.IsGoogleNewsWrapperUrl(candidate.Item.Url))
+                    ?? group[0];
+                var mergedTopics = group
+                    .SelectMany(candidate => candidate.Topics)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                var mergedProviders = group
+                    .SelectMany(candidate => candidate.Providers)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                var summary = primary.Item.Summary.Length > 0
+                    ? primary.Item.Summary
+                    : group.Select(candidate => candidate.Item.Summary).FirstOrDefault(text => text.Length > 0) ?? "";
+                var imageUrl = primary.Item.ImageUrl.Length > 0
+                    ? primary.Item.ImageUrl
+                    : group.Select(candidate => candidate.Item.ImageUrl).FirstOrDefault(text => text.Length > 0) ?? "";
+                return new
+                {
+                    Id = primary.Item.Id,
+                    Title = primary.Item.Title,
+                    Url = ArticleIdentity.NormalizeUrl(primary.Item.Url) ?? primary.Item.Url,
+                    Source = primary.Item.Source,
+                    PublishedAtUtc = primary.Item.PublishedAtUtc,
+                    Summary = summary,
+                    ImageUrl = imageUrl,
+                    Topics = mergedTopics,
+                    Providers = mergedProviders,
+                    IsBookmarked = group.Any(candidate => candidate.Item.IsBookmarked),
+                    IsRead = group.Any(candidate => candidate.Item.IsRead),
+                };
+            })
+            .OrderByDescending(candidate => candidate.PublishedAtUtc)
+            .ToArray();
+
         var included = new HashSet<long>();
         foreach (var topic in topics)
         {
@@ -475,22 +659,22 @@ public sealed class TopicRefreshService(
                 .Where(candidate => candidate.Topics.Contains(topic, StringComparer.OrdinalIgnoreCase))
                 .Take(Math.Clamp(preferences.StoryLimit, 10, 500)))
             {
-                included.Add(candidate.Item.Id);
+                included.Add(candidate.Id);
             }
         }
         return candidates
-            .Where(candidate => included.Contains(candidate.Item.Id))
+            .Where(candidate => included.Contains(candidate.Id))
             .Select(candidate => new TopicBriefingArticle(
-                candidate.Item.Title,
-                candidate.Item.Url,
-                candidate.Item.Source,
-                new DateTimeOffset(candidate.Item.PublishedAtUtc, TimeSpan.Zero),
-                candidate.Item.Summary,
-                candidate.Item.ImageUrl,
+                candidate.Title,
+                candidate.Url,
+                candidate.Source,
+                new DateTimeOffset(candidate.PublishedAtUtc, TimeSpan.Zero),
+                candidate.Summary,
+                candidate.ImageUrl,
                 candidate.Topics,
                 candidate.Providers,
-                candidate.Item.IsBookmarked,
-                candidate.Item.IsRead))
+                candidate.IsBookmarked,
+                candidate.IsRead))
             .ToArray();
     }
 
@@ -509,7 +693,7 @@ public sealed class TopicRefreshService(
                 item.LastSuccessfulAtUtc,
                 item.NextRefreshAtUtc,
                 item.LastViewedAtUtc,
-                item.HasUnread,
+                HasUnread = item.LatestContentVersion > item.ViewedContentVersion,
                 item.LastError,
             })
             .ToArrayAsync(cancellationToken);
@@ -637,7 +821,7 @@ public sealed class TopicRefreshService(
         public string Url { get; } = url;
         public string Source { get; } = source;
         public DateTimeOffset PublishedAt { get; } = publishedAt;
-        public string Summary { get; } = summary;
+        public string Summary { get; set; } = summary;
         public string ImageUrl { get; set; } = imageUrl;
         public HashSet<string> Topics { get; } = new(StringComparer.OrdinalIgnoreCase);
         public HashSet<string> Providers { get; } = new(StringComparer.OrdinalIgnoreCase);

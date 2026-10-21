@@ -101,12 +101,12 @@ static OAuthClient LoadOAuthClient(string path)
 
 static void DeployIisPackage(string sourcePath, string sitePath)
 {
-    var expectedSitePath = Path.GetFullPath(@"C:\inetpub\Signal")
+    var expectedSitePath = Path.GetFullPath(@"C:\sites\SignalHost")
         .TrimEnd(Path.DirectorySeparatorChar);
     var resolvedSitePath = Path.GetFullPath(sitePath)
         .TrimEnd(Path.DirectorySeparatorChar);
     if (!resolvedSitePath.Equals(expectedSitePath, StringComparison.OrdinalIgnoreCase))
-        throw new InvalidOperationException("The IIS target must be C:\\inetpub\\Signal.");
+        throw new InvalidOperationException("The IIS target must be C:\\sites\\SignalHost.");
 
     var appCmd = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.Windows),

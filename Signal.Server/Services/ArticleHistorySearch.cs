@@ -1,5 +1,7 @@
 using Signal.Server.Models;
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
+using Signal.Server.Data;
 
 namespace Signal.Server.Services;
 
@@ -30,12 +32,24 @@ public static class ArticleHistorySearch
             query = query.Where(item =>
                 item.Title.ToLower().Contains(lowered)
                 || item.Summary.ToLower().Contains(lowered)
+                || item.FullText.ToLower().Contains(lowered)
                 || item.Source.ToLower().Contains(lowered)
                 || item.TopicsJson.ToLower().Contains(lowered)
                 || item.ProvidersJson.ToLower().Contains(lowered));
         }
 
         return query;
+    }
+
+    public static async Task StoreReaderTextAsync(
+        SignalDbContext database, string url, ArticleReaderResult result, CancellationToken token)
+    {
+        if (result is not { Available: true, Article.Paragraphs.Count: > 0 }) return;
+        var text = string.Join('\n', result.Article.Paragraphs);
+        text = text[..Math.Min(text.Length, 30_000)];
+        await database.StoredNewsArticles
+            .Where(item => item.Url == url && item.FullText != text)
+            .ExecuteUpdateAsync(update => update.SetProperty(item => item.FullText, text), token);
     }
 
     public static IQueryable<StoredNewsArticle> ApplyFilters(

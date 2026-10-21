@@ -14,21 +14,23 @@ public sealed class EmailStatusController(
     IOptions<SmtpOptions> smtpOptions) : ControllerBase
 {
     [HttpGet("status")]
-    public IActionResult Status()
+    public async Task<IActionResult> Status(CancellationToken cancellationToken)
     {
         if (gmail.IsConfigured)
         {
+            var status = await gmail.GetConnectionStatusAsync(cancellationToken);
             return Ok(new
             {
                 mode = "gmailOAuth",
-                connected = true,
-                email = gmail.ConnectedEmail,
+                connected = status.Connected,
+                email = status.Email,
+                error = status.Error,
             });
         }
 
         var mode = smtpOptions.Value.Mode.Equals("File", StringComparison.OrdinalIgnoreCase)
             ? "localFile"
             : "smtp";
-        return Ok(new { mode, connected = false, email = (string?)null });
+        return Ok(new { mode, connected = false, email = (string?)null, error = (string?)null });
     }
 }

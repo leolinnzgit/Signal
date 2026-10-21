@@ -1,7 +1,9 @@
-import { ChangeEvent, FormEvent, useEffect, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useId, useRef, useState } from "react";
 import { updateInstalledAppBadge } from "../app/app-badge";
 import { prepareProfilePhoto } from "../app/profile-photo";
-import NewsDashboard, { type ArticleHistoryPage, type ArticleStore, type FollowedArticle, type NewsPreferences, type NewsSummary, type PreferencesStore, type PushNotificationStore, type PushSubscriptionPayload, type TopicBriefing, type TopicRefreshStore } from "../app/NewsDashboard";
+import { preparedAudioCache } from "../app/headline-audio";
+import { parseSignalArticleLink, signalArticlePath, type SignalArticleLink } from "../app/article-link";
+import NewsDashboard, { type ArticleHistoryPage, type ArticleStore, type FollowedArticle, type FriendShareStore, type NewsPreferences, type NewsSummary, type PreferencesStore, type PushNotificationStore, type PushSubscriptionPayload, type TopicBriefing, type TopicRefreshStore } from "../app/NewsDashboard";
 
 type SessionUser = {
   email: string;
@@ -15,6 +17,7 @@ type EmailDeliveryStatus = {
   mode: "gmailOAuth" | "localFile" | "smtp";
   connected: boolean;
   email: string | null;
+  error: string | null;
 };
 
 type CommentAuthor = {
@@ -23,14 +26,23 @@ type CommentAuthor = {
   profilePhotoUrl: string;
 };
 
+type CommentReplyTarget = {
+  id: number;
+  authorName: string;
+  body: string;
+};
+
 type NewsComment = {
   id: number;
   articleUrl: string;
+  articleTitle: string;
   body: string;
   createdAt: string;
   author: CommentAuthor;
   canDelete: boolean;
-  friendshipState: "self" | "none" | "outgoing" | "incoming" | "friends";
+  friendshipState: "self" | "none" | "outgoing" | "incoming" | "friends" | "anonymous";
+  parentCommentId?: number | null;
+  replyTo?: CommentReplyTarget | null;
 };
 
 type CommentPage = {
@@ -39,11 +51,16 @@ type CommentPage = {
   hasMore: boolean;
 };
 
+type LatestCommentsPage = { comments: NewsComment[]; newCount: number };
+type DiscussionArticle = Pick<FollowedArticle, "url" | "title" | "source">;
+
 type SocialUser = {
   userId: string;
   name: string;
   profilePhotoUrl: string;
   unreadMessages: number;
+  isOnline: boolean;
+  lastSeenAt: string | null;
 };
 
 type FriendSummary = { relationshipId: number; user: SocialUser };
@@ -74,9 +91,56 @@ type DirectMessage = {
   createdAt: string;
   readAt: string | null;
   isMine: boolean;
+  sharedArticle: { title: string; url: string; source: string } | null;
 };
 
 type MessagePage = { messages: DirectMessage[]; hasMore: boolean };
+
+const CHAT_EMOJIS = [
+  "😀", "😂", "😊", "😍", "🥳", "😎", "🤔", "😢",
+  "😮", "😡", "👍", "👎", "👏", "🙌", "🙏", "💪",
+  "❤️", "💯", "🔥", "✨", "🎉", "✅", "👀", "💬",
+  "☕", "🌏", "📰", "🚀", "🤖", "📈", "💡", "🤣",
+];
+
+let messageAudioContext: AudioContext | null = null;
+let lastMessageToneAt = 0;
+
+function unlockMessageAudio() {
+  const AudioContextType = window.AudioContext
+    ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioContextType) return;
+  messageAudioContext ??= new AudioContextType();
+  if (messageAudioContext.state === "suspended") void messageAudioContext.resume();
+}
+
+function playMessageTone() {
+  const context = messageAudioContext;
+  if (!context || context.state !== "running") return;
+  const now = Date.now();
+  if (now - lastMessageToneAt < 10_000) return;
+  lastMessageToneAt = now;
+  const start = context.currentTime;
+  const gain = context.createGain();
+  gain.gain.setValueAtTime(0.0001, start);
+  gain.gain.exponentialRampToValueAtTime(0.16, start + 0.015);
+  gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.34);
+  gain.connect(context.destination);
+
+  const first = context.createOscillator();
+  first.type = "sine";
+  first.frequency.setValueAtTime(659.25, start);
+  first.connect(gain);
+  first.start(start);
+  first.stop(start + 0.15);
+
+  const second = context.createOscillator();
+  second.type = "sine";
+  second.frequency.setValueAtTime(880, start + 0.16);
+  second.connect(gain);
+  second.start(start + 0.16);
+  second.stop(start + 0.34);
+}
 
 type AuthView = "login" | "register" | "forgot" | "reset" | "resend";
 
@@ -102,6 +166,22 @@ async function postJson<T>(path: string, body?: unknown): Promise<T> {
   const token = await getCsrfToken();
   const response = await fetch(path, {
     method: "POST",
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      "X-XSRF-TOKEN": token,
+    },
+    body: JSON.stringify(body ?? {}),
+  });
+  const data = await response.json().catch(() => ({})) as { error?: string; detail?: string };
+  if (!response.ok) throw new Error(data.error || data.detail || "The request could not be completed.");
+  return data as T;
+}
+
+async function putJson<T>(path: string, body?: unknown): Promise<T> {
+  const token = await getCsrfToken();
+  const response = await fetch(path, {
+    method: "PUT",
     credentials: "same-origin",
     headers: {
       "Content-Type": "application/json",
@@ -254,6 +334,34 @@ const webPushNotificationStore: PushNotificationStore = {
   },
 };
 
+const friendShareStore: FriendShareStore = {
+  async loadFriends() {
+    const overview = await getJson<SocialOverview>("/api/social");
+    return overview.friends.map((friend) => ({
+      userId: friend.user.userId,
+      name: friend.user.name,
+      profilePhotoUrl: friend.user.profilePhotoUrl,
+      isOnline: friend.user.isOnline,
+      lastSeenAt: friend.user.lastSeenAt,
+    }));
+  },
+  async share(recipientUserId, article) {
+    const response = await postJson<{
+      message: DirectMessage;
+      recipientOnline: boolean;
+      emailNotificationSent: boolean;
+      emailNotificationAttempted: boolean;
+      emailNotificationError: string | null;
+    }>("/api/social/shares", { recipientUserId, ...article });
+    return {
+      recipientOnline: response.recipientOnline,
+      emailNotificationSent: response.emailNotificationSent,
+      emailNotificationAttempted: response.emailNotificationAttempted,
+      emailNotificationError: response.emailNotificationError,
+    };
+  },
+};
+
 async function sendNewsSummary(summary: NewsSummary) {
   const data = await postJson<{ message: string }>("/api/news-summary", summary);
   return data.message;
@@ -277,8 +385,36 @@ export default function AuthApp() {
   });
   const [accountOpen, setAccountOpen] = useState(initialAuth?.startsWith("google-") === true);
   const [communityOpen, setCommunityOpen] = useState(false);
-  const [discussionArticle, setDiscussionArticle] = useState<FollowedArticle | null>(null);
+  const [latestCommentsOpen, setLatestCommentsOpen] = useState(false);
+  const [latestComments, setLatestComments] = useState<NewsComment[]>([]);
+  const [latestCommentUnread, setLatestCommentUnread] = useState(0);
+  const [discussionArticle, setDiscussionArticle] = useState<DiscussionArticle | null>(null);
+  const [articleToOpen, setArticleToOpen] = useState<SignalArticleLink | null>(() => parseSignalArticleLink(window.location.search));
   const [socialUnread, setSocialUnread] = useState(0);
+  const lastSeenCommentId = useRef(0);
+  const latestCommentsOpenRef = useRef(false);
+  const socialUnreadRef = useRef(0);
+  const socialSummaryInitialized = useRef(false);
+
+  useEffect(() => { latestCommentsOpenRef.current = latestCommentsOpen; }, [latestCommentsOpen]);
+
+  useEffect(() => {
+    if (!user) return;
+    const unlock = () => unlockMessageAudio();
+    document.addEventListener("pointerdown", unlock, { once: true });
+    document.addEventListener("keydown", unlock, { once: true });
+    return () => {
+      document.removeEventListener("pointerdown", unlock);
+      document.removeEventListener("keydown", unlock);
+    };
+  }, [user]);
+
+  function updateSocialUnread(count: number) {
+    if (socialSummaryInitialized.current && count > socialUnreadRef.current) playMessageTone();
+    socialUnreadRef.current = count;
+    socialSummaryInitialized.current = true;
+    setSocialUnread(count);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -319,13 +455,15 @@ export default function AuthApp() {
   useEffect(() => {
     if (!user) {
       setSocialUnread(0);
+      socialUnreadRef.current = 0;
+      socialSummaryInitialized.current = false;
       return;
     }
     let cancelled = false;
     async function loadSocialSummary() {
       try {
         const overview = await getJson<SocialOverview>("/api/social");
-        if (!cancelled) setSocialUnread(overview.unreadMessages);
+        if (!cancelled) updateSocialUnread(overview.unreadMessages);
       } catch {
         // Social availability should not interrupt the news briefing.
       }
@@ -337,6 +475,59 @@ export default function AuthApp() {
       window.clearInterval(interval);
     };
   }, [user]);
+
+  useEffect(() => {
+    if (!user) {
+      setLatestComments([]);
+      setLatestCommentUnread(0);
+      lastSeenCommentId.current = 0;
+      return;
+    }
+    let cancelled = false;
+    async function loadLatestComments() {
+      try {
+        const params = new URLSearchParams({ limit: "12" });
+        if (lastSeenCommentId.current > 0) params.set("afterId", String(lastSeenCommentId.current));
+        const page = await getJson<LatestCommentsPage>(`/api/comments/latest?${params.toString()}`);
+        if (cancelled) return;
+        setLatestComments(page.comments);
+        const newestId = page.comments[0]?.id ?? lastSeenCommentId.current;
+        if (lastSeenCommentId.current === 0 || latestCommentsOpenRef.current) {
+          lastSeenCommentId.current = newestId;
+          setLatestCommentUnread(0);
+        } else {
+          setLatestCommentUnread(page.newCount);
+        }
+      } catch {
+        // Comment activity should not interrupt the main briefing.
+      }
+    }
+    void loadLatestComments();
+    const interval = window.setInterval(() => void loadLatestComments(), 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [user]);
+
+  function openCommentArticle(article: DiscussionArticle) {
+    setAccountOpen(false);
+    setCommunityOpen(false);
+    setDiscussionArticle(null);
+    setLatestCommentsOpen(false);
+    latestCommentsOpenRef.current = false;
+    setArticleToOpen({ ...article });
+  }
+
+  function openLatestComments() {
+    setAccountOpen(false);
+    setCommunityOpen(false);
+    setDiscussionArticle(null);
+    setLatestCommentsOpen(true);
+    latestCommentsOpenRef.current = true;
+    lastSeenCommentId.current = latestComments[0]?.id ?? lastSeenCommentId.current;
+    setLatestCommentUnread(0);
+  }
 
   useEffect(() => {
     void fetch("/api/auth/providers", { credentials: "same-origin", cache: "no-store" })
@@ -372,15 +563,23 @@ export default function AuthApp() {
           // Signing out should continue even if the push service is unavailable.
         }
       }
+      try { await deleteJson<void>("/api/social/presence"); } catch { /* Presence will expire automatically. */ }
       await postJson<void>("/api/auth/logout");
     } finally {
       csrfToken = "";
+      preparedAudioCache.clear();
       void updateInstalledAppBadge(0);
       setUser(null);
       setAccountOpen(false);
       setCommunityOpen(false);
+      setLatestCommentsOpen(false);
+      setLatestComments([]);
+      setLatestCommentUnread(0);
       setDiscussionArticle(null);
       setSocialUnread(0);
+      socialUnreadRef.current = 0;
+      socialSummaryInitialized.current = false;
+      setArticleToOpen(null);
       setNotice("You’re signed out.");
       setView("login");
       window.history.replaceState({}, "", "/");
@@ -394,16 +593,22 @@ export default function AuthApp() {
       <>
         <NewsDashboard
           user={{ displayName: user.displayName, email: user.email, fullName: null, isLocalPreview: false, profilePhotoUrl: user.profilePhotoUrl }}
+          articleToOpen={articleToOpen}
+          renderArticleComments={(article, closeReader) => <ArticleComments key={article.url} article={article} composerLast
+            onOpenCommunity={() => { closeReader(); setCommunityOpen(true); }} />}
           onSignOut={() => void signOut()}
-          onManageAccount={() => { setCommunityOpen(false); setDiscussionArticle(null); setAccountOpen(true); }}
-          onOpenCommunity={() => { setAccountOpen(false); setDiscussionArticle(null); setCommunityOpen(true); }}
-          onOpenDiscussion={(article) => { setAccountOpen(false); setCommunityOpen(false); setDiscussionArticle(article); }}
+          onManageAccount={() => { setCommunityOpen(false); setLatestCommentsOpen(false); setDiscussionArticle(null); setAccountOpen(true); }}
+          onOpenCommunity={() => { setAccountOpen(false); setLatestCommentsOpen(false); setDiscussionArticle(null); setCommunityOpen(true); }}
+          onOpenLatestComments={openLatestComments}
+          onOpenDiscussion={(article) => { setAccountOpen(false); setCommunityOpen(false); setLatestCommentsOpen(false); setDiscussionArticle(article); }}
           communityUnreadCount={socialUnread}
+          latestCommentUnreadCount={latestCommentUnread}
           preferencesStore={sqlitePreferencesStore}
           articleStore={sqliteArticleStore}
           summarySender={sendNewsSummary}
           refreshStore={sqliteTopicRefreshStore}
           pushNotificationStore={webPushNotificationStore}
+          friendShareStore={friendShareStore}
         />
         {accountOpen && (
           <AccountPanel
@@ -421,14 +626,27 @@ export default function AuthApp() {
         {discussionArticle && (
           <DiscussionPanel
             article={discussionArticle}
+            onOpenArticle={openCommentArticle}
             onClose={() => setDiscussionArticle(null)}
             onOpenCommunity={() => { setDiscussionArticle(null); setCommunityOpen(true); }}
+          />
+        )}
+        {latestCommentsOpen && (
+          <LatestCommentsPanel
+            comments={latestComments}
+            onOpenArticle={openCommentArticle}
+            onClose={() => { setLatestCommentsOpen(false); latestCommentsOpenRef.current = false; }}
+            onOpenDiscussion={(comment) => {
+              setLatestCommentsOpen(false);
+              latestCommentsOpenRef.current = false;
+              setDiscussionArticle({ url: comment.articleUrl, title: comment.articleTitle, source: "Signal community" });
+            }}
           />
         )}
         {communityOpen && (
           <CommunityPanel
             onClose={() => setCommunityOpen(false)}
-            onUnreadChange={setSocialUnread}
+            onUnreadChange={updateSocialUnread}
           />
         )}
       </>
@@ -457,7 +675,7 @@ export default function AuthApp() {
 function AuthLoading() {
   return (
     <main className="auth-shell auth-loading" aria-label="Checking your session">
-      <span className="brand"><span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>SIGNAL</span>
+      <span className="brand"><img className="brand-mark" src="/icons/signal-medallion-64.png" alt="" aria-hidden="true" />SIGNAL</span>
       <span className="auth-spinner" aria-hidden="true" />
     </main>
   );
@@ -472,11 +690,23 @@ function formatSocialTime(value: string) {
   return date.toLocaleDateString(undefined, { day: "numeric", month: "short", year: date.getFullYear() === new Date().getFullYear() ? undefined : "numeric" });
 }
 
-function SocialAvatar({ user }: { user: { name: string; profilePhotoUrl: string } }) {
+function formatPresence(user: SocialUser) {
+  if (user.isOnline) return "Online";
+  if (!user.lastSeenAt) return "Offline";
+  return `Last seen ${formatSocialTime(user.lastSeenAt)}`;
+}
+
+function SocialAvatar({
+  user,
+  showInitial = true,
+}: {
+  user: { name: string; profilePhotoUrl: string };
+  showInitial?: boolean;
+}) {
   return (
     <span className="social-avatar" aria-hidden="true">
-      {user.name.charAt(0).toUpperCase()}
-      <img src={user.profilePhotoUrl} alt="" onError={(event) => { event.currentTarget.hidden = true; }} />
+      {showInitial ? user.name.charAt(0).toUpperCase() : null}
+      {user.profilePhotoUrl && <img src={user.profilePhotoUrl} alt="" onError={(event) => { event.currentTarget.hidden = true; }} />}
     </span>
   );
 }
@@ -497,7 +727,7 @@ function AuthScreen(props: AuthScreenProps) {
     <main className="auth-shell">
       <section className="auth-intro">
         <a className="brand" href="/" aria-label="Signal home">
-          <span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>
+          <img className="brand-mark" src="/icons/signal-medallion-64.png" alt="" aria-hidden="true" />
           SIGNAL
         </a>
         <div>
@@ -671,14 +901,18 @@ function CommunityPanel({
   const [selectedFriend, setSelectedFriend] = useState<FriendSummary | null>(null);
   const [messages, setMessages] = useState<DirectMessage[]>([]);
   const [messagesHaveMore, setMessagesHaveMore] = useState(false);
+  const [conversationMinimized, setConversationMinimized] = useState(false);
   const [email, setEmail] = useState("");
   const [searchResult, setSearchResult] = useState<UserSearchResult | null>(null);
   const [messageBody, setMessageBody] = useState("");
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [conversationLoading, setConversationLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const messageInput = useRef<HTMLTextAreaElement | null>(null);
+  const latestConversationMessageId = useRef(0);
 
   async function loadOverview(showLoading = false) {
     if (showLoading) setLoading(true);
@@ -726,8 +960,21 @@ function CommunityPanel({
       const params = new URLSearchParams({ friendUserId: friend.user.userId, limit: "50" });
       if (beforeId) params.set("beforeId", String(beforeId));
       const page = await getJson<MessagePage>(`/api/social/messages?${params.toString()}`);
-      setMessages((current) => beforeId ? [...page.messages, ...current] : page.messages);
-      setMessagesHaveMore(page.hasMore);
+      if (!beforeId) {
+        const newestId = page.messages.at(-1)?.id ?? 0;
+        if (quiet && latestConversationMessageId.current > 0
+          && page.messages.some((message) => message.id > latestConversationMessageId.current && !message.isMine)) {
+          playMessageTone();
+        }
+        latestConversationMessageId.current = newestId;
+      }
+      setMessages((current) => {
+        if (!beforeId && !quiet) return page.messages;
+        const merged = new Map(current.map((message) => [message.id, message]));
+        for (const message of page.messages) merged.set(message.id, message);
+        return Array.from(merged.values()).sort((left, right) => left.id - right.id);
+      });
+      if (!quiet) setMessagesHaveMore(page.hasMore);
       if (!beforeId) {
         setOverview((current) => current ? {
           ...current,
@@ -746,11 +993,12 @@ function CommunityPanel({
   }
 
   useEffect(() => {
-    if (!selectedFriend) return;
+    if (!selectedFriend || conversationMinimized) return;
+    latestConversationMessageId.current = 0;
     void loadMessages(selectedFriend);
     const interval = window.setInterval(() => void loadMessages(selectedFriend, undefined, true), 8_000);
     return () => window.clearInterval(interval);
-  }, [selectedFriend?.user.userId]);
+  }, [selectedFriend?.user.userId, conversationMinimized]);
 
   async function search(event: FormEvent) {
     event.preventDefault();
@@ -795,7 +1043,13 @@ function CommunityPanel({
       setSearchResult((current) => current?.relationshipId === relationshipId
         ? { ...current, friendshipState: "none", relationshipId: null }
         : current);
-      setSelectedFriend((current) => current?.relationshipId === relationshipId ? null : current);
+      setSelectedFriend((current) => {
+        if (current?.relationshipId === relationshipId) {
+          setConversationMinimized(false);
+          return null;
+        }
+        return current;
+      });
       setNotice("Friend request removed.");
       await loadOverview();
     } catch (caught) {
@@ -813,25 +1067,74 @@ function CommunityPanel({
         body: messageBody,
       });
       setMessages((current) => [...current, message]);
+      latestConversationMessageId.current = Math.max(latestConversationMessageId.current, message.id);
       setMessageBody("");
+      setEmojiPickerOpen(false);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Your message could not be sent.");
     } finally { setBusy(false); }
   }
 
+  function insertEmoji(emoji: string) {
+    const input = messageInput.current;
+    const start = input?.selectionStart ?? messageBody.length;
+    const end = input?.selectionEnd ?? start;
+    const next = `${messageBody.slice(0, start)}${emoji}${messageBody.slice(end)}`;
+    if (next.length > 2000) return;
+    setMessageBody(next);
+    window.requestAnimationFrame(() => {
+      input?.focus();
+      input?.setSelectionRange(start + emoji.length, start + emoji.length);
+    });
+  }
+
+  const activeFriend = selectedFriend
+    ? overview?.friends.find((friend) => friend.user.userId === selectedFriend.user.userId) ?? selectedFriend
+    : null;
+
   return (
-    <div className="social-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <div
+      className={selectedFriend
+        ? `social-backdrop conversation-floating-backdrop${conversationMinimized ? " conversation-minimized-backdrop" : ""}`
+        : "social-backdrop"}
+      onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}
+    >
+      {activeFriend && conversationMinimized ? (
+        <button
+          type="button"
+          className="conversation-minimized-button"
+          onClick={() => setConversationMinimized(false)}
+          aria-label={`Restore conversation with ${activeFriend.user.name}`}
+          title={`Open conversation with ${activeFriend.user.name}`}
+        >
+          <SocialAvatar user={activeFriend.user} />
+          <span className={activeFriend.user.isOnline ? "conversation-minimized-glyph online" : "conversation-minimized-glyph"} aria-hidden="true">●</span>
+          {activeFriend.user.unreadMessages > 0 && (
+            <span className="conversation-minimized-unread">{Math.min(activeFriend.user.unreadMessages, 99)}</span>
+          )}
+        </button>
+      ) : (
       <section className="community-panel" role="dialog" aria-modal="true" aria-labelledby="community-title">
         <header className="social-panel-header">
           <div>
             <p className="eyebrow">Signal community</p>
             <h2 id="community-title">{selectedFriend ? selectedFriend.user.name : "Friends & messages"}</h2>
+            {activeFriend && (
+              <small className={activeFriend.user.isOnline ? "conversation-presence online" : "conversation-presence"}>
+                <i aria-hidden="true" />{formatPresence(activeFriend.user)}
+              </small>
+            )}
           </div>
-          <button className="social-close" type="button" onClick={onClose} aria-label="Close friends and messages">×</button>
+          <div className="social-panel-controls">
+            {selectedFriend && (
+              <button className="social-minimize" type="button" onClick={() => { setEmojiPickerOpen(false); setConversationMinimized(true); }} aria-label="Minimize conversation" title="Minimize conversation">−</button>
+            )}
+            <button className="social-close" type="button" onClick={onClose} aria-label="Close friends and messages">×</button>
+          </div>
         </header>
         {selectedFriend ? (
           <div className="conversation-view">
-            <button className="conversation-back" type="button" onClick={() => { setSelectedFriend(null); setMessages([]); }}>← All friends</button>
+            <button className="conversation-back" type="button" onClick={() => { setEmojiPickerOpen(false); setConversationMinimized(false); setSelectedFriend(null); setMessages([]); }}>← All friends</button>
             {error && <p className="social-error" role="alert">{error}</p>}
             {messagesHaveMore && messages.length > 0 && (
               <button className="social-load-more" type="button" disabled={conversationLoading} onClick={() => void loadMessages(selectedFriend, messages[0].id)}>
@@ -846,13 +1149,44 @@ function CommunityPanel({
               ) : messages.map((message) => (
                 <li key={message.id} className={message.isMine ? "mine" : "theirs"}>
                   <p>{message.body}</p>
+                  {message.sharedArticle && (
+                    <a
+                      className="message-shared-story"
+                      href={message.sharedArticle.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <small>{message.sharedArticle.source || "Shared story"}</small>
+                      <strong>{message.sharedArticle.title}</strong>
+                      <span>Open original <span aria-hidden="true">&#8599;</span></span>
+                    </a>
+                  )}
                   <time dateTime={message.createdAt}>{formatSocialTime(message.createdAt)}</time>
                 </li>
               ))}
             </ol>
             <form className="message-composer" onSubmit={sendMessage}>
-              <textarea value={messageBody} onChange={(event) => setMessageBody(event.target.value)} placeholder={`Message ${selectedFriend.user.name}…`} maxLength={2000} rows={3} aria-label={`Message ${selectedFriend.user.name}`} />
-              <div><span>{messageBody.length}/2000</span><button type="submit" disabled={busy || !messageBody.trim()}>{busy ? "Sending…" : "Send"}</button></div>
+              <textarea ref={messageInput} value={messageBody} onChange={(event) => setMessageBody(event.target.value)} placeholder={`Message ${selectedFriend.user.name}…`} maxLength={2000} rows={3} aria-label={`Message ${selectedFriend.user.name}`} />
+              <div className="message-emoji-row">
+                <button
+                  type="button"
+                  className="message-emoji-trigger"
+                  onClick={() => setEmojiPickerOpen((current) => !current)}
+                  aria-expanded={emojiPickerOpen}
+                  aria-label="Choose an emoji"
+                  title="Add emoji"
+                >
+                  ☺
+                </button>
+                {emojiPickerOpen && (
+                  <div className="social-emoji-picker message-emoji-picker" role="group" aria-label="Emojis">
+                    {CHAT_EMOJIS.map((emoji) => (
+                      <button type="button" key={emoji} onClick={() => insertEmoji(emoji)} aria-label={`Add ${emoji}`}>{emoji}</button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="message-composer-footer"><span>{messageBody.length}/2000</span><button type="submit" disabled={busy || !messageBody.trim()}>{busy ? "Sending…" : "Send"}</button></div>
             </form>
           </div>
         ) : (
@@ -893,9 +1227,17 @@ function CommunityPanel({
                 <section className="social-section">
                   <h3>Friends</h3>
                   {(overview?.friends.length ?? 0) === 0 ? <p className="social-empty">No friends yet. Find someone by email or add them from a comment.</p> : overview!.friends.map((friend) => (
-                    <button className="social-person friend" type="button" key={friend.relationshipId} onClick={() => setSelectedFriend(friend)}>
+                    <button className="social-person friend" type="button" key={friend.relationshipId} onClick={() => { setEmojiPickerOpen(false); setConversationMinimized(false); setSelectedFriend(friend); }}>
                       <SocialAvatar user={friend.user} />
-                      <span><strong>{friend.user.name}</strong><small>{friend.user.unreadMessages > 0 ? `${friend.user.unreadMessages} unread` : "Open conversation"}</small></span>
+                      <span>
+                        <strong>{friend.user.name}</strong>
+                        <small className={friend.user.isOnline ? "friend-presence online" : "friend-presence"}>
+                          <i aria-hidden="true" />
+                          {friend.user.unreadMessages > 0
+                            ? `${friend.user.unreadMessages} unread · ${friend.user.isOnline ? "Online" : "Offline"}`
+                            : formatPresence(friend.user)}
+                        </small>
+                      </span>
                       <span className="social-person-arrow">→</span>
                     </button>
                   ))}
@@ -917,6 +1259,58 @@ function CommunityPanel({
           </div>
         )}
       </section>
+      )}
+    </div>
+  );
+}
+
+function LatestCommentsPanel({
+  comments,
+  onClose,
+  onOpenDiscussion,
+  onOpenArticle,
+}: {
+  comments: NewsComment[];
+  onClose: () => void;
+  onOpenDiscussion: (comment: NewsComment) => void;
+  onOpenArticle: (article: DiscussionArticle) => void;
+}) {
+  return (
+    <div className="social-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="latest-comments-panel" role="dialog" aria-modal="true" aria-labelledby="latest-comments-title">
+        <header className="social-panel-header">
+          <div>
+            <p className="eyebrow">Signal community</p>
+            <h2 id="latest-comments-title">Latest comments</h2>
+          </div>
+          <button className="social-close" type="button" onClick={onClose} aria-label="Close latest comments">×</button>
+        </header>
+        {comments.length === 0 ? (
+          <p className="social-empty">No comments have been posted yet.</p>
+        ) : (
+          <ol className="latest-comments-list">
+            {comments.map((comment) => (
+              <li key={comment.id}>
+                <button type="button" onClick={() => onOpenDiscussion(comment)} aria-label={`Open discussion for ${comment.articleTitle}`}>
+                  <SocialAvatar user={comment.author} showInitial={false} />
+                  <span className="latest-comment-copy">
+                    <span><strong>{comment.author.name}</strong><time dateTime={comment.createdAt}>{formatSocialTime(comment.createdAt)}</time></span>
+                    <b>{comment.articleTitle}</b>
+                    <em>{comment.body}</em>
+                  </span>
+                  <span className="social-person-arrow" aria-hidden="true">→</span>
+                </button>
+                <a className="latest-comment-story-link" href={signalArticlePath({ url: comment.articleUrl, title: comment.articleTitle, source: "Signal community" })}
+                  onClick={(event) => {
+                    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                    event.preventDefault();
+                    onOpenArticle({ url: comment.articleUrl, title: comment.articleTitle, source: "Signal community" });
+                  }}>Read story in Signal →</a>
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
     </div>
   );
 }
@@ -925,19 +1319,61 @@ function DiscussionPanel({
   article,
   onClose,
   onOpenCommunity,
+  onOpenArticle,
 }: {
-  article: FollowedArticle;
+  article: DiscussionArticle;
+  onOpenArticle: (article: DiscussionArticle) => void;
   onClose: () => void;
   onOpenCommunity: () => void;
 }) {
+  return (
+    <div className="social-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="discussion-panel" role="dialog" aria-modal="true" aria-labelledby="discussion-title">
+        <header className="social-panel-header">
+          <div>
+            <p className="eyebrow">Public discussion</p>
+            <h2 id="discussion-title">Comments</h2>
+          </div>
+          <button className="social-close" type="button" onClick={onClose} aria-label="Close comments">×</button>
+        </header>
+        <div className="discussion-article">
+          <span>{article.source}</span>
+          <h3>{article.title}</h3>
+          <a href={signalArticlePath(article)} onClick={(event) => {
+            if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+            event.preventDefault();
+            onOpenArticle(article);
+          }}>Read story in Signal →</a>
+        </div>
+        <ArticleComments key={article.url} article={article} onOpenCommunity={onOpenCommunity} />
+      </section>
+    </div>
+  );
+}
+
+function ArticleComments({ article, onOpenCommunity, composerLast = false }: {
+  article: DiscussionArticle;
+  onOpenCommunity: () => void;
+  composerLast?: boolean;
+}) {
   const [comments, setComments] = useState<NewsComment[]>([]);
   const [total, setTotal] = useState(0);
-  const [hasMore, setHasMore] = useState(false);
+  const commentInputId = useId();
+  const hasMore = total > comments.length;
   const [body, setBody] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [friendBusy, setFriendBusy] = useState<Set<string>>(() => new Set());
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingBody, setEditingBody] = useState("");
+  const [replyingId, setReplyingId] = useState<number | null>(null);
+  const [replyBody, setReplyBody] = useState("");
+  const [commentEmojiPickerOpen, setCommentEmojiPickerOpen] = useState(false);
+  const [newCommentCount, setNewCommentCount] = useState(0);
   const [error, setError] = useState("");
+  const latestCommentId = useRef(0);
+  const commentList = useRef<HTMLOListElement | null>(null);
+  const commentInput = useRef<HTMLTextAreaElement | null>(null);
 
   async function loadComments(beforeId?: number) {
     setLoading(true);
@@ -947,8 +1383,8 @@ function DiscussionPanel({
       if (beforeId) params.set("beforeId", String(beforeId));
       const page = await getJson<CommentPage>(`/api/comments?${params.toString()}`);
       setComments((current) => beforeId ? [...page.comments, ...current] : page.comments);
+      if (!beforeId) latestCommentId.current = page.comments.at(-1)?.id ?? 0;
       setTotal(page.total);
-      setHasMore(page.hasMore);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Comments could not be loaded.");
     } finally {
@@ -956,7 +1392,46 @@ function DiscussionPanel({
     }
   }
 
-  useEffect(() => { void loadComments(); }, [article.url]);
+  useEffect(() => {
+    latestCommentId.current = 0;
+    setNewCommentCount(0);
+    setReplyingId(null);
+    setReplyBody("");
+    void loadComments();
+  }, [article.url]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function refreshLatestComments() {
+      try {
+        const params = new URLSearchParams({ url: article.url, limit: "50" });
+        const page = await getJson<CommentPage>(`/api/comments?${params.toString()}`);
+        if (cancelled) return;
+        const newestId = page.comments.at(-1)?.id ?? latestCommentId.current;
+        const newlyArrived = page.comments.filter((comment) => comment.id > latestCommentId.current && !comment.canDelete);
+        if (newlyArrived.length > 0) setNewCommentCount((current) => current + newlyArrived.length);
+        latestCommentId.current = Math.max(latestCommentId.current, newestId);
+        setComments((current) => {
+          const merged = new Map(current.map((comment) => [comment.id, comment]));
+          for (const comment of page.comments) merged.set(comment.id, comment);
+          return Array.from(merged.values()).sort((left, right) => left.id - right.id);
+        });
+        setTotal(page.total);
+      } catch {
+        // Keep the current discussion visible and retry quietly on the next interval.
+      }
+    }
+    const interval = window.setInterval(() => void refreshLatestComments(), 15_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [article.url]);
+
+  function showLatestComment() {
+    setNewCommentCount(0);
+    commentList.current?.lastElementChild?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -970,13 +1445,74 @@ function DiscussionPanel({
         body,
       });
       setComments((current) => [...current, comment]);
+      latestCommentId.current = Math.max(latestCommentId.current, comment.id);
       setTotal((current) => current + 1);
       setBody("");
+      setCommentEmojiPickerOpen(false);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Your comment could not be posted.");
     } finally {
       setBusy(false);
     }
+  }
+
+  async function submitReply(event: FormEvent, parentComment: NewsComment) {
+    event.preventDefault();
+    if (!replyBody.trim()) return;
+    setBusy(true);
+    setError("");
+    try {
+      const created = await postJson<NewsComment>("/api/comments", {
+        articleUrl: article.url,
+        articleTitle: article.title,
+        body: replyBody,
+        parentCommentId: parentComment.id,
+      });
+      const replyTarget: CommentReplyTarget = created.replyTo ?? {
+        id: parentComment.id,
+        authorName: parentComment.author.name,
+        body: parentComment.body.replace(/\s+/g, " ").trim().slice(0, 160),
+      };
+      const withReply: NewsComment = {
+        ...created,
+        parentCommentId: created.parentCommentId ?? parentComment.id,
+        replyTo: replyTarget,
+      };
+      setComments((current) => [...current, withReply]);
+      latestCommentId.current = Math.max(latestCommentId.current, created.id);
+      setTotal((current) => current + 1);
+      setReplyingId(null);
+      setReplyBody("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Your reply could not be posted.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function resolveReplyTarget(comment: NewsComment): CommentReplyTarget | null {
+    if (comment.replyTo) return comment.replyTo;
+    if (!comment.parentCommentId) return null;
+    const parent = comments.find((item) => item.id === comment.parentCommentId);
+    if (!parent) return null;
+    return {
+      id: parent.id,
+      authorName: parent.author.name,
+      body: parent.body.replace(/\s+/g, " ").trim().slice(0, 160),
+    };
+  }
+
+  function insertCommentEmoji(emoji: string) {
+    const input = commentInput.current;
+    const start = input?.selectionStart ?? body.length;
+    const end = input?.selectionEnd ?? start;
+    const next = `${body.slice(0, start)}${emoji}${body.slice(end)}`;
+    if (next.length > 2000) return;
+    setBody(next);
+    window.requestAnimationFrame(() => {
+      input?.focus();
+      input?.setSelectionRange(start + emoji.length, start + emoji.length);
+    });
   }
 
   async function removeComment(commentId: number) {
@@ -988,6 +1524,23 @@ function DiscussionPanel({
       setTotal((current) => Math.max(0, current - 1));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "That comment could not be removed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveComment(event: FormEvent, commentId: number) {
+    event.preventDefault();
+    if (!editingBody.trim()) return;
+    setBusy(true);
+    setError("");
+    try {
+      const updated = await putJson<NewsComment>(`/api/comments/${commentId}`, { body: editingBody });
+      setComments((current) => current.map((comment) => comment.id === commentId ? updated : comment));
+      setEditingId(null);
+      setEditingBody("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "That comment could not be updated.");
     } finally {
       setBusy(false);
     }
@@ -1012,35 +1565,54 @@ function DiscussionPanel({
     }
   }
 
-  return (
-    <div className="social-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="discussion-panel" role="dialog" aria-modal="true" aria-labelledby="discussion-title">
-        <header className="social-panel-header">
-          <div>
-            <p className="eyebrow">Public discussion</p>
-            <h2 id="discussion-title">Comments</h2>
-          </div>
-          <button className="social-close" type="button" onClick={onClose} aria-label="Close comments">×</button>
-        </header>
-        <div className="discussion-article">
-          <span>{article.source}</span>
-          <h3>{article.title}</h3>
-          <a href={article.url} target="_blank" rel="noreferrer">Open article ↗</a>
-        </div>
+  const composer = (
         <form className="comment-composer" onSubmit={submit}>
-          <label htmlFor="new-comment">Join the discussion</label>
+          <label htmlFor={commentInputId}>Join the discussion</label>
           <textarea
-            id="new-comment"
+            ref={commentInput}
+            id={commentInputId}
             value={body}
             onChange={(event) => setBody(event.target.value)}
             placeholder="Share a thoughtful comment…"
             maxLength={2000}
             rows={4}
           />
-          <div><span>{body.length}/2000</span><button type="submit" disabled={busy || !body.trim()}>{busy ? "Posting…" : "Post comment"}</button></div>
+          <div className="comment-emoji-row">
+            <button
+              type="button"
+              className="comment-emoji-trigger"
+              onClick={() => setCommentEmojiPickerOpen((current) => !current)}
+              aria-expanded={commentEmojiPickerOpen}
+              aria-label="Choose an emoji"
+              title="Add emoji"
+            >
+              ☺
+            </button>
+            {commentEmojiPickerOpen && (
+              <div className="social-emoji-picker comment-emoji-picker" role="group" aria-label="Emojis">
+                {CHAT_EMOJIS.map((emoji) => (
+                  <button type="button" key={emoji} onClick={() => insertCommentEmoji(emoji)} aria-label={`Add ${emoji}`}>{emoji}</button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="comment-composer-footer"><span>{body.length}/2000</span><button type="submit" disabled={busy || !body.trim()}>{busy ? "Posting…" : "Post comment"}</button></div>
         </form>
+  );
+
+  return (
+    <div className="article-comments">
+      {!composerLast && composer}
         {error && <p className="social-error" role="alert">{error}</p>}
+        {error && comments.length === 0 && !loading && (
+          <button className="social-load-more" type="button" onClick={() => void loadComments()}>Try again</button>
+        )}
         <div className="comment-list-heading"><strong>{total} {total === 1 ? "comment" : "comments"}</strong></div>
+        {newCommentCount > 0 && (
+          <button className="new-comments-notice" type="button" onClick={showLatestComment} aria-live="polite">
+            {newCommentCount} new {newCommentCount === 1 ? "comment" : "comments"} — view latest ↓
+          </button>
+        )}
         {hasMore && comments.length > 0 && (
           <button className="social-load-more" type="button" disabled={loading} onClick={() => void loadComments(comments[0].id)}>
             {loading ? "Loading…" : "Load earlier comments"}
@@ -1049,17 +1621,74 @@ function DiscussionPanel({
         {loading && comments.length === 0 ? (
           <p className="social-empty">Loading comments…</p>
         ) : comments.length === 0 ? (
-          <p className="social-empty">No comments yet. Start the conversation.</p>
+          !error && <p className="social-empty">No comments yet. Start the conversation.</p>
         ) : (
-          <ol className="comment-list">
-            {comments.map((comment) => (
+          <ol className="comment-list" ref={commentList}>
+            {comments.map((comment) => {
+              const replyTarget = resolveReplyTarget(comment);
+              return (
               <li key={comment.id}>
-                <SocialAvatar user={comment.author} />
+                {!comment.canDelete && comment.friendshipState === "none" ? (
+                  <button
+                    type="button"
+                    className="comment-author-avatar"
+                    disabled={friendBusy.has(comment.author.userId)}
+                    onClick={() => void addFriend(comment.author.userId)}
+                    aria-label={`Add ${comment.author.name} as a friend`}
+                    title={`Add ${comment.author.name} as a friend`}
+                  >
+                    <SocialAvatar user={comment.author} showInitial={false} />
+                  </button>
+                ) : (
+                  <SocialAvatar user={comment.author} showInitial={false} />
+                )}
                 <div>
                   <header><strong>{comment.author.name}</strong><time dateTime={comment.createdAt}>{formatSocialTime(comment.createdAt)}</time></header>
-                  <p>{comment.body}</p>
+                  {replyTarget && (
+                    <p className="comment-reply-context">
+                      <strong>Replying to {replyTarget.authorName}:</strong> <span>{replyTarget.body}</span>
+                    </p>
+                  )}
+                  {editingId === comment.id ? (
+                    <form className="comment-edit-form" onSubmit={(event) => void saveComment(event, comment.id)}>
+                      <textarea
+                        value={editingBody}
+                        onChange={(event) => setEditingBody(event.target.value)}
+                        maxLength={2000}
+                        rows={4}
+                        aria-label="Edit comment"
+                        autoFocus
+                      />
+                      <div>
+                        <span>{editingBody.length}/2000</span>
+                        <button type="button" disabled={busy} onClick={() => { setEditingId(null); setEditingBody(""); }}>Cancel</button>
+                        <button type="submit" disabled={busy || !editingBody.trim()}>{busy ? "Saving…" : "Save"}</button>
+                      </div>
+                    </form>
+                  ) : (
+                    <p>{comment.body}</p>
+                  )}
                   <div className="comment-actions">
-                    {comment.canDelete && <button type="button" disabled={busy} onClick={() => void removeComment(comment.id)}>Delete</button>}
+                    {editingId !== comment.id && (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => {
+                          setReplyingId(replyingId === comment.id ? null : comment.id);
+                          setReplyBody("");
+                          setEditingId(null);
+                          setEditingBody("");
+                        }}
+                      >
+                        Reply
+                      </button>
+                    )}
+                    {comment.canDelete && editingId !== comment.id && (
+                      <>
+                        <button type="button" disabled={busy} onClick={() => { setEditingId(comment.id); setEditingBody(comment.body); setReplyingId(null); setReplyBody(""); }}>Edit</button>
+                        <button type="button" disabled={busy} onClick={() => void removeComment(comment.id)}>Delete</button>
+                      </>
+                    )}
                     {!comment.canDelete && comment.friendshipState === "none" && (
                       <button type="button" disabled={friendBusy.has(comment.author.userId)} onClick={() => void addFriend(comment.author.userId)}>
                         {friendBusy.has(comment.author.userId) ? "Sending…" : "Add friend"}
@@ -1069,12 +1698,32 @@ function DiscussionPanel({
                     {comment.friendshipState === "friends" && <span>Friends</span>}
                     {comment.friendshipState === "incoming" && <button type="button" onClick={onOpenCommunity}>Review friend request</button>}
                   </div>
+                  {replyingId === comment.id && (
+                    <form className="comment-edit-form comment-reply-form" onSubmit={(event) => void submitReply(event, comment)}>
+                      <label htmlFor={`${commentInputId}-reply-${comment.id}`}>Reply to {comment.author.name}</label>
+                      <textarea
+                        id={`${commentInputId}-reply-${comment.id}`}
+                        value={replyBody}
+                        onChange={(event) => setReplyBody(event.target.value)}
+                        placeholder={`Reply to ${comment.author.name}…`}
+                        maxLength={2000}
+                        rows={3}
+                        autoFocus
+                      />
+                      <div>
+                        <span>{replyBody.length}/2000</span>
+                        <button type="button" disabled={busy} onClick={() => { setReplyingId(null); setReplyBody(""); }}>Cancel</button>
+                        <button type="submit" disabled={busy || !replyBody.trim()}>{busy ? "Posting…" : "Post reply"}</button>
+                      </div>
+                    </form>
+                  )}
                 </div>
               </li>
-            ))}
+              );
+            })}
           </ol>
         )}
-      </section>
+      {composerLast && composer}
     </div>
   );
 }
@@ -1232,8 +1881,14 @@ function AccountPanel({
         <div className="email-delivery" aria-live="polite">
           <span className={delivery?.connected ? "delivery-dot connected" : "delivery-dot"} aria-hidden="true" />
           <div>
-            <strong>{delivery?.connected ? "Gmail API connected" : "Local email delivery"}</strong>
-            <p>{delivery?.connected && delivery.email
+            <strong>{delivery?.connected
+              ? "Gmail API connected"
+              : delivery?.mode === "gmailOAuth"
+                ? "Gmail needs reconnecting"
+                : "Local email delivery"}</strong>
+            <p>{delivery?.error
+              ? delivery.error
+              : delivery?.connected && delivery.email
               ? `Account emails are sent securely through ${delivery.email}.`
               : "Account emails are currently written to Signal's local mail-drop."}</p>
           </div>

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -8,8 +9,49 @@ using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Signal.Server.Data;
+using Signal.Server.Controllers;
 using Signal.Server.Models;
 using Signal.Server.Services;
+
+await SharedCommentChecks.RunAsync();
+if (args.Contains("--shared-comments-browser")) { await SharedCommentChecks.RunBrowserAsync(); return; }
+if (args.Contains("--shared-comments-only")) return;
+await AudioCacheStorageChecks.RunAsync();
+if (args.Contains("--audio-cache-only")) return;
+await SharedArticleAudioChecks.RunAsync();
+if (args.Contains("--shared-article-audio-only")) return;
+if (args.Contains("--shared-article-audio-live")) { await SharedArticleAudioChecks.RunLiveAsync(); return; }
+await ArticleShareChecks.RunAsync();
+if (args.Contains("--article-shares-browser")) { await ArticleShareChecks.RunBrowserAsync(); return; }
+if (args.Contains("--article-shares-only")) return;
+await AzureTranslatorChecks.RunAsync();
+if (args.Contains("--azure-translator-only")) return;
+await AzureLanguageSummaryChecks.RunAsync();
+if (args.Contains("--azure-summary-only")) return;
+if (args.Contains("--azure-speech-live")) { await AzureSpeechChecks.RunLiveAsync(); return; }
+if (args.Contains("--azure-stream-live"))
+{
+    try { await ArticleAudioStreamLiveChecks.RunAsync(); }
+    catch (Exception exception) { Console.Error.WriteLine(exception); Environment.ExitCode = 1; }
+    return;
+}
+await ArticleAudioStreamChecks.RunAsync();
+if (args.Contains("--article-stream-only")) return;
+
+ArticleAudioPreparationChecks.Run();
+await ArticleAudioPreparationChecks.RunHostedAsync();
+await AzureSpeechChecks.RunAsync();
+if (args.Contains("--azure-speech-only")) return;
+
+if (args.Contains("--article-reader-browser"))
+{
+    await ArticleReaderChecks.RunBrowserAsync();
+    return;
+}
+await ArticleReaderChecks.RunAsync();
+if (args.Contains("--article-reader-only")) return;
+
+await HeadlineAudioChecks.RunAsync();
 
 var cases = new (string Text, string Topic, bool Expected)[]
 {
@@ -176,6 +218,13 @@ var requiredTrendRegions = new[]
 if (requiredTrendRegions.Except(worldwideTrends.Terms.Select(term => term.Region)).Any())
     throw new InvalidOperationException("Worldwide Google Trends is missing required English or Mandarin-speaking regions.");
 
+var selectedTrends = await trendsService.GetLatestAsync(["NZ", "US"], 3, CancellationToken.None);
+if (selectedTrends.TrendsPerRegion != 3
+    || !selectedTrends.SelectedRegions.SequenceEqual(["US", "NZ"])
+    || selectedTrends.Terms.Count != 6
+    || selectedTrends.Terms.GroupBy(term => term.Region).Any(group => group.Count() != 3))
+    throw new InvalidOperationException("Google Trends did not honour the selected regions and per-region count.");
+
 await trendsService.GetLatestAsync(CancellationToken.None);
 if (trendsHandler.RequestCount != 20)
     throw new InvalidOperationException("Worldwide Google Trends did not reuse its cached result.");
@@ -245,9 +294,93 @@ await using (var historyDatabase = new SignalDbContext(historyOptions))
         .ToArrayAsync();
     if (filteredMatches.Length != 1 || filteredMatches[0] != "New AI research")
         throw new InvalidOperationException("History topic and source filters did not combine correctly.");
+
+    var bodyArticle = await historyDatabase.StoredNewsArticles.FirstAsync(item => item.Title == "Technology policy changes");
+    var articleUrl = bodyArticle.Url;
+    var readerResult = new ArticleReaderResult(true, "", new ReaderArticle(articleUrl, "", "", "",
+        ["The report examines semiconductor manufacturing and quantum computing."]));
+    await ArticleHistorySearch.StoreReaderTextAsync(historyDatabase, articleUrl, readerResult, default);
+    var fullTextMatches = await ArticleHistorySearch.Apply(
+            historyDatabase.StoredNewsArticles.AsNoTracking().Where(item => item.UserId == "history-user"),
+            "  GUARDIAN\tQuantum  manufacturing ")
+        .Select(item => item.Title).ToArrayAsync();
+    if (fullTextMatches.Length != 1 || fullTextMatches[0] != bodyArticle.Title)
+        throw new InvalidOperationException("Full text search failed to combine article body and metadata terms in SQLite.");
+    if (await ArticleHistorySearch.Apply(historyDatabase.StoredNewsArticles.AsNoTracking(), "quantum missing").AnyAsync())
+        throw new InvalidOperationException("Full text search did not require every search term.");
+    if (await ArticleHistorySearch.Apply(historyDatabase.StoredNewsArticles.AsNoTracking()
+            .Where(item => item.UserId == "other-user"), "quantum").AnyAsync())
+        throw new InvalidOperationException("Full text search escaped the user's saved stories.");
+    await ArticleHistorySearch.StoreReaderTextAsync(historyDatabase, articleUrl,
+        new ArticleReaderResult(false, "Unavailable", null), default);
+    if (!await ArticleHistorySearch.Apply(historyDatabase.StoredNewsArticles.AsNoTracking(), "quantum").AnyAsync())
+        throw new InvalidOperationException("An unavailable extraction erased previously searchable article text.");
 }
 
 Console.WriteLine("Article history search and filters passed cross-field, topic and source checks.");
+
+if (!new UserNewsPreferences().PushNewsTitlesEnabled || !NewsPreferencesResponse.Default.PushNewsTitlesEnabled)
+    throw new InvalidOperationException("News titles must be enabled by default for new accounts.");
+var oldPreferencesRequest = JsonSerializer.Deserialize<NewsPreferencesRequest>("""
+    {"Topics":[],"Sources":{"Google":true,"Gdelt":true,"RssFeeds":[]}}
+    """);
+if (oldPreferencesRequest?.PushNewsTitlesEnabled is not null)
+    throw new InvalidOperationException("Older clients must not overwrite the saved news title preference.");
+
+var notificationStories = new[]
+{
+    new StoredNewsArticle { Id = 101, Title = "Robots learn a new skill", Source = "Robot News", Summary = "Researchers  taught robots\n to sort household items." },
+    new StoredNewsArticle { Id = 102, Title = "Solar output rises", Source = "Energy News" },
+};
+var headlineMessages = PushNotificationService.BuildNewsMessages(
+    ["Robots", "Solar"], [.. notificationStories, notificationStories[0]], true, 2);
+if (headlineMessages.Length != 2
+    || headlineMessages[0].Title != notificationStories[0].Title
+    || headlineMessages[1].Title != notificationStories[1].Title
+    || headlineMessages[0].Body != "Robot News\nResearchers taught robots to sort household items."
+    || headlineMessages[1].Body != "Energy News"
+    || headlineMessages.Select(message => message.Tag).Distinct().Count() != 2
+    || headlineMessages.Any(message => message.BadgeCount != 2 || message.Url != "/#top"))
+    throw new InvalidOperationException("Headline notifications lost titles, publisher, distinct tags or topic badge counts.");
+var summaryMessages = PushNotificationService.BuildNewsMessages(["Robots"], notificationStories, false, 1);
+if (summaryMessages.Length != 1
+    || summaryMessages[0].Title != "New stories about Robots"
+    || summaryMessages[0].Body != "Fresh coverage is available for Robots."
+    || summaryMessages[0].Tag != "signal-new-stories")
+    throw new InvalidOperationException("Disabling news titles did not retain topic summary notifications.");
+if (PushNotificationService.BuildNewsMessages(["Robots"], [], true, 1).Length != 0)
+    throw new InvalidOperationException("Headline mode sent a notification without a new story.");
+var largeMessage = PushNotificationService.BuildNewsMessages(["Robots"],
+    [new StoredNewsArticle { Id = long.MaxValue, Title = new string('新', 500), Source = new string('聞', 256), Summary = new string('文', 4000) }], true, 100)[0];
+var largePayload = PushNotificationService.SerializeMessage(largeMessage);
+if (Encoding.UTF8.GetByteCount(largePayload) > 3993
+    || JsonDocument.Parse(largePayload).RootElement.GetProperty("title").GetString() != new string('新', 500)
+    || !largeMessage.Body.Contains("\n文", StringComparison.Ordinal)
+    || !largeMessage.Body.EndsWith('…'))
+    throw new InvalidOperationException("A maximum-length Unicode headline exceeded the Web Push payload budget or lost its title.");
+
+var longSummaryMessage = PushNotificationService.BuildNewsMessages([], [new StoredNewsArticle
+{
+    Id = 103, Title = "Headline", Source = "Publisher", Summary = string.Concat(Enumerable.Repeat("A short sentence. ", 40)),
+}], true, 1)[0];
+var shortSummary = longSummaryMessage.Body.Split('\n')[1];
+if (shortSummary.Length > 180 || !shortSummary.EndsWith("A short…", StringComparison.Ordinal))
+    throw new InvalidOperationException("A long news summary was not shortened at a word boundary with an ellipsis.");
+var emojiSummaryMessage = PushNotificationService.BuildNewsMessages([], [new StoredNewsArticle
+{
+    Id = 104, Title = "Headline", Summary = new string('a', 178) + "🌞 extra text",
+}], true, 1)[0];
+var emojiSummary = emojiSummaryMessage.Body.Split('\n')[1];
+if (emojiSummary != new string('a', 178) + "…")
+    throw new InvalidOperationException("Truncating a news preview split an emoji surrogate pair.");
+var blankSummaryMessage = PushNotificationService.BuildNewsMessages([], [new StoredNewsArticle
+{
+    Id = 105, Title = "Headline", Source = "Publisher", Summary = " \n\t ",
+}], true, 1)[0];
+if (blankSummaryMessage.Body != "Publisher")
+    throw new InvalidOperationException("A blank news summary left an empty notification preview line.");
+
+Console.WriteLine("News notification titles, previews, summary mode, defaults and payload size checks passed.");
 
 await using var scheduleConnection = new SqliteConnection("Data Source=:memory:");
 await scheduleConnection.OpenAsync();
@@ -299,12 +432,33 @@ await using (var scheduleDatabase = new SignalDbContext(scheduleOptions))
             new TestWebHostEnvironment(),
             NullLogger<VapidKeyStore>.Instance),
         NullLogger<PushNotificationService>.Instance);
+    var prewarmer = new CapturingArticlePrewarmer(scheduleDatabase);
     var refreshService = new TopicRefreshService(
         scheduleDatabase,
         new NewsService(scheduleClient),
         new NullAccountEmailSender(),
         pushService,
-        NullLogger<TopicRefreshService>.Instance);
+        NullLogger<TopicRefreshService>.Instance,
+        prewarmer);
+    var storedPreference = await scheduleDatabase.UserNewsPreferences.SingleAsync();
+    storedPreference.PushNewsTitlesEnabled = false;
+    await scheduleDatabase.SaveChangesAsync();
+    if (await scheduleDatabase.UserNewsPreferences.AsNoTracking().Select(item => item.PushNewsTitlesEnabled).SingleAsync())
+        throw new InvalidOperationException("The disabled news-title preference did not persist.");
+
+    var storedArticle = new TopicBriefingArticle("New headline", "https://example.com/new-headline", "Publisher",
+        DateTimeOffset.UtcNow, "", "", ["Robots", "Solar"], ["Google News"], false, false);
+    var firstStored = await refreshService.StoreArticlesAsync("schedule-user", [storedArticle, storedArticle], DateTime.UtcNow, CancellationToken.None);
+    if (firstStored.NewArticles.Count != 1 || firstStored.NewArticles[0].Id <= 0 || firstStored.TopicKeys.Count != 2)
+        throw new InvalidOperationException("A new story matched to multiple topics was not deduplicated for notifications.");
+    if (prewarmer.Calls != 1) throw new InvalidOperationException("New news did not schedule background audio after saving.");
+    var repeatedStored = await refreshService.StoreArticlesAsync("schedule-user", [storedArticle], DateTime.UtcNow, CancellationToken.None);
+    if (repeatedStored.NewArticles.Count != 0 || repeatedStored.TopicKeys.Count != 0)
+        throw new InvalidOperationException("Refreshing existing stories produced duplicate notifications.");
+    if (prewarmer.Calls != 1) throw new InvalidOperationException("An existing news item scheduled duplicate background audio.");
+    var newTopicStored = await refreshService.StoreArticlesAsync("schedule-user", [storedArticle with { Topics = ["Robots", "Solar", "Energy"] }], DateTime.UtcNow, CancellationToken.None);
+    if (newTopicStored.NewArticles.Count != 0 || !newTopicStored.TopicKeys.SetEquals(["ENERGY"]))
+        throw new InvalidOperationException("Adding a topic to an existing story repeated its headline notification.");
     await refreshService.RefreshAsync("schedule-user", ["Robots"], false, CancellationToken.None);
 
     var robotState = await scheduleDatabase.TopicRefreshStates.SingleAsync(
@@ -316,6 +470,13 @@ await using (var scheduleDatabase = new SignalDbContext(scheduleOptions))
     if (solarState.LastAttemptedAtUtc is not null)
         throw new InvalidOperationException("Refreshing one topic incorrectly changed another topic's schedule.");
 
+    if (robotState.LatestContentVersion <= robotState.ViewedContentVersion)
+        throw new InvalidOperationException("A refresh with new topic stories did not advance the server unread cursor.");
+
+    // The version cursor, rather than the legacy Boolean, is authoritative across devices.
+    robotState.HasUnread = false;
+    await scheduleDatabase.SaveChangesAsync();
+
     var robotBriefing = await refreshService.LoadBriefingAsync(
         "schedule-user",
         CancellationToken.None,
@@ -326,9 +487,108 @@ await using (var scheduleDatabase = new SignalDbContext(scheduleOptions))
     {
         throw new InvalidOperationException("A topic-specific Latest briefing returned stories from another topic.");
     }
+    if (!robotBriefing.Topics.Single(item => item.Topic == "Robots").HasUnread)
+        throw new InvalidOperationException("The briefing did not derive unread state from the server cursor.");
+
+    if (!await refreshService.MarkTopicViewedAsync("schedule-user", "Robots", CancellationToken.None))
+        throw new InvalidOperationException("The topic could not be marked viewed.");
+    await scheduleDatabase.Entry(robotState).ReloadAsync();
+    if (robotState.ViewedContentVersion != robotState.LatestContentVersion)
+        throw new InvalidOperationException("Viewing a topic did not advance its cursor to the latest server version.");
+
+    var secondDeviceBriefing = await refreshService.LoadBriefingAsync(
+        "schedule-user",
+        CancellationToken.None,
+        "Robots");
+    if (secondDeviceBriefing.Topics.Single(item => item.Topic == "Robots").HasUnread)
+        throw new InvalidOperationException("A second device still received the topic as unread after it was viewed.");
+
+    const string dwRdfXml = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:dc="http://purl.org/dc/elements/1.1/">
+          <channel rdf:about="https://www.dw.com/">
+            <title>Deutsche Welle</title>
+          </channel>
+          <item rdf:about="https://www.dw.com/en/ai-assisted-dying-doris-dörrie-s-new-film-addresses-prospect-of-care-robots/a-79659715?maca=en-rss-en-all-1573-rdf">
+            <title>AI-assisted dying? Doris Dörrie&apos;s new film addresses prospect of care robots</title>
+            <link>https://www.dw.com/en/ai-assisted-dying-doris-dörrie-s-new-film-addresses-prospect-of-care-robots/a-79659715?maca=en-rss-en-all-1573-rdf</link>
+            <description>While the world debates the dangers of artificial intelligence, filmmaker Doris Dörrie explores care robots.</description>
+            <dc:date>2026-10-15T13:24:00Z</dc:date>
+          </item>
+        </rdf:RDF>
+        """;
+    var parsedDwArticles = NewsService.ParsePublisherFeed(
+        dwRdfXml,
+        new Uri("https://rss.dw.com/rdf/rss-en-all"),
+        ["Robots"]).ToArray();
+    if (parsedDwArticles.Length != 1
+        || parsedDwArticles[0].PublishedAt != new DateTimeOffset(2026, 10, 15, 13, 24, 0, TimeSpan.Zero)
+        || parsedDwArticles[0].Url != "https://www.dw.com/en/ai-assisted-dying-doris-d%C3%B6rrie-s-new-film-addresses-prospect-of-care-robots/a-79659715?maca=en-rss-en-all-1573-rdf")
+    {
+        throw new InvalidOperationException("Publisher RDF feed parsing did not preserve dc:date or normalize non-ASCII article URLs.");
+    }
+
+    if (NewsService.ParseDate("Sat, 17 Oct 2026 21:33:38 EDT") != new DateTimeOffset(2026, 10, 18, 1, 33, 38, TimeSpan.Zero))
+        throw new InvalidOperationException("Publisher feed date parsing did not handle named timezone abbreviations.");
+
+    const string dwInitialUrl = "https://www.dw.com/en/ai-assisted-euthanasia-new-film-addresses-prospect-of-care-robots/a-79659715?maca=en-rss-en-all-1573-rdf";
+    const string dwRevisedRawUrl = "https://www.dw.com/en/ai-assisted-dying-doris-dörrie-s-new-film-addresses-prospect-of-care-robots/a-79659715?maca=en-rss-en-all-1573-rdf";
+    if (ArticleIdentity.GetStoryUrlKey(dwInitialUrl) != ArticleIdentity.GetStoryUrlKey(dwRevisedRawUrl))
+        throw new InvalidOperationException("Story URL identity did not match revised Deutsche Welle slugs for the same article ID.");
+    if (!ArticleIdentity.GetUrlLookupCandidates(dwRevisedRawUrl).Contains(dwRevisedRawUrl, StringComparer.Ordinal))
+        throw new InvalidOperationException("URL lookup candidates did not include raw Unicode URLs alongside percent-encoded URLs.");
+
+    var initialDwArticle = new TopicBriefingArticle(
+        "AI-assisted euthanasia? New film addresses prospect of care robots",
+        dwInitialUrl,
+        "Deutsche Welle",
+        new DateTimeOffset(2026, 10, 15, 13, 24, 0, TimeSpan.Zero),
+        "Care robots film.",
+        "",
+        ["Robots"],
+        ["Google News"],
+        false,
+        false);
+    var initialDwStored = await refreshService.StoreArticlesAsync(
+        "schedule-user",
+        [initialDwArticle],
+        new DateTime(2026, 10, 15, 13, 33, 0, DateTimeKind.Utc),
+        CancellationToken.None);
+    initialDwStored.NewArticles.Single().IsRead = true;
+    initialDwStored.NewArticles.Single().ReadAtUtc = new DateTime(2026, 10, 15, 18, 11, 0, DateTimeKind.Utc);
+    await scheduleDatabase.SaveChangesAsync();
+
+    var revisedDwArticle = new TopicBriefingArticle(
+        "AI-assisted dying? Doris Dörrie's new film addresses prospect of care robots",
+        dwRevisedRawUrl,
+        "Deutsche Welle",
+        new DateTimeOffset(2026, 10, 15, 13, 24, 0, TimeSpan.Zero),
+        "Care robots film.",
+        "",
+        ["Robots"],
+        ["Google News"],
+        false,
+        false);
+    var revisedDwStored = await refreshService.StoreArticlesAsync(
+        "schedule-user",
+        [revisedDwArticle],
+        new DateTime(2026, 10, 15, 15, 34, 0, DateTimeKind.Utc),
+        CancellationToken.None);
+    if (revisedDwStored.NewArticles.Count != 0 || revisedDwStored.TopicKeys.Count != 0)
+        throw new InvalidOperationException("A revised slug for an already-read story triggered duplicate unread state or notifications.");
+
+    var deduplicatedBriefing = await refreshService.LoadBriefingAsync(
+        "schedule-user",
+        CancellationToken.None,
+        "Robots");
+    var dwBriefingMatches = deduplicatedBriefing.Articles
+        .Where(article => article.Url.Contains("79659715", StringComparison.Ordinal))
+        .ToArray();
+    if (dwBriefingMatches.Length != 1 || !dwBriefingMatches[0].IsRead)
+        throw new InvalidOperationException("Briefing did not deduplicate revised publisher slugs or preserve read state.");
 }
 
-Console.WriteLine("Per-topic refresh state and Latest filtering passed independent scheduling checks.");
+Console.WriteLine("Per-topic refresh state, cross-device unread cursors and Latest filtering passed independent scheduling checks.");
 
 static StoredNewsArticle HistoryArticle(
     string title,
@@ -486,6 +746,11 @@ file sealed class NullAccountEmailSender : IAccountEmailSender
 
     public Task SendNewsSummaryAsync(string email, NewsSummaryDigest digest, CancellationToken cancellationToken) =>
         Task.CompletedTask;
+
+    public Task SendSharedArticleAsync(
+        string email,
+        SharedArticleEmail sharedArticle,
+        CancellationToken cancellationToken) => Task.CompletedTask;
 }
 
 file sealed class TestWebHostEnvironment : IWebHostEnvironment
@@ -501,4 +766,16 @@ file sealed class TestWebHostEnvironment : IWebHostEnvironment
     public string ContentRootPath { get; set; } = Path.GetTempPath();
 
     public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
+}
+
+
+file sealed class CapturingArticlePrewarmer(SignalDbContext database) : IArticleAudioPrewarmer
+{
+    public int Calls;
+    public void Enqueue(string url, string title, string summary)
+    {
+        if (!database.StoredNewsArticles.AsNoTracking().Any(article => article.Url == url && article.Id > 0 && article.Title == title))
+            throw new InvalidOperationException("Audio was queued before the news transaction was saved.");
+        Calls++;
+    }
 }

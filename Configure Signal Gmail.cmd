@@ -27,4 +27,4 @@ if not exist "%OAUTH_CLIENT%" (
   exit /b 1
 )
 
-start "Signal Gmail OAuth Setup" "%SETUP_EXE%" --credentials "%OAUTH_CLIENT%" --site "C:\inetpub\Signal" --source "%SIGNAL_ROOT%iis-publish"
+start "Signal Gmail OAuth Setup" "%SETUP_EXE%" --credentials "%OAUTH_CLIENT%" --site "C:\sites\SignalHost" --source "%SIGNAL_ROOT%iis-publish"

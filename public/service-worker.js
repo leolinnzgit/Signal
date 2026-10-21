@@ -1,13 +1,15 @@
-const STATIC_CACHE = "signal-static-v5";
+const STATIC_CACHE = "signal-static-v8";
 const APP_BADGE_MESSAGE = "signal:update-app-badge";
 const NEWS_NOTIFICATION_TAG = "signal-new-stories";
 const STATIC_ASSETS = [
-  "/favicon.svg",
   "/manifest.webmanifest",
-  "/icons/signal-180.png",
-  "/icons/signal-192.png",
-  "/icons/signal-512.png",
-  "/icons/signal-notification-96.png",
+  "/icons/signal-medallion-64.png",
+  "/icons/signal-medallion-180.png",
+  "/icons/signal-medallion-192.png",
+  "/icons/signal-medallion-512.png",
+  "/icons/signal-medallion-maskable-192.png",
+  "/icons/signal-medallion-maskable-512.png",
+  "/icons/signal-notification-medallion-96.png",
 ];
 
 self.addEventListener("install", (event) => {
@@ -39,7 +41,6 @@ self.addEventListener("fetch", (event) => {
 
   const isStaticAsset = url.pathname.startsWith("/assets/")
     || url.pathname.startsWith("/icons/")
-    || url.pathname === "/favicon.svg"
     || url.pathname === "/manifest.webmanifest";
   if (!isStaticAsset) return;
 
@@ -72,8 +73,11 @@ self.addEventListener("message", (event) => {
   }
   if (count === 0) {
     operations.push(
-      self.registration.getNotifications({ tag: NEWS_NOTIFICATION_TAG })
-        .then((notifications) => notifications.forEach((notification) => notification.close())),
+      self.registration.getNotifications()
+        .then((notifications) => notifications
+          .filter((notification) => notification.tag === NEWS_NOTIFICATION_TAG
+            || notification.tag.startsWith(`${NEWS_NOTIFICATION_TAG}-`))
+          .forEach((notification) => notification.close())),
     );
   }
 
@@ -103,9 +107,11 @@ self.addEventListener("push", (event) => {
   const operations = [
     self.registration.showNotification(payload.title || "New stories in Signal", {
       body: payload.body || "Fresh coverage is ready in your briefing.",
-      icon: payload.icon || "/icons/signal-192.png",
-      badge: payload.badge || "/icons/signal-notification-96.png",
-      tag: NEWS_NOTIFICATION_TAG,
+      icon: payload.icon || "/icons/signal-medallion-192.png",
+      badge: payload.badge || "/icons/signal-notification-medallion-96.png",
+      tag: typeof payload.tag === "string" && payload.tag.startsWith(`${NEWS_NOTIFICATION_TAG}-`)
+        ? payload.tag
+        : NEWS_NOTIFICATION_TAG,
       renotify: false,
       data: { url },
     }),
@@ -122,16 +128,54 @@ self.addEventListener("push", (event) => {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const url = new URL(event.notification.data?.url || "/", self.location.origin).href;
-  event.waitUntil(
-    self.clients.matchAll({ type: "window", includeUncontrolled: true })
-      .then(async (windows) => {
-        const existing = windows.find((client) =>
-          new URL(client.url).origin === self.location.origin);
-        if (existing) {
-          await existing.navigate(url);
-          return existing.focus();
-        }
-        return self.clients.openWindow(url);
-      }),
-  );
+  event.waitUntil(openSignalFromNotification(url));
 });
+
+async function openSignalFromNotification(url) {
+  const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+  const exactWindow = windows.find((client) => client.url === url);
+  if (exactWindow) {
+    try {
+      await exactWindow.focus();
+      return;
+    } catch {
+      // Android can retain a stale window client after the installed app closes.
+    }
+  }
+
+  // On Android, openWindow plus the manifest launch handler routes an in-scope
+  // URL into the installed PWA and reuses its existing window when possible.
+  try {
+    const opened = await self.clients.openWindow(url);
+    if (opened) {
+      try {
+        await opened.focus();
+      } catch {
+        // The newly launched window may already be foregrounded.
+      }
+      return;
+    }
+  } catch {
+    // Fall through to an existing same-origin client if app launch is blocked.
+  }
+
+  const existing = windows.find((client) => {
+    try {
+      return new URL(client.url).origin === self.location.origin;
+    } catch {
+      return false;
+    }
+  });
+  if (!existing) return;
+
+  try {
+    const navigated = await existing.navigate(url);
+    await (navigated || existing).focus();
+  } catch {
+    try {
+      await existing.focus();
+    } catch {
+      // There is no remaining client to foreground.
+    }
+  }
+}

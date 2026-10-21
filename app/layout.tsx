@@ -24,8 +24,8 @@ export async function generateMetadata(): Promise<Metadata> {
       title: "Signal",
     },
     icons: {
-      icon: "/favicon.svg",
-      apple: "/icons/signal-180.png",
+      icon: "/icons/signal-medallion-64.png",
+      apple: "/icons/signal-medallion-180.png",
     },
     openGraph: {
       title: "Signal — Stay current on what matters",

@@ -21,6 +21,38 @@ public sealed class CommentsController(
     private const int DefaultPageSize = 50;
     private const int MaximumPageSize = 100;
 
+    [HttpGet("latest")]
+    public async Task<IActionResult> GetLatest(
+        [FromQuery] long? afterId = null,
+        [FromQuery] int limit = 12,
+        CancellationToken cancellationToken = default)
+    {
+        var userId = userManager.GetUserId(User);
+        if (userId is null) return Unauthorized();
+        var pageSize = Math.Clamp(limit, 1, 30);
+        var query = database.NewsComments
+            .AsNoTracking()
+            .Include(comment => comment.User);
+        var comments = await query
+            .OrderByDescending(comment => comment.Id)
+            .Take(pageSize)
+            .ToArrayAsync(cancellationToken);
+        var friendshipStates = await LoadFriendshipStatesAsync(
+            userId,
+            comments.Select(comment => comment.UserId),
+            cancellationToken);
+        var replyTargets = await LoadReplyTargetsAsync(comments, cancellationToken);
+        var newCount = afterId.HasValue
+            ? await database.NewsComments.CountAsync(
+                comment => comment.Id > afterId.Value && (comment.UserId == null || comment.UserId != userId),
+                cancellationToken)
+            : 0;
+
+        return Ok(new LatestCommentsResponse(
+            comments.Select(comment => ToResponse(comment, userId, friendshipStates, replyTargets)).ToArray(),
+            newCount));
+    }
+
     [HttpGet]
     public async Task<IActionResult> Get(
         [FromQuery] string url,
@@ -50,9 +82,10 @@ public sealed class CommentsController(
             userId,
             comments.Select(comment => comment.UserId),
             cancellationToken);
+        var replyTargets = await LoadReplyTargetsAsync(comments, cancellationToken);
 
         return Ok(new CommentPageResponse(
-            comments.Select(comment => ToResponse(comment, userId, friendshipStates)).ToArray(),
+            comments.Select(comment => ToResponse(comment, userId, friendshipStates, replyTargets)).ToArray(),
             total,
             hasMore));
     }
@@ -72,11 +105,22 @@ public sealed class CommentsController(
         if (body.Length == 0) return BadRequest(new { error = "Write a comment first." });
         if (body.Length > 2000) return BadRequest(new { error = "Comments can contain up to 2,000 characters." });
 
+        NewsComment? parent = null;
+        if (request.ParentCommentId is long parentId)
+        {
+            parent = await database.NewsComments
+                .AsNoTracking()
+                .Include(item => item.User)
+                .SingleOrDefaultAsync(item => item.Id == parentId && item.ArticleUrl == articleUrl, cancellationToken);
+            if (parent is null) return BadRequest(new { error = "The comment you are replying to is no longer available." });
+        }
+
         var comment = new NewsComment
         {
             ArticleUrl = articleUrl,
             ArticleTitle = articleTitle,
             UserId = userId,
+            ParentCommentId = parent?.Id,
             Body = body,
             CreatedAtUtc = DateTime.UtcNow,
         };
@@ -85,7 +129,10 @@ public sealed class CommentsController(
         comment.User = await userManager.FindByIdAsync(userId)
             ?? throw new InvalidOperationException("The signed-in user no longer exists.");
 
-        return Ok(ToResponse(comment, userId, new Dictionary<string, string>()));
+        var replyTargets = parent is null
+            ? new Dictionary<long, CommentReplyResponse>()
+            : new Dictionary<long, CommentReplyResponse> { [parent.Id] = ToReplySummary(parent) };
+        return Ok(ToResponse(comment, userId, new Dictionary<string, string>(), replyTargets));
     }
 
     [HttpDelete("{commentId:long}")]
@@ -103,12 +150,56 @@ public sealed class CommentsController(
         return NoContent();
     }
 
+    [HttpPut("{commentId:long}")]
+    public async Task<IActionResult> Update(
+        long commentId,
+        EditCommentRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = userManager.GetUserId(User);
+        if (userId is null) return Unauthorized();
+        var body = request.Body.Trim();
+        if (body.Length == 0) return BadRequest(new { error = "Write a comment first." });
+        if (body.Length > 2000) return BadRequest(new { error = "Comments can contain up to 2,000 characters." });
+
+        var comment = await database.NewsComments
+            .Include(item => item.User)
+            .SingleOrDefaultAsync(item => item.Id == commentId, cancellationToken);
+        if (comment is null) return NotFound();
+        if (comment.UserId != userId) return Forbid();
+
+        comment.Body = body;
+        await database.SaveChangesAsync(cancellationToken);
+        var replyTargets = await LoadReplyTargetsAsync([comment], cancellationToken);
+        return Ok(ToResponse(comment, userId, new Dictionary<string, string>(), replyTargets));
+    }
+
+    private async Task<Dictionary<long, CommentReplyResponse>> LoadReplyTargetsAsync(
+        IEnumerable<NewsComment> comments,
+        CancellationToken cancellationToken)
+    {
+        var parentIds = comments
+            .Select(comment => comment.ParentCommentId)
+            .OfType<long>()
+            .Distinct()
+            .ToArray();
+        if (parentIds.Length == 0) return new Dictionary<long, CommentReplyResponse>();
+
+        var parents = await database.NewsComments
+            .AsNoTracking()
+            .Include(comment => comment.User)
+            .Where(comment => parentIds.Contains(comment.Id))
+            .ToArrayAsync(cancellationToken);
+        return parents.ToDictionary(parent => parent.Id, ToReplySummary);
+    }
+
     private async Task<Dictionary<string, string>> LoadFriendshipStatesAsync(
         string currentUserId,
-        IEnumerable<string> authorIds,
+        IEnumerable<string?> authorIds,
         CancellationToken cancellationToken)
     {
         var ids = authorIds
+            .OfType<string>()
             .Where(id => id != currentUserId)
             .Distinct(StringComparer.Ordinal)
             .ToArray();
@@ -131,22 +222,43 @@ public sealed class CommentsController(
     private static CommentResponse ToResponse(
         NewsComment comment,
         string currentUserId,
-        IReadOnlyDictionary<string, string> friendshipStates) => new(
+        IReadOnlyDictionary<string, string> friendshipStates,
+        IReadOnlyDictionary<long, CommentReplyResponse> replyTargets) => new(
             comment.Id,
             comment.ArticleUrl,
+            comment.ArticleTitle,
             comment.Body,
-            comment.CreatedAtUtc,
+            AsUtc(comment.CreatedAtUtc),
             new CommentAuthorResponse(
-                comment.UserId,
-                PublicName(comment.User),
-                $"/api/social/users/{Uri.EscapeDataString(comment.UserId)}/photo"),
+                comment.UserId ?? "",
+                AuthorName(comment),
+                comment.UserId is null ? "" : $"/api/social/users/{Uri.EscapeDataString(comment.UserId)}/photo"),
             comment.UserId == currentUserId,
-            comment.UserId == currentUserId
+            comment.UserId is null ? "anonymous" : comment.UserId == currentUserId
                 ? "self"
-                : friendshipStates.GetValueOrDefault(comment.UserId, "none"));
+                : friendshipStates.GetValueOrDefault(comment.UserId, "none"),
+            comment.ParentCommentId,
+            comment.ParentCommentId is long parentId ? replyTargets.GetValueOrDefault(parentId) : null);
+
+    private static CommentReplyResponse ToReplySummary(NewsComment comment) => new(
+        comment.Id,
+        AuthorName(comment),
+        NormalizeSingleLine(comment.Body, 160));
+
+    private static string AuthorName(NewsComment comment) =>
+        comment.User is null
+            ? (comment.GuestName.Length > 0 ? comment.GuestName : "Anonymous")
+            : PublicName(comment.User);
 
     private static string OtherUserId(FriendRelationship relationship, string currentUserId) =>
         relationship.UserOneId == currentUserId ? relationship.UserTwoId : relationship.UserOneId;
+
+    private static DateTime AsUtc(DateTime value) => value.Kind switch
+    {
+        DateTimeKind.Utc => value,
+        DateTimeKind.Local => value.ToUniversalTime(),
+        _ => DateTime.SpecifyKind(value, DateTimeKind.Utc),
+    };
 
     internal static string PublicName(ApplicationUser user)
     {
@@ -172,17 +284,27 @@ public sealed class CommentsController(
 public sealed record CreateCommentRequest(
     [Required, MaxLength(2048)] string ArticleUrl,
     [Required, MaxLength(500)] string ArticleTitle,
-    [Required, MaxLength(2000)] string Body);
+    [Required, MaxLength(2000)] string Body,
+    long? ParentCommentId = null);
+
+public sealed record EditCommentRequest([Required, MaxLength(2000)] string Body);
 
 public sealed record CommentPageResponse(CommentResponse[] Comments, int Total, bool HasMore);
+
+public sealed record CommentReplyResponse(long Id, string AuthorName, string Body);
 
 public sealed record CommentResponse(
     long Id,
     string ArticleUrl,
+    string ArticleTitle,
     string Body,
     DateTime CreatedAt,
     CommentAuthorResponse Author,
     bool CanDelete,
-    string FriendshipState);
+    string FriendshipState,
+    long? ParentCommentId = null,
+    CommentReplyResponse? ReplyTo = null);
+
+public sealed record LatestCommentsResponse(CommentResponse[] Comments, int NewCount);
 
 public sealed record CommentAuthorResponse(string UserId, string Name, string ProfilePhotoUrl);

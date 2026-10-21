@@ -12,10 +12,14 @@ public sealed class NewsComment
     [Required]
     public string ArticleTitle { get; set; } = "";
 
-    [Required]
-    public string UserId { get; set; } = "";
+    public string? UserId { get; set; }
 
-    public ApplicationUser User { get; set; } = null!;
+    public ApplicationUser? User { get; set; }
+
+    [MaxLength(80)]
+    public string GuestName { get; set; } = "";
+
+    public long? ParentCommentId { get; set; }
 
     [Required]
     public string Body { get; set; } = "";

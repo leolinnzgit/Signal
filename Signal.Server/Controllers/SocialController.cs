@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Signal.Server.Data;
 using Signal.Server.Models;
+using Signal.Server.Services;
 
 namespace Signal.Server.Controllers;
 
@@ -16,19 +17,34 @@ namespace Signal.Server.Controllers;
 [ResponseCache(Location = ResponseCacheLocation.None, NoStore = true)]
 public sealed class SocialController(
     SignalDbContext database,
-    UserManager<ApplicationUser> userManager) : ControllerBase
+    UserManager<ApplicationUser> userManager,
+    IAccountEmailSender emailSender,
+    ILogger<SocialController> logger) : ControllerBase
 {
     private const string PendingStatus = "Pending";
     private const string AcceptedStatus = "Accepted";
     private const int DefaultMessagePageSize = 50;
     private const int MaximumMessagePageSize = 100;
+    private static readonly TimeSpan OnlineWindow = TimeSpan.FromSeconds(150);
 
     [HttpGet]
     public async Task<IActionResult> Get(CancellationToken cancellationToken)
     {
         var userId = userManager.GetUserId(User);
         if (userId is null) return Unauthorized();
+        await TouchPresenceAsync(userId, cancellationToken);
         return Ok(await LoadOverviewAsync(userId, cancellationToken));
+    }
+
+    [HttpDelete("presence")]
+    public async Task<IActionResult> ClearPresence(CancellationToken cancellationToken)
+    {
+        var userId = userManager.GetUserId(User);
+        if (userId is null) return Unauthorized();
+        await database.UserPresences
+            .Where(item => item.UserId == userId)
+            .ExecuteDeleteAsync(cancellationToken);
+        return NoContent();
     }
 
     [HttpGet("users")]
@@ -205,6 +221,91 @@ public sealed class SocialController(
         return Ok(ToMessageResponse(message, userId));
     }
 
+    [HttpPost("shares")]
+    public async Task<IActionResult> ShareArticle(
+        ShareArticleRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = userManager.GetUserId(User);
+        if (userId is null) return Unauthorized();
+        var recipientId = request.RecipientUserId.Trim();
+        if (!await AreFriendsAsync(userId, recipientId, cancellationToken))
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = "You can only share stories with accepted friends." });
+
+        var title = request.Title.Trim();
+        var source = request.Source.Trim();
+        if (title.Length == 0) return BadRequest(new { error = "The story title is required." });
+        if (!Uri.TryCreate(request.Url.Trim(), UriKind.Absolute, out var articleUri)
+            || articleUri.Scheme is not ("http" or "https"))
+            return BadRequest(new { error = "The story link is not valid." });
+
+        var recipient = await userManager.FindByIdAsync(recipientId);
+        var sender = await userManager.FindByIdAsync(userId);
+        if (recipient is null || sender is null) return NotFound(new { error = "That Signal friend could not be found." });
+
+        var now = DateTime.UtcNow;
+        var message = new DirectMessage
+        {
+            SenderUserId = userId,
+            RecipientUserId = recipientId,
+            Body = "Shared a story.",
+            SharedArticleTitle = title,
+            SharedArticleUrl = articleUri.AbsoluteUri,
+            SharedArticleSource = source,
+            CreatedAtUtc = now,
+        };
+        database.DirectMessages.Add(message);
+        await database.SaveChangesAsync(cancellationToken);
+
+        var lastSeenAt = await database.UserPresences
+            .AsNoTracking()
+            .Where(item => item.UserId == recipientId)
+            .Select(item => (DateTime?)item.LastSeenAtUtc)
+            .SingleOrDefaultAsync(cancellationToken);
+        var recipientOnline = lastSeenAt.HasValue && lastSeenAt.Value >= now - OnlineWindow;
+        var emailNotificationSent = false;
+        var emailNotificationAttempted = false;
+        string? emailNotificationError = null;
+        if (!recipientOnline && recipient.EmailConfirmed && !string.IsNullOrWhiteSpace(recipient.Email))
+        {
+            emailNotificationAttempted = true;
+            try
+            {
+                var signalUrl = $"{Request.Scheme}://{Request.Host}{Request.PathBase}/";
+                await emailSender.SendSharedArticleAsync(
+                    recipient.Email,
+                    new SharedArticleEmail(
+                        CommentsController.PublicName(sender),
+                        title,
+                        source,
+                        articleUri.AbsoluteUri,
+                        signalUrl),
+                    cancellationToken);
+                emailNotificationSent = true;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                emailNotificationError = "The story was shared, but Signal could not send the offline email notification.";
+                logger.LogWarning(
+                    exception,
+                    "Story share {MessageId} was delivered to user {RecipientId}, but its offline email failed.",
+                    message.Id,
+                    recipientId);
+            }
+        }
+
+        return Ok(new ShareArticleResponse(
+            ToMessageResponse(message, userId),
+            recipientOnline,
+            emailNotificationSent,
+            emailNotificationAttempted,
+            emailNotificationError));
+    }
+
     [HttpGet("users/{userId}/photo")]
     public async Task<IActionResult> UserPhoto(string userId, CancellationToken cancellationToken)
     {
@@ -246,6 +347,13 @@ public sealed class SocialController(
             .GroupBy(message => message.SenderUserId)
             .Select(group => new { UserId = group.Key, Count = group.Count() })
             .ToDictionaryAsync(item => item.UserId, item => item.Count, cancellationToken);
+        var presences = otherIds.Length == 0
+            ? new Dictionary<string, DateTime>(StringComparer.Ordinal)
+            : await database.UserPresences
+                .AsNoTracking()
+                .Where(presence => otherIds.Contains(presence.UserId))
+                .ToDictionaryAsync(presence => presence.UserId, presence => presence.LastSeenAtUtc, cancellationToken);
+        var onlineSince = DateTime.UtcNow - OnlineWindow;
 
         var friends = relationships
             .Where(item => item.Status == AcceptedStatus)
@@ -253,7 +361,11 @@ public sealed class SocialController(
             .Where(item => byId.ContainsKey(item.OtherId))
             .Select(item => new FriendResponse(
                 item.Relationship.Id,
-                ToUserCard(byId[item.OtherId], unreadCounts.GetValueOrDefault(item.OtherId))))
+                ToUserCard(
+                    byId[item.OtherId],
+                    unreadCounts.GetValueOrDefault(item.OtherId),
+                    presences.GetValueOrDefault(item.OtherId),
+                    onlineSince)))
             .ToArray();
         var incoming = relationships
             .Where(item => item.Status == PendingStatus && item.RequestedByUserId != userId)
@@ -281,7 +393,7 @@ public sealed class SocialController(
     {
         var otherId = OtherUserId(relationship, currentUserId);
         return users.TryGetValue(otherId, out var user)
-            ? new FriendRequestResponse(relationship.Id, ToUserCard(user, 0), relationship.CreatedAtUtc)
+            ? new FriendRequestResponse(relationship.Id, ToUserCard(user, 0), AsUtc(relationship.CreatedAtUtc))
             : null;
     }
 
@@ -331,14 +443,51 @@ public sealed class SocialController(
         user.Id,
         CommentsController.PublicName(user),
         $"/api/social/users/{Uri.EscapeDataString(user.Id)}/photo",
-        unreadMessages);
+        unreadMessages,
+        false,
+        null);
+
+    private static SocialUserResponse ToUserCard(
+        ApplicationUser user,
+        int unreadMessages,
+        DateTime lastSeenAtUtc,
+        DateTime onlineSince) => new(
+        user.Id,
+        CommentsController.PublicName(user),
+        $"/api/social/users/{Uri.EscapeDataString(user.Id)}/photo",
+        unreadMessages,
+        lastSeenAtUtc >= onlineSince,
+        lastSeenAtUtc == default ? null : AsUtc(lastSeenAtUtc));
+
+    private async Task TouchPresenceAsync(string userId, CancellationToken cancellationToken)
+    {
+        var now = DateTime.UtcNow;
+        await database.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "UserPresences" ("UserId", "LastSeenAtUtc")
+            VALUES ({userId}, {now})
+            ON CONFLICT("UserId") DO UPDATE SET "LastSeenAtUtc" = excluded."LastSeenAtUtc";
+            """, cancellationToken);
+    }
 
     private static DirectMessageResponse ToMessageResponse(DirectMessage message, string currentUserId) => new(
         message.Id,
         message.Body,
-        message.CreatedAtUtc,
-        message.ReadAtUtc,
-        message.SenderUserId == currentUserId);
+        AsUtc(message.CreatedAtUtc),
+        message.ReadAtUtc.HasValue ? AsUtc(message.ReadAtUtc.Value) : null,
+        message.SenderUserId == currentUserId,
+        string.IsNullOrWhiteSpace(message.SharedArticleUrl)
+            ? null
+            : new SharedStoryResponse(
+                message.SharedArticleTitle,
+                message.SharedArticleUrl,
+                message.SharedArticleSource));
+
+    private static DateTime AsUtc(DateTime value) => value.Kind switch
+    {
+        DateTimeKind.Utc => value,
+        DateTimeKind.Local => value.ToUniversalTime(),
+        _ => DateTime.SpecifyKind(value, DateTimeKind.Utc),
+    };
 }
 
 public sealed record FriendRequestCreateRequest(string? UserId, string? Email);
@@ -346,6 +495,12 @@ public sealed record FriendRequestCreateRequest(string? UserId, string? Email);
 public sealed record SendMessageRequest(
     [Required, MaxLength(450)] string RecipientUserId,
     [Required, MaxLength(2000)] string Body);
+
+public sealed record ShareArticleRequest(
+    [Required, MaxLength(450)] string RecipientUserId,
+    [Required, MaxLength(2000)] string Title,
+    [Required, MaxLength(2048)] string Url,
+    [MaxLength(256)] string Source);
 
 public sealed record SocialOverviewResponse(
     FriendResponse[] Friends,
@@ -364,7 +519,9 @@ public sealed record SocialUserResponse(
     string UserId,
     string Name,
     string ProfilePhotoUrl,
-    int UnreadMessages);
+    int UnreadMessages,
+    bool IsOnline,
+    DateTime? LastSeenAt);
 
 public sealed record UserSearchResponse(
     SocialUserResponse User,
@@ -380,4 +537,14 @@ public sealed record DirectMessageResponse(
     string Body,
     DateTime CreatedAt,
     DateTime? ReadAt,
-    bool IsMine);
+    bool IsMine,
+    SharedStoryResponse? SharedArticle);
+
+public sealed record SharedStoryResponse(string Title, string Url, string Source);
+
+public sealed record ShareArticleResponse(
+    DirectMessageResponse Message,
+    bool RecipientOnline,
+    bool EmailNotificationSent,
+    bool EmailNotificationAttempted,
+    string? EmailNotificationError);

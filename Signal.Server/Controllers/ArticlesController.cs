@@ -16,7 +16,8 @@ namespace Signal.Server.Controllers;
 [ResponseCache(Location = ResponseCacheLocation.None, NoStore = true)]
 public sealed class ArticlesController(
     SignalDbContext database,
-    UserManager<ApplicationUser> userManager) : ControllerBase
+    UserManager<ApplicationUser> userManager,
+    IArticleAudioPrewarmer? audioPrewarmer = null) : ControllerBase
 {
     private const int DefaultRetentionDays = 30;
     private const int MaximumSyncItems = 500;
@@ -72,6 +73,7 @@ public sealed class ArticlesController(
                 .ToListAsync(cancellationToken);
         var byUrl = existing.ToDictionary(item => item.Url, StringComparer.OrdinalIgnoreCase);
         var now = DateTime.UtcNow;
+        var newArticles = new List<StoredNewsArticle>();
 
         foreach (var item in normalized)
         {
@@ -84,6 +86,7 @@ public sealed class ArticlesController(
                     FirstSeenAtUtc = now,
                 };
                 database.StoredNewsArticles.Add(stored);
+                newArticles.Add(stored);
                 byUrl[item.Url] = stored;
             }
 
@@ -98,6 +101,7 @@ public sealed class ArticlesController(
         }
 
         await database.SaveChangesAsync(cancellationToken);
+        foreach (var article in newArticles) audioPrewarmer?.Enqueue(article.Url, article.Title, article.Summary);
         await PurgeExpiredAsync(userId, cancellationToken);
         var bookmarkedUrls = urls.Length == 0
             ? []
@@ -134,16 +138,40 @@ public sealed class ArticlesController(
         var url = NormalizeUrl(request.Url);
         if (url is null) return BadRequest(new { error = "Choose a valid article link." });
 
-        var article = await database.StoredNewsArticles
-            .SingleOrDefaultAsync(item => item.UserId == userId && item.Url == url, cancellationToken);
+        var candidates = ArticleIdentity.GetUrlLookupCandidates(request.Url);
+        var matches = await database.StoredNewsArticles
+            .Where(item => item.UserId == userId && candidates.Contains(item.Url))
+            .ToListAsync(cancellationToken);
+        var article = matches.FirstOrDefault(item => string.Equals(item.Url, url, StringComparison.OrdinalIgnoreCase))
+            ?? matches.FirstOrDefault();
+        if (article is null)
+        {
+            var storyKey = ArticleIdentity.GetStoryUrlKey(url);
+            if (storyKey.Length > 0)
+            {
+                var recent = await database.StoredNewsArticles
+                    .Where(item => item.UserId == userId)
+                    .OrderByDescending(item => item.LastSeenAtUtc)
+                    .Take(2000)
+                    .ToListAsync(cancellationToken);
+                article = recent.FirstOrDefault(item =>
+                    string.Equals(ArticleIdentity.GetStoryUrlKey(item.Url), storyKey, StringComparison.Ordinal));
+            }
+        }
         if (article is null) return NotFound(new { error = "Refresh this briefing before bookmarking that story." });
 
+        var bookmarkedAt = request.Bookmarked ? DateTime.UtcNow : (DateTime?)null;
         article.IsBookmarked = request.Bookmarked;
-        article.BookmarkedAtUtc = request.Bookmarked ? DateTime.UtcNow : null;
+        article.BookmarkedAtUtc = bookmarkedAt;
+        foreach (var match in matches)
+        {
+            match.IsBookmarked = request.Bookmarked;
+            match.BookmarkedAtUtc = bookmarkedAt;
+        }
         await database.SaveChangesAsync(cancellationToken);
         if (!request.Bookmarked) await PurgeExpiredAsync(userId, cancellationToken);
 
-        return Ok(new BookmarkResponse(article.Url, article.IsBookmarked, article.BookmarkedAtUtc));
+        return Ok(new BookmarkResponse(url, article.IsBookmarked, article.BookmarkedAtUtc));
     }
 
     [HttpPost("read")]
@@ -154,18 +182,52 @@ public sealed class ArticlesController(
         var url = NormalizeUrl(request.Url);
         if (url is null) return BadRequest(new { error = "Choose a valid article link." });
 
-        var article = await database.StoredNewsArticles
-            .SingleOrDefaultAsync(item => item.UserId == userId && item.Url == url, cancellationToken);
+        var candidates = ArticleIdentity.GetUrlLookupCandidates(request.Url);
+        var directMatches = await database.StoredNewsArticles
+            .Where(item => item.UserId == userId && candidates.Contains(item.Url))
+            .ToListAsync(cancellationToken);
+        var recent = await database.StoredNewsArticles
+            .Where(item => item.UserId == userId)
+            .OrderByDescending(item => item.LastSeenAtUtc)
+            .Take(2000)
+            .ToListAsync(cancellationToken);
+
+        var storyKey = ArticleIdentity.GetStoryUrlKey(url);
+        var article = directMatches.FirstOrDefault(item => string.Equals(item.Url, url, StringComparison.OrdinalIgnoreCase))
+            ?? directMatches.FirstOrDefault()
+            ?? (storyKey.Length > 0
+                ? recent.FirstOrDefault(item =>
+                    string.Equals(ArticleIdentity.GetStoryUrlKey(item.Url), storyKey, StringComparison.Ordinal))
+                : null);
         if (article is null) return NotFound(new { error = "Refresh this briefing before opening that story." });
 
-        if (!article.IsRead)
-        {
-            article.IsRead = true;
-            article.ReadAtUtc = DateTime.UtcNow;
-            await database.SaveChangesAsync(cancellationToken);
-        }
+        var headlineKey = ArticleIdentity.GetHeadlineKey(article.Title);
+        var effectiveStoryKey = ArticleIdentity.GetStoryUrlKey(article.Url);
+        var duplicates = directMatches
+            .Concat(recent.Where(item =>
+                (effectiveStoryKey.Length > 0
+                    && string.Equals(ArticleIdentity.GetStoryUrlKey(item.Url), effectiveStoryKey, StringComparison.Ordinal))
+                || (headlineKey.Length > 0
+                    && string.Equals(ArticleIdentity.GetHeadlineKey(item.Title), headlineKey, StringComparison.Ordinal))))
+            .Append(article)
+            .GroupBy(item => item.Id)
+            .Select(group => group.First())
+            .ToArray();
 
-        return Ok(new ReadResponse(article.Url, article.IsRead, article.ReadAtUtc));
+        var now = DateTime.UtcNow;
+        var changed = false;
+        foreach (var copy in duplicates)
+        {
+            if (!copy.IsRead)
+            {
+                copy.IsRead = true;
+                copy.ReadAtUtc = now;
+                changed = true;
+            }
+        }
+        if (changed) await database.SaveChangesAsync(cancellationToken);
+
+        return Ok(new ReadResponse(url, article.IsRead, article.ReadAtUtc));
     }
 
     private async Task<ArticleHistoryResponse> LoadHistoryAsync(

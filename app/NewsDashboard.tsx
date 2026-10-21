@@ -1,9 +1,27 @@
 "use client";
 
-import { type CSSProperties, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type ReactNode, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { updateInstalledAppBadge } from "./app-badge";
-import { resolveArticleShareUrl, shareArticle } from "./article-share";
+import { createHostedArticleShare, shareArticle } from "./article-share";
+import type { SignalArticleLink } from "./article-link";
+import HeadlinePlayer from "./HeadlinePlayer";
+import MinimizedAudioPlayer from "./MinimizedAudioPlayer";
+import { usePlayerBackNavigation } from "./usePlayerBackNavigation";
+import { createRandomHeadlineQueue, createUnreadHeadlineQueue } from "./headline-queue";
+import HandGestureControls from "./HandGestureControls";
+import { useHandGestureTarget } from "./hand-gesture-actions";
+import { handGestureTopic } from "./hand-gestures";
+import ArticleAudioPlayer from "./ArticleAudioPlayer";
+import ArticleSummaryPlayer from "./ArticleSummaryPlayer";
+import ArticleTranslationControls from "./ArticleTranslationControls";
+import type { ArticleTranslation } from "./article-translation";
+import { useWeatherAudio } from "./WeatherAudio";
+import { formatMarketPrice, type MarketQuote } from "./market-quote";
+import { describeWeather, weatherBriefing, type LocalWeather, type WeatherForecastDay } from "./weather-briefing";
+import ArticleReadingText from "./ArticleReadingText";
+import { scrollReadingSectionIntoView } from "./article-reading-follow";
+import { preferScreenOffAudio, type ArticleNarrationSection } from "./headline-audio";
 import {
   normalizeSecondaryTimeZone,
   type SecondaryTimeZonePreference,
@@ -37,6 +55,7 @@ type ExtractedReaderArticle = {
 
 type ReaderContent =
   | { status: "idle" | "loading" }
+  | { status: "unavailable"; reason: string }
   | { status: "ready"; article: ExtractedReaderArticle };
 
 type ArticleReaderResponse = {
@@ -73,36 +92,25 @@ type GoogleTrendTerm = {
   region: string;
 };
 
+type GoogleTrendRegion = {
+  code: string;
+  name: string;
+};
+
 type GoogleTrendsResponse = {
   geo: string;
   fetchedAt: string;
   terms: GoogleTrendTerm[];
+  availableRegions: GoogleTrendRegion[];
+  selectedRegions: string[];
+  trendsPerRegion: number;
   error?: string;
-};
-
-type LocalWeather = {
-  temperature: number;
-  apparentTemperature: number;
-  humidity: number;
-  weatherCode: number;
-  windSpeed: number;
-  isDay: boolean;
-  timezone: string;
-  locationName: string;
-};
-
-type WeatherForecastDay = {
-  date: string;
-  weatherCode: number;
-  temperatureMax: number;
-  temperatureMin: number;
-  precipitationProbability: number;
-  windSpeed: number;
 };
 
 type OpenMeteoResponse = {
   timezone?: string;
   current?: {
+    time?: string;
     temperature_2m?: number;
     apparent_temperature?: number;
     relative_humidity_2m?: number;
@@ -135,20 +143,6 @@ type OpenMeteoGeocodingResponse = {
 };
 
 type WeatherStatus = "locating" | "ready" | "denied" | "error" | "unsupported";
-
-type MarketQuote = {
-  topic: string;
-  symbol: string;
-  name: string;
-  exchange: string;
-  currency: string;
-  price: number;
-  change: number;
-  percentChange: number;
-  quoteTime: string;
-  isMarketOpen: boolean | null;
-  provider: string;
-};
 
 type MarketNotice = {
   topic: string;
@@ -184,12 +178,17 @@ export type NewsPreferences = {
   limit: number;
   storyTitleSize: StoryTitleSize;
   topicHeaderSize: StoryTitleSize;
+  showTopicFiltersWhenPinned: boolean;
+  showSourceFiltersWhenPinned: boolean;
   refreshMinutes: number;
   emailSummaryEnabled: boolean;
+  pushNewsTitlesEnabled: boolean;
   articleRetentionDays: number;
   tickerOverrides: Record<string, string>;
   weatherLocation: WeatherLocationPreference | null;
   secondaryTimeZone: SecondaryTimeZonePreference | null;
+  trendRegions: string[];
+  trendsPerRegion: number;
   sources: SourcePreferences;
 };
 
@@ -278,17 +277,69 @@ export type PushNotificationStore = {
   sendTest: () => Promise<string>;
 };
 
+export type SignalFriend = {
+  userId: string;
+  name: string;
+  profilePhotoUrl: string;
+  isOnline: boolean;
+  lastSeenAt: string | null;
+};
+
+export type FriendShareResult = {
+  recipientOnline: boolean;
+  emailNotificationSent: boolean;
+  emailNotificationAttempted: boolean;
+  emailNotificationError: string | null;
+};
+
+export type FriendShareStore = {
+  loadFriends: () => Promise<SignalFriend[]>;
+  share: (
+    recipientUserId: string,
+    article: { title: string; url: string; source: string },
+  ) => Promise<FriendShareResult>;
+};
+
+const GOOGLE_TREND_REGIONS: GoogleTrendRegion[] = [
+  { code: "US", name: "United States" },
+  { code: "CA", name: "Canada" },
+  { code: "JM", name: "Jamaica" },
+  { code: "GY", name: "Guyana" },
+  { code: "GB", name: "United Kingdom" },
+  { code: "IE", name: "Ireland" },
+  { code: "NG", name: "Nigeria" },
+  { code: "ZA", name: "South Africa" },
+  { code: "KE", name: "Kenya" },
+  { code: "AE", name: "United Arab Emirates" },
+  { code: "IN", name: "India" },
+  { code: "PH", name: "Philippines" },
+  { code: "MY", name: "Malaysia" },
+  { code: "SG", name: "Singapore" },
+  { code: "CN", name: "China" },
+  { code: "TW", name: "Taiwan" },
+  { code: "HK", name: "Hong Kong" },
+  { code: "AU", name: "Australia" },
+  { code: "NZ", name: "New Zealand" },
+  { code: "FJ", name: "Fiji" },
+];
+const GOOGLE_TREND_REGION_CODES = new Set(GOOGLE_TREND_REGIONS.map((region) => region.code));
+
 const DEFAULTS: NewsPreferences = {
   topics: ["Artificial intelligence"],
   limit: 20,
   storyTitleSize: "large",
   topicHeaderSize: "large",
+  showTopicFiltersWhenPinned: true,
+  showSourceFiltersWhenPinned: true,
   refreshMinutes: 15,
   emailSummaryEnabled: false,
+  pushNewsTitlesEnabled: true,
   articleRetentionDays: 30,
   tickerOverrides: {},
   weatherLocation: null,
   secondaryTimeZone: null,
+  trendRegions: GOOGLE_TREND_REGIONS.map((region) => region.code),
+  trendsPerRegion: 5,
   sources: { google: true, gdelt: true, rssFeeds: [] },
 };
 const STORY_LIMIT_OPTIONS = [10, ...Array.from({ length: 25 }, (_, index) => (index + 1) * 20)];
@@ -296,6 +347,7 @@ const STORY_LIMIT_OPTIONS = [10, ...Array.from({ length: 25 }, (_, index) => (in
 const STORAGE_KEY = "signal-news-preferences";
 const PENDING_STORAGE_KEY = "signal-news-preferences-pending";
 const CONTROLS_STORAGE_KEY = "signal-briefing-controls-expanded";
+const FLOATING_NAVIGATION_SIDE_KEY = "signal-floating-navigation-side";
 const CONTROLS_HIDDEN_STORAGE_KEY = "signal-briefing-controls-hidden";
 const THEME_STORAGE_KEY = "signal-color-theme";
 const ALL_TOPICS = "all";
@@ -315,6 +367,10 @@ function timestampValue(value: string) {
 
 function ArrowIcon() {
   return <span aria-hidden="true" className="arrow">&#8599;</span>;
+}
+
+function SpeakerIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4V5Z" /><path d="M15 8a6 6 0 0 1 0 8M18 5a10 10 0 0 1 0 14" /></svg>;
 }
 
 function ShareIcon() {
@@ -566,6 +622,15 @@ function normalizePreferences(saved: Partial<NewsPreferences> & { topic?: string
             : "",
         }
       : null;
+  const savedTrendRegions = Array.isArray(saved.trendRegions)
+    ? saved.trendRegions
+      .filter((code): code is string => typeof code === "string")
+      .map((code) => code.trim().toUpperCase())
+      .filter((code, index, codes) => GOOGLE_TREND_REGION_CODES.has(code) && codes.indexOf(code) === index)
+    : [];
+  const selectedTrendRegions = savedTrendRegions.length > 0
+    ? GOOGLE_TREND_REGIONS.filter((region) => savedTrendRegions.includes(region.code)).map((region) => region.code)
+    : DEFAULTS.trendRegions;
 
   return {
     topics,
@@ -578,23 +643,32 @@ function normalizePreferences(saved: Partial<NewsPreferences> & { topic?: string
     topicHeaderSize: saved.topicHeaderSize === "small" || saved.topicHeaderSize === "medium" || saved.topicHeaderSize === "large"
       ? saved.topicHeaderSize
       : DEFAULTS.topicHeaderSize,
+    showTopicFiltersWhenPinned: typeof saved.showTopicFiltersWhenPinned === "boolean"
+      ? saved.showTopicFiltersWhenPinned
+      : DEFAULTS.showTopicFiltersWhenPinned,
+    showSourceFiltersWhenPinned: typeof saved.showSourceFiltersWhenPinned === "boolean"
+      ? saved.showSourceFiltersWhenPinned
+      : DEFAULTS.showSourceFiltersWhenPinned,
     refreshMinutes: [0, 5, 15, 30, 60, 120, 180, 240, 300, 360, 420, 480].includes(Number(saved.refreshMinutes))
       ? Number(saved.refreshMinutes)
       : DEFAULTS.refreshMinutes,
     emailSummaryEnabled: saved.emailSummaryEnabled === true,
+    pushNewsTitlesEnabled: saved.pushNewsTitlesEnabled !== false,
     articleRetentionDays: [1, 7, 14, 30, 90, 180, 365].includes(Number(saved.articleRetentionDays))
       ? Number(saved.articleRetentionDays)
       : DEFAULTS.articleRetentionDays,
     tickerOverrides,
     weatherLocation,
     secondaryTimeZone: normalizeSecondaryTimeZone(saved.secondaryTimeZone),
+    trendRegions: selectedTrendRegions,
+    trendsPerRegion: Math.min(10, Math.max(1, Math.round(Number(saved.trendsPerRegion) || DEFAULTS.trendsPerRegion))),
     sources: {
       google: typeof saved.sources?.google === "boolean" ? saved.sources.google : true,
       gdelt: typeof saved.sources?.gdelt === "boolean" ? saved.sources.gdelt : true,
       rssFeeds: rssFeeds.filter((feed) => {
         const key = canonicalFeedKey(feed);
         return key !== null && !feedKeys.has(key) && Boolean(feedKeys.add(key));
-      }).slice(0, 20),
+      }).slice(0, 30),
     },
   };
 }
@@ -611,19 +685,6 @@ function readStoredPreferences(key: string) {
   } catch {
     return { exists: true, preferences: DEFAULTS };
   }
-}
-
-function describeWeather(code: number) {
-  if (code === 0) return "Clear";
-  if (code <= 3) return "Partly cloudy";
-  if (code === 45 || code === 48) return "Foggy";
-  if (code >= 51 && code <= 57) return "Drizzle";
-  if (code >= 61 && code <= 67) return "Rain";
-  if (code >= 71 && code <= 77) return "Snow";
-  if (code >= 80 && code <= 82) return "Rain showers";
-  if (code >= 85 && code <= 86) return "Snow showers";
-  if (code >= 95) return "Thunderstorms";
-  return "Local weather";
 }
 
 function weatherGlyph(code: number, isDay: boolean) {
@@ -651,18 +712,6 @@ function weatherLocationLabel(location: Pick<WeatherLocationSearchResult, "name"
     .join(", ");
 }
 
-function formatMarketPrice(price: number, currency: string) {
-  try {
-    return new Intl.NumberFormat(undefined, {
-      style: currency ? "currency" : "decimal",
-      currency: currency || undefined,
-      maximumFractionDigits: 2,
-    }).format(price);
-  } catch {
-    return `${currency ? `${currency} ` : ""}${price.toFixed(2)}`;
-  }
-}
-
 function decodeBase64Url(value: string) {
   const padding = "=".repeat((4 - value.length % 4) % 4);
   const decoded = window.atob(`${value}${padding}`.replace(/-/g, "+").replace(/_/g, "/"));
@@ -677,22 +726,27 @@ type NewsDashboardProps = {
     isLocalPreview: boolean;
     profilePhotoUrl?: string | null;
   };
+  articleToOpen?: SignalArticleLink | null;
+  renderArticleComments?: (article: FollowedArticle, closeReader: () => void) => ReactNode;
   signOutPath?: string | null;
   onSignOut?: () => void;
   onManageAccount?: () => void;
   onOpenCommunity?: () => void;
+  onOpenLatestComments?: () => void;
   onOpenDiscussion?: (article: FollowedArticle) => void;
   communityUnreadCount?: number;
+  latestCommentUnreadCount?: number;
   preferencesStore?: PreferencesStore;
   articleStore?: ArticleStore;
   summarySender?: (summary: NewsSummary) => Promise<string>;
   refreshStore?: TopicRefreshStore;
   pushNotificationStore?: PushNotificationStore;
+  friendShareStore?: FriendShareStore;
 };
 
 type PushNotificationStatus = "checking" | "unsupported" | "off" | "enabling" | "on" | "disabling" | "denied" | "error";
 
-export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAccount, onOpenCommunity, onOpenDiscussion, communityUnreadCount = 0, preferencesStore, articleStore, summarySender, refreshStore, pushNotificationStore }: NewsDashboardProps) {
+export default function NewsDashboard({ user, articleToOpen, renderArticleComments, signOutPath, onSignOut, onManageAccount, onOpenCommunity, onOpenLatestComments, onOpenDiscussion, communityUnreadCount = 0, latestCommentUnreadCount = 0, preferencesStore, articleStore, summarySender, refreshStore, pushNotificationStore, friendShareStore }: NewsDashboardProps) {
   const [preferences, setPreferences] = useState<NewsPreferences>(DEFAULTS);
   const [topicInput, setTopicInput] = useState("");
   const [rssInput, setRssInput] = useState("");
@@ -702,6 +756,9 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [topicsExpanded, setTopicsExpanded] = useState(false);
   const [topicPickerOpen, setTopicPickerOpen] = useState(false);
   const [topicPickerQuery, setTopicPickerQuery] = useState("");
+  const [quickTopicSearchOpen, setQuickTopicSearchOpen] = useState(false);
+  const [quickSearchMode, setQuickSearchMode] = useState<"topics" | "text">("topics");
+  const [quickTextQuery, setQuickTextQuery] = useState("");
   const [sourcePickerOpen, setSourcePickerOpen] = useState(false);
   const [sourcePickerQuery, setSourcePickerQuery] = useState("");
   const [sourcesExpanded, setSourcesExpanded] = useState(false);
@@ -721,6 +778,15 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [feedView, setFeedView] = useState<"latest" | "history" | "bookmarks">("latest");
   const [bookmarkingUrls, setBookmarkingUrls] = useState<Set<string>>(() => new Set());
   const [sharingUrls, setSharingUrls] = useState<Set<string>>(() => new Set());
+  const [friendShareArticle, setFriendShareArticle] = useState<FollowedArticle | null>(null);
+  const [friendShareUrl, setFriendShareUrl] = useState("");
+  const [friendShareFriends, setFriendShareFriends] = useState<SignalFriend[]>([]);
+  const [friendShareLoading, setFriendShareLoading] = useState(false);
+  const [friendShareBusy, setFriendShareBusy] = useState("");
+  const [friendShareError, setFriendShareError] = useState("");
+  const [friendShareSummaryOnly, setFriendShareSummaryOnly] = useState(false);
+  const [friendShareCopied, setFriendShareCopied] = useState(false);
+  const friendShareRequest = useRef(0);
   const [fetchedAt, setFetchedAt] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -731,6 +797,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [trendsLoading, setTrendsLoading] = useState(false);
   const [trendsError, setTrendsError] = useState("");
   const [trendsView, setTrendsView] = useState<"bubbles" | "list">("bubbles");
+  const [availableTrendRegions, setAvailableTrendRegions] = useState<GoogleTrendRegion[]>(GOOGLE_TREND_REGIONS);
   const [topicRefreshStates, setTopicRefreshStates] = useState<TopicRefreshStatus[]>([]);
   const [ready, setReady] = useState(false);
   const [heroCompact, setHeroCompact] = useState(false);
@@ -760,7 +827,26 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [controlsHidden, setControlsHidden] = useState(false);
   const [followingTopicsExpanded, setFollowingTopicsExpanded] = useState(false);
   const [backToTopVisible, setBackToTopVisible] = useState(false);
+  const [floatingNavigationSide, setFloatingNavigationSide] = useState<"left" | "right">("left");
   const [readerArticle, setReaderArticle] = useState<FollowedArticle | null>(null);
+  const [readerMinimized, setReaderMinimized] = useState(false);
+  const [readerAudioRequested, setReaderAudioRequested] = useState(false);
+  const [readerTranslation, setReaderTranslation] = useState<ArticleTranslation | null>(null);
+  const [readerReading, setReaderReading] = useState<{ section: ArticleNarrationSection | null; playing: boolean }>({ section: null, playing: false });
+  const [followReading, setFollowReading] = useState(true);
+  const readerScrollBody = useRef<HTMLDivElement>(null);
+  const updateReaderReading = useCallback((section: ArticleNarrationSection | null, playing: boolean) => {
+    setReaderReading((current) => current.section === section && current.playing === playing ? current : { section, playing });
+  }, []);
+  const updateReaderTranslation = useCallback((translation: ArticleTranslation | null) => {
+    setReaderTranslation(translation);
+    setReaderReading({ section: null, playing: false });
+  }, []);
+  const [headlineQueue, setHeadlineQueue] = useState<FollowedArticle[] | null>(null);
+  const [headlinesMinimized, setHeadlinesMinimized] = useState(false);
+  const [headlineQueueRandomized, setHeadlineQueueRandomized] = useState(false);
+  const headlineDuplicates = useRef(new Map<string, FollowedArticle[]>());
+  const headlineFullscreenRequested = useRef(false);
   const [readerContent, setReaderContent] = useState<ReaderContent>({ status: "idle" });
   const [topicPendingRemoval, setTopicPendingRemoval] = useState<string | null>(null);
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
@@ -773,22 +859,30 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   const [theme, setTheme] = useState<ColorTheme | null>(null);
   const [rssResolvingFeed, setRssResolvingFeed] = useState<string | null>(null);
   const [rssMessage, setRssMessage] = useState("");
+  const [copiedRssFeed, setCopiedRssFeed] = useState<string | null>(null);
   const [storageStatus, setStorageStatus] = useState<"loading" | "saving" | "saved" | "error" | "local">(
     preferencesStore ? "loading" : "local",
   );
   const requestSequence = useRef(0);
   const historyRequestSequence = useRef(0);
+  const openedArticleRequest = useRef<SignalArticleLink | null>(null);
+  const headerElement = useRef<HTMLElement>(null);
   const heroElement = useRef<HTMLElement>(null);
   const controlPanelElement = useRef<HTMLDivElement>(null);
+  const quickTopicSearchDialog = useRef<HTMLDialogElement>(null);
+  const quickTopicSearchInput = useRef<HTMLInputElement>(null);
+  const quickTopicSearchButton = useRef<HTMLButtonElement>(null);
   const filterStackElement = useRef<HTMLDivElement>(null);
   const storyListElement = useRef<HTMLOListElement>(null);
   const pendingPinnedTopicScroll = useRef<string | null>(null);
   const readerCloseButton = useRef<HTMLButtonElement>(null);
-  const readerTrigger = useRef<HTMLAnchorElement | null>(null);
+  const readerTrigger = useRef<HTMLElement | null>(null);
   const readerRequestSequence = useRef(0);
   const topicRemovalCancelButton = useRef<HTMLButtonElement>(null);
   const topicRemovalTrigger = useRef<HTMLElement | null>(null);
   const installHelpCloseButton = useRef<HTMLButtonElement>(null);
+  const friendShareCloseButton = useRef<HTMLButtonElement>(null);
+  const friendShareTrigger = useRef<HTMLButtonElement | null>(null);
   const installTrigger = useRef<HTMLButtonElement | null>(null);
   const weatherLocationInput = useRef<HTMLInputElement>(null);
   const weatherLocationTrigger = useRef<HTMLElement | null>(null);
@@ -808,6 +902,8 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     ? ""
     : Object.entries(preferences.tickerOverrides)
         .find(([topic]) => topic.toLowerCase() === selectedTopic.toLowerCase())?.[1] ?? "";
+
+  const weatherAudio = useWeatherAudio(weatherBriefing(weatherStatus === "ready" ? localWeather : null, weatherForecast), !!headlineQueue || !!readerArticle);
 
   const trendTrafficRange = useMemo(() => {
     const values = trendingTerms.map((term) => trendTrafficValue(term.traffic)).filter((value) => value > 0);
@@ -931,6 +1027,24 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     setControlsExpanded(localStorage.getItem(CONTROLS_STORAGE_KEY) === "true");
     setControlsHidden(localStorage.getItem(CONTROLS_HIDDEN_STORAGE_KEY) === "true");
   }, []);
+
+  useEffect(() => {
+    try {
+      setFloatingNavigationSide(localStorage.getItem(FLOATING_NAVIGATION_SIDE_KEY) === "right" ? "right" : "left");
+    } catch {
+      // The controls still work when browser storage is unavailable.
+    }
+  }, []);
+
+  function switchFloatingNavigationSide() {
+    const next = floatingNavigationSide === "left" ? "right" : "left";
+    setFloatingNavigationSide(next);
+    try {
+      localStorage.setItem(FLOATING_NAVIGATION_SIDE_KEY, next);
+    } catch {
+      // Keep the chosen side for this session even if it cannot be saved.
+    }
+  }
 
   useEffect(() => {
     if (!pushNotificationStore) return;
@@ -1096,6 +1210,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           }];
         });
         setLocalWeather({
+          observedAt: typeof current.time === "string" ? current.time : "",
           temperature: current.temperature_2m,
           apparentTemperature: current.apparent_temperature,
           humidity: current.relative_humidity_2m,
@@ -1408,7 +1523,11 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     setTrendsLoading(true);
     setTrendsError("");
     try {
-      const response = await fetch("/api/trends", {
+      const query = new URLSearchParams({
+        regions: preferences.trendRegions.join(","),
+        count: String(preferences.trendsPerRegion),
+      });
+      const response = await fetch(`/api/trends?${query}`, {
         credentials: "same-origin",
         cache: "no-store",
       });
@@ -1416,12 +1535,21 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
       if (!response.ok) throw new Error(data.error || "Could not load Google Trends.");
       setTrendingTerms(data.terms);
       setTrendsFetchedAt(data.fetchedAt);
+      if (Array.isArray(data.availableRegions) && data.availableRegions.length > 0) {
+        setAvailableTrendRegions(data.availableRegions);
+      }
     } catch (caught) {
       setTrendsError(caught instanceof Error ? caught.message : "Could not load Google Trends.");
     } finally {
       setTrendsLoading(false);
     }
-  }, []);
+  }, [preferences.trendRegions, preferences.trendsPerRegion]);
+
+  useEffect(() => {
+    if (!ready || !trendsOpen) return;
+    const timeout = window.setTimeout(() => void loadTrendingTerms(), 300);
+    return () => window.clearTimeout(timeout);
+  }, [loadTrendingTerms, ready, trendsOpen]);
 
   useEffect(() => {
     if (!ready) return;
@@ -1484,12 +1612,105 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     return () => window.clearInterval(interval);
   }, [preferences, ready, enabledSourceCount, loadNews, refreshStore]);
 
+  useEffect(() => {
+    if (!ready || !refreshStore) return;
+    let lastSyncAt = 0;
+    const syncCrossDeviceState = () => {
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - lastSyncAt < 1_000) return;
+      lastSyncAt = now;
+      void loadNews(latestPreferences.current, { quiet: true });
+    };
+
+    window.addEventListener("focus", syncCrossDeviceState);
+    document.addEventListener("visibilitychange", syncCrossDeviceState);
+    return () => {
+      window.removeEventListener("focus", syncCrossDeviceState);
+      document.removeEventListener("visibilitychange", syncCrossDeviceState);
+    };
+  }, [loadNews, ready, refreshStore]);
+
   const viewedArticles = useMemo(
     () => feedView === "latest"
       ? articles
       : historyArticles,
     [articles, feedView, historyArticles],
   );
+
+  const unreadHeadlineQueue = useMemo(
+    () => createUnreadHeadlineQueue(articles),
+    [articles],
+  );
+  const unreadArticles = unreadHeadlineQueue.articles;
+
+  const randomHeadlinePool = useMemo(
+    () => createRandomHeadlineQueue(articles),
+    [articles],
+  );
+  const randomArticles = randomHeadlinePool.articles;
+
+  const closeHeadlinePlayer = useCallback(() => {
+    setHeadlineQueue(null);
+    setHeadlinesMinimized(false);
+    setHeadlineQueueRandomized(false);
+    if (headlineFullscreenRequested.current && document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => {});
+    }
+    headlineFullscreenRequested.current = false;
+  }, []);
+
+  usePlayerBackNavigation([
+    ...(headlineQueue && !headlinesMinimized ? ["headlines" as const] : []),
+    ...(readerArticle && !readerMinimized ? ["reader" as const] : []),
+  ], (remaining) => {
+    if (!remaining.includes("reader") && readerArticle && !readerMinimized) closeArticleReader();
+    if (!remaining.includes("headlines") && headlineQueue && !headlinesMinimized) closeHeadlinePlayer();
+  });
+
+  function startHeadlinePlayback() {
+    if (readerArticle) closeArticleReader();
+    setHeadlinesMinimized(false);
+    if (headlineQueue) return;
+    if (unreadArticles.length === 0) return;
+    weatherAudio.stop();
+    // Snapshot the queue so refreshes and read-status updates cannot skip titles.
+    headlineDuplicates.current = unreadHeadlineQueue.duplicates;
+    setHeadlineQueueRandomized(false);
+    setHeadlineQueue([...unreadArticles]);
+    if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent) && !document.fullscreenElement && document.documentElement.requestFullscreen) {
+      headlineFullscreenRequested.current = true;
+      void document.documentElement.requestFullscreen().then(() => {
+        if (!headlineFullscreenRequested.current && document.fullscreenElement) {
+          void document.exitFullscreen().catch(() => {});
+        }
+      }).catch(() => {
+        // The player still fills the viewport when native full screen is unavailable.
+        headlineFullscreenRequested.current = false;
+      });
+    }
+  }
+
+  function startRandomHeadlinePlayback() {
+    if (readerArticle) closeArticleReader();
+    setHeadlinesMinimized(false);
+    const queue = createRandomHeadlineQueue(articles);
+    if (queue.articles.length === 0) return;
+    weatherAudio.stop();
+    headlineDuplicates.current = queue.duplicates;
+    setHeadlineQueueRandomized(true);
+    setHeadlineQueue(queue.articles);
+    if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent) && !document.fullscreenElement && document.documentElement.requestFullscreen) {
+      headlineFullscreenRequested.current = true;
+      void document.documentElement.requestFullscreen().then(() => {
+        if (!headlineFullscreenRequested.current && document.fullscreenElement) {
+          void document.exitFullscreen().catch(() => {});
+        }
+      }).catch(() => {
+        headlineFullscreenRequested.current = false;
+      });
+    }
+  }
 
   const topicFilteredArticles = useMemo(
     () => selectedTopic === ALL_TOPICS
@@ -1566,6 +1787,18 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     }
     return "";
   }, [feedView, preferences.topics, selectedTopic, topicHasUnread]);
+
+  const nextFloatingTopic = useMemo(() => {
+    if (nextUnreadTopic) return nextUnreadTopic;
+    if (feedView !== "latest" || preferences.topics.length === 0) return "";
+    const currentIndex = selectedTopic === ALL_TOPICS
+      ? -1
+      : preferences.topics.findIndex(
+          (topic) => topic.toLowerCase() === selectedTopic.toLowerCase(),
+        );
+    const topic = preferences.topics[(currentIndex + 1) % preferences.topics.length];
+    return topic.toLowerCase() === selectedTopic.toLowerCase() ? "" : topic;
+  }, [feedView, nextUnreadTopic, preferences.topics, selectedTopic]);
 
   const previousTopic = useMemo(() => {
     if (feedView !== "latest" || selectedTopic === ALL_TOPICS || preferences.topics.length < 2) return "";
@@ -1650,6 +1883,24 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   }, []);
 
   useEffect(() => {
+    const header = headerElement.current;
+    const dashboard = header?.parentElement;
+    if (!header || !dashboard) return;
+    const updateHeaderOffset = () => {
+      dashboard.style.setProperty("--site-header-offset", `${Math.ceil(header.getBoundingClientRect().height)}px`);
+    };
+    updateHeaderOffset();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateHeaderOffset);
+    observer?.observe(header);
+    window.addEventListener("resize", updateHeaderOffset);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", updateHeaderOffset);
+      dashboard.style.removeProperty("--site-header-offset");
+    };
+  }, []);
+
+  useEffect(() => {
     let frame = 0;
     const updatePinnedFilters = () => {
       window.cancelAnimationFrame(frame);
@@ -1707,7 +1958,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   }, [filteredArticles.length, selectedTopic]);
 
   useEffect(() => {
-    if (!readerArticle) return;
+    if (!readerArticle || readerMinimized) return;
     const scrollPosition = window.scrollY;
     const previousRootOverflow = document.documentElement.style.overflow;
     const previousOverflow = document.body.style.overflow;
@@ -1720,13 +1971,8 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     document.body.style.top = `-${scrollPosition}px`;
     document.body.style.width = "100%";
     const focusFrame = window.requestAnimationFrame(() => readerCloseButton.current?.focus());
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closeArticleReader();
-    };
-    window.addEventListener("keydown", closeOnEscape);
     return () => {
       window.cancelAnimationFrame(focusFrame);
-      window.removeEventListener("keydown", closeOnEscape);
       document.documentElement.style.overflow = previousRootOverflow;
       document.body.style.overflow = previousOverflow;
       document.body.style.position = previousPosition;
@@ -1734,7 +1980,43 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
       document.body.style.width = previousWidth;
       window.scrollTo(0, scrollPosition);
     };
-  }, [readerArticle]);
+  }, [readerArticle, readerMinimized]);
+
+  useEffect(() => {
+    if (!readerArticle || readerMinimized || friendShareArticle) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeArticleReader();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [readerArticle, readerMinimized, friendShareArticle]);
+
+  useEffect(() => {
+    if (!followReading || !readerReading.playing || !readerReading.section) return;
+    const container = readerScrollBody.current;
+    const highlight = container?.querySelector<HTMLElement>(".article-reading-highlight");
+    if (container && highlight) {
+      scrollReadingSectionIntoView(container, highlight, window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    }
+  }, [followReading, readerReading]);
+
+  useEffect(() => {
+    if (!quickTopicSearchOpen) return;
+    const dialog = quickTopicSearchDialog.current;
+    if (!dialog) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    dialog.showModal();
+    quickTopicSearchInput.current?.focus({ preventScroll: true });
+    return () => {
+      dialog.close();
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [quickTopicSearchOpen]);
+
+  useEffect(() => {
+    if (quickTopicSearchOpen) quickTopicSearchInput.current?.focus({ preventScroll: true });
+  }, [quickSearchMode, quickTopicSearchOpen]);
 
   useEffect(() => {
     if (!topicPendingRemoval) return;
@@ -1761,6 +2043,19 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
       window.removeEventListener("keydown", closeOnEscape);
     };
   }, [installHelpOpen]);
+
+  useEffect(() => {
+    if (!friendShareArticle) return;
+    const focusFrame = window.requestAnimationFrame(() => friendShareCloseButton.current?.focus());
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !friendShareBusy) closeFriendShare();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [friendShareArticle, friendShareBusy]);
 
   useEffect(() => {
     if (!weatherLocationOpen) return;
@@ -1949,8 +2244,8 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         setNotice(message);
         return false;
       }
-      if (preferences.sources.rssFeeds.length >= 20) {
-        const message = "You can add up to 20 publisher feeds.";
+      if (preferences.sources.rssFeeds.length >= 30) {
+        const message = "You can add up to 30 publisher feeds.";
         setRssMessage(message);
         setNotice(message);
         return false;
@@ -1999,7 +2294,16 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     });
   }
 
+  async function copyRssFeedLink(feed: string) {
+    const result = await shareArticle({ title: feedName(feed), text: "", url: feed }, { clipboard: navigator.clipboard });
+    setCopiedRssFeed(result === "copied" ? feed : null);
+    setRssMessage(result === "copied"
+      ? "RSS feed link copied."
+      : "Could not copy the RSS link. Select the full link below and copy it manually.");
+  }
+
   function removeRssFeed(feed: string) {
+    if (copiedRssFeed === feed) setCopiedRssFeed(null);
     setPreferences((current) => ({
       ...current,
       sources: { ...current.sources, rssFeeds: current.sources.rssFeeds.filter((item) => item !== feed) },
@@ -2314,7 +2618,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     setNotice("The additional clock has been removed.");
   }
 
-  function changeFeedView(next: "latest" | "history" | "bookmarks") {
+  function changeFeedView(next: "latest" | "history" | "bookmarks", search = "") {
     setFeedView(next);
     setSelectedTopic(ALL_TOPICS);
     setSelectedProvider(ALL_PROVIDERS);
@@ -2324,10 +2628,10 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     setSourcePickerOpen(false);
     setSourcePickerQuery("");
     setSourcesExpanded(false);
-    setHistorySearchInput("");
-    setHistorySearch("");
+    setHistorySearchInput(search);
+    setHistorySearch(search);
     setHistoryError("");
-    if (next !== "latest") void loadHistoryPage(next, "", 0);
+    if (next !== "latest") void loadHistoryPage(next, search, 0);
   }
 
   function markTopicViewed(topic: string) {
@@ -2338,6 +2642,35 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         ? { ...state, hasUnread: false, lastViewedAt: viewedAt }
         : state));
     return refreshStore.markViewed(topic);
+  }
+
+  function openQuickTopicSearch() {
+    setTopicPickerOpen(false);
+    setTopicPickerQuery("");
+    setSourcePickerOpen(false);
+    setSourcePickerQuery("");
+    setQuickTextQuery(historySearch);
+    setQuickTopicSearchOpen(true);
+  }
+
+  function submitQuickTextSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const search = quickTextQuery.trim().replace(/\s+/g, " ").slice(0, 100);
+    if (!search || !articleStore) return;
+    closeQuickTopicSearch();
+    changeFeedView(feedView === "bookmarks" ? "bookmarks" : "history", search);
+    window.requestAnimationFrame(() => document.getElementById("history-search")?.focus());
+  }
+
+  function closeQuickTopicSearch() {
+    setQuickTopicSearchOpen(false);
+    setTopicPickerQuery("");
+    window.requestAnimationFrame(() => quickTopicSearchButton.current?.focus({ preventScroll: true }));
+  }
+
+  function selectQuickTopic(topic: string) {
+    closeQuickTopicSearch();
+    selectTopicFilter(topic);
   }
 
   function selectTopicFilter(topic: string) {
@@ -2417,10 +2750,19 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     void loadHistoryPage(feedView, "", 0);
   }
 
-  function openArticleReader(article: FollowedArticle, trigger: HTMLAnchorElement) {
+  const readerSummaryParagraphs = useMemo(() => [readerArticle?.summary || readerArticle?.title || ""],
+    [readerArticle?.summary, readerArticle?.title]);
+
+  function openArticleReader(article: FollowedArticle, trigger: HTMLElement, listen = false, stayInSignal = false) {
+    weatherAudio.stop();
+    setReaderMinimized(false);
     readerTrigger.current = trigger;
-    markArticleRead(article);
+    if (!stayInSignal || articles.some((item) => item.url === article.url) || historyArticles.some((item) => item.url === article.url)) markArticleRead(article);
     setReaderArticle(article);
+    setReaderTranslation(null);
+    setReaderAudioRequested(listen);
+    setReaderReading({ section: null, playing: false });
+    setFollowReading(true);
     setReaderContent({ status: "loading" });
     const requestId = ++readerRequestSequence.current;
     const params = new URLSearchParams({ url: article.url });
@@ -2432,34 +2774,49 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           setReaderContent({ status: "ready", article: data.article });
           return;
         }
-        openOriginalAfterReaderFailure(article.url, requestId);
+        if (listen || stayInSignal) setReaderContent({ status: "unavailable", reason: data.reason || "The publisher did not provide the full article text to Signal." });
+        else openOriginalAfterReaderFailure(article.url, requestId);
       })
       .catch(() => {
         if (requestId !== readerRequestSequence.current) return;
-        openOriginalAfterReaderFailure(article.url, requestId);
+        if (listen || stayInSignal) setReaderContent({ status: "unavailable", reason: "The full article could not be loaded. You can read it on the publisher’s website." });
+        else openOriginalAfterReaderFailure(article.url, requestId);
       });
   }
 
-  function markArticleRead(article: FollowedArticle) {
-    if (article.isRead) return;
+  useEffect(() => {
+    if (!articleToOpen || openedArticleRequest.current === articleToOpen) return;
+    openedArticleRequest.current = articleToOpen;
+    const article = articles.find((item) => item.url === articleToOpen.url)
+      ?? historyArticles.find((item) => item.url === articleToOpen.url)
+      ?? { ...articleToOpen, publishedAt: "", summary: "", topics: [], providers: [] };
+    openArticleReader(article, headerElement.current?.querySelector<HTMLButtonElement>(".latest-comments-button") ?? document.body, false, true);
+  }, [articleToOpen, articles, historyArticles]);
+
+  function markArticleRead(article: FollowedArticle, fromLatest = feedView === "latest", copies = [article]) {
+    const unread = copies.filter((copy) => !copy.isRead);
+    if (unread.length === 0) return;
+    const readUrls = new Set(unread.map((copy) => copy.url));
     const readAt = new Date().toISOString();
-    const caughtUpTopics = feedView === "latest"
-      ? article.topics.filter((topic) => !articles.some((candidate) =>
-          candidate.url !== article.url
+    const caughtUpTopics = fromLatest
+      ? Array.from(new Set(unread.flatMap((copy) => copy.topics))).filter((topic) => !articles.some((candidate) =>
+          !readUrls.has(candidate.url)
           && !candidate.isRead
           && candidate.topics.some((candidateTopic) =>
             candidateTopic.toLowerCase() === topic.toLowerCase())))
       : [];
-    setArticles((current) => current.map((item) => item.url === article.url
+    setArticles((current) => current.map((item) => readUrls.has(item.url)
       ? { ...item, isRead: true }
       : item));
-    setHistoryArticles((current) => current.map((item) => item.url === article.url
+    setHistoryArticles((current) => current.map((item) => readUrls.has(item.url)
       ? { ...item, isRead: true, readAt }
       : item));
     if (articleStore) {
-      void articleStore.setRead(article.url).catch(() => {
-        setNotice("The story opened, but its read status could not be saved.");
-      });
+      for (const url of readUrls) {
+        void articleStore.setRead(url).catch(() => {
+          setNotice("The story opened, but its read status could not be saved.");
+        });
+      }
     }
     if (caughtUpTopics.length > 0) {
       const viewedAt = new Date().toISOString();
@@ -2492,14 +2849,17 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
   }
 
   function closeArticleReader() {
+    setReaderMinimized(false);
     readerRequestSequence.current += 1;
     setReaderArticle(null);
+    setReaderTranslation(null);
     setReaderContent({ status: "idle" });
+    setReaderReading({ section: null, playing: false });
     window.requestAnimationFrame(() => readerTrigger.current?.focus());
   }
 
   async function toggleBookmark(article: FollowedArticle) {
-    if (!articleStore || bookmarkingUrls.has(article.url)) return;
+    if (!articleStore || bookmarkingUrls.has(article.url)) return false;
     const bookmarked = !article.isBookmarked;
     setBookmarkingUrls((current) => new Set(current).add(article.url));
     try {
@@ -2510,6 +2870,8 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
       setHistoryArticles((current) => current.map((item) => item.url === article.url
         ? { ...item, isBookmarked: bookmarked, bookmarkedAt: bookmarked ? new Date().toISOString() : null }
         : item));
+      setReaderArticle((current) => current?.url === article.url ? { ...current, isBookmarked: bookmarked } : current);
+      setHeadlineQueue((current) => current?.map((item) => item.url === article.url ? { ...item, isBookmarked: bookmarked } : item) ?? null);
       setBookmarkTotal((current) => Math.max(0, current + (bookmarked ? 1 : -1)));
       if (feedView === "bookmarks") {
         setHistoryArticles((current) => current.filter((item) => item.url !== article.url || bookmarked));
@@ -2518,8 +2880,10 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
       setNotice(bookmarked
         ? "Story bookmarked. It will be kept until you remove the bookmark."
         : "Bookmark removed. The normal history cleanup setting now applies.");
+      return true;
     } catch (caught) {
       setNotice(caught instanceof Error ? caught.message : "That bookmark could not be updated.");
+      return false;
     } finally {
       setBookmarkingUrls((current) => {
         const next = new Set(current);
@@ -2529,20 +2893,77 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     }
   }
 
-  async function shareStory(article: FollowedArticle) {
-    if (sharingUrls.has(article.url)) return;
+  function closeFriendShare() {
+    if (friendShareBusy) return;
+    friendShareRequest.current++;
+    setFriendShareArticle(null);
+    setFriendShareUrl("");
+    setFriendShareFriends([]);
+    setFriendShareError("");
+    window.requestAnimationFrame(() => friendShareTrigger.current?.focus());
+  }
+
+  async function openStoryShare(article: FollowedArticle, trigger: HTMLButtonElement) {
+    const requestId = ++friendShareRequest.current;
+    const snapshot = readerArticle?.url === article.url && readerContent.status === "ready"
+      ? { title: readerTranslation?.title ?? article.title,
+          paragraphs: [...(readerTranslation?.paragraphs ?? readerContent.article.paragraphs)],
+          language: readerTranslation?.language ?? "", byline: readerContent.article.byline }
+      : undefined;
+    friendShareTrigger.current = trigger;
+    setFriendShareArticle({ ...article, title: snapshot?.title ?? article.title });
+    setFriendShareUrl("");
+    setFriendShareSummaryOnly(false);
+    setFriendShareCopied(false);
+    setFriendShareFriends([]);
+    setFriendShareError("");
+    setFriendShareLoading(true);
     setSharingUrls((current) => new Set(current).add(article.url));
     try {
-      const resolvedUrl = await resolveArticleShareUrl(article.url);
+      const [saved, friendsResult] = await Promise.all([
+        createHostedArticleShare({ ...article, discussionUrl: article.url, url: snapshot && readerContent.status === "ready"
+          ? readerContent.article.finalUrl : article.url }, snapshot),
+        friendShareStore?.loadFriends().then((friends) => ({ friends, error: "" }))
+          .catch(() => ({ friends: [], error: "Your friends could not be loaded. You can still copy or share the link." }))
+          ?? Promise.resolve({ friends: [], error: "" }),
+      ]);
+      if (friendShareRequest.current !== requestId) return;
+      setFriendShareUrl(new URL(saved.path, window.location.origin).href);
+      setFriendShareArticle({ ...article, title: saved.title });
+      setFriendShareSummaryOnly(saved.summaryOnly);
+      setFriendShareFriends(friendsResult.friends);
+      setFriendShareError(friendsResult.error);
+    } catch (caught) {
+      if (friendShareRequest.current !== requestId) return;
+      setFriendShareError(caught instanceof Error
+        ? caught.message
+        : "Signal could not prepare this story for sharing.");
+    } finally {
+      if (friendShareRequest.current === requestId) setFriendShareLoading(false);
+      setSharingUrls((current) => {
+        const next = new Set(current);
+        next.delete(article.url);
+        return next;
+      });
+    }
+  }
+
+  async function shareStoryExternally(article: FollowedArticle, preparedUrl = "") {
+    if (!preparedUrl || sharingUrls.has(article.url)) return;
+    setSharingUrls((current) => new Set(current).add(article.url));
+    try {
       const result = await shareArticle({
         title: article.title,
         text: `${article.title} — ${article.source}`,
-        url: resolvedUrl,
+        url: preparedUrl,
       });
       if (result === "copied") {
-        setNotice("Publisher link copied. It is ready to paste.");
+        setNotice("Signal story link copied. It is ready to paste.");
+        closeFriendShare();
+      } else if (result === "shared") {
+        closeFriendShare();
       } else if (result === "failed") {
-        setNotice("This browser could not open sharing or copy the story link.");
+        setFriendShareError("This browser could not open sharing or copy the story link.");
       }
     } finally {
       setSharingUrls((current) => {
@@ -2550,6 +2971,42 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         next.delete(article.url);
         return next;
       });
+    }
+  }
+
+  async function copyStoryLink() {
+    if (!friendShareUrl || friendShareBusy) return;
+    const result = await shareArticle({ title: friendShareArticle?.title ?? "Signal story",
+      text: "", url: friendShareUrl }, { clipboard: navigator.clipboard });
+    if (result === "copied") setFriendShareCopied(true);
+    else setFriendShareError("Select the link below and copy it to share this story.");
+  }
+
+  async function shareStoryWithFriend(friend: SignalFriend) {
+    if (!friendShareStore || !friendShareArticle || !friendShareUrl || friendShareBusy) return;
+    setFriendShareBusy(friend.userId);
+    setFriendShareError("");
+    try {
+      const result = await friendShareStore.share(friend.userId, {
+        title: friendShareArticle.title,
+        url: friendShareUrl,
+        source: friendShareArticle.source,
+      });
+      setFriendShareBusy("");
+      setFriendShareArticle(null);
+      setFriendShareUrl("");
+      setFriendShareFriends([]);
+      setNotice(result.emailNotificationSent
+        ? `Shared with ${friend.name}. Signal also emailed them because they are offline.`
+        : result.recipientOnline
+          ? `Shared with ${friend.name}. They are online, so no email was needed.`
+          : result.emailNotificationError
+            ? `Shared with ${friend.name}, but the email notification failed. ${result.emailNotificationError}`
+          : `Shared with ${friend.name}. The story is waiting in their Signal messages.`);
+      window.requestAnimationFrame(() => friendShareTrigger.current?.focus());
+    } catch (caught) {
+      setFriendShareError(caught instanceof Error ? caught.message : "The story could not be shared.");
+      setFriendShareBusy("");
     }
   }
 
@@ -2589,11 +3046,55 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
     ? readerContent.article.finalUrl
     : readerArticle?.url ?? "";
 
+  async function bookmarkWithHand(article: FollowedArticle) {
+    const current = articles.find((item) => item.url === article.url)
+      ?? historyArticles.find((item) => item.url === article.url) ?? article;
+    if (current.isBookmarked) return "Article already bookmarked.";
+    return await toggleBookmark(current) ? "Article bookmarked." : "Could not save the bookmark. Please try its on-screen control.";
+  }
+
+  useHandGestureTarget(10, true, async (action) => {
+    if (headlineQueue && !readerArticle) return "Use the headline player's controls for this action.";
+    // The feed has no narration to pause, so an eye long blink moves on a topic.
+    if (!readerArticle && (action === "next" || action === "previous" || action === "toggle-playback")) {
+      const topic = handGestureTopic(preferences.topics, selectedTopic, action === "previous" ? -1 : 1);
+      if (!topic) return "Follow a topic first to switch topics with your hand.";
+      selectTopicFilter(topic);
+      return `Topic: ${topic}`;
+    }
+    if (action === "scroll-up" || action === "scroll-down") {
+      const direction = action === "scroll-down" ? 1 : -1;
+      const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const container = readerArticle ? readerScrollBody.current : null;
+      if (container) { setFollowReading(false); container.scrollBy({ top: direction * container.clientHeight * 0.65, behavior: reduced ? "instant" : "smooth" }); }
+      else window.scrollBy({ top: direction * innerHeight * 0.65, behavior: reduced ? "instant" : "smooth" });
+      return action === "scroll-down" ? "Scrolled down." : "Scrolled up.";
+    }
+    const list = readerArticle && headlineQueue ? headlineQueue : filteredArticles;
+    const visibleIndex = [...(storyListElement.current?.querySelectorAll("li") ?? [])]
+      .findIndex((element) => element.getBoundingClientRect().bottom > innerHeight * 0.3);
+    const selectedIndex = list.findIndex((item) => item.url === readerArticle?.url);
+    const index = selectedIndex >= 0 ? selectedIndex : Math.max(0, visibleIndex);
+    if (action === "next" || action === "previous") {
+      if (!list.length) return "There are no stories in this view.";
+      const nextIndex = Math.max(0, Math.min(list.length - 1, index + (action === "next" ? 1 : -1)));
+      const next = list[nextIndex];
+      openArticleReader(next, readerCloseButton.current ?? document.body);
+      return `Opened: ${next.title}`;
+    }
+    if (action === "bookmark") {
+      const current = readerArticle ?? list[index];
+      return current ? bookmarkWithHand(current) : "There is no article to bookmark.";
+    }
+    return readerArticle ? "Tap an article's Play control first to start narration." : "Open a story or start headline playback first.";
+  });
+
   return (
     <main className="signal-dashboard" id="top">
-      <header className="site-header">
+      <HandGestureControls />
+      <header ref={headerElement} className="site-header">
         <a className="brand" href="#top" aria-label="Signal home">
-          <span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>
+          <img className="brand-mark" src="/icons/signal-medallion-64.png" alt="" aria-hidden="true" />
           <span>SIGNAL</span>
         </a>
         <div className="header-actions">
@@ -2613,7 +3114,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           {onOpenCommunity && (
             <button
               type="button"
-              className="community-button"
+              className={communityUnreadCount > 0 ? "community-button has-new-messages" : "community-button"}
               onClick={onOpenCommunity}
               aria-label={communityUnreadCount > 0 ? `Friends and messages, ${communityUnreadCount} unread` : "Friends and messages"}
               title="Friends and messages"
@@ -2621,6 +3122,21 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               <CommunityIcon />
               <span className="community-button-label">Friends</span>
               {communityUnreadCount > 0 && <span className="community-unread">{Math.min(communityUnreadCount, 99)}</span>}
+            </button>
+          )}
+          {onOpenLatestComments && (
+            <button
+              type="button"
+              className={latestCommentUnreadCount > 0
+                ? "community-button latest-comments-button has-new-comments"
+                : "community-button latest-comments-button"}
+              onClick={onOpenLatestComments}
+              aria-label={latestCommentUnreadCount > 0 ? `Latest comments, ${latestCommentUnreadCount} new` : "Latest comments"}
+              title="Latest comments"
+            >
+              <CommentIcon />
+              <span className="latest-comments-button-label">Comments</span>
+              {latestCommentUnreadCount > 0 && <span className="community-unread">{Math.min(latestCommentUnreadCount, 99)}</span>}
             </button>
           )}
           <button
@@ -2826,10 +3342,12 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                 onClick={() => {
                   const next = !trendsOpen;
                   setTrendsOpen(next);
-                  if (next && trendingTerms.length === 0 && !trendsLoading) void loadTrendingTerms();
                 }}
               >
-                <span><strong>Trending now</strong><small>Up to 5 per English + Mandarin-speaking region</small></span>
+                <span>
+                  <strong>Trending now</strong>
+                  <small>{preferences.trendRegions.length} regions · up to {preferences.trendsPerRegion} per region</small>
+                </span>
                 <span className="trends-picker-action">{trendsOpen ? "Hide" : "Browse"}</span>
               </button>
               {trendsOpen && (
@@ -2837,6 +3355,73 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                   <div className="trends-picker-meta">
                     <span>{trendsFetchedAt ? `Updated ${formatAge(trendsFetchedAt)}` : "Google Trends"}</span>
                     <button type="button" onClick={() => void loadTrendingTerms()} disabled={trendsLoading}>Refresh</button>
+                  </div>
+                  <div className="trends-settings">
+                    <label className="trends-count-setting">
+                      <span>Trends per region</span>
+                      <select
+                        value={preferences.trendsPerRegion}
+                        onChange={(event) => setPreferences((current) => ({
+                          ...current,
+                          trendsPerRegion: Number(event.target.value),
+                        }))}
+                      >
+                        {Array.from({ length: 10 }, (_, index) => index + 1).map((count) => (
+                          <option value={count} key={count}>{count}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <details className="trends-region-setting">
+                      <summary>
+                        <span>Regions</span>
+                        <small>{preferences.trendRegions.length} selected</small>
+                      </summary>
+                      <div className="trends-region-panel">
+                        <div className="trends-region-actions">
+                          <span>English and Mandarin-speaking regions</span>
+                          <button
+                            type="button"
+                            onClick={() => setPreferences((current) => ({
+                              ...current,
+                              trendRegions: availableTrendRegions.map((region) => region.code),
+                            }))}
+                          >
+                            Select all
+                          </button>
+                        </div>
+                        <div className="trends-region-grid">
+                          {availableTrendRegions.map((region) => {
+                            const checked = preferences.trendRegions.includes(region.code);
+                            return (
+                              <label key={region.code}>
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  disabled={checked && preferences.trendRegions.length === 1}
+                                  onChange={() => setPreferences((current) => {
+                                    const selected = new Set(current.trendRegions);
+                                    if (selected.has(region.code)) {
+                                      if (selected.size === 1) return current;
+                                      selected.delete(region.code);
+                                    } else {
+                                      selected.add(region.code);
+                                    }
+                                    return {
+                                      ...current,
+                                      trendRegions: availableTrendRegions
+                                        .filter((candidate) => selected.has(candidate.code))
+                                        .map((candidate) => candidate.code),
+                                    };
+                                  })}
+                                />
+                                <span>{region.name}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                        <small className="trends-region-note">Keep at least one region selected.</small>
+                      </div>
+                    </details>
                   </div>
                   <div className="trends-view-controls">
                     {trendsView === "bubbles" ? (
@@ -2985,7 +3570,17 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
             {preferences.sources.rssFeeds.length > 0 && (
               <ul className="rss-feeds">
                 {preferences.sources.rssFeeds.map((feed) => (
-                  <li key={feed}><span>{feedName(feed)}</span><button type="button" onClick={() => removeRssFeed(feed)} aria-label={`Remove ${feedName(feed)} feed`}>&#215;</button></li>
+                  <li key={feed}>
+                    <div className="rss-feed-details">
+                      <strong>{feedName(feed)}</strong>
+                      <a href={feed} target="_blank" rel="noopener noreferrer">{feed}</a>
+                    </div>
+                    <button type="button" className="rss-feed-copy" onClick={() => void copyRssFeedLink(feed)}
+                      aria-label={`Copy RSS feed link: ${feed}`}>
+                      {copiedRssFeed === feed ? "Copied" : "Copy link"}
+                    </button>
+                    <button type="button" onClick={() => removeRssFeed(feed)} aria-label={`Remove RSS feed: ${feed}`}>&#215;</button>
+                  </li>
                 ))}
               </ul>
             )}
@@ -3036,6 +3631,33 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                   {size}
                 </button>
               ))}
+            </div>
+          </div>
+          <div className="pinned-filter-settings" role="group" aria-labelledby="pinned-filter-settings-label">
+            <span id="pinned-filter-settings-label">Pinned filters while scrolling</span>
+            <div>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={preferences.showTopicFiltersWhenPinned}
+                  onChange={(event) => setPreferences((current) => ({
+                    ...current,
+                    showTopicFiltersWhenPinned: event.target.checked,
+                  }))}
+                />
+                <span><strong>Topics</strong><small>Keep the topic selector in the pinned area.</small></span>
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={preferences.showSourceFiltersWhenPinned}
+                  onChange={(event) => setPreferences((current) => ({
+                    ...current,
+                    showSourceFiltersWhenPinned: event.target.checked,
+                  }))}
+                />
+                <span><strong>Sources</strong><small>Keep the source selector in the pinned area.</small></span>
+              </label>
             </div>
           </div>
           {articleStore && (
@@ -3124,6 +3746,22 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                           : "Enable"}
               </button>
             </div>
+          )}
+          {pushNotificationStore && (
+            <label className="email-summary-toggle">
+              <input
+                type="checkbox"
+                checked={preferences.pushNewsTitlesEnabled}
+                onChange={(event) => setPreferences((current) => ({
+                  ...current,
+                  pushNewsTitlesEnabled: event.target.checked,
+                }))}
+              />
+              <span>
+                <strong>Show each news title</strong>
+                <small>Send a separate phone notification for each new story, showing its title, publisher and a short summary when available. Turn off for topic summaries. Applies to all your devices with notifications enabled.</small>
+              </span>
+            </label>
           )}
           <p className="settings-note" aria-live="polite">
             {!preferencesStore
@@ -3292,7 +3930,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                 type="search"
                 value={historySearchInput}
                 onChange={(event) => setHistorySearchInput(event.target.value)}
-                placeholder="Titles, summaries, publishers or topics"
+                placeholder="Article text, titles, summaries, publishers or topics"
                 maxLength={100}
               />
               {historySearch && <button type="button" className="history-search-clear" onClick={clearHistorySearch}>Clear</button>}
@@ -3302,7 +3940,14 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         )}
 
         {preferences.topics.length > 0 && (
-          <div className="filter-stack" ref={filterStackElement}>
+          <div
+            className={[
+              "filter-stack",
+              preferences.showTopicFiltersWhenPinned ? "" : "hide-topic-filters-when-pinned",
+              preferences.showSourceFiltersWhenPinned ? "" : "hide-source-filters-when-pinned",
+            ].filter(Boolean).join(" ")}
+            ref={filterStackElement}
+          >
             <div className="filter-sticky-heading">
               <div className="filter-sticky-title">
                 <span>{feedView === "latest" ? "Current topic" : feedView}</span>
@@ -3524,7 +4169,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           <div className="loading-list" aria-label="Loading saved stories">{Array.from({ length: 4 }, (_, index) => <div className="loading-row" key={index} />)}</div>
         ) : feedView !== "latest" && filteredArticles.length === 0 ? (
           historySearch || selectedTopic !== ALL_TOPICS || selectedProvider !== ALL_PROVIDERS ? (
-            <div className="message-card"><p className="message-kicker">No matches</p><h3>Try broader filters.</h3><p>No saved stories match the current search and filters. Search checks titles, summaries, publishers and topics.</p><button onClick={clearHistoryFiltersAndSearch}>Clear search and filters</button></div>
+            <div className="message-card"><p className="message-kicker">No matches</p><h3>Try broader filters.</h3><p>No saved stories match the current search and filters. Search checks available article text, titles, summaries, publishers and topics.</p><button onClick={clearHistoryFiltersAndSearch}>Clear search and filters</button></div>
           ) : (
             <div className="message-card"><p className="message-kicker">Nothing saved here yet</p><h3>{feedView === "bookmarks" ? "Bookmark a story to keep it." : "Refresh your briefing to build history."}</h3><p>{feedView === "bookmarks" ? "Use the bookmark button beside any story. Bookmarks are never removed by automatic cleanup." : "Signal stores refreshed stories in your account and removes old unbookmarked items using your cleanup setting."}</p></div>
           )
@@ -3567,9 +4212,26 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                       onError={(event) => { event.currentTarget.hidden = true; }}
                     />
                   )}
-                  <ArrowIcon />
                 </a>
                 <div className="story-actions">
+                  <button
+                    type="button"
+                    className="open-story-button"
+                    onClick={(event) => openArticleReader(article, event.currentTarget)}
+                    aria-label={`Read ${article.title} in Signal`}
+                    title="Read in Signal"
+                  >
+                    <ArrowIcon />
+                  </button>
+                  <button
+                    type="button"
+                    className="listen-story-button"
+                    onClick={(event) => openArticleReader(article, event.currentTarget, true)}
+                    aria-label={`Listen to ${article.title}`}
+                    title="Listen to this news"
+                  >
+                    <SpeakerIcon />
+                  </button>
                   {onOpenDiscussion && (
                     <button
                       type="button"
@@ -3584,7 +4246,7 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                   <button
                     type="button"
                     className="share-button"
-                    onClick={() => void shareStory(article)}
+                    onClick={(event) => void openStoryShare(article, event.currentTarget)}
                     disabled={sharingUrls.has(article.url)}
                     aria-busy={sharingUrls.has(article.url)}
                     aria-label={`Share ${article.title}`}
@@ -3625,6 +4287,103 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         )}
       </section>
       </div>
+
+      {friendShareArticle && (
+        <div
+          className="topic-confirmation-backdrop friend-share-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeFriendShare();
+          }}
+        >
+          <section
+            className="topic-confirmation friend-share-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="friend-share-title"
+            aria-describedby="friend-share-description"
+          >
+            <p className="topic-confirmation-kicker">Share in Signal</p>
+            <h2 id="friend-share-title">Share this story.</h2>
+            <p id="friend-share-description">
+              Signal saves the version you are viewing, including its translation. Anyone with the link can read it without signing in.
+            </p>
+            <div className="friend-share-story">
+              <small>{friendShareArticle.source}</small>
+              <strong>{friendShareArticle.title}</strong>
+            </div>
+            {friendShareLoading ? (
+              <p className="friend-share-status" role="status">Saving your Signal story page…</p>
+            ) : friendShareFriends.length > 0 ? (
+              <div className="friend-share-list" role="list" aria-label="Signal friends">
+                {friendShareFriends.map((friend) => (
+                  <button
+                    type="button"
+                    role="listitem"
+                    key={friend.userId}
+                    disabled={Boolean(friendShareBusy)}
+                    onClick={() => void shareStoryWithFriend(friend)}
+                  >
+                    <span className="friend-share-avatar" aria-hidden="true">
+                      <b>{friend.name.trim().charAt(0).toUpperCase()}</b>
+                      <img
+                        src={friend.profilePhotoUrl}
+                        alt=""
+                        onError={(event) => { event.currentTarget.hidden = true; }}
+                      />
+                    </span>
+                    <span>
+                      <strong>{friend.name}</strong>
+                      <small>{friend.isOnline ? "Online now" : "Offline · email notification"}</small>
+                    </span>
+                    <b>{friendShareBusy === friend.userId ? "Sending…" : "Send"}</b>
+                  </button>
+                ))}
+              </div>
+            ) : friendShareStore ? (
+              <div className="friend-share-empty">
+                <p>You do not have any accepted Signal friends yet.</p>
+                {onOpenCommunity && (
+                  <button type="button" onClick={() => {
+                    closeFriendShare();
+                    onOpenCommunity();
+                  }}>
+                    Find friends
+                  </button>
+                )}
+              </div>
+            ) : null}
+            {friendShareError && <p className="friend-share-status error" role="alert">{friendShareError}</p>}
+            {friendShareUrl && <div className="friend-share-link">
+              <label htmlFor="hosted-story-link">Your Signal story link</label>
+              <div className="friend-share-link-row">
+                <input id="hosted-story-link" value={friendShareUrl} readOnly onFocus={(event) => event.currentTarget.select()} />
+                <button type="button" disabled={friendShareLoading || Boolean(friendShareBusy)}
+                  onClick={() => void copyStoryLink()}>{friendShareCopied ? "Copied" : "Copy link"}</button>
+              </div>
+              <a href={friendShareUrl} target="_blank" rel="noreferrer">Preview shared page ↗</a>
+              {friendShareCopied && <p role="status">Link copied. It is ready to paste.</p>}
+              {friendShareSummaryOnly && <p>Only the headline and feed summary are available for this story. The shared page links to the full article.</p>}
+            </div>}
+            <div className="topic-confirmation-actions friend-share-actions">
+              <button
+                type="button"
+                disabled={!friendShareUrl || friendShareLoading || Boolean(friendShareBusy)}
+                onClick={() => void shareStoryExternally(friendShareArticle, friendShareUrl)}
+              >
+                More sharing options
+              </button>
+              <button
+                ref={friendShareCloseButton}
+                type="button"
+                disabled={Boolean(friendShareBusy)}
+                onClick={closeFriendShare}
+              >
+                Close
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {topicPendingRemoval && (
         <div
@@ -3706,6 +4465,15 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                 ))}
               </div>
             )}
+            <div className="weather-speech-settings">
+              <label><input type="checkbox" checked={weatherAudio.enabled} onChange={(event) => weatherAudio.changeEnabled(event.target.checked)} />Read weather on opening</label>
+              <div className="topic-confirmation-actions">
+                <button type="button" disabled={!weatherAudio.available} onClick={weatherAudio.read}>Read weather now</button>
+                <button type="button" disabled={weatherAudio.status !== "playing" && weatherAudio.status !== "starting"} onClick={weatherAudio.stop}>Stop reading</button>
+              </div>
+              {weatherAudio.status === "blocked" && <p role="status">Tap Read weather now to allow audio playback.</p>}
+              {weatherAudio.status === "unavailable" && <p role="status">Weather audio is unavailable. Try Read weather now again.</p>}
+            </div>
             <div className="topic-confirmation-actions weather-location-actions">
               <button type="button" onClick={useDeviceWeatherLocation}>
                 Use my device location
@@ -3825,9 +4593,12 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
         </div>
       )}
 
+      {readerArticle && readerMinimized && <MinimizedAudioPlayer title={readerTranslation?.title ?? readerArticle.title}
+        onRestore={() => setReaderMinimized(false)} onClose={closeArticleReader} />}
       {readerArticle && (
         <div
           className="article-reader-backdrop"
+          style={readerMinimized ? { display: "none" } : undefined}
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) closeArticleReader();
           }}
@@ -3835,13 +4606,26 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
           <section
             className="article-reader"
             role="dialog"
-            aria-modal="true"
+            aria-modal={!readerMinimized}
             aria-labelledby="article-reader-title"
           >
             <header className="article-reader-header">
               <div className="article-reader-toolbar">
                 <span className="article-reader-kicker"><span className="pulse" /> Signal reader</span>
                 <div className="article-reader-actions">
+                  <button type="button" className="article-reader-share" aria-label="Minimize audio player" onClick={() => {
+                    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+                    if (headlineQueue) { headlineFullscreenRequested.current = false; setHeadlinesMinimized(true); }
+                    setReaderMinimized(true);
+                  }}>Minimize</button>
+                  <button type="button" className="article-reader-share" disabled={readerContent.status === "loading" || sharingUrls.has(readerArticle.url)}
+                    onClick={(event) => void openStoryShare(readerArticle, event.currentTarget)}>
+                    <ShareIcon /> Share
+                  </button>
+                  <button type="button" className="article-reader-follow" aria-pressed={followReading}
+                    onClick={() => setFollowReading((current) => !current)} title="Keep the spoken section in view">
+                    Follow reading
+                  </button>
                   <a href={readerOriginalUrl} target="_blank" rel="noreferrer">
                     Open original <span aria-hidden="true">&#8599;</span>
                   </a>
@@ -3857,16 +4641,28 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               </div>
               <div className="article-reader-meta">
                 <span>{readerArticle.source}</span>
-                <span>{formatAge(readerArticle.publishedAt)}</span>
+                {readerArticle.publishedAt && <span>{formatAge(readerArticle.publishedAt)}</span>}
               </div>
-              <h2 id="article-reader-title">{readerArticle.title}</h2>
+              <h2 id="article-reader-title" lang={readerTranslation?.language} dir="auto"><ArticleReadingText text={readerTranslation?.title ?? readerArticle.title} paragraphIndex={-1} section={readerReading.section} /></h2>
               <p>
                 {readerContent.status === "loading"
                   ? "Preparing a clean reading view…"
-                  : "Reader view prepared from the publisher’s public article."}
+                  : readerContent.status === "unavailable" ? "Full article text unavailable."
+                    : "Reader view prepared from the publisher’s public article."}
               </p>
             </header>
-            <div className="article-reader-body">
+            <div ref={readerScrollBody} className="article-reader-body">
+              {readerContent.status === "unavailable" && <div className="article-reader-state" role="status">
+                <strong>Full article text unavailable</strong>
+                <p>{readerContent.reason}</p>
+                <p>{readerArticle.summary ? "You can still listen to the headline and feed summary." : "You can still listen to the headline."}</p>
+                <ArticleAudioPlayer key={readerArticle.url} title={readerArticle.title} source={readerArticle.source}
+                  paragraphs={readerSummaryParagraphs} autoPrepare={readerAudioRequested} summaryOnly onReadingSectionChange={updateReaderReading} />
+                {readerSummaryParagraphs.map((paragraph, index) => <p key={index} className="article-reader-summary">
+                  <ArticleReadingText text={paragraph} paragraphIndex={index} section={readerReading.section} />
+                </p>)}
+                <a href={readerOriginalUrl} target="_blank" rel="noreferrer">Read on the publisher’s website &#8599;</a>
+              </div>}
               {readerContent.status === "loading" && (
                 <div className="article-reader-state" role="status">
                   <span className="article-reader-loader" aria-hidden="true" />
@@ -3876,6 +4672,13 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               )}
               {readerContent.status === "ready" && (
                 <article className="article-reader-content">
+                  <ArticleTranslationControls key={`translation-${readerArticle.url}`} url={readerArticle.url} title={readerArticle.title}
+                    translated={readerTranslation !== null} onChange={updateReaderTranslation} />
+                  {readerTranslation ? <ArticleAudioPlayer key={`${readerArticle.url}-${readerTranslation.language}`}
+                    title={readerTranslation.title} source={readerArticle.source} paragraphs={readerTranslation.paragraphs}
+                    onReadingSectionChange={updateReaderReading} />
+                    : <ArticleSummaryPlayer key={readerArticle.url} url={readerArticle.url} title={readerArticle.title} source={readerArticle.source}
+                      paragraphs={readerContent.article.paragraphs} autoPrepare={readerAudioRequested} onReadingSectionChange={updateReaderReading} />}
                   {readerArticle.imageUrl && (
                     <img
                       className="article-reader-image"
@@ -3893,8 +4696,8 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                         .join(" / ")}
                     </p>
                   )}
-                  {readerContent.article.paragraphs.map((paragraph, index) => (
-                    <p key={`${index}-${paragraph.slice(0, 24)}`}>{paragraph}</p>
+                  {(readerTranslation?.paragraphs ?? readerContent.article.paragraphs).map((paragraph, index) => (
+                    <p key={`${index}-${paragraph.slice(0, 24)}`} lang={readerTranslation?.language} dir="auto"><ArticleReadingText text={paragraph} paragraphIndex={index} section={readerReading.section} /></p>
                   ))}
                   <div className="article-reader-end">
                     <span>End of reader view</span>
@@ -3902,13 +4705,177 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
                   </div>
                 </article>
               )}
+              {renderArticleComments && (
+                <section className="article-reader-comments" aria-labelledby="reader-comments-title">
+                  <h3 id="reader-comments-title">Comments</h3>
+                  {renderArticleComments(readerArticle, closeArticleReader)}
+                </section>
+              )}
             </div>
           </section>
         </div>
       )}
 
-      {(controlsHidden || previousTopic || nextUnreadTopic || backToTopVisible) && (
-        <nav className="floating-navigation" aria-label="Quick page navigation">
+      {quickTopicSearchOpen && (
+        <dialog
+          ref={quickTopicSearchDialog}
+          className="topic-filter-picker quick-topic-search"
+          id="quick-topic-search"
+          aria-labelledby="quick-topic-search-title"
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              closeQuickTopicSearch();
+            }
+          }}
+          onCancel={(event) => {
+            event.preventDefault();
+            closeQuickTopicSearch();
+          }}
+          onClick={(event) => {
+            if (event.target !== event.currentTarget) return;
+            const bounds = event.currentTarget.getBoundingClientRect();
+            if (event.clientX < bounds.left || event.clientX > bounds.right
+                || event.clientY < bounds.top || event.clientY > bounds.bottom) {
+              closeQuickTopicSearch();
+            }
+          }}
+        >
+          <div className="topic-filter-picker-heading">
+            <div>
+              <strong id="quick-topic-search-title">Search</strong>
+              <span aria-live="polite">{quickSearchMode === "text" ? `Search saved ${feedView === "bookmarks" ? "bookmarks" : "stories"}` : `${pickerTopics.length} of ${preferences.topics.length} followed`}</span>
+            </div>
+            <button type="button" onClick={closeQuickTopicSearch} aria-label="Close search">&#215;</button>
+          </div>
+          {articleStore && <div className="quick-search-modes" role="group" aria-label="Search mode">
+            <button type="button" aria-pressed={quickSearchMode === "topics"} onClick={() => setQuickSearchMode("topics")}>Topics</button>
+            <button type="button" aria-pressed={quickSearchMode === "text"} onClick={() => setQuickSearchMode("text")}>Full text</button>
+          </div>}
+          {quickSearchMode === "text" && articleStore ? (
+            <form className="quick-text-search" role="search" onSubmit={submitQuickTextSearch}>
+              <label htmlFor="quick-text-query">Search {feedView === "bookmarks" ? "bookmarks" : "all saved stories"}</label>
+              <input ref={quickTopicSearchInput} id="quick-text-query" type="search" value={quickTextQuery} maxLength={100}
+                onChange={(event) => setQuickTextQuery(event.target.value)}
+                placeholder="Enter words to find in stories" aria-describedby="quick-text-help" />
+              <p id="quick-text-help">Search titles, summaries, publishers, topics and article text captured by Signal Reader. Results include all your {feedView === "bookmarks" ? "bookmarks" : "saved stories"}, across topics and sources.</p>
+              <button type="submit" disabled={!quickTextQuery.trim()}>Search stories</button>
+            </form>
+          ) : <>
+          <input
+            ref={quickTopicSearchInput}
+            type="search"
+            value={topicPickerQuery}
+            onChange={(event) => setTopicPickerQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.nativeEvent.isComposing && pickerTopics.length === 1) {
+                event.preventDefault();
+                selectQuickTopic(pickerTopics[0]);
+              }
+            }}
+            placeholder="Find a followed topic"
+            aria-label="Find a followed topic"
+          />
+          <div className="topic-filter-picker-grid">
+            {!topicPickerQuery.trim() && (
+              <button type="button" className={selectedTopic === ALL_TOPICS ? "active" : ""}
+                aria-pressed={selectedTopic === ALL_TOPICS} onClick={() => selectQuickTopic(ALL_TOPICS)}>
+                <span>All topics</span>
+              </button>
+            )}
+            {pickerTopics.map((topic) => (
+              <button type="button" key={topic} className={selectedTopic === topic ? "active" : ""}
+                aria-pressed={selectedTopic === topic}
+                aria-label={`${topic}, ${topicCounts[topic] ?? 0} stories${topicHasUnread[topic] ? ", unread news" : ""}`}
+                onClick={() => selectQuickTopic(topic)}>
+                <span>{topic}{topicHasUnread[topic] && <i className="topic-unread-indicator" aria-hidden="true" />}</span>
+                <b>{topicCounts[topic] ?? 0}</b>
+              </button>
+            ))}
+            {pickerTopics.length === 0 && <p>{preferences.topics.length === 0
+              ? "Follow a topic using Add or manage topics to start your briefing."
+              : "No followed topics match that search."}</p>}
+          </div>
+          </>}
+        </dialog>
+      )}
+
+      {headlineQueue && (
+        <HeadlinePlayer
+          articles={headlineQueue}
+          marketTopic={selectedTopic === ALL_TOPICS ? undefined : selectedTopic}
+          tickerOverrides={preferences.tickerOverrides}
+          randomized={headlineQueueRandomized}
+          minimized={headlinesMinimized}
+          onMinimize={() => { headlineFullscreenRequested.current = false; setHeadlinesMinimized(true); }}
+          onRestore={() => setHeadlinesMinimized(false)}
+          suspended={readerArticle !== null}
+          startWithScreenOffAudio={preferScreenOffAudio(navigator.userAgent, appInstalled)}
+          onArticleRead={(article) => {
+            markArticleRead(article, true, headlineDuplicates.current.get(article.url) ?? [article]);
+          }}
+          onOpenArticle={(article) => {
+            openArticleReader(article, document.activeElement instanceof HTMLElement ? document.activeElement : document.body);
+          }}
+          onListenArticle={(article) => {
+            openArticleReader(article, document.activeElement instanceof HTMLElement ? document.activeElement : document.body, true);
+          }}
+          onClose={closeHeadlinePlayer}
+          onHandBookmark={bookmarkWithHand}
+        />
+      )}
+
+        <nav className={`floating-navigation floating-navigation-${floatingNavigationSide}`} aria-label="Quick page navigation">
+          <button
+            type="button"
+            className="floating-play-headlines"
+            disabled={unreadArticles.length === 0}
+            onClick={startHeadlinePlayback}
+            aria-label={unreadArticles.length > 0 ? `Play ${unreadArticles.length} unread headlines in full screen` : "No unread headlines to play"}
+            title={unreadArticles.length > 0 ? `Play unread headlines (${unreadArticles.length})` : "All headlines are read"}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+          </button>
+          <button
+            type="button"
+            className="floating-play-random"
+            disabled={randomArticles.length === 0}
+            onClick={startRandomHeadlinePlayback}
+            aria-label={
+              unreadArticles.length > 0
+                ? `Random audio play for ${unreadArticles.length} unread recent ${unreadArticles.length === 1 ? "news story" : "news stories"}`
+                : randomArticles.length > 0
+                  ? `Random audio play for ${randomArticles.length} recent ${randomArticles.length === 1 ? "news story" : "news stories"}`
+                  : "No recent news to play randomly"
+            }
+            title={
+              unreadArticles.length > 0
+                ? `Randomly play unread news (${unreadArticles.length})`
+                : randomArticles.length > 0
+                  ? `Randomly play recent news (${randomArticles.length})`
+                  : "No recent news to play"
+            }
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5" />
+            </svg>
+          </button>
+          <button
+            ref={quickTopicSearchButton}
+            type="button"
+            className="floating-topic-search"
+            onClick={openQuickTopicSearch}
+            aria-label="Search topics or full text"
+            aria-haspopup="dialog"
+            aria-controls="quick-topic-search"
+            aria-expanded={quickTopicSearchOpen}
+            title="Search topics or full text"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="10.5" cy="10.5" r="6.5" />
+              <path d="m16 16 4.5 4.5" />
+            </svg>
+          </button>
           {controlsHidden && (
             <button
               type="button"
@@ -3931,13 +4898,13 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               <span aria-hidden="true">&#8592;</span>
             </button>
           )}
-          {nextUnreadTopic && (
+          {nextFloatingTopic && (
             <button
               type="button"
               className="floating-next-unread"
-              onClick={() => selectTopicFilter(nextUnreadTopic)}
-              aria-label={`Go to next unread topic: ${nextUnreadTopic}`}
-              title={`Next unread: ${nextUnreadTopic}`}
+              onClick={() => selectTopicFilter(nextFloatingTopic)}
+              aria-label={`Go to next ${nextUnreadTopic ? "unread " : ""}topic: ${nextFloatingTopic}`}
+              title={`Next ${nextUnreadTopic ? "unread" : "topic"}: ${nextFloatingTopic}`}
             >
               <span aria-hidden="true">&#8594;</span>
             </button>
@@ -3952,8 +4919,20 @@ export default function NewsDashboard({ user, signOutPath, onSignOut, onManageAc
               <span aria-hidden="true">&#8593;</span>
             </a>
           )}
+          <button
+            type="button"
+            className="floating-switch-side"
+            onClick={switchFloatingNavigationSide}
+            aria-label={`Move floating controls to the ${floatingNavigationSide === "left" ? "right" : "left"}`}
+            title={`Move controls to the ${floatingNavigationSide === "left" ? "right" : "left"}`}
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d={floatingNavigationSide === "left"
+                ? "M20 4v16M4 12h11m-5-5 5 5-5 5"
+                : "M4 4v16M20 12H9m5-5-5 5 5 5"} />
+            </svg>
+          </button>
         </nav>
-      )}
       <footer><p><span className="footer-dot" /> SIGNAL gathers public reporting and sends you to the original publisher.</p></footer>
     </main>
   );

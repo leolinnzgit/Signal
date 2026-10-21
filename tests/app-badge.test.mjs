@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import vm from "node:vm";
 import ts from "typescript";
 
 const source = await readFile(
@@ -12,7 +13,7 @@ const serviceWorker = await readFile(
   "utf8",
 );
 const notificationBadge = await readFile(
-  new URL("../public/icons/signal-notification-96.png", import.meta.url),
+  new URL("../public/icons/signal-notification-medallion-96.png", import.meta.url),
 );
 const pushNotificationService = await readFile(
   new URL("../Signal.Server/Services/PushNotificationService.cs", import.meta.url),
@@ -112,9 +113,77 @@ test("handles background push notifications and badge updates", () => {
 });
 
 test("uses a dedicated transparent Android notification badge", () => {
-  assert.match(serviceWorker, /badge: payload\.badge \|\| "\/icons\/signal-notification-96\.png"/);
-  assert.match(pushNotificationService, /badge = "\/icons\/signal-notification-96\.png"/);
+  assert.match(serviceWorker, /badge: payload\.badge \|\| "\/icons\/signal-notification-medallion-96\.png"/);
+  assert.match(pushNotificationService, /badge = "\/icons\/signal-notification-medallion-96\.png"/);
   assert.equal(notificationBadge.readUInt32BE(16), 96);
   assert.equal(notificationBadge.readUInt32BE(20), 96);
   assert.equal(notificationBadge[25], 6);
+});
+
+function workerHarness() {
+  const handlers = {};
+  const notifications = new Map();
+  const badgeCounts = [];
+  vm.runInNewContext(serviceWorker, {
+    URL,
+    self: {
+      addEventListener: (name, handler) => { handlers[name] = handler; },
+      location: { origin: "https://signal.example" },
+      navigator: {
+        setAppBadge: async (count) => { badgeCounts.push(count); },
+        clearAppBadge: async () => { badgeCounts.push(0); },
+      },
+      registration: {
+        showNotification: async (title, options) => {
+          notifications.set(options.tag, {
+            title, ...options,
+            close: () => notifications.delete(options.tag),
+          });
+        },
+        getNotifications: async () => [...notifications.values()],
+      },
+    },
+  });
+  return {
+    notifications, badgeCounts,
+    async dispatch(name, data) {
+      let pending;
+      handlers[name]({
+        data: name === "push" ? { json: () => data } : data,
+        waitUntil: (promise) => { pending = promise; },
+      });
+      await pending;
+    },
+  };
+}
+
+test("keeps each news headline visible and replaces retries of the same story", async () => {
+  const worker = workerHarness();
+  for (const id of [1, 2, 1]) {
+    await worker.dispatch("push", {
+      title: `News headline ${id}`,
+      body: "Publisher",
+      tag: `signal-new-stories-${id}`,
+      badgeCount: 2,
+      url: "/#top",
+    });
+  }
+  assert.equal(worker.notifications.size, 2);
+  assert.equal(worker.notifications.get("signal-new-stories-1").title, "News headline 1");
+  assert.equal(worker.notifications.get("signal-new-stories-2").body, "Publisher");
+  assert.equal(worker.notifications.get("signal-new-stories-2").data.url, "/#top");
+  assert.deepEqual(worker.badgeCounts, [2, 2, 2]);
+});
+
+test("retains legacy summary behavior and clears all news notifications only", async () => {
+  const worker = workerHarness();
+  await worker.dispatch("push", { title: "Old summary" });
+  await worker.dispatch("push", { title: "Latest summary" });
+  assert.equal(worker.notifications.size, 1);
+  assert.equal(worker.notifications.get("signal-new-stories").title, "Latest summary");
+  await worker.dispatch("push", { title: "Headline", tag: "signal-new-stories-3" });
+  worker.notifications.set("unrelated", { tag: "unrelated", close() { throw new Error("Closed unrelated notification"); } });
+  await worker.dispatch("message", { type: "signal:update-app-badge", count: 0 });
+  assert.deepEqual([...worker.notifications.keys()], ["unrelated"]);
+  assert.equal(worker.badgeCounts.at(-1), 0);
 });

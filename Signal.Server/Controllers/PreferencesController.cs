@@ -61,6 +61,8 @@ public sealed class PreferencesController(
         var weatherLocationJson = weatherLocation is null ? "{}" : JsonSerializer.Serialize(weatherLocation);
         var secondaryTimeZone = NormalizeSecondaryTimeZone(request.SecondaryTimeZone);
         var secondaryTimeZoneJson = secondaryTimeZone is null ? "{}" : JsonSerializer.Serialize(secondaryTimeZone);
+        var trendRegions = NormalizeTrendRegions(request.TrendRegions);
+        var trendRegionsJson = JsonSerializer.Serialize(trendRegions);
         var storyLimit = NormalizeStoryLimit(request.Limit);
         var forceRefresh = preferences is null
             || preferences.StoryLimit != storyLimit
@@ -79,8 +81,11 @@ public sealed class PreferencesController(
         preferences.StoryLimit = storyLimit;
         preferences.StoryTitleSize = NormalizeStoryTitleSize(request.StoryTitleSize);
         preferences.TopicHeaderSize = NormalizeStoryTitleSize(request.TopicHeaderSize);
+        preferences.ShowTopicFiltersWhenPinned = request.ShowTopicFiltersWhenPinned ?? preferences.ShowTopicFiltersWhenPinned;
+        preferences.ShowSourceFiltersWhenPinned = request.ShowSourceFiltersWhenPinned ?? preferences.ShowSourceFiltersWhenPinned;
         preferences.RefreshMinutes = request.RefreshMinutes;
         preferences.EmailSummaryEnabled = request.EmailSummaryEnabled;
+        preferences.PushNewsTitlesEnabled = request.PushNewsTitlesEnabled ?? preferences.PushNewsTitlesEnabled;
         preferences.ArticleRetentionDays = NormalizeRetentionDays(request.ArticleRetentionDays);
         preferences.GoogleEnabled = request.Sources.Google;
         preferences.GdeltEnabled = request.Sources.Gdelt;
@@ -88,6 +93,8 @@ public sealed class PreferencesController(
         preferences.TickerOverridesJson = tickerOverridesJson;
         preferences.WeatherLocationJson = weatherLocationJson;
         preferences.SecondaryTimeZoneJson = secondaryTimeZoneJson;
+        preferences.TrendRegionsJson = trendRegionsJson;
+        preferences.TrendsPerRegion = NormalizeTrendsPerRegion(request.TrendsPerRegion);
         preferences.UpdatedAtUtc = DateTimeOffset.UtcNow;
 
         await SyncTopicRefreshStatesAsync(
@@ -141,8 +148,8 @@ public sealed class PreferencesController(
                     StringComparison.OrdinalIgnoreCase));
             if (duplicateOf is not null)
                 return Ok(new ResolveRssFeedResponse(candidate, false, duplicateOf, feeds.ToArray()));
-            if (feeds.Count >= 20)
-                return BadRequest(new { error = "You can add up to 20 publisher feeds." });
+            if (feeds.Count >= 30)
+                return BadRequest(new { error = "You can add up to 30 publisher feeds." });
 
             feeds.Add(candidate);
             return Ok(new ResolveRssFeedResponse(candidate, true, null, feeds.ToArray()));
@@ -181,7 +188,7 @@ public sealed class PreferencesController(
         .Where(value => value is not null)
         .Where(value => keys.Add(FeedUrlCanonicalizer.GetComparisonKey(value!)!))
         .Select(value => value!)
-        .Take(20)
+        .Take(30)
         .ToArray();
     }
 
@@ -190,12 +197,17 @@ public sealed class PreferencesController(
         NormalizeStoryLimit(preferences.StoryLimit),
         NormalizeStoryTitleSize(preferences.StoryTitleSize),
         NormalizeStoryTitleSize(preferences.TopicHeaderSize),
+        preferences.ShowTopicFiltersWhenPinned,
+        preferences.ShowSourceFiltersWhenPinned,
         AllowedRefreshMinutes.Contains(preferences.RefreshMinutes) ? preferences.RefreshMinutes : 15,
         preferences.EmailSummaryEnabled,
+        preferences.PushNewsTitlesEnabled,
         NormalizeRetentionDays(preferences.ArticleRetentionDays),
         DeserializeTickerOverrides(preferences.TickerOverridesJson, DeserializeList(preferences.TopicsJson)),
         DeserializeWeatherLocation(preferences.WeatherLocationJson),
         DeserializeSecondaryTimeZone(preferences.SecondaryTimeZoneJson),
+        NormalizeTrendRegions(DeserializeList(preferences.TrendRegionsJson)),
+        NormalizeTrendsPerRegion(preferences.TrendsPerRegion),
         new NewsSourcesResponse(
             preferences.GoogleEnabled,
             preferences.GdeltEnabled,
@@ -210,6 +222,30 @@ public sealed class PreferencesController(
         value?.ToLowerInvariant() is "small" or "medium" or "large"
             ? value.ToLowerInvariant()
             : "large";
+    internal static int NormalizeTrendsPerRegion(int value) =>
+        value is >= 1 and <= GoogleTrendsService.MaximumTrendsPerRegion
+            ? value
+            : GoogleTrendsService.DefaultTrendsPerRegion;
+
+    private static string[] NormalizeTrendRegions(IEnumerable<string>? values)
+    {
+        var supported = GoogleTrendsService.AvailableRegions
+            .ToDictionary(region => region.Code, StringComparer.OrdinalIgnoreCase);
+        var selected = (values ?? [])
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Select(code => code.Trim())
+            .Where(supported.ContainsKey)
+            .Select(code => supported[code].Code)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        if (selected.Count == 0)
+            return GoogleTrendsService.AvailableRegions.Select(region => region.Code).ToArray();
+        return GoogleTrendsService.AvailableRegions
+            .Where(region => selected.Contains(region.Code))
+            .Select(region => region.Code)
+            .ToArray();
+    }
 
     private static WeatherLocationResponse? NormalizeWeatherLocation(WeatherLocationRequest? location)
     {
@@ -402,12 +438,17 @@ public sealed record NewsPreferencesResponse(
     int Limit,
     string StoryTitleSize,
     string TopicHeaderSize,
+    bool ShowTopicFiltersWhenPinned,
+    bool ShowSourceFiltersWhenPinned,
     int RefreshMinutes,
     bool EmailSummaryEnabled,
+    bool PushNewsTitlesEnabled,
     int ArticleRetentionDays,
     IReadOnlyDictionary<string, string> TickerOverrides,
     WeatherLocationResponse? WeatherLocation,
     SecondaryTimeZoneResponse? SecondaryTimeZone,
+    string[] TrendRegions,
+    int TrendsPerRegion,
     NewsSourcesResponse Sources)
 {
     public static NewsPreferencesResponse Default { get; } = new(
@@ -415,12 +456,17 @@ public sealed record NewsPreferencesResponse(
         20,
         "large",
         "large",
+        true,
+        true,
         15,
         false,
+        true,
         30,
         new Dictionary<string, string>(),
         null,
         null,
+        GoogleTrendsService.AvailableRegions.Select(region => region.Code).ToArray(),
+        GoogleTrendsService.DefaultTrendsPerRegion,
         new NewsSourcesResponse(true, true, []));
 }
 
@@ -441,13 +487,18 @@ public sealed record NewsPreferencesRequest(
     [Range(10, 500)] int Limit,
     string? StoryTitleSize,
     string? TopicHeaderSize,
+    bool? ShowTopicFiltersWhenPinned,
+    bool? ShowSourceFiltersWhenPinned,
     int RefreshMinutes,
     bool EmailSummaryEnabled,
     int ArticleRetentionDays,
     IReadOnlyDictionary<string, string>? TickerOverrides,
     WeatherLocationRequest? WeatherLocation,
     SecondaryTimeZoneRequest? SecondaryTimeZone,
-    [Required] NewsSourcesRequest Sources);
+    string[]? TrendRegions,
+    int TrendsPerRegion,
+    [Required] NewsSourcesRequest Sources,
+    bool? PushNewsTitlesEnabled = null);
 
 public sealed record WeatherLocationRequest(
     [Required, MaxLength(120)] string Name,

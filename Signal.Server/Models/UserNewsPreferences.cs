@@ -17,9 +17,15 @@ public sealed class UserNewsPreferences
 
     public string TopicHeaderSize { get; set; } = "large";
 
+    public bool ShowTopicFiltersWhenPinned { get; set; } = true;
+
+    public bool ShowSourceFiltersWhenPinned { get; set; } = true;
+
     public int RefreshMinutes { get; set; } = 15;
 
     public bool EmailSummaryEnabled { get; set; }
+
+    public bool PushNewsTitlesEnabled { get; set; } = true;
 
     public int ArticleRetentionDays { get; set; } = 30;
 
@@ -34,6 +40,10 @@ public sealed class UserNewsPreferences
     public string WeatherLocationJson { get; set; } = "{}";
 
     public string SecondaryTimeZoneJson { get; set; } = "{}";
+
+    public string TrendRegionsJson { get; set; } = "[]";
+
+    public int TrendsPerRegion { get; set; } = 5;
 
     public DateTimeOffset UpdatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
 }

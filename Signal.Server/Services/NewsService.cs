@@ -60,16 +60,16 @@ public sealed class NewsService(HttpClient httpClient)
             foreach (var entry in entries.EnumerateArray())
             {
                 var title = GetJsonString(entry, "title");
-                var url = GetJsonString(entry, "url");
-                if (string.IsNullOrWhiteSpace(title) || !IsPublicArticleUrl(url)) continue;
+                var normalizedUrl = ArticleIdentity.NormalizeUrl(GetJsonString(entry, "url"));
+                if (string.IsNullOrWhiteSpace(title) || normalizedUrl is null) continue;
 
                 var article = new NewsArticle(
                     StripHtml(title),
-                    url,
+                    normalizedUrl,
                     GetJsonString(entry, "domain").Trim().Replace("www.", "", StringComparison.OrdinalIgnoreCase),
                     ParseDate(GetJsonString(entry, "seendate")),
                     "",
-                    ImageUrl: NormalizeImageUrl(GetJsonString(entry, "socialimage"), new Uri(url)));
+                    ImageUrl: NormalizeImageUrl(GetJsonString(entry, "socialimage"), new Uri(normalizedUrl)));
                 var matchedTopics = topics.Where(topic => TopicMatcher.Matches(article, topic)).ToArray();
                 if (matchedTopics.Length > 0) articles.Add(article with { MatchedTopics = matchedTopics });
             }
@@ -166,12 +166,12 @@ public sealed class NewsService(HttpClient httpClient)
             var title = rawTitle.EndsWith(suffix, StringComparison.Ordinal)
                 ? rawTitle[..^suffix.Length]
                 : rawTitle;
-            var url = Value(item, "link");
-            if (string.IsNullOrWhiteSpace(title) || !IsPublicArticleUrl(url)) continue;
-            var articleUrl = new Uri(url!);
+            var normalizedUrl = ArticleIdentity.NormalizeUrl(Value(item, "link"));
+            if (string.IsNullOrWhiteSpace(title) || normalizedUrl is null) continue;
+            var articleUrl = new Uri(normalizedUrl);
             var article = new NewsArticle(
                 title,
-                url!,
+                normalizedUrl,
                 source,
                 ParseDate(Value(item, "pubDate")),
                 "",
@@ -180,7 +180,7 @@ public sealed class NewsService(HttpClient httpClient)
         }
     }
 
-    private static IEnumerable<NewsArticle> ParsePublisherFeed(
+    internal static IEnumerable<NewsArticle> ParsePublisherFeed(
         string xml,
         Uri feedUrl,
         IReadOnlyList<string> topics)
@@ -199,7 +199,8 @@ public sealed class NewsService(HttpClient httpClient)
             var linkElement = entry.Elements().FirstOrDefault(element => element.Name.LocalName == "link");
             var url = Value(entry, "link");
             if (string.IsNullOrWhiteSpace(url)) url = linkElement?.Attribute("href")?.Value ?? Value(entry, "guid");
-            if (string.IsNullOrWhiteSpace(title) || !IsPublicArticleUrl(url)) continue;
+            var normalizedUrl = ArticleIdentity.NormalizeUrl(url);
+            if (string.IsNullOrWhiteSpace(title) || normalizedUrl is null) continue;
 
             var summary = StripHtml(
                 Value(entry, "description")
@@ -211,11 +212,17 @@ public sealed class NewsService(HttpClient httpClient)
             if (string.IsNullOrWhiteSpace(source)) source = fallbackSource;
             var article = new NewsArticle(
                 title,
-                url!,
+                normalizedUrl,
                 source,
-                ParseDate(Value(entry, "pubDate") ?? Value(entry, "published") ?? Value(entry, "updated")),
+                ParseDate(
+                    Value(entry, "pubDate")
+                    ?? Value(entry, "published")
+                    ?? Value(entry, "date")
+                    ?? Value(entry, "updated")
+                    ?? Value(entry, "created")
+                    ?? Value(entry, "issued")),
                 summary,
-                ImageUrl: ExtractFeedImage(entry, new Uri(url!)));
+                ImageUrl: ExtractFeedImage(entry, new Uri(normalizedUrl)));
             var matchedTopics = topics.Where(topic => TopicMatcher.Matches(article, topic)).ToArray();
             if (matchedTopics.Length > 0) yield return article with { MatchedTopics = matchedTopics };
         }
@@ -366,17 +373,64 @@ public sealed class NewsService(HttpClient httpClient)
         Regex.Replace(WebUtility.HtmlDecode(value ?? ""), "<[^>]*>", " ")
             .Replace("\r", " ").Replace("\n", " ").Trim();
 
-    private static DateTimeOffset ParseDate(string? value)
+    private static readonly Dictionary<string, string> TimeZoneOffsets = new(StringComparer.OrdinalIgnoreCase)
     {
-        if (!string.IsNullOrWhiteSpace(value)
-            && DateTimeOffset.TryParseExact(value, "yyyyMMdd'T'HHmmss'Z'", CultureInfo.InvariantCulture,
-                DateTimeStyles.AssumeUniversal, out var compact)) return compact.ToUniversalTime();
-        return DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed)
-            ? parsed.ToUniversalTime()
-            : DateTimeOffset.UtcNow;
-    }
+        ["UT"] = "+00:00",
+        ["UTC"] = "+00:00",
+        ["GMT"] = "+00:00",
+        ["EDT"] = "-04:00",
+        ["EST"] = "-05:00",
+        ["CDT"] = "-05:00",
+        ["CST"] = "-06:00",
+        ["MDT"] = "-06:00",
+        ["MST"] = "-07:00",
+        ["PDT"] = "-07:00",
+        ["PST"] = "-08:00",
+        ["ADT"] = "-03:00",
+        ["AST"] = "-04:00",
+        ["NDT"] = "-02:30",
+        ["NST"] = "-03:30",
+        ["BST"] = "+01:00",
+        ["CET"] = "+01:00",
+        ["CEST"] = "+02:00",
+        ["EET"] = "+02:00",
+        ["EEST"] = "+03:00",
+        ["IST"] = "+05:30",
+        ["AWST"] = "+08:00",
+        ["HKT"] = "+08:00",
+        ["SGT"] = "+08:00",
+        ["JST"] = "+09:00",
+        ["KST"] = "+09:00",
+        ["ACST"] = "+09:30",
+        ["ACDT"] = "+10:30",
+        ["AEST"] = "+10:00",
+        ["AEDT"] = "+11:00",
+        ["NZST"] = "+12:00",
+        ["NZDT"] = "+13:00",
+    };
 
-    private static bool IsPublicArticleUrl(string? value) =>
-        Uri.TryCreate(value, UriKind.Absolute, out var url)
-        && (url.Scheme == Uri.UriSchemeHttps || url.Scheme == Uri.UriSchemeHttp);
+    internal static DateTimeOffset ParseDate(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return DateTimeOffset.UtcNow;
+        var trimmed = value.Trim();
+        if (DateTimeOffset.TryParseExact(trimmed, "yyyyMMdd'T'HHmmss'Z'", CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal, out var compact))
+            return compact.ToUniversalTime();
+        if (DateTimeOffset.TryParse(trimmed, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed))
+            return parsed.ToUniversalTime();
+
+        var lastSpace = trimmed.LastIndexOf(' ');
+        if (lastSpace > 0)
+        {
+            var zone = trimmed[(lastSpace + 1)..];
+            if (TimeZoneOffsets.TryGetValue(zone, out var offset)
+                && DateTimeOffset.TryParse($"{trimmed[..lastSpace]} {offset}", CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeUniversal, out var zoneParsed))
+            {
+                return zoneParsed.ToUniversalTime();
+            }
+        }
+
+        return DateTimeOffset.UtcNow;
+    }
 }

@@ -95,3 +95,54 @@ test("rejects a resolved URL that is not HTTPS", async () => {
 
   assert.equal(resolved, storedUrl);
 });
+
+test("saves the exact translated text using the authenticated share endpoint", async () => {
+  const calls = [];
+  const snapshot = { title: "中文标题", paragraphs: ["第一段。", "第二段。"], language: "zh-Hans", byline: "Author" };
+  const saved = { path: `/shared/${"a".repeat(48)}`, title: snapshot.title, language: snapshot.language, summaryOnly: false };
+  const result = await sharing.createHostedArticleShare({ url: data.url, title: data.title, source: "Publisher", summary: "Summary" }, snapshot,
+    async (input, init) => {
+      calls.push({ input, init });
+      return { ok: true, async json() { return calls.length === 1 ? { token: "test-csrf" } : saved; } };
+    });
+  assert.deepEqual(result, saved);
+  assert.equal(calls[1].input, "/api/article-shares");
+  assert.equal(calls[1].init.method, "POST");
+  assert.equal(calls[1].init.credentials, "same-origin");
+  assert.equal(calls[1].init.headers["X-XSRF-TOKEN"], "test-csrf");
+  assert.deepEqual(JSON.parse(calls[1].init.body).snapshot, snapshot);
+});
+
+test("does not create a share without a CSRF token", async () => {
+  let calls = 0;
+  await assert.rejects(sharing.createHostedArticleShare({ ...data, source: "Publisher", summary: "" }, undefined,
+    async () => { calls++; return { ok: true, async json() { return {}; } }; }), /Sign in again/);
+  assert.equal(calls, 1);
+});
+
+test("does not silently fall back to the publisher link when saving fails", async () => {
+  await assert.rejects(sharing.createHostedArticleShare({ ...data, source: "Publisher", summary: "" }, undefined,
+    async (input) => ({ ok: input.includes("csrf"), async json() { return input.includes("csrf") ? { token: "test" } : { error: "Story could not be saved" }; } })),
+    /Story could not be saved/);
+});
+
+test("rejects external and malformed hosted page paths", async () => {
+  for (const path of ["https://other.example/story", "//other.example/story", "/shared/invalid", "/api/auth/logout"]) {
+    await assert.rejects(sharing.createHostedArticleShare({ ...data, source: "Publisher", summary: "" }, undefined,
+      async (input) => ({ ok: true, async json() { return input.includes("csrf") ? { token: "test" } : { path, title: data.title, language: "", summaryOnly: false }; } })),
+      /incomplete story link/);
+  }
+});
+
+test("preserves the feed URL for comments when sharing a resolved reader article", async () => {
+  const calls = [];
+  const discussionUrl = "https://news.example.test/feed-story";
+  await sharing.createHostedArticleShare({ ...data, discussionUrl, source: "Publisher", summary: "" }, undefined,
+    async (input, init) => {
+      calls.push({ input, init });
+      return { ok: true, async json() { return calls.length === 1 ? { token: "csrf" }
+        : { path: `/shared/${"a".repeat(48)}`, title: data.title, language: "", summaryOnly: true }; } };
+    });
+  assert.equal(JSON.parse(calls[1].init.body).discussionUrl, discussionUrl);
+  assert.equal(JSON.parse(calls[1].init.body).url, data.url);
+});
