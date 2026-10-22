@@ -65,6 +65,12 @@ internal static class EarthquakeChecks
         Check(pushRequest.Headers.GetValues("TTL").Single() == "900" && pushRequest.Headers.GetValues("Urgency").Single() == "high",
             "Earthquake pushes need valid library options, a short expiry, and high urgency.");
         Check(!PushNotificationService.DeliveryOptions(vapid, false).ContainsKey("TTL"), "Keep the existing news push defaults.");
+        var defaultMaps = new AzureMapsOptions();
+        Check(!defaultMaps.Enabled, "Azure Maps must be disabled by default when no key is configured.");
+        var validMaps = new AzureMapsOptions { SubscriptionKey = "abcdefghijklmnopqrstuvwxyz1234" };
+        Check(validMaps.Enabled, "Azure Maps must be enabled when a valid subscription key is supplied.");
+        var invalidMaps = new AzureMapsOptions { SubscriptionKey = "invalid with spaces" };
+        Check(!invalidMaps.Enabled, "Azure Maps must reject subscription keys with whitespace.");
         Console.WriteLine("Earthquake feed and proximity checks passed.");
     }
 }

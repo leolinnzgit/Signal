@@ -14,9 +14,11 @@ public sealed class EarthquakeFeed(IHttpClientFactory clients)
     public static bool UseGeoNet(double latitude, double longitude) =>
         latitude is >= -49 and <= -30 && (longitude >= 160 || longitude <= -175);
 
-    public async Task<Earthquake[]> GetAsync(double latitude, double longitude, CancellationToken cancellationToken)
+    public Task<Earthquake[]> GetAsync(double latitude, double longitude, CancellationToken cancellationToken) =>
+        GetFeedAsync(UseGeoNet(latitude, longitude), cancellationToken);
+
+    public async Task<Earthquake[]> GetFeedAsync(bool geoNet, CancellationToken cancellationToken)
     {
-        var geoNet = UseGeoNet(latitude, longitude);
         await gate.WaitAsync(cancellationToken);
         try
         {

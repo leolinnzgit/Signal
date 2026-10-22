@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Signal.Server.Data;
 using Signal.Server.Models;
 using Signal.Server.Services;
@@ -11,8 +12,89 @@ namespace Signal.Server.Controllers;
 
 [ApiController, Authorize, Route("api/earthquakes")]
 [ResponseCache(Location = ResponseCacheLocation.None, NoStore = true)]
-public sealed class EarthquakesController(SignalDbContext database, UserManager<ApplicationUser> users, EarthquakeFeed feed) : ControllerBase
+public sealed class EarthquakesController(
+    SignalDbContext database,
+    UserManager<ApplicationUser> users,
+    EarthquakeFeed feed,
+    IOptions<AzureMapsOptions> mapsOptions) : ControllerBase
 {
+    [HttpGet("config")]
+    public IActionResult Config()
+    {
+        return Ok(new
+        {
+            azureMapsConfigured = mapsOptions.Value.Enabled,
+            subscriptionKey = mapsOptions.Value.Enabled ? mapsOptions.Value.SubscriptionKey : ""
+        });
+    }
+
+    [HttpGet("map-feed")]
+    public async Task<IActionResult> MapFeed(
+        [FromQuery] double? latitude,
+        [FromQuery] double? longitude,
+        [FromQuery] string? source,
+        CancellationToken ct)
+    {
+        var userId = users.GetUserId(User)!;
+        double? userLat = null;
+        double? userLon = null;
+        double radiusKm = 300;
+
+        if (latitude.HasValue && longitude.HasValue && EarthquakeFeed.ValidLocation(latitude.Value, longitude.Value))
+        {
+            userLat = latitude.Value;
+            userLon = longitude.Value;
+        }
+        else
+        {
+            var device = await database.EarthquakeDevices.AsNoTracking()
+                .Where(d => d.UserId == userId)
+                .OrderByDescending(d => d.LocationUpdatedAtUtc)
+                .FirstOrDefaultAsync(ct);
+            if (device is not null)
+            {
+                userLat = device.Latitude;
+                userLon = device.Longitude;
+                radiusKm = device.RadiusKm;
+            }
+        }
+
+        bool geoNet = source?.ToLowerInvariant() switch
+        {
+            "geonet" => true,
+            "usgs" => false,
+            _ => !userLat.HasValue || !userLon.HasValue || EarthquakeFeed.UseGeoNet(userLat.Value, userLon.Value)
+        };
+
+        try
+        {
+            var events = await feed.GetFeedAsync(geoNet, ct);
+            if (userLat.HasValue && userLon.HasValue)
+            {
+                events = events.Select(e => e with
+                {
+                    DistanceKm = EarthquakeFeed.DistanceKm(userLat.Value, userLon.Value, e.Latitude, e.Longitude)
+                }).OrderBy(e => e.DistanceKm).ToArray();
+            }
+
+            return Ok(new
+            {
+                azureMapsConfigured = mapsOptions.Value.Enabled,
+                subscriptionKey = mapsOptions.Value.Enabled ? mapsOptions.Value.SubscriptionKey : "",
+                source = geoNet ? "GeoNet" : "USGS",
+                events,
+                userLocation = userLat.HasValue && userLon.HasValue
+                    ? new { latitude = userLat.Value, longitude = userLon.Value, radiusKm }
+                    : null,
+                checkedAtUtc = DateTime.UtcNow
+            });
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException)
+        {
+            return StatusCode(503, new { error = "Earthquake feed unavailable. Retrying in one minute." });
+        }
+    }
+
     [HttpPut("devices/{id:guid}")]
     public async Task<IActionResult> Save(Guid id, EarthquakeDeviceRequest request, CancellationToken ct)
     {

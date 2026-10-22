@@ -3096,6 +3096,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   return (
     <main className="signal-dashboard" id="top">
       {earthquakes.banner}
+      {earthquakes.map}
       <HandGestureControls />
       <header ref={headerElement} className="site-header">
         <a className="brand" href="#top" aria-label="Signal home">

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useEarthquakeAudio } from "./EarthquakeAudio";
 import EarthquakeAlert, { type EarthquakeReport } from "./EarthquakeAlert";
+import EarthquakeMap from "./EarthquakeMap";
 import "./earthquake-alerts.css";
 
 type Settings = { enabled: boolean; voice: boolean; radiusKm: number; minimumMagnitude: number; deviceId: string };
@@ -36,6 +37,9 @@ export function useEarthquakeAlerts(account: string, available: boolean) {
   const [status, setStatus] = useState("Earthquake alerts are off on this device.");
   const [latest, setLatest] = useState<Quake | null>(null);
   const [preview, setPreview] = useState<Quake | null>(null);
+  const [showMap, setShowMap] = useState(false);
+  const [mapTargetQuake, setMapTargetQuake] = useState<Quake | null>(null);
+  const [userCoords, setUserCoords] = useState<{ latitude: number; longitude: number; radiusKm?: number } | null>(null);
   const { audioStatus, speak, stop } = useEarthquakeAudio();
   const [retry, setRetry] = useState(0);
   const current = useRef(settings);
@@ -43,6 +47,17 @@ export function useEarthquakeAlerts(account: string, available: boolean) {
   const seen = useRef(new Set<string>());
   const monitorRequest = useRef<AbortController | null>(null);
   const [disabling, setDisabling] = useState(false);
+
+  useEffect(() => {
+    const handleHash = () => {
+      if (window.location.hash === "#earthquake-map") {
+        setShowMap(true);
+      }
+    };
+    handleHash();
+    window.addEventListener("hashchange", handleHash);
+    return () => window.removeEventListener("hashchange", handleHash);
+  }, []);
 
   useEffect(() => {
     try {
@@ -81,6 +96,7 @@ export function useEarthquakeAlerts(account: string, available: boolean) {
         const position = await new Promise<GeolocationPosition>((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject,
           { enableHighAccuracy: false, maximumAge: 60_000, timeout: 15_000 }));
         if (abort.signal.aborted) return;
+        setUserCoords({ latitude: position.coords.latitude, longitude: position.coords.longitude, radiusKm: settings.radiusKm });
         let pushEndpoint = "";
         if ("serviceWorker" in navigator) {
           try {
@@ -146,7 +162,8 @@ export function useEarthquakeAlerts(account: string, available: boolean) {
   return {
     banner: alert ? <EarthquakeAlert key={alert.id} quake={alert} preview={!!preview} audioStatus={audioStatus}
       onRead={() => speak(preview ? previewAnnouncement : earthquakeAnnouncement(alert))} onStop={stop}
-      onDismiss={() => { stop(); setPreview(null); setLatest(null); }} /> : null,
+      onDismiss={() => { stop(); setPreview(null); setLatest(null); }}
+      onOpenMap={() => { setMapTargetQuake(alert); setShowMap(true); }} /> : null,
     controls: available ? <section className="earthquake-settings" id="earthquake-alerts" aria-label="Earthquake alerts">
       <h3>Earthquake alerts</h3>
       <p>Nearby earthquakes from GeoNet in New Zealand and USGS elsewhere. Uses this phone’s current location, separately from your weather location.</p>
@@ -162,10 +179,11 @@ export function useEarthquakeAlerts(account: string, available: boolean) {
           if (settings.enabled) void turnOff();
           else { setSettings(s => ({ ...s, enabled: true })); if (settings.voice) speak("Test notification. Earthquake voice alerts are ready while Signal is open."); }
         }}>{settings.enabled ? "Turn off earthquake alerts" : "Enable earthquake alerts"}</button>
+        <button type="button" onClick={() => { setMapTargetQuake(null); setShowMap(true); }}>View earthquake map</button>
         <button type="button" onClick={() => speak("Test notification. A nearby earthquake has been reported. This is a voice test only.")}>Test voice</button>
         <button type="button" onClick={stop}>Stop voice</button>
         <button type="button" onClick={() => {
-          setPreview({ id: "preview", source: "Preview", magnitude: 5, place: "Example location", timeUtc: new Date().toISOString(), distanceKm: 25, depthKm: 10, url: "" });
+          setPreview({ id: "preview", source: "Preview", magnitude: 5.2, place: "Cook Strait, New Zealand (Example)", timeUtc: new Date().toISOString(), distanceKm: 42, depthKm: 14, url: "https://www.geonet.org.nz", latitude: -41.5, longitude: 174.5 });
           if (settings.voice) speak(previewAnnouncement);
         }}>Preview full-screen alert</button>
         {settings.enabled && <button type="button" onClick={() => setRetry(r => r + 1)}>Check now</button>}
@@ -175,5 +193,17 @@ export function useEarthquakeAlerts(account: string, available: boolean) {
       {!alert && audioStatus && <p role="status">{audioStatus}</p>}
       <small>Checks every minute for new events from the last 15 minutes. Azure voice needs Signal open and may require a tap. Closed-app pushes use your phone’s normal notification sound and your last known location for up to 24 hours; reopen Signal to refresh it. Location is removed when disabled and expires from storage after seven days. Reports can be delayed or revised. This is not an earthquake early-warning service.</small>
     </section> : null,
+    map: <EarthquakeMap
+      isOpen={showMap}
+      onClose={() => {
+        setShowMap(false);
+        setMapTargetQuake(null);
+        if (window.location.hash === "#earthquake-map") {
+          window.history.replaceState(null, "", window.location.pathname + window.location.search);
+        }
+      }}
+      targetQuake={mapTargetQuake}
+      userCoordinates={userCoords}
+    />,
   };
 }

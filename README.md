@@ -159,6 +159,14 @@ IIS for a persistent personal deployment.
   the source report. It stays until dismissed; dismissing also stops its voice.
   Use **Preview full-screen alert** in Settings to try a clearly marked example
   without enabling monitoring or waiting for an earthquake.
+  Choose **View on map** in the alert or **View earthquake map** in Settings (or `#earthquake-map`)
+  to open the interactive Earthquake Map visualization. The visualization plots regional
+  and global earthquakes with color-coded magnitude pins (red for M6.0+, orange for M5.0+,
+  yellow for M4.0+, cyan for minor), seismic depth, distance from your phone, and a quick-select
+  drawer. When configured with Azure Maps via `Configure Signal Maps.cmd` (Azure Maps Gen2 free tier,
+  up to 5,000 free transactions/month), the view renders full WebGL satellite, night, and street
+  imagery with camera zoom and style controls. Without an Azure key, it presents an interactive
+  distance radar grid.
   Voice uses the existing server-side Azure Speech integration and your saved
   English reading voice (or the configured default neural voice). Azure API keys
   stay on the server. Voice requires the app to remain open and may require
