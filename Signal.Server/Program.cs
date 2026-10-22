@@ -227,6 +227,9 @@ builder.Services.AddHttpClient<ArticleReaderService>(client =>
 builder.Services.AddScoped<TopicRefreshService>();
 builder.Services.AddSingleton<VapidKeyStore>();
 builder.Services.AddScoped<PushNotificationService>();
+builder.Services.AddHttpClient("earthquakes", client => client.Timeout = TimeSpan.FromSeconds(15));
+builder.Services.AddSingleton<EarthquakeFeed>();
+builder.Services.AddHostedService<EarthquakeMonitor>();
 builder.Services.AddHostedService<TopicRefreshBackgroundService>();
 
 var app = builder.Build();
@@ -267,6 +270,17 @@ await using (var scope = app.Services.CreateAsyncScope())
 {
     var database = scope.ServiceProvider.GetRequiredService<SignalDbContext>();
     await database.Database.EnsureCreatedAsync();
+    await database.Database.ExecuteSqlRawAsync("""
+        CREATE TABLE IF NOT EXISTS "EarthquakeDevices" (
+            "Id" TEXT NOT NULL PRIMARY KEY,
+            "UserId" TEXT NOT NULL REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE,
+            "Latitude" REAL NOT NULL, "Longitude" REAL NOT NULL,
+            "RadiusKm" REAL NOT NULL, "MinimumMagnitude" REAL NOT NULL,
+            "LocationUpdatedAtUtc" TEXT NOT NULL, "EnabledAtUtc" TEXT NOT NULL,
+            "PushEndpoint" TEXT NOT NULL DEFAULT '', "SeenJson" TEXT NOT NULL DEFAULT '[]'
+        );
+        CREATE INDEX IF NOT EXISTS "IX_EarthquakeDevices_UserId" ON "EarthquakeDevices" ("UserId");
+        """);
     // EnsureCreated does not add new tables to an existing Identity database.
     await database.Database.ExecuteSqlRawAsync("""
         CREATE TABLE IF NOT EXISTS "SharedNewsArticles" (

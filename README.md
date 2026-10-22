@@ -145,6 +145,22 @@ IIS for a persistent personal deployment.
   overrides, including qualified NZX symbols such as `AIR:NZX`.
 - Show current conditions and a seven-day forecast for a weather location
   searched by city or region worldwide, or from device GPS.
+- Enable **Earthquake alerts** in Settings for this device. Signal refreshes phone
+  GPS and checks every minute for new nearby earthquakes, using
+  [GeoNet](https://api.geonet.org.nz/) in New Zealand and the
+  [USGS GeoJSON feed](https://earthquake.usgs.gov/earthquakes/feed/v1.0/geojson.php)
+  elsewhere. Choose a radius (50–1000 km) and minimum magnitude (2–7; default
+  magnitude 4 within 300 km), enable voice, and use **Test voice** to check playback.
+  New events from the past 15 minutes are announced once, with magnitude,
+  locality, distance and depth, and an on-screen link to the source report.
+  Voice requires the app to remain open and may require tapping **Read alert**.
+  Enable **Phone notifications & app badge** to also receive Web Push while closed;
+  the server uses this device's last known location for up to 24 hours. Reopen
+  Signal to refresh GPS after travelling. Weather locations are independent.
+  Disabling earthquake alerts removes the device's saved location; expired device
+  registrations are removed after seven days. Feed failures are shown and retried;
+  reports can arrive late or be revised. This is reporting after detection,
+  not an earthquake early-warning service.
 - Display a secondary time zone clock searched from cities worldwide via
   Open-Meteo geocoding.
 - Send a formatted email briefing after scheduled refreshes.

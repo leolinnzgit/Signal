@@ -13,6 +13,9 @@ using Signal.Server.Controllers;
 using Signal.Server.Models;
 using Signal.Server.Services;
 
+EarthquakeChecks.Run();
+if (args.Contains("--earthquakes-live")) { await EarthquakeChecks.RunLiveAsync(); return; }
+if (args.Contains("--earthquakes-only")) return;
 await SharedCommentChecks.RunAsync();
 if (args.Contains("--shared-comments-browser")) { await SharedCommentChecks.RunBrowserAsync(); return; }
 if (args.Contains("--shared-comments-only")) return;

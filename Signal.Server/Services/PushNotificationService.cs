@@ -154,14 +154,21 @@ public sealed class PushNotificationService(
         return normalized[..end].TrimEnd() + "…";
     }
 
+    public Task<int> SendEarthquakeAsync(string userId, string endpoint, Earthquake earthquake, CancellationToken ct) =>
+        SendAsync(userId, [new PushMessage(
+            $"Earthquake: magnitude {earthquake.Magnitude:F1}",
+            $"{earthquake.Place}. About {Math.Round(earthquake.DistanceKm)} km from your last phone location. {earthquake.Source}.",
+            "/#earthquake-alerts", 0, $"signal-earthquake-{earthquake.Id}")], ct, endpoint);
+
     private async Task<int> SendAsync(
         string userId,
         IReadOnlyList<PushMessage> messages,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? endpoint = null)
     {
         if (messages.Count == 0) return 0;
         var subscriptions = await database.UserPushSubscriptions
-            .Where(item => item.UserId == userId)
+            .Where(item => item.UserId == userId && (endpoint == null || item.Endpoint == endpoint))
             .ToArrayAsync(cancellationToken);
         if (subscriptions.Length == 0) return 0;
 
@@ -181,7 +188,7 @@ public sealed class PushNotificationService(
                     await client.SendNotificationAsync(
                         subscription,
                         payload,
-                        vapid,
+                        DeliveryOptions(vapid, endpoint is not null),
                         cancellationToken: cancellationToken);
                     delivered += 1;
                 }
@@ -211,6 +218,17 @@ public sealed class PushNotificationService(
             await database.SaveChangesAsync(cancellationToken);
         }
         return delivered;
+    }
+
+    internal static Dictionary<string, object> DeliveryOptions(VapidDetails vapid, bool earthquake)
+    {
+        var options = new Dictionary<string, object> { ["vapidDetails"] = vapid };
+        if (earthquake)
+        {
+            options["TTL"] = 900;
+            options["headers"] = new Dictionary<string, object> { ["Urgency"] = "high" };
+        }
+        return options;
     }
 
     internal static string SerializeMessage(PushMessage message) => JsonSerializer.Serialize(new

@@ -17,6 +17,7 @@ import ArticleSummaryPlayer from "./ArticleSummaryPlayer";
 import ArticleTranslationControls from "./ArticleTranslationControls";
 import type { ArticleTranslation } from "./article-translation";
 import { useWeatherAudio } from "./WeatherAudio";
+import { useEarthquakeAlerts } from "./EarthquakeAlerts";
 import { formatMarketPrice, type MarketQuote } from "./market-quote";
 import { describeWeather, weatherBriefing, type LocalWeather, type WeatherForecastDay } from "./weather-briefing";
 import ArticleReadingText from "./ArticleReadingText";
@@ -904,6 +905,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         .find(([topic]) => topic.toLowerCase() === selectedTopic.toLowerCase())?.[1] ?? "";
 
   const weatherAudio = useWeatherAudio(weatherBriefing(weatherStatus === "ready" ? localWeather : null, weatherForecast), !!headlineQueue || !!readerArticle);
+  const earthquakes = useEarthquakeAlerts(user.email, !!pushNotificationStore);
 
   const trendTrafficRange = useMemo(() => {
     const values = trendingTerms.map((term) => trendTrafficValue(term.traffic)).filter((value) => value > 0);
@@ -1026,6 +1028,15 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   useEffect(() => {
     setControlsExpanded(localStorage.getItem(CONTROLS_STORAGE_KEY) === "true");
     setControlsHidden(localStorage.getItem(CONTROLS_HIDDEN_STORAGE_KEY) === "true");
+    const openEarthquakeSettings = () => {
+      if (window.location.hash !== "#earthquake-alerts") return;
+      setControlsHidden(false);
+      setControlsExpanded(true);
+      window.requestAnimationFrame(() => document.getElementById("earthquake-alerts")?.scrollIntoView({ block: "center" }));
+    };
+    openEarthquakeSettings();
+    window.addEventListener("hashchange", openEarthquakeSettings);
+    return () => window.removeEventListener("hashchange", openEarthquakeSettings);
   }, []);
 
   useEffect(() => {
@@ -3091,6 +3102,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
 
   return (
     <main className="signal-dashboard" id="top">
+      {earthquakes.banner}
       <HandGestureControls />
       <header ref={headerElement} className="site-header">
         <a className="brand" href="#top" aria-label="Signal home">
@@ -3763,6 +3775,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
               </span>
             </label>
           )}
+          {earthquakes.controls}
           <p className="settings-note" aria-live="polite">
             {!preferencesStore
               ? "Your topics, sources and settings are saved on this device."

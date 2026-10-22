@@ -7,6 +7,7 @@ namespace Signal.Server.Data;
 public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
     : IdentityDbContext<ApplicationUser>(options)
 {
+    public DbSet<EarthquakeDevice> EarthquakeDevices => Set<EarthquakeDevice>();
     public DbSet<UserNewsPreferences> UserNewsPreferences => Set<UserNewsPreferences>();
 
     public DbSet<StoredNewsArticle> StoredNewsArticles => Set<StoredNewsArticle>();
@@ -30,6 +31,13 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
+
+        builder.Entity<EarthquakeDevice>(device =>
+        {
+            device.HasKey(d => d.Id);
+            device.HasIndex(d => d.UserId);
+            device.HasOne<ApplicationUser>().WithMany().HasForeignKey(d => d.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
 
         builder.Entity<SharedNewsArticle>(article =>
         {

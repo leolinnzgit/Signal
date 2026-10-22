@@ -109,7 +109,7 @@ self.addEventListener("push", (event) => {
       body: payload.body || "Fresh coverage is ready in your briefing.",
       icon: payload.icon || "/icons/signal-medallion-192.png",
       badge: payload.badge || "/icons/signal-notification-medallion-96.png",
-      tag: typeof payload.tag === "string" && payload.tag.startsWith(`${NEWS_NOTIFICATION_TAG}-`)
+      tag: typeof payload.tag === "string" && (payload.tag.startsWith(`${NEWS_NOTIFICATION_TAG}-`) || payload.tag.startsWith("signal-earthquake-"))
         ? payload.tag
         : NEWS_NOTIFICATION_TAG,
       renotify: false,
@@ -117,6 +117,11 @@ self.addEventListener("push", (event) => {
     }),
   ];
 
+  if (typeof payload.tag === "string" && payload.tag.startsWith("signal-earthquake-")) {
+    // Earthquake alerts must not clear the unrelated unread-news badge.
+    event.waitUntil(Promise.all(operations));
+    return;
+  }
   if (count > 0 && typeof self.navigator.setAppBadge === "function") {
     operations.push(self.navigator.setAppBadge(count));
   } else if (count === 0 && typeof self.navigator.clearAppBadge === "function") {
