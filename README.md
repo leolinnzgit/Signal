@@ -154,7 +154,11 @@ IIS for a persistent personal deployment.
   elsewhere. Choose a radius (50–1000 km) and minimum magnitude (2–7; default
   magnitude 4 within 300 km), enable voice, and use **Test voice** to check playback.
   New events from the past 15 minutes are announced once, with magnitude,
-  locality, distance and depth, and an on-screen link to the source report.
+  locality, distance and depth. Each detection opens a full-screen alert above
+  the news, player and Settings, with large high-contrast details and a link to
+  the source report. It stays until dismissed; dismissing also stops its voice.
+  Use **Preview full-screen alert** in Settings to try a clearly marked example
+  without enabling monitoring or waiting for an earthquake.
   Voice uses the existing server-side Azure Speech integration and your saved
   English reading voice (or the configured default neural voice). Azure API keys
   stay on the server. Voice requires the app to remain open and may require

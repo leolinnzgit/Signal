@@ -2,10 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useEarthquakeAudio } from "./EarthquakeAudio";
+import EarthquakeAlert, { type EarthquakeReport } from "./EarthquakeAlert";
 import "./earthquake-alerts.css";
 
 type Settings = { enabled: boolean; voice: boolean; radiusKm: number; minimumMagnitude: number; deviceId: string };
-type Quake = { id: string; source: string; magnitude: number; place: string; timeUtc: string; distanceKm: number; depthKm: number; url: string };
+type Quake = EarthquakeReport;
 const defaults: Settings = { enabled: false, voice: true, radiusKm: 300, minimumMagnitude: 4, deviceId: "" };
 
 export function earthquakeAnnouncement(e: Quake) {
@@ -34,6 +35,7 @@ export function useEarthquakeAlerts(account: string, available: boolean) {
   const [ready, setReady] = useState(false);
   const [status, setStatus] = useState("Earthquake alerts are off on this device.");
   const [latest, setLatest] = useState<Quake | null>(null);
+  const [preview, setPreview] = useState<Quake | null>(null);
   const { audioStatus, speak, stop } = useEarthquakeAudio();
   const [retry, setRetry] = useState(0);
   const current = useRef(settings);
@@ -103,6 +105,7 @@ export function useEarthquakeAlerts(account: string, available: boolean) {
         try { localStorage.setItem(`${storageKey}:seen`, JSON.stringify([...seen.current])); } catch { /* Session deduplication still works. */ }
         if (fresh.length) {
           const quake = fresh[fresh.length - 1];
+          setPreview(null);
           setLatest(quake);
           if (current.current.voice) speak(fresh.map(earthquakeAnnouncement).join(" "));
         }
@@ -130,6 +133,7 @@ export function useEarthquakeAlerts(account: string, available: boolean) {
       await request(`/api/earthquakes/devices/${settings.deviceId}`, "DELETE", null);
       setSettings(value => ({ ...value, enabled: false }));
       setLatest(null);
+      setPreview(null);
       stop();
       setStatus("Earthquake alerts are off on this device. Its saved location was removed.");
     } catch {
@@ -137,16 +141,12 @@ export function useEarthquakeAlerts(account: string, available: boolean) {
     } finally { setDisabling(false); }
   };
 
+  const alert = preview ?? (settings.enabled ? latest : null);
+  const previewAnnouncement = "This is a test of the full-screen earthquake alert. No earthquake has been detected.";
   return {
-    banner: latest && settings.enabled ? <aside className="earthquake-alert" role="alert" aria-label="Earthquake detected">
-      <strong>Earthquake · magnitude {latest.magnitude.toFixed(1)}</strong>
-      <p>{latest.place} · {Math.round(latest.distanceKm)} km away · {new Date(latest.timeUtc).toLocaleString()}</p>
-      <div><a href={latest.url} target="_blank" rel="noopener noreferrer">View {latest.source} report</a>
-        <button type="button" onClick={() => speak(earthquakeAnnouncement(latest))}>Read alert</button>
-        <button type="button" onClick={stop}>Stop voice</button>
-        <button type="button" onClick={() => setLatest(null)}>Dismiss</button></div>
-      {audioStatus && <p role="status">{audioStatus}</p>}
-    </aside> : null,
+    banner: alert ? <EarthquakeAlert key={alert.id} quake={alert} preview={!!preview} audioStatus={audioStatus}
+      onRead={() => speak(preview ? previewAnnouncement : earthquakeAnnouncement(alert))} onStop={stop}
+      onDismiss={() => { stop(); setPreview(null); setLatest(null); }} /> : null,
     controls: available ? <section className="earthquake-settings" id="earthquake-alerts" aria-label="Earthquake alerts">
       <h3>Earthquake alerts</h3>
       <p>Nearby earthquakes from GeoNet in New Zealand and USGS elsewhere. Uses this phone’s current location, separately from your weather location.</p>
@@ -164,11 +164,15 @@ export function useEarthquakeAlerts(account: string, available: boolean) {
         }}>{settings.enabled ? "Turn off earthquake alerts" : "Enable earthquake alerts"}</button>
         <button type="button" onClick={() => speak("Test notification. A nearby earthquake has been reported. This is a voice test only.")}>Test voice</button>
         <button type="button" onClick={stop}>Stop voice</button>
+        <button type="button" onClick={() => {
+          setPreview({ id: "preview", source: "Preview", magnitude: 5, place: "Example location", timeUtc: new Date().toISOString(), distanceKm: 25, depthKm: 10, url: "" });
+          if (settings.voice) speak(previewAnnouncement);
+        }}>Preview full-screen alert</button>
         {settings.enabled && <button type="button" onClick={() => setRetry(r => r + 1)}>Check now</button>}
       </div>
       <p role="status">{status}</p>
       <small>Uses Azure’s neural voice with your saved English reading voice, or the default voice.</small>
-      {!latest && audioStatus && <p role="status">{audioStatus}</p>}
+      {!alert && audioStatus && <p role="status">{audioStatus}</p>}
       <small>Checks every minute for new events from the last 15 minutes. Azure voice needs Signal open and may require a tap. Closed-app pushes use your phone’s normal notification sound and your last known location for up to 24 hours; reopen Signal to refresh it. Location is removed when disabled and expires from storage after seven days. Reports can be delayed or revised. This is not an earthquake early-warning service.</small>
     </section> : null,
   };

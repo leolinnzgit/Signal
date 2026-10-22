@@ -1,12 +1,36 @@
 .earthquake-settings { padding: 1rem 0; border-top: 1px solid var(--line); }
 .earthquake-settings h3 { margin: 0 0 .5rem; font-size: 1rem; }
-.earthquake-settings p, .earthquake-alert p { font-size: .85rem; line-height: 1.5; }
+.earthquake-settings p { font-size: .85rem; line-height: 1.5; }
 .earthquake-settings small { display: block; color: var(--text-muted); font-size: .75rem; line-height: 1.5; }
-.earthquake-options, .earthquake-actions, .earthquake-alert > div { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; margin: .8rem 0; }
+.earthquake-options, .earthquake-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; margin: .8rem 0; }
 .earthquake-options label { display: flex; align-items: center; gap: .4rem; font-size: .85rem; }
-.earthquake-options select, .earthquake-actions button, .earthquake-alert button { border: 1px solid var(--line); border-radius: .4rem; padding: .5rem .7rem; color: var(--page-text); background: var(--page-background); font: inherit; }
-.earthquake-actions button, .earthquake-alert button { cursor: pointer; font-size: .8rem; }
+.earthquake-options select, .earthquake-actions button { border: 1px solid var(--line); border-radius: .4rem; padding: .5rem .7rem; color: var(--page-text); background: var(--page-background); font: inherit; }
+.earthquake-actions button { cursor: pointer; font-size: .8rem; }
 .earthquake-actions button:first-child { border-color: var(--red); }
-.earthquake-alert { position: sticky; top: calc(var(--site-header-height) + .5rem); z-index: 60; margin: 1rem; padding: 1rem; border: 2px solid var(--red); border-radius: .65rem; background: var(--page-background); box-shadow: 0 .5rem 1.5rem var(--shadow); }
-.earthquake-alert a { color: var(--red); font-size: .85rem; }
+.earthquake-alert { position: fixed; inset: 0; width: 100%; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; border-radius: 0; background: #8f211b; color: #fff; overflow: auto; overscroll-behavior: contain; color-scheme: dark; }
+.earthquake-alert::backdrop { background: #641713; }
+html:has(.earthquake-alert[open]) { overflow: hidden; }
+.earthquake-alert-content { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; width: min(100%, 52rem); min-height: 100%; margin: auto; padding: max(1.5rem, env(safe-area-inset-top)) clamp(1rem, 5vw, 3rem) max(1rem, env(safe-area-inset-bottom)); text-align: center; }
+.earthquake-alert-heading svg { display: block; width: 2.75rem; height: 2.75rem; margin: 0 auto .6rem; fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.earthquake-alert-heading p { margin: 0 0 .5rem; font-size: .8rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.earthquake-alert-heading h2 { margin: 0; font-size: clamp(1.8rem, 5vmin, 3rem); font-weight: 800; line-height: 1.1; }
+.earthquake-alert-magnitude { display: grid; gap: .35rem; }
+.earthquake-alert-magnitude > span { font-size: .85rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.earthquake-alert-magnitude strong { font-size: clamp(5rem, 15vmin, 9rem); font-weight: 800; line-height: 1; letter-spacing: -.05em; }
+.earthquake-alert .earthquake-alert-place { margin: 0; max-width: 38rem; font-size: clamp(1.15rem, 3vmin, 1.7rem); font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
+.earthquake-alert-facts { display: flex; flex-wrap: wrap; justify-content: center; gap: 1rem 3rem; margin: 0; }
+.earthquake-alert-facts dt { margin-bottom: .3rem; font-size: .8rem; }
+.earthquake-alert-facts dd { margin: 0; font-size: 2rem; font-weight: 750; }
+.earthquake-alert-facts dd span { font-size: 1rem; font-weight: 500; }
+.earthquake-alert-source { margin: 0; font-size: .8rem; line-height: 1.5; }
+.earthquake-alert-report { color: #fff; font-size: .9rem; text-underline-offset: .2rem; }
+.earthquake-alert-audio { min-height: 1.5em; margin: 0; font-size: .85rem; line-height: 1.5; }
+.earthquake-alert-actions { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: .75rem; width: 100%; margin-top: auto; padding: .9rem 0 max(.25rem, env(safe-area-inset-bottom)); background: #8f211b; }
+.earthquake-alert-actions button { flex: 1 1 9rem; min-height: 3.25rem; border: 1px solid #fff; border-radius: .6rem; padding: .85rem 1rem; background: transparent; color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
+.earthquake-alert-actions .earthquake-alert-dismiss { background: #fff; color: #8f211b; }
+.earthquake-alert :is(button, a):focus-visible { outline: 3px solid #fff; outline-offset: 4px; }
+@media (max-width: 480px) {
+  .earthquake-alert-content { gap: .8rem; }
+  .earthquake-alert-actions .earthquake-alert-dismiss { flex-basis: 100%; }
+}
 
