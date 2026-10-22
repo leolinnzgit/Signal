@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useEarthquakeAudio } from "./EarthquakeAudio";
 import "./earthquake-alerts.css";
 
 type Settings = { enabled: boolean; voice: boolean; radiusKm: number; minimumMagnitude: number; deviceId: string };
@@ -33,50 +34,13 @@ export function useEarthquakeAlerts(account: string, available: boolean) {
   const [ready, setReady] = useState(false);
   const [status, setStatus] = useState("Earthquake alerts are off on this device.");
   const [latest, setLatest] = useState<Quake | null>(null);
-  const [audioStatus, setAudioStatus] = useState("");
+  const { audioStatus, speak, stop } = useEarthquakeAudio();
   const [retry, setRetry] = useState(0);
   const current = useRef(settings);
   current.current = settings;
   const seen = useRef(new Set<string>());
-  const speech = useRef<SpeechSynthesisUtterance | null>(null);
-  const speechTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const monitorRequest = useRef<AbortController | null>(null);
   const [disabling, setDisabling] = useState(false);
-
-  const stop = useCallback(() => {
-    if (speechTimer.current) clearTimeout(speechTimer.current);
-    speechTimer.current = null;
-    if (speech.current) {
-      speech.current.onstart = speech.current.onend = speech.current.onerror = null;
-      speech.current = null;
-      window.speechSynthesis?.cancel();
-    }
-    setAudioStatus("");
-  }, []);
-
-  const speak = useCallback((text: string) => {
-    stop();
-    if (!("speechSynthesis" in window) || !("SpeechSynthesisUtterance" in window)) {
-      setAudioStatus("Voice is unavailable in this browser. Earthquake alerts still appear on screen.");
-      return;
-    }
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = "en-NZ";
-    utterance.rate = 1;
-    speech.current = utterance;
-    setAudioStatus("Starting voice…");
-    speechTimer.current = setTimeout(() => {
-      stop();
-      setAudioStatus("Tap Read alert or Test voice to allow audio playback.");
-    }, 6000);
-    utterance.onstart = () => {
-      if (speechTimer.current) clearTimeout(speechTimer.current);
-      setAudioStatus("Reading earthquake alert…");
-    };
-    utterance.onend = () => { speech.current = null; setAudioStatus(""); };
-    utterance.onerror = () => { stop(); setAudioStatus("Tap Read alert or Test voice to allow audio playback."); };
-    window.speechSynthesis.speak(utterance);
-  }, [stop]);
 
   useEffect(() => {
     try {
@@ -191,7 +155,7 @@ export function useEarthquakeAlerts(account: string, available: boolean) {
           {[50, 100, 300, 500, 1000].map(km => <option key={km} value={km}>{km} km</option>)}</select></label>
         <label>Magnitude <select aria-label="Minimum earthquake magnitude" value={settings.minimumMagnitude} onChange={e => setSettings(s => ({ ...s, minimumMagnitude: Number(e.target.value) }))}>
           {[2, 3, 4, 5, 6, 7].map(m => <option key={m} value={m}>{m}.0+</option>)}</select></label>
-        <label><input type="checkbox" checked={settings.voice} onChange={e => { setSettings(s => ({ ...s, voice: e.target.checked })); if (!e.target.checked) stop(); }} />Voice notification</label>
+        <label><input type="checkbox" checked={settings.voice} onChange={e => { setSettings(s => ({ ...s, voice: e.target.checked })); if (!e.target.checked) stop(); }} />Azure voice notification</label>
       </div>
       <div className="earthquake-actions">
         <button type="button" disabled={!ready || disabling} onClick={() => {
@@ -203,8 +167,9 @@ export function useEarthquakeAlerts(account: string, available: boolean) {
         {settings.enabled && <button type="button" onClick={() => setRetry(r => r + 1)}>Check now</button>}
       </div>
       <p role="status">{status}</p>
+      <small>Uses Azure’s neural voice with your saved English reading voice, or the default voice.</small>
       {!latest && audioStatus && <p role="status">{audioStatus}</p>}
-      <small>Checks every minute for new events from the last 15 minutes. Voice needs Signal open and may require a tap. Closed-app notifications use your last known location for up to 24 hours; reopen Signal to refresh it. Location is removed when disabled and expires from storage after seven days. Reports can be delayed or revised. This is not an earthquake early-warning service.</small>
+      <small>Checks every minute for new events from the last 15 minutes. Azure voice needs Signal open and may require a tap. Closed-app pushes use your phone’s normal notification sound and your last known location for up to 24 hours; reopen Signal to refresh it. Location is removed when disabled and expires from storage after seven days. Reports can be delayed or revised. This is not an earthquake early-warning service.</small>
     </section> : null,
   };
 }

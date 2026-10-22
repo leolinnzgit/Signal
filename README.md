@@ -155,9 +155,14 @@ IIS for a persistent personal deployment.
   magnitude 4 within 300 km), enable voice, and use **Test voice** to check playback.
   New events from the past 15 minutes are announced once, with magnitude,
   locality, distance and depth, and an on-screen link to the source report.
-  Voice requires the app to remain open and may require tapping **Read alert**.
+  Voice uses the existing server-side Azure Speech integration and your saved
+  English reading voice (or the configured default neural voice). Azure API keys
+  stay on the server. Voice requires the app to remain open and may require
+  tapping **Read alert**; a blocked attempt reuses its prepared audio on the next tap.
+  Azure failures keep the visual alert and show a retry message.
   Enable **Phone notifications & app badge** to also receive Web Push while closed;
-  the server uses this device's last known location for up to 24 hours. Reopen
+  these use the phone's normal notification sound. The server uses this device's
+  last known location for up to 24 hours. Reopen
   Signal to refresh GPS after travelling. Weather locations are independent.
   Disabling earthquake alerts removes the device's saved location; expired device
   registrations are removed after seven days. Feed failures are shown and retried;
