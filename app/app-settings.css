@@ -1,0 +1,32 @@
+.settings-toggle { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 2.25rem; height: 2.25rem; padding: .45rem; border: 1px solid var(--line); border-radius: 50%; color: var(--page-text); background: transparent; cursor: pointer; }
+.settings-toggle svg { width: 1.1rem; height: 1.1rem; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; }
+.settings-toggle:hover, .settings-toggle[aria-expanded="true"] { border-color: var(--red); color: var(--red); }
+.settings-toggle:focus-visible, .app-settings-dialog button:focus-visible { outline: 2px solid var(--red); outline-offset: 3px; }
+.app-settings-dialog { width: min(40rem, calc(100vw - 2rem)); max-height: min(88dvh, 56rem); margin: auto; padding: 0; border: 1px solid var(--line); border-radius: 1rem; background: var(--content-background); color: var(--page-text); box-shadow: 0 1.5rem 5rem var(--shadow); overflow: auto; overscroll-behavior: contain; }
+.app-settings-dialog::backdrop { background: var(--overlay); backdrop-filter: blur(4px); }
+html:has(.app-settings-dialog[open]) { overflow: hidden; }
+.app-settings-heading { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 1.4rem 1.5rem 1rem; }
+.app-settings-heading p { margin: 0 0 .3rem; color: var(--text-muted); font-size: .65rem; letter-spacing: .12em; text-transform: uppercase; }
+.app-settings-heading h2 { margin: 0; font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif; font-size: 1.8rem; font-weight: 500; }
+.app-settings-heading > button { display: grid; place-items: center; width: 2.25rem; height: 2.25rem; border: 1px solid var(--line); border-radius: 50%; color: var(--page-text); background: transparent; font-size: 1.4rem; cursor: pointer; }
+.app-settings-categories { position: sticky; top: 0; z-index: 1; display: flex; gap: .4rem; padding: .6rem 1.5rem; border-bottom: 1px solid var(--line); background: var(--content-background); }
+.app-settings-categories button { flex: 1; padding: .65rem .4rem; border: 1px solid transparent; border-radius: .4rem; color: var(--text-muted); background: transparent; font-size: .8rem; cursor: pointer; }
+.app-settings-categories button[aria-pressed="true"] { border-color: var(--red); color: var(--red); background: color-mix(in srgb, var(--red) 7%, transparent); }
+.app-settings-content { padding: 1.25rem 1.5rem 1.5rem; }
+.app-settings-content .settings-row { padding-top: 0; gap: 1rem; }
+.app-settings-content :is(.field label, .title-size-setting > span, .pinned-filter-settings > span) { color: var(--text-muted); }
+.app-settings-content :is(.refresh-setting-note, .settings-note, .history-retention-setting small, .push-notification-setting small, .email-summary-toggle small, .pinned-filter-settings small) { color: var(--text-muted); font-size: .75rem; line-height: 1.5; }
+.app-settings-content :is(.history-retention-setting, .push-notification-setting, .email-summary-toggle, .pinned-filter-settings label) { border-color: var(--line); border-radius: .5rem; background: var(--card-background); }
+.app-settings-content :is(.history-retention-setting label, .push-notification-setting strong, .email-summary-toggle strong, .pinned-filter-settings strong) { color: var(--page-text); font-size: .85rem; }
+.app-settings-content :is(.compact-field select, .history-retention-setting select, .title-size-setting button, .push-notification-setting button) { border-color: var(--line); color: var(--page-text); background: var(--input-background); }
+.app-settings-content .title-size-setting button:last-child { border-right-color: var(--line); }
+.app-settings-content .title-size-setting button:is(:hover, .active) { border-color: var(--red); color: var(--red); background: color-mix(in srgb, var(--red) 9%, transparent); }
+.app-settings-content .push-notification-setting.status-on button { color: var(--red); border-color: var(--red); }
+.app-settings-content .earthquake-settings { scroll-margin-top: 5rem; }
+.app-settings-content .settings-note { margin-bottom: 0; }
+@media (max-width: 480px) {
+  .app-settings-dialog { width: calc(100vw - 1rem); max-height: 92dvh; border-radius: .75rem; }
+  .app-settings-heading { padding: 1rem; }
+  .app-settings-categories { padding: .5rem .75rem; }
+  .app-settings-content { padding: 1rem; }
+}

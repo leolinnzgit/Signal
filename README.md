@@ -145,7 +145,9 @@ IIS for a persistent personal deployment.
   overrides, including qualified NZX symbols such as `AIR:NZX`.
 - Show current conditions and a seven-day forecast for a weather location
   searched by city or region worldwide, or from device GPS.
-- Enable **Earthquake alerts** in Settings for this device. Signal refreshes phone
+- Open the **Settings** gear at the top right for separate **Briefing**, **Display**,
+  and **Notifications** preferences. Topic and source management stay in the main controls.
+- Enable **Earthquake alerts** under **Settings → Notifications** for this device. Signal refreshes phone
   GPS and checks every minute for new nearby earthquakes, using
   [GeoNet](https://api.geonet.org.nz/) in New Zealand and the
   [USGS GeoJSON feed](https://earthquake.usgs.gov/earthquakes/feed/v1.0/geojson.php)

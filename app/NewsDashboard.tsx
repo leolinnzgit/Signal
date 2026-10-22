@@ -18,6 +18,7 @@ import ArticleTranslationControls from "./ArticleTranslationControls";
 import type { ArticleTranslation } from "./article-translation";
 import { useWeatherAudio } from "./WeatherAudio";
 import { useEarthquakeAlerts } from "./EarthquakeAlerts";
+import AppSettings from "./AppSettings";
 import { formatMarketPrice, type MarketQuote } from "./market-quote";
 import { describeWeather, weatherBriefing, type LocalWeather, type WeatherForecastDay } from "./weather-briefing";
 import ArticleReadingText from "./ArticleReadingText";
@@ -1028,15 +1029,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   useEffect(() => {
     setControlsExpanded(localStorage.getItem(CONTROLS_STORAGE_KEY) === "true");
     setControlsHidden(localStorage.getItem(CONTROLS_HIDDEN_STORAGE_KEY) === "true");
-    const openEarthquakeSettings = () => {
-      if (window.location.hash !== "#earthquake-alerts") return;
-      setControlsHidden(false);
-      setControlsExpanded(true);
-      window.requestAnimationFrame(() => document.getElementById("earthquake-alerts")?.scrollIntoView({ block: "center" }));
-    };
-    openEarthquakeSettings();
-    window.addEventListener("hashchange", openEarthquakeSettings);
-    return () => window.removeEventListener("hashchange", openEarthquakeSettings);
+
   }, []);
 
   useEffect(() => {
@@ -3161,6 +3154,204 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
             <span className="theme-toggle-icon" aria-hidden="true">{theme === "dark" ? "\u263E" : "\u2600"}</span>
             <span className="theme-toggle-label">{theme === "dark" ? "Dark" : theme === "light" ? "Light" : "Theme"}</span>
           </button>
+          <AppSettings
+            briefing={<>
+          <div className="settings-row">
+            <div className="field compact-field">
+              <label htmlFor="story-limit">Stories per topic</label>
+              <select id="story-limit" value={preferences.limit} onChange={(event) => setPreferences((current) => ({ ...current, limit: Number(event.target.value) }))}>
+                {STORY_LIMIT_OPTIONS.map((value) => <option key={value} value={value}>{value}</option>)}
+              </select>
+            </div>
+            <div className="field compact-field">
+              <label htmlFor="refresh-rate">Refresh</label>
+              <select id="refresh-rate" value={preferences.refreshMinutes} onChange={(event) => setPreferences((current) => ({ ...current, refreshMinutes: Number(event.target.value) }))}>
+                <option value={0}>Manual</option><option value={5}>Every 5 min</option><option value={15}>Every 15 min</option><option value={30}>Every 30 min</option><option value={60}>Every hour</option><option value={120}>Every 2 hours</option><option value={180}>Every 3 hours</option><option value={240}>Every 4 hours</option><option value={300}>Every 5 hours</option><option value={360}>Every 6 hours</option><option value={420}>Every 7 hours</option><option value={480}>Every 8 hours</option>
+              </select>
+              {refreshStore && <small className="refresh-setting-note">Each topic keeps its own saved schedule, even while Signal is closed.</small>}
+            </div>
+          </div>
+          {articleStore && (
+            <div className="history-retention-setting">
+              <label htmlFor="article-retention">Delete unbookmarked stories after</label>
+              <select
+                id="article-retention"
+                value={preferences.articleRetentionDays}
+                onChange={(event) => setPreferences((current) => ({
+                  ...current,
+                  articleRetentionDays: Number(event.target.value),
+                }))}
+              >
+                <option value={1}>1 day</option>
+                <option value={7}>1 week</option>
+                <option value={14}>2 weeks</option>
+                <option value={30}>1 month</option>
+                <option value={90}>3 months</option>
+                <option value={180}>6 months</option>
+                <option value={365}>1 year</option>
+              </select>
+              <small>Bookmarks are excluded from cleanup and stay saved until you remove them.</small>
+            </div>
+          )}
+          {preferencesStore && summarySender && (
+            <label className="email-summary-toggle">
+              <input
+                type="checkbox"
+                checked={preferences.emailSummaryEnabled}
+                onChange={(event) => setPreferences((current) => ({
+                  ...current,
+                  emailSummaryEnabled: event.target.checked,
+                }))}
+              />
+              <span>
+                <strong>Email refreshed briefing</strong>
+                <small>Send a polished summary to {user.email} after scheduled and manual refreshes.</small>
+              </span>
+            </label>
+          )}
+            </>}
+            display={<>
+          <div className="title-size-setting">
+            <span>News title size</span>
+            <div role="group" aria-label="Choose news title font size">
+              {(["small", "medium", "large"] as StoryTitleSize[]).map((size) => (
+                <button
+                  type="button"
+                  key={size}
+                  className={preferences.storyTitleSize === size ? "active" : ""}
+                  aria-pressed={preferences.storyTitleSize === size}
+                  onClick={() => setPreferences((current) => ({ ...current, storyTitleSize: size }))}
+                >
+                  {size}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="title-size-setting">
+            <span>Topic header size</span>
+            <div role="group" aria-label="Choose topic header font size">
+              {(["small", "medium", "large"] as StoryTitleSize[]).map((size) => (
+                <button
+                  type="button"
+                  key={size}
+                  className={preferences.topicHeaderSize === size ? "active" : ""}
+                  aria-pressed={preferences.topicHeaderSize === size}
+                  onClick={() => setPreferences((current) => ({ ...current, topicHeaderSize: size }))}
+                >
+                  {size}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="pinned-filter-settings" role="group" aria-labelledby="pinned-filter-settings-label">
+            <span id="pinned-filter-settings-label">Pinned filters while scrolling</span>
+            <div>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={preferences.showTopicFiltersWhenPinned}
+                  onChange={(event) => setPreferences((current) => ({
+                    ...current,
+                    showTopicFiltersWhenPinned: event.target.checked,
+                  }))}
+                />
+                <span><strong>Topics</strong><small>Keep the topic selector in the pinned area.</small></span>
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={preferences.showSourceFiltersWhenPinned}
+                  onChange={(event) => setPreferences((current) => ({
+                    ...current,
+                    showSourceFiltersWhenPinned: event.target.checked,
+                  }))}
+                />
+                <span><strong>Sources</strong><small>Keep the source selector in the pinned area.</small></span>
+              </label>
+            </div>
+          </div>
+            </>}
+            notifications={<>
+          {pushNotificationStore && (
+            <div className={`push-notification-setting status-${pushNotificationStatus}`}>
+              <span>
+                <strong>Phone notifications &amp; app badge</strong>
+                <small>
+                  {pushNotificationStatus === "on"
+                    ? "Enabled on this device. Signal will notify you when scheduled refreshes find new stories."
+                    : pushNotificationStatus === "denied"
+                      ? "Blocked by your phone. Allow Signal under the phone's notification settings."
+                      : pushNotificationStatus === "unsupported"
+                        ? "Install Signal as an app using a browser that supports Web Push."
+                        : pushNotificationStatus === "checking"
+                          ? "Checking notification support on this device..."
+                          : pushNotificationStatus === "enabling"
+                            ? "Registering this device and sending a test..."
+                            : pushNotificationStatus === "disabling"
+                              ? "Removing this device..."
+                              : "Enable this to receive a notification dot or badge while Signal is closed."}
+                </small>
+              </span>
+              <button
+                type="button"
+                onClick={() => void (
+                  pushNotificationStatus === "on"
+                    ? disablePushNotifications()
+                    : enablePushNotifications()
+                )}
+                disabled={[
+                  "checking",
+                  "unsupported",
+                  "enabling",
+                  "disabling",
+                  "denied",
+                ].includes(pushNotificationStatus)}
+              >
+                {pushNotificationStatus === "on"
+                  ? "Turn off"
+                  : pushNotificationStatus === "enabling"
+                    ? "Enabling..."
+                    : pushNotificationStatus === "disabling"
+                      ? "Turning off..."
+                      : pushNotificationStatus === "denied"
+                        ? "Blocked"
+                        : pushNotificationStatus === "unsupported"
+                          ? "Unavailable"
+                          : "Enable"}
+              </button>
+            </div>
+          )}
+          {pushNotificationStore && (
+            <label className="email-summary-toggle">
+              <input
+                type="checkbox"
+                checked={preferences.pushNewsTitlesEnabled}
+                onChange={(event) => setPreferences((current) => ({
+                  ...current,
+                  pushNewsTitlesEnabled: event.target.checked,
+                }))}
+              />
+              <span>
+                <strong>Show each news title</strong>
+                <small>Send a separate phone notification for each new story, showing its title, publisher and a short summary when available. Turn off for topic summaries. Applies to all your devices with notifications enabled.</small>
+              </span>
+            </label>
+          )}
+          {earthquakes.controls}
+            </>}
+            footer={
+          <p className="settings-note" aria-live="polite">
+            {!preferencesStore
+              ? "Your topics, sources and settings are saved on this device."
+              : storageStatus === "loading"
+                ? "Loading your saved account settings..."
+                : storageStatus === "saving"
+                  ? "Saving settings to your account..."
+                  : storageStatus === "error"
+                    ? "Could not sync settings. Changes are backed up in this browser and will retry next time."
+                    : "Your topics, sources and settings are saved to your account."}
+          </p>            }
+          />
           <div className="current-user">
             <span className="user-avatar" aria-hidden="true">
               {user.profilePhotoUrl
@@ -3598,195 +3789,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
             )}
           </div>
 
-          <div className="settings-row">
-            <div className="field compact-field">
-              <label htmlFor="story-limit">Stories per topic</label>
-              <select id="story-limit" value={preferences.limit} onChange={(event) => setPreferences((current) => ({ ...current, limit: Number(event.target.value) }))}>
-                {STORY_LIMIT_OPTIONS.map((value) => <option key={value} value={value}>{value}</option>)}
-              </select>
-            </div>
-            <div className="field compact-field">
-              <label htmlFor="refresh-rate">Refresh</label>
-              <select id="refresh-rate" value={preferences.refreshMinutes} onChange={(event) => setPreferences((current) => ({ ...current, refreshMinutes: Number(event.target.value) }))}>
-                <option value={0}>Manual</option><option value={5}>Every 5 min</option><option value={15}>Every 15 min</option><option value={30}>Every 30 min</option><option value={60}>Every hour</option><option value={120}>Every 2 hours</option><option value={180}>Every 3 hours</option><option value={240}>Every 4 hours</option><option value={300}>Every 5 hours</option><option value={360}>Every 6 hours</option><option value={420}>Every 7 hours</option><option value={480}>Every 8 hours</option>
-              </select>
-              {refreshStore && <small className="refresh-setting-note">Each topic keeps its own saved schedule, even while Signal is closed.</small>}
-            </div>
-          </div>
-          <div className="title-size-setting">
-            <span>News title size</span>
-            <div role="group" aria-label="Choose news title font size">
-              {(["small", "medium", "large"] as StoryTitleSize[]).map((size) => (
-                <button
-                  type="button"
-                  key={size}
-                  className={preferences.storyTitleSize === size ? "active" : ""}
-                  aria-pressed={preferences.storyTitleSize === size}
-                  onClick={() => setPreferences((current) => ({ ...current, storyTitleSize: size }))}
-                >
-                  {size}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="title-size-setting">
-            <span>Topic header size</span>
-            <div role="group" aria-label="Choose topic header font size">
-              {(["small", "medium", "large"] as StoryTitleSize[]).map((size) => (
-                <button
-                  type="button"
-                  key={size}
-                  className={preferences.topicHeaderSize === size ? "active" : ""}
-                  aria-pressed={preferences.topicHeaderSize === size}
-                  onClick={() => setPreferences((current) => ({ ...current, topicHeaderSize: size }))}
-                >
-                  {size}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="pinned-filter-settings" role="group" aria-labelledby="pinned-filter-settings-label">
-            <span id="pinned-filter-settings-label">Pinned filters while scrolling</span>
-            <div>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={preferences.showTopicFiltersWhenPinned}
-                  onChange={(event) => setPreferences((current) => ({
-                    ...current,
-                    showTopicFiltersWhenPinned: event.target.checked,
-                  }))}
-                />
-                <span><strong>Topics</strong><small>Keep the topic selector in the pinned area.</small></span>
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={preferences.showSourceFiltersWhenPinned}
-                  onChange={(event) => setPreferences((current) => ({
-                    ...current,
-                    showSourceFiltersWhenPinned: event.target.checked,
-                  }))}
-                />
-                <span><strong>Sources</strong><small>Keep the source selector in the pinned area.</small></span>
-              </label>
-            </div>
-          </div>
-          {articleStore && (
-            <div className="history-retention-setting">
-              <label htmlFor="article-retention">Delete unbookmarked stories after</label>
-              <select
-                id="article-retention"
-                value={preferences.articleRetentionDays}
-                onChange={(event) => setPreferences((current) => ({
-                  ...current,
-                  articleRetentionDays: Number(event.target.value),
-                }))}
-              >
-                <option value={1}>1 day</option>
-                <option value={7}>1 week</option>
-                <option value={14}>2 weeks</option>
-                <option value={30}>1 month</option>
-                <option value={90}>3 months</option>
-                <option value={180}>6 months</option>
-                <option value={365}>1 year</option>
-              </select>
-              <small>Bookmarks are excluded from cleanup and stay saved until you remove them.</small>
-            </div>
-          )}
-          {preferencesStore && summarySender && (
-            <label className="email-summary-toggle">
-              <input
-                type="checkbox"
-                checked={preferences.emailSummaryEnabled}
-                onChange={(event) => setPreferences((current) => ({
-                  ...current,
-                  emailSummaryEnabled: event.target.checked,
-                }))}
-              />
-              <span>
-                <strong>Email refreshed briefing</strong>
-                <small>Send a polished summary to {user.email} after scheduled and manual refreshes.</small>
-              </span>
-            </label>
-          )}
-          {pushNotificationStore && (
-            <div className={`push-notification-setting status-${pushNotificationStatus}`}>
-              <span>
-                <strong>Phone notifications &amp; app badge</strong>
-                <small>
-                  {pushNotificationStatus === "on"
-                    ? "Enabled on this device. Signal will notify you when scheduled refreshes find new stories."
-                    : pushNotificationStatus === "denied"
-                      ? "Blocked by your phone. Allow Signal under the phone's notification settings."
-                      : pushNotificationStatus === "unsupported"
-                        ? "Install Signal as an app using a browser that supports Web Push."
-                        : pushNotificationStatus === "checking"
-                          ? "Checking notification support on this device..."
-                          : pushNotificationStatus === "enabling"
-                            ? "Registering this device and sending a test..."
-                            : pushNotificationStatus === "disabling"
-                              ? "Removing this device..."
-                              : "Enable this to receive a notification dot or badge while Signal is closed."}
-                </small>
-              </span>
-              <button
-                type="button"
-                onClick={() => void (
-                  pushNotificationStatus === "on"
-                    ? disablePushNotifications()
-                    : enablePushNotifications()
-                )}
-                disabled={[
-                  "checking",
-                  "unsupported",
-                  "enabling",
-                  "disabling",
-                  "denied",
-                ].includes(pushNotificationStatus)}
-              >
-                {pushNotificationStatus === "on"
-                  ? "Turn off"
-                  : pushNotificationStatus === "enabling"
-                    ? "Enabling..."
-                    : pushNotificationStatus === "disabling"
-                      ? "Turning off..."
-                      : pushNotificationStatus === "denied"
-                        ? "Blocked"
-                        : pushNotificationStatus === "unsupported"
-                          ? "Unavailable"
-                          : "Enable"}
-              </button>
-            </div>
-          )}
-          {pushNotificationStore && (
-            <label className="email-summary-toggle">
-              <input
-                type="checkbox"
-                checked={preferences.pushNewsTitlesEnabled}
-                onChange={(event) => setPreferences((current) => ({
-                  ...current,
-                  pushNewsTitlesEnabled: event.target.checked,
-                }))}
-              />
-              <span>
-                <strong>Show each news title</strong>
-                <small>Send a separate phone notification for each new story, showing its title, publisher and a short summary when available. Turn off for topic summaries. Applies to all your devices with notifications enabled.</small>
-              </span>
-            </label>
-          )}
-          {earthquakes.controls}
-          <p className="settings-note" aria-live="polite">
-            {!preferencesStore
-              ? "Your topics, sources and settings are saved on this device."
-              : storageStatus === "loading"
-                ? "Loading your saved account settings..."
-                : storageStatus === "saving"
-                  ? "Saving settings to your account..."
-                  : storageStatus === "error"
-                    ? "Could not sync settings. Changes are backed up in this browser and will retry next time."
-                    : "Your topics, sources and settings are saved to your account."}
-          </p>
+
           </div>
         </div>}
 
