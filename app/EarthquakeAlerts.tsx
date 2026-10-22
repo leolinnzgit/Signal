@@ -50,7 +50,7 @@ export function useEarthquakeAlerts(account: string, available: boolean) {
 
   useEffect(() => {
     const handleHash = () => {
-      if (window.location.hash === "#earthquake-map") {
+      if (["#earthquake-map", "#disaster-map"].includes(window.location.hash)) {
         setShowMap(true);
       }
     };
@@ -179,7 +179,7 @@ export function useEarthquakeAlerts(account: string, available: boolean) {
           if (settings.enabled) void turnOff();
           else { setSettings(s => ({ ...s, enabled: true })); if (settings.voice) speak("Test notification. Earthquake voice alerts are ready while Signal is open."); }
         }}>{settings.enabled ? "Turn off earthquake alerts" : "Enable earthquake alerts"}</button>
-        <button type="button" onClick={() => { setMapTargetQuake(null); setShowMap(true); }}>View earthquake map</button>
+        <button type="button" onClick={() => { setMapTargetQuake(null); setShowMap(true); }}>View disaster map</button>
         <button type="button" onClick={() => speak("Test notification. A nearby earthquake has been reported. This is a voice test only.")}>Test voice</button>
         <button type="button" onClick={stop}>Stop voice</button>
         <button type="button" onClick={() => {
@@ -198,7 +198,7 @@ export function useEarthquakeAlerts(account: string, available: boolean) {
       onClose={() => {
         setShowMap(false);
         setMapTargetQuake(null);
-        if (window.location.hash === "#earthquake-map") {
+        if (["#earthquake-map", "#disaster-map"].includes(window.location.hash)) {
           window.history.replaceState(null, "", window.location.pathname + window.location.search);
         }
       }}

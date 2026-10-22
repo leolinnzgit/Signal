@@ -159,14 +159,21 @@ IIS for a persistent personal deployment.
   the source report. It stays until dismissed; dismissing also stops its voice.
   Use **Preview full-screen alert** in Settings to try a clearly marked example
   without enabling monitoring or waiting for an earthquake.
-  Choose **View on map** in the alert or **View earthquake map** in Settings (or `#earthquake-map`)
-  to open the interactive Earthquake Map visualization. The visualization plots regional
-  and global earthquakes with color-coded magnitude pins (red for M6.0+, orange for M5.0+,
-  yellow for M4.0+, cyan for minor), seismic depth, distance from your phone, and a quick-select
-  drawer. When configured with Azure Maps via `Configure Signal Maps.cmd` (Azure Maps Gen2 free tier,
-  up to 5,000 free transactions/month), the view renders full WebGL satellite, night, and street
-  imagery with camera zoom and style controls. Without an Azure key, it presents an interactive
-  distance radar grid.
+  Choose **View on map** in an alert or **View disaster map** in Settings (or `#disaster-map`;
+  the existing `#earthquake-map` link also works) to open the Disaster Map. It combines
+  GeoNet/USGS earthquake reports with [GDACS](https://www.gdacs.org/feed_reference.aspx)
+  global reports updated in the past week: floods, tropical cyclones, wildfires,
+  volcanoes, and droughts. Toggle individual hazard types, filter earthquake magnitude,
+  select a marker or report to see source details, report dates, distance when a location
+  is available, and the source report link. GDACS reports show their green/orange/red
+  alert level; earthquake reports show magnitude and depth. The earthquake source
+  selector and magnitude filters apply only to earthquakes.
+  Feeds refresh every minute while the map is open; GDACS requests share a six-minute
+  server cache. Each source can fail independently, with an explicit warning and retry.
+  Configure Azure Maps with `Configure Signal Maps.cmd` for street, night, and satellite
+  maps. If mapping is unavailable, a global coordinate overview plots actual locations.
+  Pins indicate reported locations, not flood extents, affected boundaries, or evacuation
+  zones. Coverage is incomplete and reports can be delayed; follow local authorities.
   Voice uses the existing server-side Azure Speech integration and your saved
   English reading voice (or the configured default neural voice). Azure API keys
   stay on the server. Voice requires the app to remain open and may require

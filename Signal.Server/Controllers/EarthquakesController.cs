@@ -16,6 +16,7 @@ public sealed class EarthquakesController(
     SignalDbContext database,
     UserManager<ApplicationUser> users,
     EarthquakeFeed feed,
+    DisasterFeed disasters,
     IOptions<AzureMapsOptions> mapsOptions) : ControllerBase
 {
     [HttpGet("config")]
@@ -66,33 +67,49 @@ public sealed class EarthquakesController(
             _ => !userLat.HasValue || !userLon.HasValue || EarthquakeFeed.UseGeoNet(userLat.Value, userLon.Value)
         };
 
-        try
+        var warnings = new List<string>();
+        async Task<Earthquake[]> LoadEarthquakes()
         {
-            var events = await feed.GetFeedAsync(geoNet, ct);
-            if (userLat.HasValue && userLon.HasValue)
+            try { return await feed.GetFeedAsync(geoNet, ct); }
+            catch (Exception ex) when (!ct.IsCancellationRequested && ex is HttpRequestException or JsonException or TaskCanceledException)
+            { lock (warnings) warnings.Add("Earthquake feed unavailable. Retry to check for updates."); return []; }
+        }
+        async Task<DisasterEvent[]> LoadDisasters()
+        {
+            try { return await disasters.GetAsync(ct); }
+            catch (Exception ex) when (!ct.IsCancellationRequested && ex is HttpRequestException or System.Xml.XmlException or TaskCanceledException)
+            { lock (warnings) warnings.Add("GDACS disaster feed unavailable. Retry to check floods and other disasters."); return []; }
+        }
+        var quakeTask = LoadEarthquakes();
+        var disasterTask = LoadDisasters();
+        await Task.WhenAll(quakeTask, disasterTask);
+        var events = await quakeTask;
+        var disasterEvents = await disasterTask;
+        if (userLat.HasValue && userLon.HasValue)
+        {
+            disasterEvents = disasterEvents.Select(e => e with
             {
-                events = events.Select(e => e with
-                {
-                    DistanceKm = EarthquakeFeed.DistanceKm(userLat.Value, userLon.Value, e.Latitude, e.Longitude)
-                }).OrderBy(e => e.DistanceKm).ToArray();
-            }
+                DistanceKm = EarthquakeFeed.DistanceKm(userLat.Value, userLon.Value, e.Latitude, e.Longitude)
+            }).OrderBy(e => e.DistanceKm).ToArray();
+            events = events.Select(e => e with
+            {
+                DistanceKm = EarthquakeFeed.DistanceKm(userLat.Value, userLon.Value, e.Latitude, e.Longitude)
+            }).OrderBy(e => e.DistanceKm).ToArray();
+        }
 
-            return Ok(new
-            {
-                azureMapsConfigured = mapsOptions.Value.Enabled,
-                subscriptionKey = mapsOptions.Value.Enabled ? mapsOptions.Value.SubscriptionKey : "",
-                source = geoNet ? "GeoNet" : "USGS",
-                events,
-                userLocation = userLat.HasValue && userLon.HasValue
-                    ? new { latitude = userLat.Value, longitude = userLon.Value, radiusKm }
-                    : null,
-                checkedAtUtc = DateTime.UtcNow
-            });
-        }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException)
+        return Ok(new
         {
-            return StatusCode(503, new { error = "Earthquake feed unavailable. Retrying in one minute." });
-        }
+            azureMapsConfigured = mapsOptions.Value.Enabled,
+            subscriptionKey = mapsOptions.Value.Enabled ? mapsOptions.Value.SubscriptionKey : "",
+            source = geoNet ? "GeoNet" : "USGS",
+            events,
+            disasters = disasterEvents,
+            warnings,
+            userLocation = userLat.HasValue && userLon.HasValue
+                ? new { latitude = userLat.Value, longitude = userLon.Value, radiusKm }
+                : null,
+            checkedAtUtc = DateTime.UtcNow
+        });
     }
 
     [HttpPut("devices/{id:guid}")]

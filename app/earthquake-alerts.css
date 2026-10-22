@@ -482,3 +482,34 @@ html:has(.earthquake-alert[open]) { overflow: hidden; }
   margin: 0.35rem 0.5rem;
 }
 
+.earthquake-map-dialog { --page-text: #f3f4f6; --text-muted: #cbd5e1; color: #f3f4f6; color-scheme: dark; }
+.earthquake-map-body { min-height: 0; overflow: auto; }
+.earthquake-map-canvas-area { min-height: 12rem; }
+.earthquake-radar-fallback { position: absolute; inset: 0; padding: .75rem; }
+.radar-canvas-wrap { width: min(100%, 60rem); height: calc(100% - 2rem); min-height: 0; }
+.coordinate-overview-label { margin: 0; color: #cbd5e1; font-size: .75rem; text-align: center; }
+.disaster-map-toolbar { padding: .6rem 1.25rem; background: #171815; color: #cbd5e1; }
+.disaster-map-toolbar p { margin: .4rem 0 0; font-size: .75rem; line-height: 1.4; }
+.disaster-map-toolbar p[role="alert"] { color: #fde047; }
+.hazard-filters { display: flex; flex-wrap: wrap; gap: .4rem; }
+.hazard-filters button { display: flex; align-items: center; gap: .4rem; padding: .5rem .7rem; border: 1px solid #475569; border-radius: .4rem; color: #94a3b8; background: #111317; font: inherit; font-size: .8rem; cursor: pointer; }
+.hazard-filters button[aria-pressed="true"] { background: #334155; color: #fff; border-color: #94a3b8; }
+.hazard-filters button span { width: .6rem; height: .6rem; border-radius: 50%; }
+.earthquake-active-card { position: static; width: 100%; max-width: none; border-radius: 0; flex-wrap: wrap; box-shadow: none; flex-shrink: 0; }
+.earthquake-active-card .card-info h3 { white-space: normal; }
+.disaster-description { margin: .4rem 0; font-size: .8rem; line-height: 1.45; max-height: 4.5em; overflow: auto; }
+.earthquake-active-card small { color: #cbd5e1; font-size: .7rem; }
+.earthquake-map-drawer { flex-shrink: 0; color: #f3f4f6; }
+.drawer-quake-item { color: #f3f4f6; }
+.earthquake-map-status-badges { flex-wrap: wrap; }
+.earthquake-map-dialog :is(button, a, [role="button"]):focus-visible { outline: 3px solid #38bdf8; outline-offset: 2px; }
+@media (max-width: 600px) {
+  .earthquake-map-header { padding: .65rem .75rem; }
+  .earthquake-map-filters { gap: .4rem; }
+  .earthquake-map-filters .filter-btn { padding: .5rem; }
+  .disaster-map-toolbar { padding: .5rem .75rem; }
+  .hazard-filters { flex-wrap: nowrap; overflow-x: auto; padding: .2rem; }
+  .hazard-filters button { white-space: nowrap; flex-shrink: 0; }
+  .earthquake-active-card { padding: .65rem .75rem; gap: .6rem; }
+}
+

@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+/* Effects synchronize request state and the external Azure Maps SDK. */
+/* eslint-disable react-hooks/set-state-in-effect */
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { EarthquakeReport } from "./EarthquakeAlert";
+import { hazardKinds, hazardLabels, mapEvents, filterMapEvents, eventColor, eventSymbol, eventDetails, overviewPosition, type MapEvent, type HazardKind, type DisasterReport } from "./disaster-map";
 
 // Ambient declarations for Azure Maps Web SDK v3 (atlas) loaded from CDN
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -31,16 +34,11 @@ export type EarthquakeMapFeedResponse = {
   subscriptionKey: string;
   source: string;
   events: EarthquakeReport[];
+  disasters?: DisasterReport[];
+  warnings?: string[];
   userLocation: { latitude: number; longitude: number; radiusKm: number } | null;
   checkedAtUtc: string;
 };
-
-function getMagnitudeColor(mag: number): string {
-  if (mag >= 6.0) return "#ef4444"; // red-500
-  if (mag >= 5.0) return "#f97316"; // orange-500
-  if (mag >= 4.0) return "#eab308"; // yellow-500
-  return "#06b6d4"; // cyan-500
-}
 
 export default function EarthquakeMap({
   isOpen,
@@ -53,17 +51,24 @@ export default function EarthquakeMap({
   targetQuake?: EarthquakeReport | null;
   userCoordinates?: { latitude: number; longitude: number; radiusKm?: number } | null;
 }) {
+  const userLatitude = userCoordinates?.latitude;
+  const userLongitude = userCoordinates?.longitude;
   const dialogRef = useRef<HTMLDialogElement>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mapInstanceRef = useRef<any>(null);
+  const cameraRef = useRef<{ center: number[]; zoom: number } | null>(null);
   const [data, setData] = useState<EarthquakeMapFeedResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sdkLoaded, setSdkLoaded] = useState(false);
   const [selectedSource, setSelectedSource] = useState<"auto" | "geonet" | "usgs">("auto");
   const [minMagnitude, setMinMagnitude] = useState<number>(0);
-  const [activeQuake, setActiveQuake] = useState<EarthquakeReport | null>(null);
+  const [activeQuake, setActiveQuake] = useState<MapEvent | null>(null);
+  const [kinds, setKinds] = useState<HazardKind[]>([...hazardKinds]);
+  const [refresh, setRefresh] = useState(0);
+  const [mapReady, setMapReady] = useState(false);
+  const [sdkFailed, setSdkFailed] = useState(false);
   const [host, setHost] = useState<Element | null>(null);
 
   useEffect(() => {
@@ -87,7 +92,7 @@ export default function EarthquakeMap({
 
   // Load Azure Maps SDK script & stylesheet from Microsoft CDN if configured
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || !data?.azureMapsConfigured) return;
     if (window.atlas) {
       setSdkLoaded(true);
       return;
@@ -115,13 +120,15 @@ export default function EarthquakeMap({
     script.onerror = () => {
       // Azure Maps CDN unavailable, fallback continues to display SVG radar
       setSdkLoaded(false);
+      setSdkFailed(true);
     };
     document.head.appendChild(script);
-  }, [isOpen]);
+  }, [isOpen, data?.azureMapsConfigured]);
 
   // Fetch earthquake feed and Azure Maps configuration
   useEffect(() => {
     if (!isOpen) return;
+    const controller = new AbortController();
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -138,25 +145,24 @@ export default function EarthquakeMap({
     }
 
     fetch(`/api/earthquakes/map-feed?${query.toString()}`, {
+      signal: controller.signal,
       credentials: "same-origin",
       headers: { Accept: "application/json" },
     })
       .then((res) => {
-        if (!res.ok) throw new Error("Could not retrieve earthquake map data.");
+        if (!res.ok) throw new Error("Could not retrieve disaster map data.");
         return res.json();
       })
       .then((feedData: EarthquakeMapFeedResponse) => {
         if (cancelled) return;
         setData(feedData);
-        if (targetQuake) {
-          setActiveQuake(targetQuake);
-        } else if (feedData.events.length > 0) {
-          setActiveQuake(feedData.events[0]);
-        }
+        const all = mapEvents(feedData.events, feedData.disasters ?? [], !!feedData.userLocation);
+        if (targetQuake) all.unshift({ ...targetQuake, kind: "earthquake" });
+        setActiveQuake(current => all.find(e => e.id === current?.id) ?? all[0] ?? null);
       })
       .catch((err) => {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Earthquake feed unavailable.");
+        setError(err instanceof Error ? err.message : "Disaster feeds unavailable.");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -164,14 +170,46 @@ export default function EarthquakeMap({
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [isOpen, selectedSource, userCoordinates, targetQuake]);
+  }, [isOpen, selectedSource, userCoordinates?.latitude, userCoordinates?.longitude, targetQuake, refresh]);
+
+  const allEvents = useMemo(() => {
+    const result = mapEvents(data?.events ?? [], data?.disasters ?? [], !!data?.userLocation);
+    if (targetQuake && !result.some(e => e.id === targetQuake.id)) result.unshift({ ...targetQuake, kind: "earthquake" });
+    return result;
+  }, [data, targetQuake]);
+  const events = useMemo(() => filterMapEvents(allEvents, kinds, minMagnitude), [allEvents, kinds, minMagnitude]);
+  const selectedEvent = events.find(e => e.id === activeQuake?.id) ?? events[0] ?? null;
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const timer = window.setInterval(() => setRefresh(value => value + 1), 60_000);
+    return () => window.clearInterval(timer);
+  }, [isOpen]);
+
+  // Selecting a report also moves the map camera.
+  const selectQuake = useCallback((quake: MapEvent) => {
+    setActiveQuake(quake);
+    if (mapInstanceRef.current && quake.latitude !== undefined && quake.longitude !== undefined) {
+      mapInstanceRef.current.setCamera({
+        center: [quake.longitude, quake.latitude],
+        zoom: 7,
+        type: "ease",
+        duration: 500,
+      });
+    }
+  }, []);
+
 
   // Initialize or update Azure Map instance
+  useEffect(() => { cameraRef.current = null; }, [targetQuake]);
+
   useEffect(() => {
     if (!isOpen || !data?.azureMapsConfigured || !data.subscriptionKey || !sdkLoaded || !window.atlas) {
       return;
     }
+    setMapReady(false);
     const container = mapContainerRef.current;
     if (!container) return;
 
@@ -196,15 +234,18 @@ export default function EarthquakeMap({
           authType: "subscriptionKey",
           subscriptionKey: data.subscriptionKey,
         },
-        center: defaultCenter,
-        zoom: targetQuake ? 7 : 5,
+        center: cameraRef.current?.center ?? defaultCenter,
+        zoom: cameraRef.current?.zoom ?? (targetQuake ? 7 : 2),
         style: theme,
         view: "Auto",
       });
 
       mapInstanceRef.current = map;
 
+      map.events.add("error", () => { setSdkFailed(true); setMapReady(false); });
       map.events.add("ready", () => {
+        setSdkFailed(false);
+        setMapReady(true);
         // Add zoom and pitch controls
         map.controls.add(
           [
@@ -219,7 +260,7 @@ export default function EarthquakeMap({
         );
 
         // Add user location pin if available
-        const userLoc = data.userLocation ?? userCoordinates;
+        const userLoc = data.userLocation ?? (userLatitude !== undefined && userLongitude !== undefined ? { latitude: userLatitude, longitude: userLongitude } : null);
         if (userLoc) {
           const userEl = document.createElement("div");
           userEl.className = "earthquake-map-user-marker";
@@ -233,14 +274,14 @@ export default function EarthquakeMap({
         }
 
         // Add earthquake markers
-        const filteredEvents = data.events.filter((e) => e.magnitude >= minMagnitude);
+        const filteredEvents = events;
         filteredEvents.forEach((quake) => {
           if (quake.latitude === undefined || quake.longitude === undefined) return;
           const markerEl = document.createElement("div");
-          markerEl.className = `earthquake-map-pin ${quake.magnitude >= 5.0 ? "major" : ""}`;
-          markerEl.style.setProperty("--pin-color", getMagnitudeColor(quake.magnitude));
-          markerEl.innerHTML = `<span class="pin-mag">${quake.magnitude.toFixed(1)}</span><span class="pin-wave"></span>`;
-          markerEl.title = `M ${quake.magnitude.toFixed(1)} - ${quake.place}`;
+          markerEl.className = `earthquake-map-pin ${(quake.magnitude ?? 0) >= 5.0 ? "major" : ""}`;
+          markerEl.style.setProperty("--pin-color", eventColor(quake));
+          markerEl.innerHTML = `<span class="pin-mag">${eventSymbol(quake)}</span><span class="pin-wave"></span>`;
+          markerEl.title = `${hazardLabels[quake.kind]}: ${quake.place}`;
 
           const marker = new window.atlas!.HtmlMarker({
             position: [quake.longitude, quake.latitude],
@@ -257,37 +298,31 @@ export default function EarthquakeMap({
             });
           });
 
+          markerEl.tabIndex = 0;
+          markerEl.setAttribute("role", "button");
+          markerEl.setAttribute("aria-label", markerEl.title);
+          markerEl.addEventListener("keydown", event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectQuake(quake); } });
           map.markers.add(marker);
         });
       });
     } catch {
-      // Map failed to initialize; fallback to radar preview
+      setSdkFailed(true);
+      // Keep the coordinate overview available if WebGL is unavailable.
     }
 
     return () => {
       if (mapInstanceRef.current) {
+        const camera = mapInstanceRef.current.getCamera();
+        if (camera.center && Number.isFinite(camera.zoom)) cameraRef.current = { center: camera.center, zoom: camera.zoom };
         mapInstanceRef.current.dispose();
         mapInstanceRef.current = null;
       }
     };
-  }, [isOpen, data, sdkLoaded, minMagnitude, targetQuake, userCoordinates]);
+  }, [isOpen, data, sdkLoaded, events, targetQuake, userLatitude, userLongitude, host, selectQuake]);
 
-  // Pan to selected earthquake when activeQuake changes
-  const selectQuake = (quake: EarthquakeReport) => {
-    setActiveQuake(quake);
-    if (mapInstanceRef.current && quake.latitude !== undefined && quake.longitude !== undefined) {
-      mapInstanceRef.current.setCamera({
-        center: [quake.longitude, quake.latitude],
-        zoom: 7,
-        type: "ease",
-        duration: 500,
-      });
-    }
-  };
 
   if (!isOpen || !host) return null;
 
-  const events = (data?.events ?? []).filter((e) => e.magnitude >= minMagnitude);
 
   return createPortal(
     <dialog
@@ -295,7 +330,7 @@ export default function EarthquakeMap({
       className="earthquake-map-dialog"
       role="dialog"
       aria-modal="true"
-      aria-label="Earthquake map visualization"
+      aria-label="Disaster map"
       onKeyDown={(e) => {
         if (e.key === "Escape") {
           e.stopPropagation();
@@ -311,10 +346,10 @@ export default function EarthquakeMap({
         {/* Header Bar */}
         <header className="earthquake-map-header">
           <div className="earthquake-map-title-group">
-            <h2>Earthquake Map Visualization</h2>
+            <h2>Disaster Map</h2>
             <div className="earthquake-map-status-badges">
               <span className="source-badge">
-                {data ? `${data.source} · ${events.length} reports` : "Loading reports…"}
+                {data ? `${data.source} + GDACS · ${events.length} reports` : "Loading reports…"}
               </span>
               {data?.azureMapsConfigured ? (
                 <span className="azure-badge active" title="Azure Maps Gen2 active">
@@ -322,7 +357,7 @@ export default function EarthquakeMap({
                 </span>
               ) : (
                 <span className="azure-badge standby" title="Configure Azure Maps key for live satellite/night maps">
-                  Azure Maps (Free F0 Ready)
+                  Coordinate overview
                 </span>
               )}
             </div>
@@ -334,6 +369,7 @@ export default function EarthquakeMap({
               <button
                 type="button"
                 className={`filter-btn ${selectedSource === "auto" ? "active" : ""}`}
+                aria-pressed={selectedSource === "auto"}
                 onClick={() => setSelectedSource("auto")}
               >
                 Auto (Local)
@@ -341,6 +377,7 @@ export default function EarthquakeMap({
               <button
                 type="button"
                 className={`filter-btn ${selectedSource === "geonet" ? "active" : ""}`}
+                aria-pressed={selectedSource === "geonet"}
                 onClick={() => setSelectedSource("geonet")}
               >
                 GeoNet (NZ)
@@ -348,30 +385,45 @@ export default function EarthquakeMap({
               <button
                 type="button"
                 className={`filter-btn ${selectedSource === "usgs" ? "active" : ""}`}
+                aria-pressed={selectedSource === "usgs"}
                 onClick={() => setSelectedSource("usgs")}
               >
                 USGS (Global)
               </button>
             </div>
 
-            <div className="filter-group" role="group" aria-label="Magnitude filter">
+            <div className="filter-group" role="group" aria-label="Earthquake magnitude filter">
               {[0, 3, 4, 5].map((mag) => (
                 <button
                   key={mag}
                   type="button"
                   className={`filter-btn ${minMagnitude === mag ? "active" : ""}`}
+                  aria-pressed={minMagnitude === mag}
                   onClick={() => setMinMagnitude(mag)}
                 >
-                  {mag === 0 ? "All" : `${mag}.0+`}
+                  {mag === 0 ? "All magnitudes" : `${mag}.0+`}
                 </button>
               ))}
             </div>
 
-            <button type="button" className="earthquake-map-close" onClick={onClose} aria-label="Close earthquake map">
+            <button type="button" className="filter-btn" disabled={loading} onClick={() => setRefresh(value => value + 1)}>{loading ? "Updating…" : "Refresh"}</button>
+            {data?.azureMapsConfigured && <button type="button" className="filter-btn" onClick={() => mapInstanceRef.current?.setCamera({ center: [0, 20], zoom: 1.5 })}>World view</button>}
+            <button type="button" className="earthquake-map-close" onClick={onClose} aria-label="Close disaster map">
               ✕
             </button>
           </div>
         </header>
+        <div className="disaster-map-toolbar">
+          <div className="hazard-filters" role="group" aria-label="Disaster types">
+            {hazardKinds.map(kind => <button key={kind} type="button" aria-pressed={kinds.includes(kind)}
+              onClick={() => setKinds(current => current.includes(kind) ? current.filter(k => k !== kind) : [...current, kind])}>
+              <span style={{ background: eventColor({ kind } as MapEvent) }} />{hazardLabels[kind]} ({allEvents.filter(e => e.kind === kind).length})
+            </button>)}
+          </div>
+          <p>GDACS global reports updated in the past week. Pins show reported locations, not affected boundaries or evacuation zones. Follow local authorities for instructions.</p>
+          <p className="disaster-map-updated">{data ? `Checked ${new Date(data.checkedAtUtc).toLocaleString()}. Refreshes every minute.` : "Checking feeds…"}</p>
+          {data?.warnings?.map(warning => <p role="alert" key={warning}>{warning}</p>)}
+        </div>
 
         {/* Main Workspace: Map Canvas + Details Drawer */}
         <div className="earthquake-map-body">
@@ -379,75 +431,50 @@ export default function EarthquakeMap({
             {loading && !data && (
               <div className="earthquake-map-loading" role="status">
                 <div className="spinner" />
-                <p>Loading seismic feed and Azure Maps…</p>
+                <p>Loading earthquake and disaster reports…</p>
               </div>
             )}
 
             {error && (
               <div className="earthquake-map-error" role="alert">
                 <p>{error}</p>
-                <button type="button" onClick={() => setSelectedSource(selectedSource)}>
+                <button type="button" onClick={() => setRefresh(value => value + 1)}>
                   Retry
                 </button>
               </div>
             )}
 
             {/* Azure Maps Web SDK Container */}
-            {data?.azureMapsConfigured ? (
+            {data?.azureMapsConfigured && (
               <div
                 ref={mapContainerRef}
                 className="earthquake-azure-map-container"
                 aria-label="Interactive Azure Map"
               />
-            ) : (
-              /* Fallback SVG Radar Visualization when Azure Maps key is not configured */
+            )}
+            {(!data?.azureMapsConfigured || !mapReady || sdkFailed) && (
               <div className="earthquake-radar-fallback">
-                <div className="azure-setup-banner">
-                  <div>
-                    <strong>Azure Maps is in free-tier standby.</strong>
-                    <p>
-                      Run <code>Configure Signal Maps.cmd</code> in your Signal folder with your free Azure Maps key to
-                      unlock high-resolution satellite, night, and terrain maps.
-                    </p>
-                  </div>
-                </div>
-
+                <p className="coordinate-overview-label">Global coordinate overview · select a report for details</p>
                 <div className="radar-canvas-wrap">
-                  <svg viewBox="-250 -250 500 500" className="radar-grid" aria-hidden="true">
-                    <circle cx="0" cy="0" r="220" className="radar-ring outer" />
-                    <circle cx="0" cy="0" r="150" className="radar-ring mid" />
-                    <circle cx="0" cy="0" r="80" className="radar-ring inner" />
-                    <line x1="-240" y1="0" x2="240" y2="0" className="radar-axis" />
-                    <line x1="0" y1="-240" x2="0" y2="240" className="radar-axis" />
-                    <text x="5" y="-85" className="radar-label">
-                      100 km
-                    </text>
-                    <text x="5" y="-155" className="radar-label">
-                      300 km
-                    </text>
-                    <text x="5" y="-225" className="radar-label">
-                      500 km
-                    </text>
-
-                    {/* User center point */}
-                    <circle cx="0" cy="0" r="6" className="user-radar-point" />
-
+                  <svg viewBox="-240 -130 480 260" className="radar-grid" role="img" aria-label="Global disaster coordinates, north at top">
+                    <rect x="-220" y="-110" width="440" height="220" className="radar-ring outer" />
+                    {[-180, -90, 0, 90, 180].map(lon => <g key={lon}><line x1={lon / 180 * 220} y1="-110" x2={lon / 180 * 220} y2="110" className="radar-axis" /><text x={lon / 180 * 220} y="124" textAnchor="middle" className="radar-label">{lon}°</text></g>)}
+                    {[-90, -45, 0, 45, 90].map(lat => <line key={lat} x1="-220" y1={-lat / 90 * 110} x2="220" y2={-lat / 90 * 110} className="radar-axis" />)}
+                    <text x="-215" y="-115" className="radar-label">90°N</text><text x="-215" y="106" className="radar-label">90°S</text>
                     {/* Plotted earthquakes */}
-                    {events.map((e, index) => {
-                      const dist = Math.min(e.distanceKm || 120, 500);
-                      const angle = ((index * 67) % 360) * (Math.PI / 180);
-                      const r = (dist / 500) * 220;
-                      const cx = Math.sin(angle) * r;
-                      const cy = -Math.cos(angle) * r;
-                      const color = getMagnitudeColor(e.magnitude);
-                      const isSelected = activeQuake?.id === e.id;
+                    {events.map(e => {
+                      if (e.latitude === undefined || e.longitude === undefined) return null;
+                      const { cx, cy } = overviewPosition(e.latitude, e.longitude);
+                      const color = eventColor(e);
+                      const isSelected = selectedEvent?.id === e.id;
 
                       return (
                         <g
                           key={e.id}
                           className={`radar-quake-group ${isSelected ? "selected" : ""}`}
                           onClick={() => selectQuake(e)}
-                          cursor="pointer"
+                          cursor="pointer" role="button" tabIndex={0} aria-label={`${hazardLabels[e.kind]}: ${e.place}`}
+                          onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectQuake(e); } }}
                         >
                           <circle cx={cx} cy={cy} r={isSelected ? 14 : 9} fill={color} opacity={0.85} />
                           {isSelected && (
@@ -457,7 +484,7 @@ export default function EarthquakeMap({
                             </circle>
                           )}
                           <text x={cx} y={cy + 4} textAnchor="middle" fontSize="10" fontWeight="bold" fill="#ffffff">
-                            {e.magnitude.toFixed(1)}
+                            {eventSymbol(e)}
                           </text>
                         </g>
                       );
@@ -469,33 +496,30 @@ export default function EarthquakeMap({
           </div>
 
           {/* Active Earthquake Detail Card */}
-          {activeQuake && (
-            <aside className="earthquake-active-card" aria-label="Selected earthquake details">
-              <div className="card-mag" style={{ background: getMagnitudeColor(activeQuake.magnitude) }}>
-                <span>MAG</span>
-                <strong>{activeQuake.magnitude.toFixed(1)}</strong>
+          {selectedEvent && (
+            <aside className="earthquake-active-card" aria-label="Selected disaster details">
+              <div className="card-mag" style={{ background: eventColor(selectedEvent) }}>
+                <span>{selectedEvent.kind === "earthquake" ? "MAG" : selectedEvent.kind}</span>
+                <strong>{eventSymbol(selectedEvent)}</strong>
               </div>
               <div className="card-info">
-                <h3>{activeQuake.place}</h3>
+                <h3>{selectedEvent.place}</h3>
                 <div className="card-meta">
+                  <span>{eventDetails(selectedEvent)}</span>
                   <span>
-                    <strong>{Math.round(activeQuake.distanceKm)}</strong> km away
-                  </span>
-                  <span>
-                    <strong>{Math.round(activeQuake.depthKm)}</strong> km depth
-                  </span>
-                  <span>
-                    {activeQuake.source} · {new Date(activeQuake.timeUtc).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    {selectedEvent.source} · {new Date(selectedEvent.timeUtc).toLocaleString()}
                   </span>
                 </div>
+                {selectedEvent.description && <p className="disaster-description">{selectedEvent.description}</p>}
+                {selectedEvent.endTimeUtc && <small>Report period through {new Date(selectedEvent.endTimeUtc).toLocaleDateString()}</small>}
               </div>
-              {activeQuake.url && (
+              {selectedEvent.url && (
                 <a
                   className="card-link"
-                  href={activeQuake.url}
+                  href={selectedEvent.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  title="View official seismic report"
+                  title="View source disaster report"
                 >
                   Full report ↗
                 </a>
@@ -504,14 +528,14 @@ export default function EarthquakeMap({
           )}
 
           {/* Recent Earthquakes List Drawer */}
-          <footer className="earthquake-map-drawer" aria-label="Recent earthquake list">
+          <footer className="earthquake-map-drawer" aria-label="Recent disaster reports">
             <div className="drawer-scroller">
               {events.length === 0 ? (
-                <p className="no-events">No earthquakes matching magnitude {minMagnitude}.0+ in this feed.</p>
+                <p className="no-events">No reports match the selected disaster types and earthquake magnitude. Feed coverage varies by region.</p>
               ) : (
                 events.map((quake) => {
-                  const isSelected = activeQuake?.id === quake.id;
-                  const color = getMagnitudeColor(quake.magnitude);
+                  const isSelected = selectedEvent?.id === quake.id;
+                  const color = eventColor(quake);
                   return (
                     <button
                       key={quake.id}
@@ -520,12 +544,12 @@ export default function EarthquakeMap({
                       onClick={() => selectQuake(quake)}
                     >
                       <span className="item-mag" style={{ borderColor: color, color }}>
-                        {quake.magnitude.toFixed(1)}
+                        {eventSymbol(quake)}
                       </span>
                       <div className="item-details">
                         <span className="item-place">{quake.place}</span>
                         <span className="item-sub">
-                          {Math.round(quake.distanceKm)} km · {Math.round(quake.depthKm)} km depth
+                          {hazardLabels[quake.kind]} · {eventDetails(quake)}
                         </span>
                       </div>
                     </button>

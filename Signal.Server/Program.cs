@@ -230,6 +230,8 @@ builder.Services.AddSingleton<VapidKeyStore>();
 builder.Services.AddScoped<PushNotificationService>();
 builder.Services.AddHttpClient("earthquakes", client => client.Timeout = TimeSpan.FromSeconds(15));
 builder.Services.AddSingleton<EarthquakeFeed>();
+builder.Services.AddHttpClient("disasters", client => client.Timeout = TimeSpan.FromSeconds(20));
+builder.Services.AddSingleton<DisasterFeed>();
 builder.Services.AddHostedService<EarthquakeMonitor>();
 builder.Services.AddHostedService<TopicRefreshBackgroundService>();
 
