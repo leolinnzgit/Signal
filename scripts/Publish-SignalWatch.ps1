@@ -31,7 +31,7 @@ Copy-Item -LiteralPath $apk -Destination (Join-Path $source 'SignalWatch-release
 Copy-Item -LiteralPath $debugApk -Destination (Join-Path $source 'SignalWatch-debug.apk') -Force
 @{ version = $manifest.versionName; versionCode = $manifest.versionCode; build = 'release'; sha256 = $hash; file = 'SignalWatch-release.apk'; publishedAtUtc = [DateTime]::UtcNow.ToString('o'); intendedTrack = 'internal testing'; playStorePublished = $false } |
     ConvertTo-Json | Set-Content -LiteralPath (Join-Path $source 'release.json') -Encoding utf8
-$files = @('index.html', 'SignalWatch-release.apk', 'SignalWatch-debug.apk', 'release.json', 'web.config', 'connect.html', 'connect.js', 'support.css', 'privacy.html', 'data-deletion.html')
+$files = @('index.html', 'SignalWatch-release.apk', 'SignalWatch-debug.apk', 'release.json', 'web.config', 'connect.html', 'connect.js', 'support.css', 'privacy.html', 'data-deletion.html', 'promo-briefing.png', 'promo-saved.png')
 $backup = Join-Path $repository ('work\signalwatch-backups\' + [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss'))
 New-Item -ItemType Directory -Force -Path $target, $backup | Out-Null
 foreach ($name in $files) {
