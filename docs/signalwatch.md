@@ -1,6 +1,10 @@
 # SignalWatch release preparation
 
-SignalWatch lives in ../SignalWatch as a separate native Wear OS project. Version 0.2.0 (4) is a signed internal-testing candidate; it has not been released to Google Play production.
+SignalWatch lives in ../SignalWatch as a separate native Wear OS project. Version 0.3.0 (5) is a signed internal-testing candidate; it has not been released to Google Play production.
+
+## Audio voice for unread news
+
+SignalWatch includes **Listen to unread**, which reads the headline, publisher, and short summary of unread stories in sequence with watch-optimized controls (play/pause, previous/next, stop). In live mode, it streams WAV clips rendered by Signal's existing `POST /api/headline-audio` endpoint (using Azure Speech in production), prefetching the next clip while the current story plays. In demo mode or if server speech is unavailable (503), it seamlessly falls back to the watch's on-device Android TextToSpeech engine. When playback completes, users can optionally mark heard stories as read in one tap.
 
 ## Phone-approved sign-in
 
@@ -10,7 +14,7 @@ Watch secrets are cryptographically random and indexed only by a hash in a bound
 
 ## Release files
 
-The signed AAB, release APK, upload certificate, checksums and verification result are under ../SignalWatch/outputs/play-release/0.2.0-4. Private signing material is in the ignored .signing directory, with restricted Windows permissions and DPAPI-encrypted credentials. Never copy .signing into a publication package or public directory.
+The signed AAB, release APK, upload certificate, checksums and verification result are under ../SignalWatch/outputs/play-release/0.3.0-5. Private signing material is in the ignored .signing directory, with restricted Windows permissions and DPAPI-encrypted credentials. Never copy .signing into a publication package or public directory.
 
 Store copy, assets, the data-safety worksheet and upload instructions are in ../SignalWatch/play-store. Developer/contact: Leo the Lion, leolinnz@gmail.com. Genuine native screenshots, physical-device QA, a verified developer account, review access and Play submission are still required.
 
