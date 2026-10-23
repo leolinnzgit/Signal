@@ -12,14 +12,14 @@ foreach ($directory in @($site, $target)) {
         throw 'Publication cannot follow redirected directories.'
     }
 }
-$releaseDirectory = Join-Path $WatchProject 'outputs/play-release/0.2.0-2'
+$releaseDirectory = Join-Path $WatchProject 'outputs/play-release/0.2.0-3'
 $manifest = Get-Content -LiteralPath (Join-Path $releaseDirectory 'release-manifest.json') -Raw | ConvertFrom-Json
 $verification = Get-Content -LiteralPath (Join-Path $releaseDirectory 'verification.json') -Raw | ConvertFrom-Json
 if ($verification.status -ne 'passed' -or $manifest.debuggable -ne $false) { throw 'Release artifact verification is required.' }
 $apk = Join-Path $WatchProject 'app/build/outputs/apk/release/app-release.apk'
 $debugApk = Join-Path $WatchProject 'app/build/outputs/apk/debug/app-debug.apk'
 $hash = (Get-FileHash -LiteralPath $apk).Hash.ToLowerInvariant()
-$recorded = $manifest.artifacts | Where-Object file -eq 'SignalWatch-0.2.0-2.apk'
+$recorded = $manifest.artifacts | Where-Object file -eq 'SignalWatch-0.2.0-3.apk'
 if ($hash -ne $recorded.sha256) { throw 'The release APK differs from the checked artifact.' }
 $protected = @('Signal.Server.dll', 'appsettings.json', 'appsettings.Production.json', 'appsettings.Development.json', 'web.config')
 $before = @{}
