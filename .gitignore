@@ -54,3 +54,5 @@ next-env.d.ts
 /Signal.GmailSetup/bin/
 /Signal.GmailSetup/obj/
 /Signal.GmailSetup/client_secret*.json
+
+/public/signalwatch/*.apk
