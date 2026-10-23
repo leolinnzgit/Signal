@@ -109,7 +109,7 @@ self.addEventListener("push", (event) => {
       body: payload.body || "Fresh coverage is ready in your briefing.",
       icon: payload.icon || "/icons/signal-medallion-192.png",
       badge: payload.badge || "/icons/signal-notification-medallion-96.png",
-      tag: typeof payload.tag === "string" && (payload.tag.startsWith(`${NEWS_NOTIFICATION_TAG}-`) || payload.tag.startsWith("signal-earthquake-"))
+      tag: typeof payload.tag === "string" && (payload.tag.startsWith(`${NEWS_NOTIFICATION_TAG}-`) || payload.tag.startsWith("signal-earthquake-") || payload.tag.startsWith("signal-disaster-"))
         ? payload.tag
         : NEWS_NOTIFICATION_TAG,
       renotify: false,
@@ -117,7 +117,7 @@ self.addEventListener("push", (event) => {
     }),
   ];
 
-  if (typeof payload.tag === "string" && payload.tag.startsWith("signal-earthquake-")) {
+  if (typeof payload.tag === "string" && (payload.tag.startsWith("signal-earthquake-") || payload.tag.startsWith("signal-disaster-"))) {
     // Earthquake alerts must not clear the unrelated unread-news badge.
     event.waitUntil(Promise.all(operations));
     return;

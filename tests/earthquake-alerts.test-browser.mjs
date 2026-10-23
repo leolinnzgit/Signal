@@ -11,7 +11,7 @@ const server = await createServer({ configFile: false, root: process.cwd(), plug
     });
   },
 }], optimizeDeps: { entries: ["tests/earthquake-alerts.fixture.tsx"] }, server: { host: "127.0.0.1", port: 0,
-  watch: { ignored: ["**/Signal.Server/wwwroot/**", "**/iis-publish/**"] } } });
+  watch: { ignored: ["**/Signal.Server/wwwroot/**", "**/iis-publish/**", "**/work/**"] } } });
 await server.listen();
 let browser;
 try {
@@ -66,6 +66,7 @@ try {
   await page.route("**/api/**", async route => {
     const req = route.request();
     const path = new URL(req.url()).pathname;
+    if (path === "/api/earthquakes/map-feed") return route.fulfill({ json: { events: [], disasters: [], source: "GeoNet", azureMapsConfigured: false, subscriptionKey: "", userLocation: null, checkedAtUtc: new Date().toISOString() } });
     if (path === "/api/auth/csrf") return route.fulfill({ json: { token: "earthquake-csrf" } });
     if (path === "/api/article-audio-stream") {
       audioRequests.push({ body: req.postDataJSON(), csrf: req.headers()["x-xsrf-token"] });
@@ -89,16 +90,16 @@ try {
     await page.getByRole("button", { name: "Notifications", exact: true }).click();
   };
   await openSettings();
-  await page.getByRole("button", { name: "Enable earthquake alerts", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Enable disaster alerts", exact: true }).waitFor();
   assert.equal(requests.length, 0, "Disabled monitoring must not request location or a feed.");
   assert.equal(audioRequests.length, 0);
-  await page.getByRole("button", { name: "Enable earthquake alerts", exact: true }).click();
+  await page.getByRole("button", { name: "Enable disaster alerts", exact: true }).click();
   await page.getByText(/GeoNet checked at/).waitFor();
   assert.equal(requests[0].body.latitude, -41.2865);
   assert.equal(requests[0].body.longitude, 174.7762);
   assert.equal(requests[0].csrf, "earthquake-csrf");
   assert.equal(requests[0].body.minimumMagnitude, 4);
-  await page.getByText(/Reading earthquake alert with Azure voice/).waitFor();
+  await page.getByText(/Reading disaster alert with Azure voice/).waitFor();
   assert.equal(audioRequests[0].csrf, "earthquake-csrf");
   assert.equal(audioRequests[0].body.voices.en, "en-NZ-MollyNeural");
   assert.equal(audioRequests[0].body.language, "en-NZ");
@@ -109,10 +110,10 @@ try {
   await alert.waitFor();
   assert.equal(await alert.evaluate(element => element.matches(":modal")), true, "Earthquake alert takes the modal top layer above Settings.");
   assert.equal(await page.evaluate(() => document.activeElement?.closest(".earthquake-alert") !== null), true);
-  await page.getByText(/Reading earthquake alert with Azure voice/).waitFor();
+  await page.getByText(/Reading disaster alert with Azure voice/).waitFor();
   assert.match(audioRequests.at(-1).body.titles.join(" "), /Magnitude 4.8.*42 kilometres/);
   const speechCount = audioRequests.length;
-  const duplicateCheck = page.waitForResponse(response => response.url().includes("/api/earthquakes/devices/") && response.request().method() === "GET");
+  const duplicateCheck = page.waitForResponse(response => response.url().includes("/api/disasters/devices/") && response.request().method() === "GET");
   await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
   await duplicateCheck;
   assert.equal(audioRequests.length, speechCount, "Do not repeat Azure requests for the same event.");
@@ -137,7 +138,7 @@ try {
   const blockedSource = await page.evaluate(() => window.azurePlays.at(-1));
   await page.evaluate(() => { window.blockSpeech = false; });
   await page.getByRole("button", { name: "Read alert", exact: true }).click();
-  await page.getByText(/Reading earthquake alert with Azure voice/).waitFor();
+  await page.getByText(/Reading disaster alert with Azure voice/).waitFor();
   assert.equal(audioRequests.length, blockedRequests, "A tap retries the already prepared Azure media without another synthesis.");
   assert.equal(await page.evaluate(() => window.azurePlays.at(-1)), blockedSource);
   failAzure = true;
@@ -166,11 +167,11 @@ try {
   await page.getByRole("button", { name: "Check now", exact: true }).click();
   await page.getByText(/Location blocked/).waitFor();
   failDelete = true;
-  await page.getByRole("button", { name: "Turn off earthquake alerts", exact: true }).click();
+  await page.getByRole("button", { name: "Turn off disaster alerts", exact: true }).click();
   await page.getByText(/Could not turn off background alerts/).waitFor();
   failDelete = false;
-  await page.getByRole("button", { name: "Turn off earthquake alerts", exact: true }).click();
-  await page.getByRole("button", { name: "Enable earthquake alerts", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Turn off disaster alerts", exact: true }).click();
+  await page.getByRole("button", { name: "Enable disaster alerts", exact: true }).waitFor();
   assert.equal(requests.at(-1).method, "DELETE");
   assert.equal(requests.at(-1).csrf, "earthquake-csrf");
   assert.equal(await page.getByRole("alertdialog").count(), 0);
@@ -179,7 +180,7 @@ try {
   await previewButton.click();
   const preview = page.getByRole("alertdialog", { name: "Test earthquake alert", exact: true });
   await preview.waitFor();
-  await preview.getByText("Preview only · no earthquake detected", { exact: true }).waitFor();
+  await preview.getByText("Preview only · no disaster detected", { exact: true }).waitFor();
   assert.equal(requests.length, deviceRequestsBeforePreview, "Preview does not enable or register monitoring.");
   await preview.getByRole("button", { name: "Dismiss alert", exact: true }).click();
   await preview.waitFor({ state: "hidden" });
@@ -192,13 +193,13 @@ try {
   await page.getByRole("button", { name: "Close settings", exact: true }).click();
   await page.getByRole("button", { name: "Open player full screen", exact: true }).click();
   await page.waitForFunction(() => !!document.fullscreenElement);
-  const playerRequest = page.waitForResponse(response => response.url().includes("/api/earthquakes/devices/") && response.request().method() === "GET");
+  const playerRequest = page.waitForResponse(response => response.url().includes("/api/disasters/devices/") && response.request().method() === "GET");
   // Re-enable with a new report to check coverage above a native-fullscreen player.
   await page.evaluate(() => document.exitFullscreen());
   await openSettings();
   events = [];
   await page.evaluate(() => { window.denyLocation = false; });
-  await page.getByRole("button", { name: "Enable earthquake alerts", exact: true }).click();
+  await page.getByRole("button", { name: "Enable disaster alerts", exact: true }).click();
   await playerRequest;
   await page.getByRole("button", { name: "Close settings", exact: true }).click();
   await page.getByRole("button", { name: "Open player full screen", exact: true }).click();
@@ -213,6 +214,62 @@ try {
   await alert.getByRole("button", { name: "Dismiss alert", exact: true }).click();
   await alert.waitFor({ state: "hidden" });
   await page.evaluate(() => document.exitFullscreen());
+  await openSettings();
+  const report = (kind, id, level = "orange") => ({ id, notificationKey: `${id}:episode1:${level}`, kind, source: "GDACS", alertLevel: level,
+    place: `${kind} test location`, description: "Source report details for this disaster.", timeUtc: new Date().toISOString(), updatedAtUtc: new Date().toISOString(), distanceKm: 42,
+    latitude: -41.5, longitude: 174.5, url: "https://www.gdacs.org/" });
+  events = [report("flood", "gdacs:FL:1"), report("wildfire", "gdacs:WF:2")];
+  await page.getByRole("button", { name: "Check now", exact: true }).click();
+  const flood = page.getByRole("alertdialog", { name: "Flood reported", exact: true });
+  await flood.waitFor();
+  await flood.getByText(/1 more alert waiting/).waitFor();
+  assert(!(await flood.innerText()).match(/Magnitude|Depth/));
+  await flood.getByText("ORANGE", { exact: true }).waitFor();
+  await page.getByText(/Reading disaster alert with Azure voice/).waitFor();
+  assert.match(audioRequests.at(-1).body.titles.join(" "), /Flood reported by GDACS/);
+  await mkdir("outputs/disaster-alerts", { recursive: true });
+  for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 900 }, { width: 844, height: 390 }]) {
+    await page.setViewportSize(viewport);
+    const bounds = await flood.boundingBox();
+    assert.equal(Math.round(bounds.width), viewport.width);
+    assert.equal(Math.round(bounds.height), viewport.height);
+    await page.screenshot({ path: `outputs/disaster-alerts/flood-${viewport.width}.png` });
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await flood.getByRole("button", { name: "View on map", exact: true }).click();
+  const map = page.getByRole("dialog", { name: "Disaster map", exact: true });
+  await map.waitFor();
+  const mapDetails = map.getByRole("complementary", { name: "Selected disaster details" });
+  await mapDetails.getByText("flood test location", { exact: true }).waitFor();
+  assert(!(await mapDetails.innerText()).includes("km depth"));
+  await map.getByRole("button", { name: "Close disaster map" }).click();
+  await flood.getByRole("button", { name: "Dismiss alert", exact: true }).click();
+  const wildfire = page.getByRole("alertdialog", { name: "Wildfire reported", exact: true });
+  await wildfire.waitFor();
+  await wildfire.getByRole("button", { name: "Dismiss alert", exact: true }).click();
+  const poll = page.waitForResponse(response => response.url().includes("/api/disasters/devices/") && response.request().method() === "GET");
+  await page.getByRole("button", { name: "Check now", exact: true }).click();
+  await poll;
+  assert.equal(await page.getByRole("alertdialog").count(), 0, "Displayed episodes must not repeat.");
+  events = [report("flood", "gdacs:FL:1", "red")];
+  await page.getByRole("button", { name: "Check now", exact: true }).click();
+  await flood.waitFor();
+  await flood.getByText("RED", { exact: true }).waitFor();
+  await flood.getByRole("button", { name: "Dismiss alert", exact: true }).click();
+  await page.getByRole("button", { name: "Turn off disaster alerts", exact: true }).click();
+  await page.getByRole("button", { name: "Enable disaster alerts", exact: true }).waitFor();
+  for (const [kind, name] of [["flood", "flood"], ["storm", "tropical cyclone"], ["wildfire", "wildfire"], ["volcano", "volcanic activity"], ["drought", "drought"]]) {
+    const before = requests.length;
+    await page.getByRole("combobox", { name: "Preview disaster type" }).selectOption(kind);
+    await previewButton.click();
+    const sample = page.getByRole("alertdialog", { name: `Test ${name} alert`, exact: true });
+    await sample.waitFor();
+    await sample.getByText("Preview only · no disaster detected", { exact: true }).waitFor();
+    assert(!(await sample.innerText()).match(/Magnitude|Depth/));
+    await sample.getByRole("button", { name: "Dismiss alert" }).click();
+    assert.equal(requests.length, before, "Disaster previews must not start monitoring.");
+  }
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   assert.deepEqual(errors, []);
-  console.log("Earthquake checks passed: full-screen modal above Settings and native-fullscreen player, phone/desktop/landscape coverage, focus trapping and restoration, marked preview, dismissal, Azure narration, failures, cancellation, GPS and deduplication.");
+  console.log("Disaster checks passed: all six types, queue, escalation, map targeting, previews, full-screen modal above Settings and native-fullscreen player, phone/desktop/landscape coverage, focus trapping and restoration, marked preview, dismissal, Azure narration, failures, cancellation, GPS and deduplication.");
 } finally { await browser?.close(); await server.close(); }

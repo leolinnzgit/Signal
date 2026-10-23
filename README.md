@@ -147,18 +147,26 @@ IIS for a persistent personal deployment.
   searched by city or region worldwide, or from device GPS.
 - Open the **Settings** gear at the top right for separate **Briefing**, **Display**,
   and **Notifications** preferences. Topic and source management stay in the main controls.
-- Enable **Earthquake alerts** under **Settings → Notifications** for this device. Signal refreshes phone
-  GPS and checks every minute for new nearby earthquakes, using
-  [GeoNet](https://api.geonet.org.nz/) in New Zealand and the
-  [USGS GeoJSON feed](https://earthquake.usgs.gov/earthquakes/feed/v1.0/geojson.php)
-  elsewhere. Choose a radius (50–1000 km) and minimum magnitude (2–7; default
-  magnitude 4 within 300 km), enable voice, and use **Test voice** to check playback.
-  New events from the past 15 minutes are announced once, with magnitude,
-  locality, distance and depth. Each detection opens a full-screen alert above
-  the news, player and Settings, with large high-contrast details and a link to
-  the source report. It stays until dismissed; dismissing also stops its voice.
-  Use **Preview full-screen alert** in Settings to try a clearly marked example
-  without enabling monitoring or waiting for an earthquake.
+- Enable **Disaster alerts** under **Settings → Notifications** for this device (or `#disaster-alerts`).
+  Choose earthquakes, floods, tropical cyclones, wildfires, volcanic activity, and droughts;
+  all six are selected by default. Existing earthquake settings retain their distance,
+  magnitude, voice choice, device registration, and seen-event history. Reopen Signal
+  once after updating to save the expanded disaster preferences for background monitoring.
+  Signal refreshes GPS and checks every minute using [GeoNet](https://api.geonet.org.nz/)
+  for NZ earthquakes, [USGS](https://earthquake.usgs.gov/earthquakes/feed/v1.0/geojson.php)
+  elsewhere, and [GDACS](https://www.gdacs.org/feed_reference.aspx) for the other disasters.
+  Choose a radius (50–1000 km; default 300 km), earthquake magnitude (2–7; default 4),
+  and GDACS alert level (all green/orange/red, orange and red, or red only).
+  Earthquakes must be new within 15 minutes and after monitoring was enabled. GDACS
+  reports must have been updated within 24 hours, including long-running disasters
+  that began earlier. Each episode and alert level is announced once; a new episode
+  or changed level can produce another alert. GDACS data shares a six-minute cache.
+  Distance refers to the source's reported point, not an affected boundary.
+  Each report opens a full-screen alert above news, players, and Settings. Earthquakes
+  show magnitude and depth; other hazards show their GDACS level and report details.
+  Multiple reports queue; dismiss an alert to stop its voice and view the next one.
+  Displayed reports stay deduplicated after reload. Use **Preview type** and
+  **Preview full-screen alert** to try a marked example of any type without monitoring.
   Choose **View on map** in an alert or **View disaster map** in Settings (or `#disaster-map`;
   the existing `#earthquake-map` link also works) to open the Disaster Map. It combines
   GeoNet/USGS earthquake reports with [GDACS](https://www.gdacs.org/feed_reference.aspx)
@@ -183,10 +191,10 @@ IIS for a persistent personal deployment.
   these use the phone's normal notification sound. The server uses this device's
   last known location for up to 24 hours. Reopen
   Signal to refresh GPS after travelling. Weather locations are independent.
-  Disabling earthquake alerts removes the device's saved location; expired device
+  Disabling disaster alerts removes the device's saved location; expired device
   registrations are removed after seven days. Feed failures are shown and retried;
   reports can arrive late or be revised. This is reporting after detection,
-  not an earthquake early-warning service.
+  not an early-warning or evacuation service.
 - Display a secondary time zone clock searched from cities worldwide via
   Open-Meteo geocoding.
 - Send a formatted email briefing after scheduled refreshes.

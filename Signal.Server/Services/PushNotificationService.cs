@@ -160,6 +160,15 @@ public sealed class PushNotificationService(
             $"{earthquake.Place}. About {Math.Round(earthquake.DistanceKm)} km from your last phone location. {earthquake.Source}.",
             "/#earthquake-alerts", 0, $"signal-earthquake-{earthquake.Id}")], ct, endpoint);
 
+    public Task<int> SendDisasterAsync(string userId, string endpoint, DisasterAlertEvent report, CancellationToken ct) =>
+        SendAsync(userId, [DisasterMessage(report)], ct, endpoint);
+
+    internal static PushMessage DisasterMessage(DisasterAlertEvent report) => new(
+        report.Kind == "earthquake" ? $"Earthquake: magnitude {report.Magnitude:F1}"
+            : $"{DisasterAlertFeed.Label(report.Kind)}: {report.AlertLevel} alert",
+        $"{report.Place}. About {Math.Round(report.DistanceKm)} km from your last phone location. {report.Source}.",
+        "/#disaster-alerts", 0, report.Kind == "earthquake" ? $"signal-earthquake-{report.Id}" : $"signal-disaster-{report.NotificationKey}");
+
     private async Task<int> SendAsync(
         string userId,
         IReadOnlyList<PushMessage> messages,

@@ -6,7 +6,7 @@ namespace Signal.Server.Services;
 
 public sealed record DisasterEvent(string Id, string Kind, string Source, string Title, string Description,
     string AlertLevel, DateTime TimeUtc, DateTime? EndTimeUtc, double Latitude, double Longitude, string Url,
-    double? DistanceKm = null);
+    double? DistanceKm = null, DateTime? UpdatedAtUtc = null, string Episode = "");
 
 public sealed class DisasterFeed(IHttpClientFactory clients)
 {
@@ -58,6 +58,8 @@ public sealed class DisasterFeed(IHttpClientFactory clients)
             const DateTimeStyles styles = DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal;
             if (!DateTime.TryParse(Value("fromdate"), CultureInfo.InvariantCulture, styles, out var start)) continue;
             DateTime? end = DateTime.TryParse(Value("todate"), CultureInfo.InvariantCulture, styles, out var endDate) ? endDate : null;
+            var updated = DateTime.TryParse(Value("datemodified"), CultureInfo.InvariantCulture, styles, out var modified) ? modified
+                : DateTime.TryParse((string?)item.Element("pubDate"), CultureInfo.InvariantCulture, styles, out var published) ? published : start;
             var link = (string?)item.Element("link") ?? "";
             if (Uri.TryCreate(link, UriKind.Absolute, out var legacy) && legacy.Scheme == "http"
                 && (legacy.Host == "www.gdacs.org" || legacy.Host == "gdacs.org"))
@@ -66,9 +68,10 @@ public sealed class DisasterFeed(IHttpClientFactory clients)
             var alert = Value("alertlevel").ToLowerInvariant();
             events.Add(new DisasterEvent($"gdacs:{Value("eventtype")}:{Value("eventid")}", kind, "GDACS",
                 (string?)item.Element("title") ?? "Disaster report", (string?)item.Element("description") ?? "",
-                alert is "green" or "orange" or "red" ? alert : "unknown", start, end, lat, lon, link));
+                alert is "green" or "orange" or "red" ? alert : "unknown", start, end, lat, lon, link,
+                UpdatedAtUtc: updated, Episode: Value("episodeid")));
         }
-        return events.GroupBy(e => e.Id).Select(g => g.OrderByDescending(e => e.EndTimeUtc ?? e.TimeUtc).First())
+        return events.GroupBy(e => e.Id).Select(g => g.OrderByDescending(e => e.UpdatedAtUtc ?? e.TimeUtc).First())
             .OrderByDescending(e => e.TimeUtc).ToArray();
     }
 }

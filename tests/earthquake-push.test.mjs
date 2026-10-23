@@ -36,3 +36,14 @@ test("news notifications still update the badge and foreign click URLs remain lo
   assert.equal(w.notifications[0].data.url, "/");
   assert.equal(w.badgeChanges, 1);
 });
+
+test("all disaster pushes preserve their episode tag, settings link and news badge", async () => {
+  const w = worker();
+  for (const kind of ["flood", "storm", "wildfire", "volcano", "drought"]) {
+    const tag = `signal-disaster-gdacs:${kind}:1:episode1:orange`;
+    await w.push({ title: `${kind}: orange alert`, tag, url: "/#disaster-alerts", badgeCount: 0 });
+    assert.equal(w.notifications.at(-1).tag, tag);
+    assert.equal(w.notifications.at(-1).data.url, "/#disaster-alerts");
+  }
+  assert.equal(w.badgeChanges, 0);
+});

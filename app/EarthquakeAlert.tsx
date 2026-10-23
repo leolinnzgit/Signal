@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import type { MapEvent } from "./disaster-map";
+import { disasterLabels } from "./disaster-alerts";
 
 export type EarthquakeReport = {
   id: string;
@@ -18,6 +20,7 @@ export type EarthquakeReport = {
 
 export default function EarthquakeAlert({
   quake,
+  remaining = 0,
   preview,
   audioStatus,
   onRead,
@@ -25,7 +28,8 @@ export default function EarthquakeAlert({
   onDismiss,
   onOpenMap,
 }: {
-  quake: EarthquakeReport;
+  quake: EarthquakeReport | MapEvent;
+  remaining?: number;
   preview: boolean;
   audioStatus: string;
   onRead: () => void;
@@ -33,6 +37,9 @@ export default function EarthquakeAlert({
   onDismiss: () => void;
   onOpenMap?: () => void;
 }) {
+  const kind = "kind" in quake ? quake.kind : "earthquake";
+  const label = disasterLabels[kind];
+  const seismic = kind === "earthquake";
   const dialog = useRef<HTMLDialogElement>(null);
   const [host, setHost] = useState<Element | null>(null);
 
@@ -89,12 +96,12 @@ export default function EarthquakeAlert({
             <path d="M24 17v12" />
             <circle cx="24" cy="35" r="1" />
           </svg>
-          <p>{preview ? "Preview only · no earthquake detected" : "Nearby earthquake report"}</p>
-          <h2 id="earthquake-alert-title">{preview ? "Test earthquake alert" : "Earthquake detected"}</h2>
+          <p>{preview ? "Preview only · no disaster detected" : `Nearby ${label.toLowerCase()} report`}</p>
+          <h2 id="earthquake-alert-title">{preview ? `Test ${label.toLowerCase()} alert` : seismic ? "Earthquake detected" : `${label} reported`}</h2>
         </header>
-        <div className="earthquake-alert-magnitude" id="earthquake-alert-magnitude">
-          <span>Magnitude</span>
-          <strong>{quake.magnitude.toFixed(1)}</strong>
+        <div className={`earthquake-alert-magnitude ${seismic ? "" : "disaster-alert-level"}`} id="earthquake-alert-magnitude">
+          <span>{seismic ? "Magnitude" : "GDACS alert level"}</span>
+          <strong>{seismic ? (quake.magnitude ?? 0).toFixed(1) : ("alertLevel" in quake ? quake.alertLevel : "unknown")?.toUpperCase()}</strong>
         </div>
         <p className="earthquake-alert-place" id="earthquake-alert-place">
           {quake.place}
@@ -103,16 +110,20 @@ export default function EarthquakeAlert({
           <div>
             <dt>From your phone</dt>
             <dd>
-              {Math.round(quake.distanceKm)} <span>km</span>
+              {quake.distanceKm == null ? "Unknown" : Math.round(quake.distanceKm)} <span>km</span>
             </dd>
           </div>
-          <div>
+          {seismic && <div>
             <dt>Depth</dt>
             <dd>
-              {Math.round(quake.depthKm)} <span>km</span>
+              {Math.round(quake.depthKm ?? 0)} <span>km</span>
             </dd>
-          </div>
+          </div>}
         </dl>
+        {"description" in quake && quake.description && <p className="disaster-alert-description">{quake.description}</p>}
+        {"updatedAtUtc" in quake && typeof quake.updatedAtUtc === "string" && !seismic && <p className="earthquake-alert-source">Report updated {new Date(quake.updatedAtUtc).toLocaleString()}</p>}
+        {!seismic && !preview && <p className="earthquake-alert-source">Distance is to the reported location. Follow local authorities for instructions.</p>}
+        {remaining > 0 && <p role="status">{remaining} more {remaining === 1 ? "alert" : "alerts"} waiting. Dismiss to view the next report.</p>}
         <p className="earthquake-alert-source">
           {preview ? "Example report" : `Reported by ${quake.source}`} ·{" "}
           <time dateTime={quake.timeUtc}>{new Date(quake.timeUtc).toLocaleString()}</time>
@@ -125,7 +136,7 @@ export default function EarthquakeAlert({
         <p className="earthquake-alert-audio" role="status">
           {audioStatus}
         </p>
-        <div className="earthquake-alert-actions" role="group" aria-label="Earthquake alert actions">
+        <div className="earthquake-alert-actions" role="group" aria-label={`${label} alert actions`}>
           <button type="button" className="earthquake-alert-dismiss" autoFocus onClick={onDismiss}>
             Dismiss alert
           </button>

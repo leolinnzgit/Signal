@@ -16,7 +16,7 @@ public sealed class EarthquakeMonitor(IServiceScopeFactory scopes, ILogger<Earth
             {
                 try { await CheckAsync(stoppingToken); }
                 catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
-                { logger.LogWarning(ex, "Earthquake monitoring failed; retrying next minute."); }
+                { logger.LogWarning(ex, "Disaster monitoring failed; retrying next minute."); }
             } while (await timer.WaitForNextTickAsync(stoppingToken));
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
@@ -26,7 +26,7 @@ public sealed class EarthquakeMonitor(IServiceScopeFactory scopes, ILogger<Earth
     {
         using var scope = scopes.CreateScope();
         var database = scope.ServiceProvider.GetRequiredService<SignalDbContext>();
-        var feed = scope.ServiceProvider.GetRequiredService<EarthquakeFeed>();
+        var feed = scope.ServiceProvider.GetRequiredService<DisasterAlertFeed>();
         var push = scope.ServiceProvider.GetRequiredService<PushNotificationService>();
         var now = DateTime.UtcNow;
         var devices = await database.EarthquakeDevices.AsNoTracking()
@@ -35,20 +35,24 @@ public sealed class EarthquakeMonitor(IServiceScopeFactory scopes, ILogger<Earth
         {
             try
             {
-                var events = await feed.GetAsync(device.Latitude, device.Longitude, ct);
-                var seen = JsonSerializer.Deserialize<string[]>(device.SeenJson)!.ToHashSet();
-                foreach (var e in EarthquakeFeed.Nearby(events, device, now).Where(e => !seen.Contains(e.Id)))
+                var result = await feed.GetAsync(device, ct);
+                foreach (var warning in result.Warnings) logger.LogWarning("Disaster device {DeviceId}: {Warning}", device.Id, warning);
+                HashSet<string> seen;
+                try { seen = (JsonSerializer.Deserialize<string[]>(device.SeenJson) ?? []).ToHashSet(); }
+                catch (JsonException) { seen = []; }
+                foreach (var e in result.Events.Where(e => !seen.Contains(e.NotificationKey)))
                 {
-                    if (await push.SendEarthquakeAsync(device.UserId, device.PushEndpoint, e, ct) > 0) seen.Add(e.Id);
+                    if (await push.SendDisasterAsync(device.UserId, device.PushEndpoint, e, ct) > 0) seen.Add(e.NotificationKey);
                 }
                 // Update only the deduplication field so a concurrent GPS update cannot be overwritten.
-                var retained = events.Where(e => seen.Contains(e.Id)).Select(e => e.Id).TakeLast(200).ToArray();
+                // Keep successful deliveries through source outages so recovery cannot repeat old alerts.
+                var retained = seen.TakeLast(2000).ToArray();
                 var json = JsonSerializer.Serialize(retained);
                 await database.EarthquakeDevices.Where(d => d.Id == device.Id).ExecuteUpdateAsync(
                     setters => setters.SetProperty(d => d.SeenJson, json), ct);
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
-            { logger.LogWarning(ex, "Could not check earthquake device {DeviceId}.", device.Id); }
+            { logger.LogWarning(ex, "Could not check disaster device {DeviceId}.", device.Id); }
         }
         // Expired locations are removed rather than retained indefinitely.
         await database.EarthquakeDevices.Where(d => d.LocationUpdatedAtUtc < now.AddDays(-7)).ExecuteDeleteAsync(ct);

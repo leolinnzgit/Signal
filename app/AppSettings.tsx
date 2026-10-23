@@ -14,8 +14,8 @@ export default function AppSettings({ briefing, display, notifications, footer }
 
   useEffect(() => {
     const followSettingsLink = () => {
-      if (!["#settings", "#earthquake-alerts"].includes(window.location.hash)) return;
-      if (window.location.hash === "#earthquake-alerts") setCategory("notifications");
+      if (!["#settings", "#earthquake-alerts", "#disaster-alerts"].includes(window.location.hash)) return;
+      if (["#earthquake-alerts", "#disaster-alerts"].includes(window.location.hash)) setCategory("notifications");
       if (!dialog.current?.open) dialog.current?.showModal();
       setOpen(true);
     };
@@ -25,7 +25,7 @@ export default function AppSettings({ briefing, display, notifications, footer }
   }, []);
 
   useEffect(() => {
-    if (open && category === "notifications" && window.location.hash === "#earthquake-alerts")
+    if (open && category === "notifications" && ["#earthquake-alerts", "#disaster-alerts"].includes(window.location.hash))
       document.getElementById("earthquake-alerts")?.scrollIntoView({ block: "start" });
   }, [open, category]);
 

@@ -38,7 +38,7 @@ export function useEarthquakeAudio() {
     const fail = (run: number) => {
       if (run !== sequence.current) return;
       release();
-      setAudioStatus("Azure voice is unavailable. Tap Read alert or Test voice to retry. The earthquake alert remains on screen.");
+      setAudioStatus("Azure voice is unavailable. Tap Read alert or Test voice to retry. The disaster alert remains on screen.");
     };
     const startDeadline = (run: number) => {
       clearTimer();
@@ -64,7 +64,7 @@ export function useEarthquakeAudio() {
     }
     stop();
     if (typeof window.Audio !== "function") {
-      setAudioStatus("Azure audio playback is unavailable in this browser. Earthquake alerts still appear on screen.");
+      setAudioStatus("Azure audio playback is unavailable in this browser. Disaster alerts still appear on screen.");
       return;
     }
     const run = sequence.current;
@@ -76,7 +76,7 @@ export function useEarthquakeAudio() {
     element.onplaying = () => {
       if (run !== sequence.current) return;
       clearTimer();
-      setAudioStatus("Reading earthquake alert with Azure voice…");
+      setAudioStatus("Reading disaster alert with Azure voice…");
     };
     element.onended = () => { if (run === sequence.current) stop(); };
     element.onerror = () => fail(run);

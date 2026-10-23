@@ -17,6 +17,7 @@ public sealed class EarthquakesController(
     UserManager<ApplicationUser> users,
     EarthquakeFeed feed,
     DisasterFeed disasters,
+    DisasterAlertFeed alerts,
     IOptions<AzureMapsOptions> mapsOptions) : ControllerBase
 {
     [HttpGet("config")]
@@ -113,9 +114,13 @@ public sealed class EarthquakesController(
     }
 
     [HttpPut("devices/{id:guid}")]
+    [HttpPut("/api/disasters/devices/{id:guid}")]
     public async Task<IActionResult> Save(Guid id, EarthquakeDeviceRequest request, CancellationToken ct)
     {
         var userId = users.GetUserId(User)!;
+        if (request.HazardKinds is not null && (request.HazardKinds.Length is < 1 or > 6 || request.HazardKinds.Any(k => !DisasterAlertFeed.Kinds.Contains(k)))
+            || request.MinimumAlertLevel is not null && DisasterAlertFeed.Level(request.MinimumAlertLevel) < 0)
+            return BadRequest(new { error = "Choose at least one supported disaster type and a valid GDACS alert level." });
         if (!EarthquakeFeed.ValidLocation(request.Latitude, request.Longitude)
             || !double.IsFinite(request.RadiusKm) || request.RadiusKm is < 25 or > 1000
             || !double.IsFinite(request.MinimumMagnitude) || request.MinimumMagnitude is < 2 or > 8)
@@ -133,6 +138,8 @@ public sealed class EarthquakesController(
         device.Longitude = request.Longitude;
         device.RadiusKm = request.RadiusKm;
         device.MinimumMagnitude = request.MinimumMagnitude;
+        if (request.HazardKinds is not null) device.HazardKindsJson = JsonSerializer.Serialize(request.HazardKinds.Distinct());
+        if (request.MinimumAlertLevel is not null) device.MinimumAlertLevel = request.MinimumAlertLevel;
         device.LocationUpdatedAtUtc = DateTime.UtcNow;
         // Only target an authenticated subscription owned by this account.
         device.PushEndpoint = !string.IsNullOrEmpty(request.PushEndpoint)
@@ -161,12 +168,25 @@ public sealed class EarthquakesController(
     }
 
     [HttpDelete("devices/{id:guid}")]
+    [HttpDelete("/api/disasters/devices/{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
         var userId = users.GetUserId(User)!;
         await database.EarthquakeDevices.Where(d => d.Id == id.ToString() && d.UserId == userId).ExecuteDeleteAsync(ct);
         return NoContent();
     }
+
+    [HttpGet("/api/disasters/devices/{id:guid}")]
+    public async Task<IActionResult> CheckDisasters(Guid id, CancellationToken ct)
+    {
+        var userId = users.GetUserId(User)!;
+        var device = await database.EarthquakeDevices.AsNoTracking().SingleOrDefaultAsync(d => d.Id == id.ToString() && d.UserId == userId, ct);
+        if (device is null) return NotFound();
+        if (device.LocationUpdatedAtUtc < DateTime.UtcNow.AddHours(-24))
+            return StatusCode(409, new { error = "Refresh your phone location to resume disaster monitoring." });
+        return Ok(await alerts.GetAsync(device, ct));
+    }
 }
 
-public sealed record EarthquakeDeviceRequest(double Latitude, double Longitude, double RadiusKm, double MinimumMagnitude, string? PushEndpoint);
+public sealed record EarthquakeDeviceRequest(double Latitude, double Longitude, double RadiusKm, double MinimumMagnitude, string? PushEndpoint,
+    string[]? HazardKinds = null, string? MinimumAlertLevel = null);

@@ -10,6 +10,7 @@ function Fixture() {
     <button type="button" onClick={() => document.getElementById("player-test")?.requestFullscreen()}>Open player full screen</button>
     <div id="player-test"><p>Example player</p></div>
     {alerts.banner}
+    {alerts.map}
   </main>;
 }
 createRoot(document.getElementById("root")!).render(<React.StrictMode><Fixture /></React.StrictMode>);

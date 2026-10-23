@@ -13,6 +13,8 @@ using Signal.Server.Controllers;
 using Signal.Server.Models;
 using Signal.Server.Services;
 
+await DisasterAlertChecks.RunAsync();
+if (args.Contains("--disaster-alerts-only")) return;
 await DisasterFeedChecks.RunAsync(args.Contains("--disasters-live") ? "work/gdacs-live.xml" : null);
 if (args.Contains("--disasters-only") || args.Contains("--disasters-live")) return;
 EarthquakeChecks.Run();

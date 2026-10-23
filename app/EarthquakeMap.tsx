@@ -48,7 +48,7 @@ export default function EarthquakeMap({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  targetQuake?: EarthquakeReport | null;
+  targetQuake?: EarthquakeReport | MapEvent | null;
   userCoordinates?: { latitude: number; longitude: number; radiusKm?: number } | null;
 }) {
   const userLatitude = userCoordinates?.latitude;
@@ -157,7 +157,7 @@ export default function EarthquakeMap({
         if (cancelled) return;
         setData(feedData);
         const all = mapEvents(feedData.events, feedData.disasters ?? [], !!feedData.userLocation);
-        if (targetQuake) all.unshift({ ...targetQuake, kind: "earthquake" });
+        if (targetQuake) all.unshift({ ...targetQuake, kind: "kind" in targetQuake ? targetQuake.kind : "earthquake" });
         setActiveQuake(current => all.find(e => e.id === current?.id) ?? all[0] ?? null);
       })
       .catch((err) => {
@@ -176,7 +176,7 @@ export default function EarthquakeMap({
 
   const allEvents = useMemo(() => {
     const result = mapEvents(data?.events ?? [], data?.disasters ?? [], !!data?.userLocation);
-    if (targetQuake && !result.some(e => e.id === targetQuake.id)) result.unshift({ ...targetQuake, kind: "earthquake" });
+    if (targetQuake && !result.some(e => e.id === targetQuake.id)) result.unshift({ ...targetQuake, kind: "kind" in targetQuake ? targetQuake.kind : "earthquake" });
     return result;
   }, [data, targetQuake]);
   const events = useMemo(() => filterMapEvents(allEvents, kinds, minMagnitude), [allEvents, kinds, minMagnitude]);

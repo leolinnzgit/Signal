@@ -232,6 +232,7 @@ builder.Services.AddHttpClient("earthquakes", client => client.Timeout = TimeSpa
 builder.Services.AddSingleton<EarthquakeFeed>();
 builder.Services.AddHttpClient("disasters", client => client.Timeout = TimeSpan.FromSeconds(20));
 builder.Services.AddSingleton<DisasterFeed>();
+builder.Services.AddSingleton<DisasterAlertFeed>();
 builder.Services.AddHostedService<EarthquakeMonitor>();
 builder.Services.AddHostedService<TopicRefreshBackgroundService>();
 
@@ -284,6 +285,7 @@ await using (var scope = app.Services.CreateAsyncScope())
         );
         CREATE INDEX IF NOT EXISTS "IX_EarthquakeDevices_UserId" ON "EarthquakeDevices" ("UserId");
         """);
+    await DisasterDeviceSchema.UpgradeAsync(database);
     // EnsureCreated does not add new tables to an existing Identity database.
     await database.Database.ExecuteSqlRawAsync("""
         CREATE TABLE IF NOT EXISTS "SharedNewsArticles" (

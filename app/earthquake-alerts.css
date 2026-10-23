@@ -34,7 +34,14 @@ html:has(.earthquake-alert[open]) { overflow: hidden; }
   .earthquake-alert-actions .earthquake-alert-dismiss { flex-basis: 100%; }
 }
 
-/* Earthquake Map Visualization */
+.disaster-alert-types { display: flex; flex-wrap: wrap; gap: .65rem 1rem; padding: .8rem; border: 1px solid var(--line); border-radius: .5rem; }
+.disaster-alert-types label { display: flex; align-items: center; gap: .4rem; font-size: .85rem; }
+.disaster-alert-level strong { font-size: clamp(2rem, 12vw, 5rem); }
+.disaster-alert-description { max-width: 42rem; margin: 0; font-size: clamp(1rem, 2.5vmin, 1.25rem); line-height: 1.5; overflow-wrap: anywhere; }
+.disaster-preview-kind { display: flex; align-items: center; gap: .4rem; font-size: .8rem; }
+.disaster-preview-kind select { max-width: 12rem; padding: .5rem; border: 1px solid var(--line); border-radius: .4rem; background: var(--page-background); color: var(--page-text); }
+
+/* Disaster Map Visualization */
 .earthquake-map-dialog {
   position: fixed;
   inset: 0;

@@ -12,4 +12,6 @@ public sealed class EarthquakeDevice
     public DateTime EnabledAtUtc { get; set; }
     public string PushEndpoint { get; set; } = "";
     public string SeenJson { get; set; } = "[]";
+    public string HazardKindsJson { get; set; } = "[\"earthquake\"]";
+    public string MinimumAlertLevel { get; set; } = "green";
 }
