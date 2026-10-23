@@ -1,5 +1,5 @@
 ﻿[CmdletBinding(SupportsShouldProcess = $true)]
-param([switch]$IncludeReleaseCopies)
+param([switch]$IncludeReleaseCopies, [switch]$IncludeWatchBuildArtifacts, [switch]$IncludeStagingBuildArtifacts)
 
 $ErrorActionPreference = 'Stop'
 $repository = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
@@ -17,6 +17,34 @@ $paths = @(
     'work\npm-cache', 'work\comment-news-vite-cache', 'work\header-vite-cache',
     'work\eye-gestures\qa-dist', 'work\hand-gestures\qa-dist', 'work\__pycache__'
 )
+if ($IncludeStagingBuildArtifacts) {
+    # Preserve the source and deployment snapshots in old work folders. Only
+    # known .NET intermediate/output directories are disposable here.
+    foreach ($project in @(
+        'android-reader-probe', 'enlighten-reader', 'enlighten-share-repair',
+        'enlighten-reader\source\Signal.Server',
+        'enlighten-share-source\Signal.Server',
+        'enlighten-share-source\Signal.Server.TopicMatcher.Tests',
+        'enlighten-share-final-source\Signal.Server',
+        'enlighten-share-final-source\Signal.Server.TopicMatcher.Tests',
+        'random-audio-release\Signal.Server',
+        'player-back-release-2ddc558126f846fcbb03796193a3f30c\Signal.Server'
+    )) {
+        $paths += 'work\' + $project + '\bin'
+        $paths += 'work\' + $project + '\obj'
+    }
+    $paths += 'work\briefing-market-vite-cache', 'work\search-vite-cache'
+}
+if ($IncludeWatchBuildArtifacts) {
+    # Only disposable staging output and caches; keep the SDK, Gradle installation,
+    # downloaded dependencies, canonical SignalWatch releases and signing storage.
+    $paths += @(
+        'work\signalwatch-source\.gradle', 'work\signalwatch-source\.kotlin',
+        'work\signalwatch-source\app\build',
+        'work\signalwatch-tools\gradle-home\caches\8.11.1',
+        'work\signalwatch-tools\gradle.zip', 'work\signalwatch-tools\android-tools.zip'
+    )
+}
 if ($IncludeReleaseCopies) {
     foreach ($item in Get-ChildItem -LiteralPath (Join-Path $repository 'work') -Force) {
         $commit = $null
@@ -47,7 +75,7 @@ $plan = foreach ($relative in $paths) {
     $bytes = 0L
     while ($pending.Count) {
         $entry = Get-Item -LiteralPath $pending.Pop() -Force
-        if ($entry.Name -eq '.git' -or $entry.Name -match '\.(?:(?:db|db3|sqlite|sqlite3)(?:-wal|-shm|-journal)?|bundle|patch)$') {
+        if ($entry.Name -in @('.git', '.signing', 'App_Data') -or $entry.Name -match '\.(?:(?:db|db3|sqlite|sqlite3)(?:-wal|-shm|-journal)?|bundle|patch|p12|jks|keystore|dpapi)$') {
             throw "Cleanup candidate contains data or work that must be preserved: $($entry.FullName)"
         }
         if ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) {

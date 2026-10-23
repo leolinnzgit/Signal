@@ -49,3 +49,21 @@ The script preserves installed dependencies, the current `iis-publish` package,
 local `App_Data`, operational scripts and work in progress. The next build
 recreates the deleted output. The deployed IIS application is outside the
 checkout and is unaffected by this cleanup.
+
+Add `-IncludeStagingBuildArtifacts` to include .NET `bin`/`obj` output in known
+reader probe and release staging folders, plus old Vite caches. Source files and
+deployment snapshots in those folders remain intact, even when the folder name
+does not identify a recoverable Git commit.
+
+### SignalWatch build staging
+
+After Android builds and Gradle daemons have stopped, add
+`-IncludeWatchBuildArtifacts` to preview or remove the Signal checkout's temporary
+SignalWatch staging build, project caches, Gradle 8.11.1 transform/build caches,
+and downloaded SDK/Gradle installer ZIPs. Use `-WhatIf` first. The next build
+recreates these caches; it may take longer.
+
+The installed Android SDK, Gradle distribution, bundletool, and downloaded Gradle
+dependencies remain available. The sibling `SignalWatch` project, its checked
+APK/AAB releases, signing keys and credentials are preserved. Signing files and
+`App_Data` directories also block cleanup if found inside a deletion candidate.

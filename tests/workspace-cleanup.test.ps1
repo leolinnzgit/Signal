@@ -10,7 +10,7 @@ function Write-Fixture([string]$relative, [string]$text = 'fixture') {
     return $path
 }
 function Expect-Blocked([string]$message) {
-    try { & $cleanup -IncludeReleaseCopies | Out-Null; throw 'Unsafe cleanup was accepted.' }
+    try { & $cleanup -IncludeReleaseCopies -IncludeWatchBuildArtifacts -IncludeStagingBuildArtifacts | Out-Null; throw 'Unsafe cleanup was accepted.' }
     catch { Assert ($_.Exception.Message -like $message) ('Unexpected cleanup error: ' + $_.Exception.Message) }
 }
 try {
@@ -30,13 +30,25 @@ try {
     $database = Write-Fixture 'Signal.Server\App_Data\signal.db'
     $package = Write-Fixture 'iis-publish\Signal.Server.dll'
     $dependency = Write-Fixture 'node_modules\bin\dependency.js'
+    $watchCache = Write-Fixture 'work\signalwatch-tools\gradle-home\caches\8.11.1\transforms\generated.jar'
+    $watchBuild = Write-Fixture 'work\signalwatch-source\app\build\intermediates\generated.dex'
+    $watchDownload = Write-Fixture 'work\signalwatch-tools\gradle.zip'
+    $watchDependencies = Write-Fixture 'work\signalwatch-tools\gradle-home\caches\modules-2\dependency.jar'
+    $watchSdk = Write-Fixture 'work\signalwatch-tools\sdk\build-tools\35.0.0\apksigner.bat'
+    $watchKey = Write-Fixture 'work\signalwatch-source\.signing\upload-keystore.p12'
+    $watchSource = Write-Fixture 'work\signalwatch-source\app\src\Main.kt'
+    $watchRelease = Write-Fixture 'work\signalwatch-source\outputs\release.apk'
+    $stagingBuild = Write-Fixture 'work\enlighten-reader\source\Signal.Server\bin\generated.dll'
+    $stagingSource = Write-Fixture 'work\enlighten-reader\source\Signal.Server\Program.cs'
+    $stagingPackage = Write-Fixture 'work\enlighten-reader\publish\Signal.Server.dll'
     $preview = @(& $cleanup -WhatIf)
     Assert ((Test-Path -LiteralPath $generated) -and @($preview | Where-Object Removed).Count -eq 0) 'Preview deleted generated files.'
-    foreach ($protectedName in @('signal.db', 'signal.sqlite3', 'signal.db-journal', 'unfinished.patch')) {
+    foreach ($protectedName in @('signal.db', 'signal.sqlite3', 'signal.db-journal', 'unfinished.patch', 'upload.p12', 'upload.jks', 'upload.keystore', 'credentials.dpapi', '.signing\keep.txt', 'App_Data\keep.txt')) {
         $protected = Write-Fixture ('Signal.Server\bin\' + $protectedName)
         Expect-Blocked '*contains data or work*'
         Assert (Test-Path -LiteralPath $generated) 'Data protection ran after a deletion.'
         Remove-Item -LiteralPath $protected
+        if ($protectedName.Contains('\')) { Remove-Item -LiteralPath (Split-Path -Parent $protected) }
     }
     $protected = Write-Fixture 'Signal.Server\bin\keep.cs'
     & git -C $fixture add -f Signal.Server/bin/keep.cs
@@ -57,7 +69,21 @@ try {
     & $cleanup -IncludeReleaseCopies | Out-Null
     Assert (-not (Test-Path -LiteralPath $generated) -and -not (Test-Path -LiteralPath $release) -and -not (Test-Path -LiteralPath $archive)) 'Generated files or recoverable release copies remained.'
     foreach ($path in @($operational, $patch, $database, $package, $dependency)) { Assert (Test-Path -LiteralPath $path) 'Cleanup removed preserved work, data, packages or dependencies.' }
-    Write-Host 'Workspace cleanup passed preview, data and tracked-file protection, redirected ancestor rejection, release/archive removal and shared dependency preservation.'
+    foreach ($path in @($watchCache, $watchBuild, $watchDownload)) { Assert (Test-Path -LiteralPath $path) 'Watch cleanup was not opt-in.' }
+    $preview = @(& $cleanup -IncludeWatchBuildArtifacts -WhatIf)
+    Assert ((Test-Path -LiteralPath $watchBuild) -and @($preview | Where-Object Removed).Count -eq 0) 'Watch preview deleted files.'
+    $protected = Write-Fixture 'work\signalwatch-source\app\build\credentials.dpapi'
+    Expect-Blocked '*contains data or work*'
+    Assert (Test-Path -LiteralPath $watchCache) 'Watch data protection ran after a deletion.'
+    Remove-Item -LiteralPath $protected
+    & $cleanup -IncludeWatchBuildArtifacts | Out-Null
+    foreach ($path in @($watchCache, $watchBuild, $watchDownload)) { Assert (-not (Test-Path -LiteralPath $path)) 'Watch generated files remained.' }
+    foreach ($path in @($watchDependencies, $watchSdk, $watchKey, $watchSource, $watchRelease)) { Assert (Test-Path -LiteralPath $path) 'Watch cleanup removed dependencies, tools, signing keys, source or releases.' }
+    Assert (Test-Path -LiteralPath $stagingBuild) 'Staging cleanup was not opt-in.'
+    & $cleanup -IncludeStagingBuildArtifacts | Out-Null
+    Assert (-not (Test-Path -LiteralPath $stagingBuild)) 'Staging .NET build output remained.'
+    foreach ($path in @($stagingSource, $stagingPackage)) { Assert (Test-Path -LiteralPath $path) 'Staging cleanup removed source or deployment snapshots.' }
+    Write-Host 'Workspace cleanup passed preview, data/signing and tracked-file protection, redirected ancestor rejection, release/archive removal and dependency/tool preservation.'
 } finally {
     foreach ($linkPath in @((Join-Path $fixture 'work\reader-probe'), (Join-Path $fixture ('work\fixture-release-' + $commit + '\node_modules')))) {
         if ((Test-Path -LiteralPath $linkPath) -and ((Get-Item -LiteralPath $linkPath -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { [IO.Directory]::Delete($linkPath, $false) }
