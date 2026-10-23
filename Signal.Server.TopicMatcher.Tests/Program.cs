@@ -13,6 +13,8 @@ using Signal.Server.Controllers;
 using Signal.Server.Models;
 using Signal.Server.Services;
 
+await WatchPairingChecks.RunAsync();
+if (args.Contains("--watch-pairing-only")) return;
 await DisasterAlertChecks.RunAsync();
 if (args.Contains("--disaster-alerts-only")) return;
 await DisasterFeedChecks.RunAsync(args.Contains("--disasters-live") ? "work/gdacs-live.xml" : null);

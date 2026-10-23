@@ -34,7 +34,7 @@ try {
     await watch.getByRole('button', { name: 'Refresh briefing', exact: true }).click();
     assert.equal(await watch.locator('.card').count(), 3);
     assert.match(await page.locator('#status').innerText(), /sample content only/);
-    assert.equal(await page.locator('.download').getAttribute('href'), 'SignalWatch-debug.apk');
+    assert.equal(await page.locator('.download').getAttribute('href'), 'SignalWatch-release.apk');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     assert.deepEqual(errors, []);
     await mkdir('work/signalwatch-preview', { recursive: true });

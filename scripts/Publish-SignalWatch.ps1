@@ -1,9 +1,8 @@
 [CmdletBinding()]
-param(
-    [string]$WatchProject = (Join-Path (Split-Path -Parent $PSScriptRoot) '..\SignalWatch')
-)
+param([string]$WatchProject = (Join-Path (Split-Path -Parent $PSScriptRoot) '..\SignalWatch'))
 $ErrorActionPreference = 'Stop'
 $repository = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
+$WatchProject = [IO.Path]::GetFullPath($WatchProject)
 $source = Join-Path $repository 'public\signalwatch'
 $site = [IO.Path]::GetFullPath('C:\sites\SignalHost')
 $target = [IO.Path]::GetFullPath((Join-Path $site 'signalwatch'))
@@ -13,20 +12,26 @@ foreach ($directory in @($site, $target)) {
         throw 'Publication cannot follow redirected directories.'
     }
 }
-$apk = Join-Path ([IO.Path]::GetFullPath($WatchProject)) 'app\build\outputs\apk\debug\app-debug.apk'
-if (-not (Test-Path -LiteralPath $apk -PathType Leaf)) { throw 'Build and check the SignalWatch APK before publication.' }
-if (-not (Test-Path -LiteralPath (Join-Path $source 'index.html'))) { throw 'The SignalWatch preview is missing.' }
+$releaseDirectory = Join-Path $WatchProject 'outputs/play-release/0.2.0-2'
+$manifest = Get-Content -LiteralPath (Join-Path $releaseDirectory 'release-manifest.json') -Raw | ConvertFrom-Json
+$verification = Get-Content -LiteralPath (Join-Path $releaseDirectory 'verification.json') -Raw | ConvertFrom-Json
+if ($verification.status -ne 'passed' -or $manifest.debuggable -ne $false) { throw 'Release artifact verification is required.' }
+$apk = Join-Path $WatchProject 'app/build/outputs/apk/release/app-release.apk'
+$debugApk = Join-Path $WatchProject 'app/build/outputs/apk/debug/app-debug.apk'
+$hash = (Get-FileHash -LiteralPath $apk).Hash.ToLowerInvariant()
+$recorded = $manifest.artifacts | Where-Object file -eq 'SignalWatch-0.2.0-2.apk'
+if ($hash -ne $recorded.sha256) { throw 'The release APK differs from the checked artifact.' }
 $protected = @('Signal.Server.dll', 'appsettings.json', 'appsettings.Production.json', 'appsettings.Development.json', 'web.config')
 $before = @{}
 foreach ($name in $protected) {
     $path = Join-Path $site $name
     if (Test-Path -LiteralPath $path) { $before[$name] = (Get-FileHash -LiteralPath $path).Hash }
 }
-Copy-Item -LiteralPath $apk -Destination (Join-Path $source 'SignalWatch-debug.apk') -Force
-$hash = (Get-FileHash -LiteralPath $apk -Algorithm SHA256).Hash.ToLowerInvariant()
-@{ version = '0.1.0'; build = 'debug'; sha256 = $hash; file = 'SignalWatch-debug.apk'; publishedAtUtc = [DateTime]::UtcNow.ToString('o') } |
+Copy-Item -LiteralPath $apk -Destination (Join-Path $source 'SignalWatch-release.apk') -Force
+Copy-Item -LiteralPath $debugApk -Destination (Join-Path $source 'SignalWatch-debug.apk') -Force
+@{ version = $manifest.versionName; versionCode = $manifest.versionCode; build = 'release'; sha256 = $hash; file = 'SignalWatch-release.apk'; publishedAtUtc = [DateTime]::UtcNow.ToString('o'); intendedTrack = 'internal testing'; playStorePublished = $false } |
     ConvertTo-Json | Set-Content -LiteralPath (Join-Path $source 'release.json') -Encoding utf8
-$files = @('index.html', 'SignalWatch-debug.apk', 'release.json', 'web.config')
+$files = @('index.html', 'SignalWatch-release.apk', 'SignalWatch-debug.apk', 'release.json', 'web.config', 'connect.html', 'connect.js', 'support.css', 'privacy.html', 'data-deletion.html')
 $backup = Join-Path $repository ('work\signalwatch-backups\' + [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss'))
 New-Item -ItemType Directory -Force -Path $target, $backup | Out-Null
 foreach ($name in $files) {
@@ -41,6 +46,6 @@ foreach ($name in $files) {
 foreach ($name in $before.Keys) {
     if ((Get-FileHash -LiteralPath (Join-Path $site $name)).Hash -ne $before[$name]) { throw "A protected production file changed: $name" }
 }
-Write-Host ('Published SignalWatch preview and development APK. SHA256: ' + $hash)
-Write-Host 'Production server binaries and settings verified unchanged. App_Data was not part of publication.'
+Write-Host ('Published SignalWatch release candidate and support pages. APK SHA256: ' + $hash)
+Write-Host 'Private keys and the Play upload bundle were not published. Production settings and App_Data were preserved.'
 $global:LASTEXITCODE = 0
