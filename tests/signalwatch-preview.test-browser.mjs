@@ -19,6 +19,8 @@ try {
     await page.getByRole('button', { name: 'A little more perspective', exact: false }).click();
     await watch.getByRole('button', { name: 'Save for later', exact: true }).click();
     await watch.getByRole('button', { name: 'Mark as read', exact: true }).click();
+    await watch.getByRole('button', { name: 'Open on phone', exact: true }).click();
+    assert.match(await page.locator('#status').innerText(), /paired phone/);
     await watch.getByRole('button', { name: 'Read ✓', exact: true }).waitFor();
     await page.getByRole('button', { name: 'Saved stories', exact: true }).click();
     assert.equal(await watch.locator('.card').count(), 2);
