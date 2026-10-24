@@ -50,6 +50,12 @@ internal static class WatchPairingChecks
         try { service.Create(); throw new Exception("Pairing capacity must be bounded."); }
         catch (InvalidOperationException) { }
         Check(fresh.DeviceSecret != first.DeviceSecret, "Every watch needs a fresh independent device secret.");
+        var devices = new WatchPairingService();
+        var watchCode = devices.Create();
+        Check(!devices.Approve(watchCode.UserCode, "owner", "https://push.invalid/phone"), "A watch approval cannot replace browser notifications.");
+        var phoneCode = devices.Create("phone");
+        Check(devices.Approve(phoneCode.UserCode, "owner", "https://push.invalid/phone"), "Phone approvals can explicitly bind their browser subscription.");
+        Check(devices.Claim(phoneCode.DeviceSecret).BrowserEndpoint == "https://push.invalid/phone", "Only the approved phone can claim the browser binding.");
         await CheckHttpFlowAsync();
         Console.WriteLine("Watch pairing passed expiry, replay, capacity, identity, authorization, CSRF and cookie-session checks.");
     }
@@ -69,6 +75,9 @@ internal static class WatchPairingChecks
         builder.Services.AddControllersWithViews(options => options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute()))
             .AddApplicationPart(typeof(WatchPairingController).Assembly);
         builder.Services.AddSingleton<WatchPairingService>();
+        builder.Services.AddSingleton<INativePushSender>(new NoNativePush());
+        builder.Services.AddSingleton<NativeDeliveryReceipts>();
+        builder.Services.AddScoped<NativeNotificationService>();
         builder.Services.AddRateLimiter(options => {
             options.AddFixedWindowLimiter("account", config => { config.PermitLimit = 100; config.Window = TimeSpan.FromMinutes(1); });
             options.AddFixedWindowLimiter("watch-poll", config => { config.PermitLimit = 100; config.Window = TimeSpan.FromMinutes(1); });
@@ -94,20 +103,31 @@ internal static class WatchPairingChecks
             using var watch = new HttpClient(new HttpClientHandler { CookieContainer = new CookieContainer(), AllowAutoRedirect = false }) { BaseAddress = new Uri(origin) };
             using var phone = new HttpClient(new HttpClientHandler { CookieContainer = new CookieContainer(), AllowAutoRedirect = false }) { BaseAddress = new Uri(origin) };
             using var start = await watch.PostAsync("/api/watch/pairing", null);
+            Check((await watch.GetAsync("/api/native/config")).StatusCode == HttpStatusCode.Unauthorized, "Native account/configuration endpoints must require sign-in.");
+            var nativeStatus = await watch.GetFromJsonAsync<JsonElement>("/api/native/status");
+            Check(!nativeStatus.GetProperty("ready").GetBoolean() && nativeStatus.EnumerateObject().Count() == 1, "Public native status must expose only readiness.");
             Check(start.StatusCode == HttpStatusCode.OK, $"Native pairing creation must work without browser CSRF: {(int)start.StatusCode} {await start.Content.ReadAsStringAsync()}");
             var challenge = await start.Content.ReadFromJsonAsync<WatchPairingService.Challenge>();
             var code = challenge!.UserCode;
             Check((await phone.PostAsJsonAsync("/api/watch/pairing/approve", new { code })).StatusCode == HttpStatusCode.Unauthorized, "Anonymous approval must fail.");
             Check((await watch.PostAsJsonAsync("/api/watch/pairing/claim", new { deviceSecret = challenge.DeviceSecret })).StatusCode == HttpStatusCode.Accepted, "Pending HTTP claims must not sign in.");
             await phone.GetAsync("/test/login");
-            Check((await phone.PostAsJsonAsync("/api/watch/pairing/approve", new { code })).StatusCode == HttpStatusCode.BadRequest, "Approval without CSRF must fail even when signed in.");
+            using var missingCsrf = await phone.PostAsJsonAsync("/api/watch/pairing/approve", new { code });
+            Check(missingCsrf.StatusCode == HttpStatusCode.BadRequest, $"Approval without CSRF must fail even when signed in: {(int)missingCsrf.StatusCode} {await missingCsrf.Content.ReadAsStringAsync()}");
             var csrf = await phone.GetFromJsonAsync<JsonElement>("/test/csrf");
             phone.DefaultRequestHeaders.Add("X-XSRF-TOKEN", csrf.GetProperty("token").GetString());
             Check((await phone.PostAsJsonAsync("/api/watch/pairing/approve", new { code })).StatusCode == HttpStatusCode.OK, "Signed-in CSRF-protected phone approval must succeed.");
             Check((await watch.PostAsJsonAsync("/api/watch/pairing/claim", new { deviceSecret = challenge.DeviceSecret })).StatusCode == HttpStatusCode.OK, "The approved watch must receive its cookie.");
             Check(await watch.GetStringAsync("/test/me") == "watch-owner", "The watch session must belong to the approving account.");
+            var nativeConfig = await watch.GetFromJsonAsync<JsonElement>("/api/native/config");
+            Check(nativeConfig.GetProperty("accountKey").GetString() == NativeNotificationService.AccountKey("watch-owner") && !nativeConfig.TryGetProperty("serviceAccountFile", out _), "Authenticated native configuration must bind the account and omit server credentials.");
             Check((await watch.PostAsJsonAsync("/api/watch/pairing/claim", new { deviceSecret = challenge.DeviceSecret })).StatusCode == HttpStatusCode.Gone, "HTTP claim replay must fail.");
         }
         finally { await app.StopAsync(); }
+    }
+    private sealed class NoNativePush : INativePushSender
+    {
+        public bool Ready => false;
+        public Task<NativePushResult> SendAsync(string token, IReadOnlyDictionary<string, string> data, CancellationToken ct) => Task.FromResult(NativePushResult.Unavailable);
     }
 }

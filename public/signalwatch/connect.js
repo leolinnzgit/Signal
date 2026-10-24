@@ -5,7 +5,18 @@ const code = document.querySelector("#code");
 const result = document.querySelector("#result");
 let authenticated = false;
 let submitting = false;
-const initial = new URL(location.href).searchParams.get("code") || "";
+const parameters = new URL(location.href).searchParams;
+const phone = parameters.get("device") === "phone";
+const initial = parameters.get("code") || "";
+if (phone) {
+  document.querySelector("h1").textContent = "Connect your phone companion.";
+  document.querySelector("h1 + p").textContent = "Approve the code shown in the Signal phone companion. It will keep phone news alerts working and hand them to SignalWatch when your watch is ready.";
+  document.querySelector('label[for="code"]').textContent = "Code displayed in your phone companion";
+  approve.textContent = "Approve this phone companion";
+  const label = document.createElement("label");
+  label.innerHTML = '<input id="replace-browser" type="checkbox" checked> Use the phone companion for news alerts from this browser. Other devices and disaster alerts keep their existing delivery.';
+  approve.before(label);
+}
 code.value = initial.replace(/[^A-Z2-9]/gi, "").slice(0, 8).toUpperCase().replace(/^(.{4})(.+)$/, "$1-$2");
 history.replaceState(null, "", location.pathname);
 async function checkSignIn() {
@@ -35,13 +46,19 @@ document.querySelector("#approval").addEventListener("submit", async event => {
     if (!csrf.ok) throw new Error("Sign in again, then retry.");
     const token = (await csrf.json()).token;
     if (!token) throw new Error("Sign in again, then retry.");
+    let browserEndpoint = null;
+    if (phone && document.querySelector("#replace-browser").checked) {
+      const registration = await navigator.serviceWorker?.getRegistration("/");
+      browserEndpoint = (await registration?.pushManager.getSubscription())?.endpoint || null;
+      if (!browserEndpoint) throw new Error("Open this link in the browser where this phone receives Signal news alerts. If you do not use browser alerts, untick the checkbox and approve again.");
+    }
     const response = await fetch("/api/watch/pairing/approve", {
       method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", "X-XSRF-TOKEN": token },
-      body: JSON.stringify({ code: normalized })
+      body: JSON.stringify({ code: normalized, browserEndpoint })
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.error || "Could not approve this code. Sign in again or start a new connection on your watch.");
-    result.textContent = "Watch approved. Your watch will connect in a few seconds.";
+    result.textContent = phone ? "Phone companion approved. Return to the app to finish enabling notifications. Browser alerts remain active until the companion confirms delivery." : "Watch approved. Your watch will connect in a few seconds.";
     document.querySelector("#approval").hidden = true;
   } catch (error) {
     result.textContent = error.message;

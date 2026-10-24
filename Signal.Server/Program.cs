@@ -232,6 +232,9 @@ builder.Services.AddHttpClient<ArticleReaderService>(client =>
 builder.Services.AddScoped<TopicRefreshService>();
 builder.Services.AddSingleton<VapidKeyStore>();
 builder.Services.AddScoped<PushNotificationService>();
+builder.Services.AddSingleton<INativePushSender, NativePushSender>();
+builder.Services.AddScoped<NativeNotificationService>();
+builder.Services.AddSingleton<NativeDeliveryReceipts>();
 builder.Services.AddHttpClient("earthquakes", client => client.Timeout = TimeSpan.FromSeconds(15));
 builder.Services.AddSingleton<EarthquakeFeed>();
 builder.Services.AddHttpClient("disasters", client => client.Timeout = TimeSpan.FromSeconds(20));
@@ -278,6 +281,19 @@ await using (var scope = app.Services.CreateAsyncScope())
 {
     var database = scope.ServiceProvider.GetRequiredService<SignalDbContext>();
     await database.Database.EnsureCreatedAsync();
+    await database.Database.ExecuteSqlRawAsync("""
+        CREATE TABLE IF NOT EXISTS "NativeNotificationDevice" (
+            "Id" TEXT NOT NULL PRIMARY KEY,
+            "UserId" TEXT NOT NULL,
+            "Token" TEXT NOT NULL,
+            "Kind" TEXT NOT NULL,
+            "BrowserEndpoint" TEXT NULL,
+            "ExpiresAtUtc" TEXT NOT NULL,
+            FOREIGN KEY ("UserId") REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS "IX_NativeNotificationDevice_UserId" ON "NativeNotificationDevice" ("UserId");
+        CREATE UNIQUE INDEX IF NOT EXISTS "IX_NativeNotificationDevice_Token" ON "NativeNotificationDevice" ("Token");
+        """);
     await database.Database.ExecuteSqlRawAsync("""
         CREATE TABLE IF NOT EXISTS "EarthquakeDevices" (
             "Id" TEXT NOT NULL PRIMARY KEY,

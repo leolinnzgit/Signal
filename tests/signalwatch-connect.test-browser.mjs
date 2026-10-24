@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.SIGNAL_PLAYWRIGHT_MODULE || 'playwright');
 let signedIn = false, approvalCalls = 0, rejectApproval = false;
+let expectedBrowserEndpoint = null;
 const server = createServer(async (req, res) => {
   const pathname = new URL(req.url, 'http://localhost').pathname;
   const json = (status, data) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(data)); };
@@ -13,7 +14,7 @@ const server = createServer(async (req, res) => {
   if (pathname === '/api/watch/pairing/approve') {
     let body = ''; for await (const chunk of req) body += chunk;
     assert.equal(req.headers['x-xsrf-token'], 'test-csrf');
-    assert.deepEqual(JSON.parse(body), { code: 'ABCDEFGH' });
+    assert.deepEqual(JSON.parse(body), { code: 'ABCDEFGH', browserEndpoint: expectedBrowserEndpoint });
     approvalCalls++;
     return json(rejectApproval ? 404 : 200, rejectApproval ? { error: 'That code is unavailable or expired.' } : { status: 'approved' });
   }
@@ -52,6 +53,30 @@ try {
   await page.getByText('Approve as reviewer@example.invalid').waitFor();
   await page.getByRole('button', { name: 'Approve this watch' }).click();
   await page.getByText('That code is unavailable or expired.').waitFor();
+  rejectApproval = false;
+  await page.addInitScript(() => {
+    const subscribed = new URL(location.href).searchParams.get('subscription') !== 'missing';
+    Object.defineProperty(navigator, 'serviceWorker', { value: {
+      getRegistration: async () => subscribed ? { pushManager: { getSubscription: async () => ({ endpoint: 'https://push.invalid/this-phone' }) } } : undefined
+    } });
+  });
+  expectedBrowserEndpoint = 'https://push.invalid/this-phone';
+  await page.goto(origin + '/signalwatch/connect.html?code=ABCD-EFGH&device=phone');
+  await page.getByRole('heading', { name: 'Connect your phone companion.' }).waitFor();
+  assert.equal(await page.locator('#replace-browser').isChecked(), true);
+  const beforePhoneApproval = approvalCalls;
+  await page.getByRole('button', { name: 'Approve this phone companion' }).click();
+  await page.getByText(/Phone companion approved/).waitFor();
+  assert.equal(approvalCalls, beforePhoneApproval + 1, 'A phone companion must explicitly link only this browser subscription.');
+  await page.goto(origin + '/signalwatch/connect.html?code=ABCD-EFGH&device=phone&subscription=missing');
+  await page.getByText('Approve as reviewer@example.invalid').waitFor();
+  await page.getByRole('button', { name: 'Approve this phone companion' }).click();
+  await page.getByText(/Open this link in the browser/).waitFor();
+  assert.equal(approvalCalls, beforePhoneApproval + 1, 'Missing browser subscription must never silently claim duplicate suppression.');
+  expectedBrowserEndpoint = null;
+  await page.locator('#replace-browser').uncheck();
+  await page.getByRole('button', { name: 'Approve this phone companion' }).click();
+  await page.getByText(/Phone companion approved/).waitFor();
   await mkdir('work/signalwatch-release', { recursive: true });
   await page.screenshot({ path: 'work/signalwatch-release/phone-pairing.png', fullPage: true });
   for (const name of ['privacy.html', 'data-deletion.html']) {
@@ -60,5 +85,5 @@ try {
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   }
   assert.deepEqual(errors, []);
-  console.log('PASS: phone approval requires sign-in, CSRF and explicit confirmation; invalid/expired codes and privacy pages verified.');
+  console.log('PASS: watch and phone approvals require sign-in, CSRF and explicit confirmation; per-browser linking, missing subscription, expired codes and privacy pages verified.');
 } finally { await browser?.close(); await new Promise(resolve => server.close(resolve)); }

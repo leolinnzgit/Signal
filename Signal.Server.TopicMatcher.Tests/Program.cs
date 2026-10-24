@@ -13,6 +13,8 @@ using Signal.Server.Controllers;
 using Signal.Server.Models;
 using Signal.Server.Services;
 
+await NativeNotificationChecks.RunAsync();
+if (args.Contains("--native-notifications-only")) return;
 await WatchPairingChecks.RunAsync();
 if (args.Contains("--watch-pairing-only")) return;
 await DisasterAlertChecks.RunAsync();

@@ -10,11 +10,11 @@ public sealed class WatchPairingService(TimeProvider? clock = null, int capacity
     private readonly TimeProvider time = clock ?? TimeProvider.System;
     private readonly object gate = new();
     private readonly Dictionary<string, Entry> entries = new(StringComparer.Ordinal);
-    private sealed record Entry(string Code, DateTimeOffset ExpiresAt, string? UserId = null);
+    private sealed record Entry(string Code, DateTimeOffset ExpiresAt, string? UserId = null, string Kind = "watch", string? BrowserEndpoint = null);
     public sealed record Challenge(string DeviceSecret, string UserCode, DateTimeOffset ExpiresAt);
-    public sealed record ClaimResult(string Status, string? UserId = null);
+    public sealed record ClaimResult(string Status, string? UserId = null, string? BrowserEndpoint = null);
 
-    public Challenge Create()
+    public Challenge Create(string kind = "watch")
     {
         lock (gate)
         {
@@ -26,12 +26,12 @@ public sealed class WatchPairingService(TimeProvider? clock = null, int capacity
             while (entries.Values.Any(entry => entry.Code == code));
             var secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
             var expiry = time.GetUtcNow().AddMinutes(10);
-            entries.Add(Hash(secret), new Entry(code, expiry));
+            entries.Add(Hash(secret), new Entry(code, expiry, Kind: kind));
             return new Challenge(secret, code[..4] + "-" + code[4..], expiry);
         }
     }
 
-    public bool Approve(string rawCode, string userId)
+    public bool Approve(string rawCode, string userId, string? browserEndpoint = null)
     {
         var code = new string(rawCode.Where(char.IsLetterOrDigit).ToArray()).ToUpperInvariant();
         if (code.Length != 8 || userId.Length == 0) return false;
@@ -39,7 +39,8 @@ public sealed class WatchPairingService(TimeProvider? clock = null, int capacity
         {
             var match = entries.FirstOrDefault(pair => pair.Value.Code == code);
             if (match.Value is null || match.Value.ExpiresAt <= time.GetUtcNow() || match.Value.UserId is not null) return false;
-            entries[match.Key] = match.Value with { UserId = userId };
+            if (browserEndpoint is not null && match.Value.Kind != "phone") return false;
+            entries[match.Key] = match.Value with { UserId = userId, BrowserEndpoint = browserEndpoint };
             return true;
         }
     }
@@ -54,7 +55,7 @@ public sealed class WatchPairingService(TimeProvider? clock = null, int capacity
             if (entry.ExpiresAt <= time.GetUtcNow()) { entries.Remove(key); return new("expired"); }
             if (entry.UserId is null) return new("pending");
             entries.Remove(key); // Atomic consumption: exactly one caller can acquire this account.
-            return new("approved", entry.UserId);
+            return new("approved", entry.UserId, entry.BrowserEndpoint);
         }
     }
 

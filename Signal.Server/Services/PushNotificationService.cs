@@ -11,7 +11,8 @@ namespace Signal.Server.Services;
 public sealed class PushNotificationService(
     SignalDbContext database,
     VapidKeyStore keyStore,
-    ILogger<PushNotificationService> logger)
+    ILogger<PushNotificationService> logger,
+    NativeNotificationService? native = null)
 {
     public async Task<string> GetPublicKeyAsync(CancellationToken cancellationToken) =>
         (await keyStore.GetAsync(cancellationToken)).PublicKey;
@@ -179,18 +180,32 @@ public sealed class PushNotificationService(
         var subscriptions = await database.UserPushSubscriptions
             .Where(item => item.UserId == userId && (endpoint == null || item.Endpoint == endpoint))
             .ToArrayAsync(cancellationToken);
-        if (subscriptions.Length == 0) return 0;
-
+        var replacements = new Dictionary<PushMessage, HashSet<string>>();
+        var delivered = 0;
+        // Location alerts stay with their originating browser device. News can be
+        // replaced only for a browser explicitly linked to a native phone installation.
+        if (endpoint is null && native is not null)
+        {
+            // One native briefing avoids flooding a wrist and waiting for a receipt
+            // for every headline. Existing browser title preferences stay intact.
+            var briefing = messages.Count == 1 ? messages[0] : new PushMessage(
+                $"{messages.Count} new stories in Signal", messages[0].Title,
+                "/#top", messages[0].BadgeCount);
+            var result = await native.SendAsync(userId, briefing, cancellationToken);
+            delivered += result.Count;
+            foreach (var message in messages) replacements[message] = result.ReplacedEndpoints;
+        }
+        if (subscriptions.Length == 0) return delivered;
         var keys = await keyStore.GetAsync(cancellationToken);
         var vapid = new VapidDetails(keys.Subject, keys.PublicKey, keys.PrivateKey);
-        var payloads = messages.Select(SerializeMessage).ToArray();
-        var delivered = 0;
         var stale = new List<UserPushSubscription>();
         var client = new WebPushClient();
         foreach (var saved in subscriptions)
         {
-            foreach (var payload in payloads)
+            foreach (var message in messages)
             {
+                if (replacements.TryGetValue(message, out var replaced) && replaced.Contains(saved.Endpoint)) continue;
+                var payload = SerializeMessage(message);
                 try
                 {
                     var subscription = new PushSubscription(saved.Endpoint, saved.P256Dh, saved.Auth);

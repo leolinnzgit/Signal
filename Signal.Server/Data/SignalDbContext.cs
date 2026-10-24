@@ -32,6 +32,13 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
     {
         base.OnModelCreating(builder);
 
+        builder.Entity<NativeNotificationDevice>(device => {
+            device.HasKey(d => d.Id);
+            device.HasIndex(d => d.UserId);
+            device.HasIndex(d => d.Token).IsUnique();
+            device.HasOne<ApplicationUser>().WithMany().HasForeignKey(d => d.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
         builder.Entity<EarthquakeDevice>(device =>
         {
             device.HasKey(d => d.Id);
