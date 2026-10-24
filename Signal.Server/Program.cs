@@ -282,6 +282,11 @@ await using (var scope = app.Services.CreateAsyncScope())
     var database = scope.ServiceProvider.GetRequiredService<SignalDbContext>();
     await database.Database.EnsureCreatedAsync();
     await database.Database.ExecuteSqlRawAsync("""
+        CREATE TABLE IF NOT EXISTS "WatchAlertPreferences" (
+            "UserId" TEXT NOT NULL PRIMARY KEY REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE,
+            "TopicsJson" TEXT NOT NULL DEFAULT '[]',
+            "KeywordsJson" TEXT NOT NULL DEFAULT '[]'
+        );
         CREATE TABLE IF NOT EXISTS "NativeNotificationDevice" (
             "Id" TEXT NOT NULL PRIMARY KEY,
             "UserId" TEXT NOT NULL,

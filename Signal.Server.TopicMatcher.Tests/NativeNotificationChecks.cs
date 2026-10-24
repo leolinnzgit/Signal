@@ -15,9 +15,10 @@ internal static class NativeNotificationChecks
         public string Device { get; set; } = "phone1";
         public bool Confirm { get; set; } = true;
         public int Sends { get; private set; }
+        public IReadOnlyDictionary<string, string>? LastPayload { get; private set; }
         public Task<NativePushResult> SendAsync(string token, IReadOnlyDictionary<string, string> data, CancellationToken ct)
         {
-            Sends++;
+            Sends++; LastPayload = data;
             Check(data["accountKey"] == NativeNotificationService.AccountKey(Account), "Native payloads must be scoped to their owning account.");
             if (Confirm) Check(receipts.Receive(data["id"], Account, Device, true), "A posted native notification must acknowledge its own delivery.");
             return Task.FromResult(Result);
@@ -51,6 +52,15 @@ internal static class NativeNotificationChecks
         Check(!await service.RegisterAsync("other", new NativeNotificationDevice { Id = "phone1", Kind = "phone", Token = "different" }, default), "Installation IDs cannot cross account ownership.");
         var delivered = await service.SendAsync("owner", message, default);
         Check(delivered.Count == 1 && delivered.ReplacedEndpoints.SetEquals(["https://push.invalid/phone"]), "Only the explicitly linked endpoint can be replaced after Android posts the alert.");
+        var filtered = new PushNotificationService.PushMessage("0 matching stories", "", "/#top", 0, WatchAllowed: false);
+        await service.SendAsync("owner", message, default, watchBriefing: filtered);
+        Check(sender.LastPayload!["watchAllowed"] == "false", "An unmatched wrist briefing must explicitly suppress watch bridging while preserving phone content.");
+        Check(sender.LastPayload["title"] == "New story", "Wrist filters must not change the phone notification.");
+        var beforeDisasters = sender.Sends;
+        Check((await service.SendAsync("owner", message, default, "https://push.invalid/laptop")).Count == 0 && sender.Sends == beforeDisasters,
+            "A disaster alert must not reach a phone linked to a different location device.");
+        Check((await service.SendAsync("owner", message, default, "https://push.invalid/phone")).Count == 1,
+            "The explicitly linked phone can receive its own location device's disaster alert.");
         sender.Confirm = false;
         var unconfirmed = await service.SendAsync("owner", message, default);
         Check(unconfirmed.Count == 0 && unconfirmed.ReplacedEndpoints.Count == 0, "FCM acceptance without a phone display receipt must preserve browser delivery.");
@@ -79,6 +89,40 @@ internal static class NativeNotificationChecks
         var large = new Dictionary<string, string> { ["title"] = new string('新', 500), ["body"] = string.Concat(Enumerable.Repeat("📰新聞", 1000)), ["accountKey"] = new string('A', 64) };
         NativeNotificationService.BoundPayload(large);
         Check(System.Text.Encoding.UTF8.GetByteCount(System.Text.Json.JsonSerializer.Serialize(large)) <= 3800 && !large["body"].EndsWith('\ud83d'), "Unicode payloads must fit FCM without splitting an emoji.");
+        large["watchTitle"] = new string('新', 500);
+        large["watchBody"] = new string('語', 2000);
+        NativeNotificationService.BoundPayload(large);
+        Check(System.Text.Encoding.UTF8.GetByteCount(System.Text.Json.JsonSerializer.Serialize(large)) <= 3800,
+            "Both phone and filtered watch content must share the FCM byte budget.");
+        var story = new StoredNewsArticle { Id = 1, Title = "New battery research", Source = "Science desk", Summary = "Longer life", TopicsJson = "[\"Technology\",\"Science\"]" };
+        Check(WatchAlertFilter.Matches(story, [], []), "Empty wrist filters select all news.");
+        Check(WatchAlertFilter.Matches(story, ["science"], []), "Secondary topics match without case sensitivity.");
+        Check(WatchAlertFilter.Matches(story, [], ["BATTERY"]), "Keywords match headlines without case sensitivity.");
+        Check(WatchAlertFilter.Matches(story, ["Sport"], ["Longer life"]), "Topic and keyword rules use OR and search summaries.");
+        Check(!WatchAlertFilter.Matches(story, ["Sport"], ["football"]), "Unrelated stories do not reach the wrist.");
+        var rules = new WatchAlertPreferences { UserId = "owner", TopicsJson = "[\"Sport\"]" };
+        Check(!WatchAlertFilter.Briefing([story], rules).WatchAllowed, "No matches produce an explicit wrist suppression.");
+        rules.KeywordsJson = "[\"battery\"]";
+        Check(WatchAlertFilter.Briefing([story, story], rules).Title == story.Title, "Matched stories are deduplicated before producing the watch preview.");
+        database.Set<WatchAlertPreferences>().Add(rules); await database.SaveChangesAsync();
+        Check(await database.Set<WatchAlertPreferences>().CountAsync(p => p.UserId == "other") == 0, "Wrist filters belong to their authenticated account.");
+        var controller = new Signal.Server.Controllers.WatchAlertsController(database) {
+            ControllerContext = new Microsoft.AspNetCore.Mvc.ControllerContext {
+                HttpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext { User = new System.Security.Claims.ClaimsPrincipal(
+                    new System.Security.Claims.ClaimsIdentity([new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.NameIdentifier, "other")], "test")) }
+            }
+        };
+        Check(await controller.Save(new(["Science"], new[] { "  battery  ", "BATTERY" }), default) is Microsoft.AspNetCore.Mvc.NoContentResult,
+            "An authenticated account can save watch rules.");
+        var otherRules = await database.Set<WatchAlertPreferences>().SingleAsync(p => p.UserId == "other");
+        Check(WatchAlertFilter.Terms(otherRules.KeywordsJson).SequenceEqual(["battery"]), "Watch terms are trimmed and deduplicated.");
+        Check(WatchAlertFilter.Terms(rules.TopicsJson).SequenceEqual(["Sport"]), "Saving another account's rules cannot change the original account.");
+        Check(await controller.Save(new([""], []), default) is Microsoft.AspNetCore.Mvc.BadRequestObjectResult,
+            "Empty terms are rejected instead of silently matching every story.");
+        Check(await controller.Save(new([], Enumerable.Repeat("x", 21).ToArray()), default) is Microsoft.AspNetCore.Mvc.BadRequestObjectResult,
+            "Rule lists are bounded.");
+        Check(typeof(Signal.Server.Controllers.WatchAlertsController).GetCustomAttributes(typeof(Microsoft.AspNetCore.Authorization.AuthorizeAttribute), true).Length == 1,
+            "Watch alert rules require authentication.");
         Console.WriteLine("Native notification routing passed ownership, per-browser linking, display receipts, configuration, expiry, failure and uninstall fallback checks.");
     }
 }

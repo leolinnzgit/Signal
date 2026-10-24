@@ -32,6 +32,11 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
     {
         base.OnModelCreating(builder);
 
+        builder.Entity<WatchAlertPreferences>(rules => {
+            rules.HasKey(r => r.UserId);
+            rules.HasOne<ApplicationUser>().WithMany().HasForeignKey(r => r.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
         builder.Entity<NativeNotificationDevice>(device => {
             device.HasKey(d => d.Id);
             device.HasIndex(d => d.UserId);

@@ -104,6 +104,7 @@ internal static class WatchPairingChecks
             using var phone = new HttpClient(new HttpClientHandler { CookieContainer = new CookieContainer(), AllowAutoRedirect = false }) { BaseAddress = new Uri(origin) };
             using var start = await watch.PostAsync("/api/watch/pairing", null);
             Check((await watch.GetAsync("/api/native/config")).StatusCode == HttpStatusCode.Unauthorized, "Native account/configuration endpoints must require sign-in.");
+            Check((await watch.GetAsync("/api/watch/alerts")).StatusCode == HttpStatusCode.Unauthorized, "Watch alert preferences require an authenticated account.");
             var nativeStatus = await watch.GetFromJsonAsync<JsonElement>("/api/native/status");
             Check(!nativeStatus.GetProperty("ready").GetBoolean() && nativeStatus.EnumerateObject().Count() == 1, "Public native status must expose only readiness.");
             Check(start.StatusCode == HttpStatusCode.OK, $"Native pairing creation must work without browser CSRF: {(int)start.StatusCode} {await start.Content.ReadAsStringAsync()}");
@@ -114,13 +115,20 @@ internal static class WatchPairingChecks
             await phone.GetAsync("/test/login");
             using var missingCsrf = await phone.PostAsJsonAsync("/api/watch/pairing/approve", new { code });
             Check(missingCsrf.StatusCode == HttpStatusCode.BadRequest, $"Approval without CSRF must fail even when signed in: {(int)missingCsrf.StatusCode} {await missingCsrf.Content.ReadAsStringAsync()}");
+            Check((await phone.PostAsJsonAsync("/api/watch/alerts", new { topics = new[] { "Science" }, keywords = new[] { "battery" } })).StatusCode == HttpStatusCode.BadRequest,
+                "Watch rule changes require CSRF even with an authenticated session.");
             var csrf = await phone.GetFromJsonAsync<JsonElement>("/test/csrf");
             phone.DefaultRequestHeaders.Add("X-XSRF-TOKEN", csrf.GetProperty("token").GetString());
             Check((await phone.PostAsJsonAsync("/api/watch/pairing/approve", new { code })).StatusCode == HttpStatusCode.OK, "Signed-in CSRF-protected phone approval must succeed.");
+            Check((await phone.PostAsJsonAsync("/api/watch/alerts", new { topics = new[] { "Science" }, keywords = new[] { "battery" } })).StatusCode == HttpStatusCode.NoContent,
+                "Authenticated CSRF-protected watch rule changes succeed.");
             Check((await watch.PostAsJsonAsync("/api/watch/pairing/claim", new { deviceSecret = challenge.DeviceSecret })).StatusCode == HttpStatusCode.OK, "The approved watch must receive its cookie.");
             Check(await watch.GetStringAsync("/test/me") == "watch-owner", "The watch session must belong to the approving account.");
             var nativeConfig = await watch.GetFromJsonAsync<JsonElement>("/api/native/config");
             Check(nativeConfig.GetProperty("accountKey").GetString() == NativeNotificationService.AccountKey("watch-owner") && !nativeConfig.TryGetProperty("serviceAccountFile", out _), "Authenticated native configuration must bind the account and omit server credentials.");
+            var watchRules = await watch.GetFromJsonAsync<JsonElement>("/api/watch/alerts");
+            Check(watchRules.GetProperty("topics")[0].GetString() == "Science" && watchRules.GetProperty("keywords")[0].GetString() == "battery",
+                "The watch reads only its approved account's synchronized alert rules.");
             Check((await watch.PostAsJsonAsync("/api/watch/pairing/claim", new { deviceSecret = challenge.DeviceSecret })).StatusCode == HttpStatusCode.Gone, "HTTP claim replay must fail.");
         }
         finally { await app.StopAsync(); }

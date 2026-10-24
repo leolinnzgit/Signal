@@ -96,7 +96,8 @@ public sealed class PushNotificationService(
         return await SendAsync(
             userId,
             BuildNewsMessages(topics, newArticles, showNewsTitles, badgeCount),
-            cancellationToken);
+            cancellationToken, watchBriefing: WatchAlertFilter.Briefing(newArticles,
+                await database.Set<WatchAlertPreferences>().AsNoTracking().SingleOrDefaultAsync(p => p.UserId == userId, cancellationToken)));
     }
 
     internal static PushMessage[] BuildNewsMessages(
@@ -174,7 +175,8 @@ public sealed class PushNotificationService(
         string userId,
         IReadOnlyList<PushMessage> messages,
         CancellationToken cancellationToken,
-        string? endpoint = null)
+        string? endpoint = null,
+        PushMessage? watchBriefing = null)
     {
         if (messages.Count == 0) return 0;
         var subscriptions = await database.UserPushSubscriptions
@@ -182,18 +184,18 @@ public sealed class PushNotificationService(
             .ToArrayAsync(cancellationToken);
         var replacements = new Dictionary<PushMessage, HashSet<string>>();
         var delivered = 0;
-        // Location alerts stay with their originating browser device. News can be
-        // replaced only for a browser explicitly linked to a native phone installation.
-        if (endpoint is null && native is not null)
+        // Location alerts reach only the companion linked to the originating browser.
+        // Browser disaster delivery remains active even after native display.
+        if (native is not null)
         {
             // One native briefing avoids flooding a wrist and waiting for a receipt
             // for every headline. Existing browser title preferences stay intact.
             var briefing = messages.Count == 1 ? messages[0] : new PushMessage(
                 $"{messages.Count} new stories in Signal", messages[0].Title,
                 "/#top", messages[0].BadgeCount);
-            var result = await native.SendAsync(userId, briefing, cancellationToken);
+            var result = await native.SendAsync(userId, briefing, cancellationToken, endpoint, watchBriefing);
             delivered += result.Count;
-            foreach (var message in messages) replacements[message] = result.ReplacedEndpoints;
+            if (endpoint is null) foreach (var message in messages) replacements[message] = result.ReplacedEndpoints;
         }
         if (subscriptions.Length == 0) return delivered;
         var keys = await keyStore.GetAsync(cancellationToken);
@@ -271,7 +273,8 @@ public sealed class PushNotificationService(
         string Body,
         string Url,
         int BadgeCount,
-        string Tag = "signal-new-stories");
+        string Tag = "signal-new-stories",
+        bool WatchAllowed = true);
 }
 
 public sealed record PushSubscriptionDetails(
