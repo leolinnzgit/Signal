@@ -1,17 +1,17 @@
-﻿{
-    "playStorePublished":  false,
-    "intendedTrack":  "internal testing",
-    "version":  "0.6.1",
-    "companion":  {
-                      "sha256":  "37ab26964070a817b8f5d1583aa94d9a31caf0b0de7138f0cccc8572587cd306",
-                      "versionCode":  9,
-                      "version":  "0.6.1",
-                      "file":  "SignalCompanion-release.apk"
-                  },
-    "file":  "SignalWatch-release.apk",
-    "channel":  "notification-preview",
-    "publishedAtUtc":  "2026-10-24T04:34:42.7149412Z",
-    "build":  "release",
-    "versionCode":  10,
-    "sha256":  "460456f27d7bc6e6bc2f0889d74a5ad3ed623a582d05ce5bf81c1fe4c93d6a60"
+{
+  "publishedAtUtc": "2026-10-24T07:51:45.5097731Z",
+  "playStorePublished": false,
+  "intendedTrack": "internal testing",
+  "file": "SignalWatch-release.apk",
+  "companion": {
+    "file": "SignalCompanion-release.apk",
+    "versionCode": 12,
+    "sha256": "0cca0ec15096b9de1392b0fdc5dd81bd705a5da2eb51ae91214a359fe605542e",
+    "version": "0.8.0"
+  },
+  "versionCode": 13,
+  "sha256": "510072020f2813d12b5d15cfb30c8135ccdcb9657e7e8368ce9be5f054e70700",
+  "version": "0.8.0",
+  "build": "release",
+  "channel": "notification-preview"
 }

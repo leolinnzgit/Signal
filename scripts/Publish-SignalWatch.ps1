@@ -84,7 +84,7 @@ foreach ($name in $before.Keys) {
     if ((Get-FileHash -LiteralPath (Join-Path $site $name)).Hash -ne $before[$name]) { throw "A protected production file changed: $name" }
 }
 if ($NotificationPreview) {
-    foreach ($name in @('connect.js', 'support.css')) {
+    foreach ($name in @('connect.js', 'support.css', 'privacy.html')) {
         $destination = Join-Path $site "signalwatch/$name"
         if ((Get-Item -LiteralPath $destination).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Support publication cannot follow redirected files.' }
         Copy-Item -LiteralPath $destination -Destination (Join-Path $backup $name) -Force
