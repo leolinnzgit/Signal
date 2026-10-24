@@ -58,6 +58,19 @@ document.querySelector("#approval").addEventListener("submit", async event => {
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.error || "Could not approve this code. Sign in again or start a new connection on your watch.");
+    try {
+      const savedVoices = JSON.parse(localStorage.getItem("signal.recorded-reading-voices.v1") || "null");
+      if (savedVoices && typeof savedVoices === "object" && (savedVoices.en || savedVoices.zh)) {
+        await fetch("/api/headline-audio/preferences", {
+          method: "POST", credentials: "same-origin",
+          headers: { "Content-Type": "application/json", "X-XSRF-TOKEN": token },
+          body: JSON.stringify({
+            en: typeof savedVoices.en === "string" ? savedVoices.en.trim().slice(0, 160) : "",
+            zh: typeof savedVoices.zh === "string" ? savedVoices.zh.trim().slice(0, 160) : ""
+          })
+        });
+      }
+    } catch {}
     result.textContent = phone ? "Phone companion approved. Return to the app to finish enabling notifications. Browser alerts remain active until the companion confirms delivery." : "Watch approved. Your watch will connect in a few seconds.";
     document.querySelector("#approval").hidden = true;
   } catch (error) {

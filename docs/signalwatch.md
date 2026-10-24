@@ -69,3 +69,9 @@ Signal unread provides SHORT_TEXT and LONG_TEXT complication data from the last-
 Notification checks on 25 October 2026 passed the server routing, receipt, account ownership, fallback and pairing suites. The live /api/native/status still returned ready:false and ADB listed no devices. The owner confirmed Firebase files are not available. Real phone/watch delivery, screen-off battery behavior and complication rendering remain physical-device checks; no active native push or Play publication is claimed. The existing checked 0.8.0 (12) companion supports this watch-only update.
 
 Release verification: SignalWatch source commit `c807757`; 44 release JVM tests passed, lint reported zero errors (26 warnings), and bundle/signature/ZIP/native-alignment/private-file checks passed. The packaged media service and complication declarations were inspected, and the deployed watch APKs and companion were downloaded again and matched their checked SHA-256 hashes. Watch and companion upload certificates match. Native push still reports `ready:false`; physical-device checks remain outstanding.
+
+## Full-story audio, player reader link and synced reading voice (0.9.1 build 15)
+
+The audio player panel now includes **Read full story**, opening the full extracted text of whichever story is currently playing without stopping playback, and **Listen to full story**, which splits the full extracted article into bounded passages and reads the entire article aloud (from cached offline text when downloaded, or extracted on demand when connected). **Listen to full story** is also available on the story detail and full-article reader screens.
+
+Voice choices selected in Signal on the phone (`ReadingVoiceSelector`) are saved per account via `/api/headline-audio/preferences` (`App_Data/user-voices.json`) and automatically applied to watch narration requests on `/api/headline-audio`, so the watch always uses the exact same reading voice selected on the phone.

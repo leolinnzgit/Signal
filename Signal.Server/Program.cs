@@ -156,6 +156,7 @@ builder.Services.AddSingleton(service => new AzureSpeechAudioRenderer(
     service.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(AzureSpeechAudioRenderer)),
     service.GetRequiredService<IAzureSpeechSynthesizer>(), Path.Combine(dataDirectory, "HeadlineAudioClips")));
 builder.Services.AddSingleton<HeadlineAudioService>();
+builder.Services.AddSingleton<UserVoicePreferencesService>();
 builder.Services.AddSingleton(service => new ArticleAudioStreamService(service.GetRequiredService<AzureSpeechAudioRenderer>(), service.GetRequiredService<IAzureSpeechStreamer>()));
 builder.Services.AddSingleton(service => new SharedArticleAudioService(service.GetRequiredService<AzureSpeechAudioRenderer>(),
     service.GetRequiredService<IAzureSpeechStreamer>(), Path.Combine(dataDirectory, "SharedArticleAudio")));

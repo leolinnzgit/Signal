@@ -11,7 +11,10 @@ namespace Signal.Server.Controllers;
 [Authorize]
 [Route("api/article-audio-stream")]
 [ResponseCache(Location = ResponseCacheLocation.None, NoStore = true)]
-public sealed class ArticleAudioStreamController(ArticleAudioStreamService streams, ILogger<ArticleAudioStreamController> logger) : ControllerBase
+public sealed class ArticleAudioStreamController(
+    ArticleAudioStreamService streams,
+    ILogger<ArticleAudioStreamController> logger,
+    UserVoicePreferencesService? voicePreferences = null) : ControllerBase
 {
     private string Owner => User.FindFirstValue(ClaimTypes.NameIdentifier) ?? throw new InvalidOperationException("A signed-in user is required.");
     [HttpPost]
@@ -21,6 +24,8 @@ public sealed class ArticleAudioStreamController(ArticleAudioStreamService strea
     {
         try
         {
+            if (voicePreferences is not null)
+                request = voicePreferences.ApplyToRequest(Owner, request);
             var session = await streams.CreateAsync(Owner, request, token);
             return Ok(new { url = $"/api/article-audio-stream/{session.Id}", statusUrl = $"/api/article-audio-stream/{session.Id}/status", status = session.Status });
         }

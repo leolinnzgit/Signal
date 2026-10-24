@@ -5,6 +5,24 @@ import { configureRecordedAudio, normalizeReadingVoices, prepareReadingVoicePrev
 
 type ReadingVoice = { id: string; name: string; language: string; gender: string };
 
+async function saveServerVoicePreferences(preferences: ReadingVoicePreferences) {
+  try {
+    const csrf = await fetch("/api/auth/csrf", { credentials: "same-origin", cache: "no-store" });
+    if (!csrf.ok) return;
+    const { token } = await csrf.json() as { token?: string };
+    if (!token) return;
+    await fetch("/api/headline-audio/preferences", {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json", "X-XSRF-TOKEN": token },
+      body: JSON.stringify(preferences),
+    });
+  } catch {
+    // Device storage keeps choices available when offline.
+  }
+}
+
 export function useReadingVoices() {
   const [preferences, setPreferences] = useState<ReadingVoicePreferences>(() => {
     try { return normalizeReadingVoices(JSON.parse(localStorage.getItem(storageKey) ?? "null")); }
@@ -25,12 +43,22 @@ export function useReadingVoices() {
         }
         if (abort.signal.aborted) return;
         configureRecordedAudio(response.headers.get("X-Signal-Audio-Engine"), response.headers.get("X-Signal-Audio-Batch-Characters"));
+        const serverEn = (response.headers.get("X-Signal-Voice-En") ?? "").trim();
+        const serverZh = (response.headers.get("X-Signal-Voice-Zh") ?? "").trim();
         setVoices(data);
         setStreaming(response.headers.get("X-Signal-Article-Streaming") === "true");
-        setPreferences((saved) => ({
-          en: data.some((voice) => voice.id === saved.en && voice.language.startsWith("en")) ? saved.en : "",
-          zh: data.some((voice) => voice.id === saved.zh && voice.language.startsWith("zh")) ? saved.zh : "",
-        }));
+        setPreferences((saved) => {
+          const candidateEn = serverEn || saved.en;
+          const candidateZh = serverZh || saved.zh;
+          const next = {
+            en: data.some((voice) => voice.id === candidateEn && voice.language.startsWith("en")) ? candidateEn : "",
+            zh: data.some((voice) => voice.id === candidateZh && voice.language.startsWith("zh")) ? candidateZh : "",
+          };
+          if ((next.en && !serverEn) || (next.zh && !serverZh)) {
+            void saveServerVoicePreferences(next);
+          }
+          return next;
+        });
       })
       .catch((reason: unknown) => { if (!abort.signal.aborted) setError(reason instanceof Error ? reason.message : "Voice choices are unavailable."); })
       .finally(() => { if (!abort.signal.aborted) setLoading(false); });
@@ -41,7 +69,11 @@ export function useReadingVoices() {
     catch { /* Choices still work when device storage is unavailable. */ }
   }, [preferences]);
   function selectVoice(language: keyof ReadingVoicePreferences, id: string) {
-    setPreferences((saved) => ({ ...saved, [language]: id }));
+    setPreferences((saved) => {
+      const next = { ...saved, [language]: id };
+      void saveServerVoicePreferences(next);
+      return next;
+    });
   }
   return { preferences, voices, loading, error, streaming, selectVoice };
 }
@@ -124,7 +156,7 @@ export default function ReadingVoiceSelector({ preferences, voices, loading, err
           onEnded={() => setPreview((current) => current && { ...current, playing: false, message: "Voice preview finished." })}
           onError={() => setPreview((current) => current && { ...current, playing: false, message: "The voice sample could not be played. Try previewing again." })} />}
       </div>}
-      <p>{loading ? "Loading voice choices…" : "Your choices are saved on this device."}{active && " Changing a voice prepares a new recording."}</p>
+      <p>{loading ? "Loading voice choices…" : "Your choices are saved on this device and synced with SignalWatch."}{active && " Changing a voice prepares a new recording."}</p>
       {error && <p role="status">{error}</p>}
     </div>
   </details>;

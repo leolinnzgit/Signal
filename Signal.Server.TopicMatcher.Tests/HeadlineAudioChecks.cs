@@ -12,6 +12,7 @@ internal static class HeadlineAudioChecks
     public static async Task RunAsync()
     {
         CheckFemaleVoices();
+        CheckUserVoicePreferences();
         CheckClipCache();
         CheckHealthTiming();
         await CheckCompressionAsync();
@@ -99,6 +100,41 @@ internal static class HeadlineAudioChecks
             || HeadlineAudioVoiceCatalog.VoiceKey(@"HKEY_LOCAL_MACHINE\Voices\Tokens\female-gb") != "female-gb")
             throw new Exception("Explicit voice choices did not respect language or safely fall back when unavailable.");
         Console.WriteLine("Female voices are preferred independently for English and Chinese.");
+    }
+
+    private static void CheckUserVoicePreferences()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "SignalUserVoicesTest-" + Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            var service = new UserVoicePreferencesService(path);
+            var saved = service.Save("user-1", new Dictionary<string, string> { ["en"] = " en-NZ-MitchellNeural ", ["zh"] = "" });
+            if (saved["en"] != "en-NZ-MitchellNeural" || saved["zh"] != "")
+                throw new Exception("User voice preferences were not normalized when saving.");
+
+            var reloaded = new UserVoicePreferencesService(path);
+            var watchRequest = reloaded.ApplyToRequest("user-1", new HeadlineAudioRequest(["Watch story headline"], 3));
+            if (watchRequest.Voices is null || watchRequest.Voices["en"] != "en-NZ-MitchellNeural")
+                throw new Exception("Watch audio requests did not inherit the user's saved phone voice preference.");
+
+            var phoneRequest = reloaded.ApplyToRequest("user-1", new HeadlineAudioRequest(["Phone story"], 3, "en-NZ",
+                new Dictionary<string, string> { ["en"] = "en-GB-SoniaNeural", ["zh"] = "zh-TW-HsiaoChenNeural" }));
+            if (phoneRequest.Voices?["en"] != "en-GB-SoniaNeural" || phoneRequest.Voices?["zh"] != "zh-TW-HsiaoChenNeural")
+                throw new Exception("Phone audio request voices were not preserved.");
+
+            var updatedWatchRequest = reloaded.ApplyToRequest("user-1", new HeadlineAudioRequest(["Next watch story"], 3));
+            if (updatedWatchRequest.Voices?["en"] != "en-GB-SoniaNeural" || updatedWatchRequest.Voices?["zh"] != "zh-TW-HsiaoChenNeural")
+                throw new Exception("Non-empty phone voice selections did not sync to subsequent watch audio requests.");
+
+            var invalid = new HeadlineAudioRequest(["Invalid"], 3, "en-NZ", new Dictionary<string, string> { ["fr"] = "fr-FR-DeniseNeural" });
+            if (!ReferenceEquals(reloaded.ApplyToRequest("user-1", invalid).Voices, invalid.Voices))
+                throw new Exception("Invalid voice dictionary was altered instead of being left for validation.");
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+        Console.WriteLine("Account voice preferences persist and automatically apply to watch audio requests.");
     }
 
     private static async Task CheckInstalledVoiceChoicesAsync()
