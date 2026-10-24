@@ -1,10 +1,10 @@
 ﻿{
     "playStorePublished":  false,
     "intendedTrack":  "internal testing",
-    "version":  "0.6.0",
+    "version":  "0.6.1",
     "file":  "SignalWatch-release.apk",
-    "publishedAtUtc":  "2026-10-24T02:27:08.4422284Z",
+    "publishedAtUtc":  "2026-10-24T04:34:39.0808555Z",
     "build":  "release",
-    "versionCode":  9,
-    "sha256":  "0b7f859be3b3bda1a6e08419c61cc11e492676007e8d0fd026ab4f0f31aa7710"
+    "versionCode":  10,
+    "sha256":  "460456f27d7bc6e6bc2f0889d74a5ad3ed623a582d05ce5bf81c1fe4c93d6a60"
 }
