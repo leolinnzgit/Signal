@@ -3,14 +3,14 @@
     "intendedTrack":  "internal testing",
     "version":  "0.12.0",
     "companion":  {
-                      "sha256":  "c80e6cdc0bbc0081d999e57f04d35446b8483ac76f3c92b6e804b761d26a7178",
+                      "sha256":  "e915506bd6d05abc4f941b4c1dc14c2a0f5d22d4dc1b3e21333b82436c6d36ae",
                       "versionCode":  19,
                       "version":  "0.12.0",
                       "file":  "SignalCompanion-release.apk"
                   },
     "file":  "SignalWatch-release.apk",
     "channel":  "notification-preview",
-    "publishedAtUtc":  "2026-10-25T12:12:22.5169294Z",
+    "publishedAtUtc":  "2026-10-25T19:41:39.7475759Z",
     "build":  "release",
     "versionCode":  20,
     "sha256":  "2e894aa1b85b8280c8451a09b70f687b88acb1377cd13ffe5496e925f521f76c"
