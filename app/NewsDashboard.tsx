@@ -2,6 +2,7 @@
 
 import { type CSSProperties, type ReactNode, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { startWeatherLocationRefresh } from "./weather-location";
 import { updateInstalledAppBadge } from "./app-badge";
 import { createHostedArticleShare, shareArticle } from "./article-share";
 import type { SignalArticleLink } from "./article-link";
@@ -1159,12 +1160,11 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   useEffect(() => {
     if (!ready) return;
     let cancelled = false;
-    let weatherRefresh: number | undefined;
+    const request = new AbortController();
 
     setWeatherStatus("locating");
     setLocalWeather(null);
     setWeatherForecast([]);
-    setForecastOpen(false);
     const fetchWeather = async (latitude: number, longitude: number, locationName: string) => {
       try {
         const params = new URLSearchParams({
@@ -1178,7 +1178,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           forecast_days: "7",
         });
         const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params.toString()}`, {
-          cache: "no-store",
+          cache: "no-store", signal: request.signal,
         });
         if (!response.ok) throw new Error("Weather unavailable");
         const data = (await response.json()) as OpenMeteoResponse;
@@ -1222,7 +1222,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           windSpeed: current.wind_speed_10m,
           isDay: current.is_day !== 0,
           timezone: data.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
-          locationName: locationName || timezonePlace(data.timezone ?? ""),
+          locationName: locationName || `Near you · ${timezonePlace(data.timezone ?? "")}`,
         });
         setWeatherForecast(forecast);
         setWeatherStatus("ready");
@@ -1233,36 +1233,19 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         }
       }
     };
-    const startWeatherRefresh = (latitude: number, longitude: number, locationName: string) => {
-      void fetchWeather(latitude, longitude, locationName);
-      weatherRefresh = window.setInterval(
-        () => void fetchWeather(latitude, longitude, locationName),
-        30 * 60 * 1_000,
-      );
-    };
-
-    const configuredLocation = preferences.weatherLocation;
-    if (configuredLocation) {
-      startWeatherRefresh(
-        configuredLocation.latitude,
-        configuredLocation.longitude,
-        configuredLocation.name,
-      );
-    } else if (!("geolocation" in navigator)) {
-      setWeatherStatus("unsupported");
-    } else {
-      navigator.geolocation.getCurrentPosition(
-        ({ coords }) => startWeatherRefresh(coords.latitude, coords.longitude, ""),
-        (locationError) => {
-          if (!cancelled) setWeatherStatus(locationError.code === locationError.PERMISSION_DENIED ? "denied" : "error");
-        },
-        { enableHighAccuracy: false, maximumAge: 15 * 60 * 1_000, timeout: 12_000 },
-      );
-    }
-
+    const stopRefresh = startWeatherLocationRefresh({
+      location: preferences.weatherLocation,
+      geolocation: navigator.geolocation,
+      load: fetchWeather,
+      failed: setWeatherStatus,
+      visible: () => document.visibilityState === "visible",
+      interval: (callback, milliseconds) => window.setInterval(callback, milliseconds),
+      clearInterval: id => window.clearInterval(id),
+    });
     return () => {
       cancelled = true;
-      if (weatherRefresh !== undefined) window.clearInterval(weatherRefresh);
+      request.abort();
+      stopRefresh();
     };
   }, [
     preferences.weatherLocation?.latitude,
@@ -3464,6 +3447,9 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                 <strong>{localWeather.locationName}</strong>
               </div>
               <div className="weather-forecast-heading-actions">
+                <button type="button" className="weather-change-location" onClick={() => setWeatherRetryKey(current => current + 1)}>
+                  Refresh weather
+                </button>
                 <button type="button" className="weather-change-location" onClick={openWeatherLocationEditor}>
                   Change location
                 </button>

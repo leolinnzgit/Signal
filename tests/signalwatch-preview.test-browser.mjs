@@ -46,6 +46,15 @@ try {
     await watch.getByRole('button', { name: 'Refresh briefing', exact: true }).click();
     assert.equal(await watch.locator('.card').count(), 3);
     assert.match(await page.locator('#status').innerText(), /sample content only/);
+    await page.getByRole('button', { name: 'Local weather', exact: true }).click();
+    await watch.getByRole('heading', { name: 'Local weather', exact: true }).waitFor();
+    assert.equal(await watch.locator('article.card').count(), 7);
+    assert.match(await watch.innerText(), /Humidity 72%/);
+    await page.getByRole('button', { name: 'Preview disaster warning', exact: true }).click();
+    await watch.getByRole('button', { name: 'Acknowledge', exact: true }).click();
+    await watch.getByRole('heading', { name: 'Local weather', exact: true }).waitFor();
+    await page.screenshot({ path: `work/signalwatch-preview/weather-${width}.png`, fullPage: true });
+    await watch.getByRole('button', { name: 'Back to briefing', exact: true }).click();
     assert.equal(await page.locator('.download').getAttribute('href'), 'SignalWatch-release.apk');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     assert.deepEqual(errors, []);

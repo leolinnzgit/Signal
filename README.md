@@ -794,3 +794,7 @@ server is in `Signal.Server/`.
 ## License
 
 Signal is available under the [MIT License](LICENSE).
+
+### Local weather on watch and companion
+
+SignalWatch 0.11.0 (18) and Signal Companion 0.11.0 (17) provide current conditions and a seven-day Open-Meteo forecast. Open **Local weather**, grant approximate foreground location, and use **Refresh location** after moving. No background location or history is used. Weather location is separate from disaster-alert registration. On the web, **Refresh weather** resolves device location again; automatic refreshes also obtain a new fix while the page is visible. Saved weather cities remain available.
