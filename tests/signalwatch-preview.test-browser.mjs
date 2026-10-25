@@ -22,6 +22,16 @@ try {
     await watch.getByRole('button', { name: 'Open on phone', exact: true }).click();
     assert.match(await page.locator('#status').innerText(), /paired phone/);
     await watch.getByRole('button', { name: 'Read ✓', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Preview disaster warning', exact: true }).click();
+    await watch.getByRole('heading', { name: 'Sample disaster warning', exact: true }).waitFor();
+    assert.match(await watch.innerText(), /DEMO · SAMPLE WARNING/);
+    assert.match(await watch.innerText(), /not a real emergency/);
+    await mkdir('work/signalwatch-preview', { recursive: true });
+    await page.screenshot({ path: `work/signalwatch-preview/disaster-${width}.png`, fullPage: true });
+    await watch.getByRole('button', { name: 'Acknowledge', exact: true }).click();
+    await watch.getByRole('heading', { name: 'A little more perspective, wherever you are', exact: true }).waitFor();
+    await watch.getByRole('button', { name: 'Read ✓', exact: true }).waitFor();
+    assert.match(await page.locator('#status').innerText(), /returned to your previous screen/);
     await page.getByRole('button', { name: 'Saved stories', exact: true }).click();
     assert.equal(await watch.locator('.card').count(), 2);
     await watch.getByRole('button', { name: 'A little more perspective', exact: false }).click();
