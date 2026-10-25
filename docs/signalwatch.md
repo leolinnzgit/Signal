@@ -75,3 +75,7 @@ Release verification: SignalWatch source commit `c807757`; 44 release JVM tests 
 The audio player panel now includes **Read full story**, opening the full extracted text of whichever story is currently playing without stopping playback, and **Listen to full story**, which splits the full extracted article into bounded passages and reads the entire article aloud (from cached offline text when downloaded, or extracted on demand when connected). **Listen to full story** is also available on the story detail and full-article reader screens.
 
 Voice choices selected in Signal on the phone (`ReadingVoiceSelector`) are saved per account via `/api/headline-audio/preferences` (`App_Data/user-voices.json`) and automatically applied to watch narration requests on `/api/headline-audio`, so the watch always uses the exact same reading voice selected on the phone.
+
+## Firebase server activation (25 October 2026)
+
+Production native push is now configured for Firebase project `signal-73617`. Google authentication and an FCM validation-only request passed; local and public `/api/native/status` return `ready:true`. The key is stored outside the website and repository with restricted Windows permissions. This supersedes the missing-Firebase status recorded during the earlier release checks. Existing Android bundles load the Firebase options from the server, so this configuration does not require an AAB rebuild. Real paired phone/watch delivery remains to be tested; see [native notifications](native-notifications.md).

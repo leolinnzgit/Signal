@@ -24,6 +24,16 @@ Add these entries to the existing production configuration, preserving all other
 
 The service-account project must match `ProjectId`. Restart the IIS application after configuring or rotating its Firebase project/credential. Native clients obtain only public Firebase Android options through authenticated `/api/native/config`. Restrict the Android API key to the required Firebase installation/messaging APIs and, where supported, the app package and Play signing certificate. No Firebase Authentication account or topic subscription is used; authenticated Signal device registrations route messages to individual tokens.
 
+For the existing Windows IIS deployment, run the PowerShell 7 setup helper with the two downloaded files:
+
+```powershell
+./scripts/Configure-SignalNativePush.ps1 -GoogleServicesFile 'path/to/google-services.json' -ServiceAccountFile 'path/to/service-account.json'
+```
+
+The helper checks the Android package and matching projects, authenticates the key with Google, and validates an FCM request with `validate_only: true` before changing production settings. No notification is sent. `-ValidateOnly` runs these checks without installing files or changing configuration. Installation places the key and a production-settings backup in `C:\ProgramData\SignalNativePush`, outside the website and repository. Access is restricted to the current Windows user, Administrators, SYSTEM, and read/execute access for `IIS APPPOOL\SignalAppPool`. The helper preserves settings outside `NativePush` and restarts the application by touching `web.config`. It requires permission to manage that protected directory and the existing production settings.
+
+The companion initializes Firebase from the authenticated server configuration, so supplying these options does not require rebuilding the existing Android bundles.
+
 Publish the additive server schema before distributing the new apps. Phone and Wear OS bundles share the package/signing certificate, use distinct version codes, and go to their respective Play form-factor tracks. A sideload signed with the upload key cannot communicate over the data layer with a Play-signed installation. Never upload the phone bundle to the Wear OS track.
 
 ## Delivery and fallback
@@ -43,3 +53,5 @@ Server checks cover endpoint/account ownership, missing configuration, receipts,
 ## Live activation status for this release
 
 At publication preparation on 24 October 2026, the default server reports `/api/native/status` as `{ "ready": false }` and has no production `NativePush` configuration. The checked apps and server implementation can be published, but native news/disaster delivery cannot be claimed active until the Firebase configuration above is supplied and a real paired-device test succeeds. Voice search and the briefing tile do not require Firebase.
+
+On 25 October 2026, production was configured for Firebase project `signal-73617` using the registered `nz.signal.watch` Android app and the supplied service-account key. Google authentication and the FCM dry-run passed without sending a notification. Local and public `/api/native/status` returned `{ "ready": true }`, the public home page returned HTTP 200, key permissions were verified, and all unrelated production settings were preserved. This verifies server configuration and FCM access; actual phone/watch delivery still requires enabling notifications in the companion and watch and completing a real paired-device test. Existing browser fallback remains enabled.
