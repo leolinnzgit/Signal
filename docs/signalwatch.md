@@ -1,5 +1,9 @@
 # SignalWatch release preparation
 
+## Replacement upload codes (26 October 2026)
+
+Signal Companion 0.12.0 now uses version code 21 because code 19 has already been uploaded to Google Play. SignalWatch uses code 22, preserving the shared application's distinct phone/watch version ordering above the previous watch code 20. Upload `../SignalWatch/outputs/play-release/0.12.0-21/SignalCompanion-0.12.0-21.aab` for the phone companion and `../SignalWatch/outputs/play-release/0.12.0-22/SignalWatch-0.12.0-22.aab` for Wear OS. These builds retain the existing features and upload certificate.
+
 SignalWatch lives in ../SignalWatch as a separate native Wear OS project. Version 0.5.0 (7) is a signed internal-testing candidate; it has not been released to Google Play production.
 
 ## Version and finding news
