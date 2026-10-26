@@ -1,5 +1,11 @@
 # SignalWatch release preparation
 
+## GPS weather: SignalWatch 0.14.1 (25)
+
+Watch weather now requests a fresh high-accuracy location when precise foreground permission is granted. Android permission requests include precise and approximate access together, and approximate access remains usable. Existing approximate-location users can choose **Use precise location** in Local weather. The weather location label is **Current location**, not the forecast timezone. Install the updated watch APK from `/signalwatch/`; Signal Companion remains 0.12.0 (21). Checked watch outputs are under `../SignalWatch/outputs/play-release/0.14.1-25/`. Physical watch GPS reception and permission UX still require device testing.
+
+Source commit: `d081c90`. Validation passed: 89 watch release unit tests, 12 phone compatibility tests, watch release lint (zero errors, 33 warnings), signed AAB/APK and bundle verification, ZIP/native alignment checks, unchanged upload certificate, packaged foreground location permissions, and desktop/mobile browser preview checks. GPS hardware remains optional; the app does not request background location.
+
 ## Replacement upload codes (26 October 2026)
 
 Signal Companion 0.12.0 now uses version code 21 because code 19 has already been uploaded to Google Play. SignalWatch uses code 22, preserving the shared application's distinct phone/watch version ordering above the previous watch code 20. Upload `../SignalWatch/outputs/play-release/0.12.0-21/SignalCompanion-0.12.0-21.aab` for the phone companion and `../SignalWatch/outputs/play-release/0.12.0-22/SignalWatch-0.12.0-22.aab` for Wear OS. These builds retain the existing features and upload certificate.
