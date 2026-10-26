@@ -33,7 +33,8 @@ export function startWeatherLocationRefresh(options: {
           pending = false;
           if (!stopped) options.failed(error.code === 1 ? "denied" : "error");
         },
-        { enableHighAccuracy: false, maximumAge: 2 * 60 * 1_000, timeout: 12_000 },
+        // Ask for a fresh GPS-quality fix when the device can provide one.
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 20_000 },
       );
     }
   };

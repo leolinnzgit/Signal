@@ -704,11 +704,6 @@ function forecastDayLabel(date: string, index: number) {
   return new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: "short" });
 }
 
-function timezonePlace(timezone: string) {
-  const segment = timezone.split("/").at(-1);
-  return segment ? segment.replaceAll("_", " ") : "Current location";
-}
-
 function weatherLocationLabel(location: Pick<WeatherLocationSearchResult, "name" | "admin1" | "country">) {
   return [location.name, location.admin1, location.country]
     .filter((part, index, values): part is string => Boolean(part) && values.indexOf(part) === index)
@@ -1222,7 +1217,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           windSpeed: current.wind_speed_10m,
           isDay: current.is_day !== 0,
           timezone: data.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
-          locationName: locationName || `Near you · ${timezonePlace(data.timezone ?? "")}`,
+          locationName: locationName || "Current location",
         });
         setWeatherForecast(forecast);
         setWeatherStatus("ready");

@@ -27,7 +27,11 @@ test("each refresh obtains new coordinates and does not overlap location request
   h.fixes[1].ok({ coords: { latitude: -41, longitude: 175 } });
   await settle();
   assert.deepEqual(h.loads, [[-36, 174, ""], [-41, 175, ""]]);
-  assert.equal(h.fixes[0].options.enableHighAccuracy, false);
+  for (const fix of h.fixes) {
+    assert.equal(fix.options.enableHighAccuracy, true);
+    assert.equal(fix.options.maximumAge, 0);
+    assert.equal(fix.options.timeout, 20_000);
+  }
   h.stop();
 });
 test("closing during permission prompt cannot fetch or restart timers", async () => {
