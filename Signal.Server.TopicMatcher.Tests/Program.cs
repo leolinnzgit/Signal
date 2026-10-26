@@ -13,6 +13,8 @@ using Signal.Server.Controllers;
 using Signal.Server.Models;
 using Signal.Server.Services;
 
+await WeatherLocationChecks.RunAsync();
+if (args.Contains("--weather-location-only")) return;
 await NativeNotificationChecks.RunAsync();
 if (args.Contains("--native-notifications-only")) return;
 await WatchPairingChecks.RunAsync();

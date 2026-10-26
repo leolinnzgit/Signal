@@ -4588,7 +4588,14 @@ footer a { color: var(--paper); text-decoration: none; }
   }
   .hero-time { font-size: 1.55rem; }
   .weather-reading small { max-width: min(19rem, 70vw); }
-  .hero.compact .weather-reading small { display: none; }
+  .hero.compact .weather-reading small {
+    display: block;
+    max-width: 7rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .hero.compact .weather-reading .weather-details { display: none; }
   .hero.compact .weather-message small,
   .hero.compact .weather-message button:not(.weather-location-set) { display: none; }
   .hero.compact .weather-message > span:not(.weather-glyph):not(.weather-locating) { min-width: 0; }

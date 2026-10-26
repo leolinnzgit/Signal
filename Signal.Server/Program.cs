@@ -206,6 +206,16 @@ builder.Services.AddHttpClient(AzureTranslatorService.HttpClientName, client => 
 builder.Services.Configure<AzureLanguageOptions>(builder.Configuration.GetSection(AzureLanguageOptions.SectionName));
 builder.Services.AddSingleton<AzureLanguageSummaryService>();
 builder.Services.Configure<AzureMapsOptions>(builder.Configuration.GetSection(AzureMapsOptions.SectionName));
+builder.Services.AddSingleton<WeatherLocationService>();
+builder.Services.AddHttpClient(WeatherLocationService.HttpClientName, client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(4);
+    client.MaxResponseContentBufferSize = 256_000;
+}).RemoveAllLoggers().ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+{
+    AllowAutoRedirect = false,
+    UseCookies = false
+});
 builder.Services.AddHttpClient(AzureLanguageSummaryService.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(20))
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
 builder.Services.AddHttpClient(ArticlePageRenderer.HttpClientName, client =>

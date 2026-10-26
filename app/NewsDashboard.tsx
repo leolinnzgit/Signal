@@ -3,6 +3,7 @@
 import { type CSSProperties, type ReactNode, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { startWeatherLocationRefresh } from "./weather-location";
+import { resolveWeatherLocationName } from "./weather-location-name";
 import { updateInstalledAppBadge } from "./app-badge";
 import { createHostedArticleShare, shareArticle } from "./article-share";
 import type { SignalArticleLink } from "./article-link";
@@ -1162,6 +1163,8 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     setWeatherForecast([]);
     const fetchWeather = async (latitude: number, longitude: number, locationName: string) => {
       try {
+        const nameRequest = locationName ? Promise.resolve(locationName)
+          : resolveWeatherLocationName(latitude, longitude, { signal: request.signal });
         const params = new URLSearchParams({
           latitude: latitude.toFixed(4),
           longitude: longitude.toFixed(4),
@@ -1188,6 +1191,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         ) {
           throw new Error("Weather unavailable");
         }
+        const resolvedLocationName = await nameRequest;
         if (cancelled) return;
         const daily = data.daily;
         const forecast = (daily?.time ?? []).slice(0, 7).flatMap((date, index) => {
@@ -1217,7 +1221,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           windSpeed: current.wind_speed_10m,
           isDay: current.is_day !== 0,
           timezone: data.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
-          locationName: locationName || "Current location",
+          locationName: resolvedLocationName || "Current location",
         });
         setWeatherForecast(forecast);
         setWeatherStatus("ready");
@@ -3399,13 +3403,15 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                   <span>{describeWeather(localWeather.weatherCode)}</span>
                 </div>
                 <small>
-                  {localWeather.locationName}
-                  <span aria-hidden="true"> · </span>
-                  Feels {Math.round(localWeather.apparentTemperature)}°
-                  <span aria-hidden="true"> · </span>
-                  Humidity {Math.round(localWeather.humidity)}%
-                  <span aria-hidden="true"> · </span>
-                  Wind {Math.round(localWeather.windSpeed)} km/h
+                  <span className="weather-place">{localWeather.locationName}</span>
+                  <span className="weather-details">
+                    <span aria-hidden="true"> · </span>
+                    Feels {Math.round(localWeather.apparentTemperature)}°
+                    <span aria-hidden="true"> · </span>
+                    Humidity {Math.round(localWeather.humidity)}%
+                    <span aria-hidden="true"> · </span>
+                    Wind {Math.round(localWeather.windSpeed)} km/h
+                  </span>
                 </small>
               </div>
               <span className="weather-forecast-trigger">
@@ -4432,6 +4438,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
             <h2 id="weather-location-title">Choose your forecast location.</h2>
             <p id="weather-location-description">
               Search for a city, town, or region. Signal will remember your choice for future visits.
+              Device location shows your town when it can be identified.
             </p>
             <form className="weather-location-search" onSubmit={(event) => void searchWeatherLocations(event)}>
               <input

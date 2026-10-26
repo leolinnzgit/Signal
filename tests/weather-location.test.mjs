@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { startWeatherLocationRefresh } from "../app/weather-location.ts";
+import { resolveWeatherLocationName } from "../app/weather-location-name.ts";
 
 function harness(location = null) {
   const loads = [], failures = [], fixes = [];
@@ -61,4 +62,38 @@ test("denial is recoverable and late errors after cleanup are ignored", () => {
   assert.equal(h.fixes.length, 2);
   h.stop(); h.fixes[1].failed({ code: 2 });
   assert.deepEqual(h.failures, ["denied"]);
+});
+
+test("Hamilton coordinates resolve to a town name without sending exact coordinates", async () => {
+  const name = await resolveWeatherLocationName(-37.787123, 175.279345, { fetch: async (url, options) => {
+    assert.equal(url, "/api/weather/location?latitude=-37.787&longitude=175.279");
+    assert.equal(options.credentials, "same-origin");
+    return Response.json({ name: " Hamilton " });
+  } });
+  assert.equal(name, "Hamilton");
+});
+
+test("unavailable or malformed town names leave the forecast's current-location fallback usable", async () => {
+  for (const data of [{ name: null }, { name: 123 }, {}, { timezone: "Pacific/Auckland" }, { name: " " }]) {
+    assert.equal(await resolveWeatherLocationName(-37.787, 175.279, { fetch: async () => Response.json(data) }), null);
+  }
+  assert.equal(await resolveWeatherLocationName(-37.787, 175.279, { fetch: async () => new Response("", { status: 503 }) }), null);
+  assert.equal(await resolveWeatherLocationName(-37.787, 175.279, { fetch: async () => { throw new Error("Offline"); } }), null);
+});
+
+test("invalid coordinates and cancelled requests cannot look up another location", async () => {
+  let requests = 0;
+  const unavailable = async () => { requests++; throw new Error("Unexpected request"); };
+  for (const coordinates of [[NaN, 1], [91, 1], [1, 181]])
+    assert.equal(await resolveWeatherLocationName(...coordinates, { fetch: unavailable }), null);
+  const controller = new AbortController();
+  controller.abort();
+  assert.equal(await resolveWeatherLocationName(1, 2, { signal: controller.signal, fetch: unavailable }), null);
+  assert.equal(requests, 0);
+  const active = new AbortController();
+  const name = resolveWeatherLocationName(1, 2, { signal: active.signal, fetch: async (_url, { signal }) => {
+    return new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("Aborted")), { once: true }));
+  } });
+  active.abort();
+  assert.equal(await name, null);
 });

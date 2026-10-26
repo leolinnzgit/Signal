@@ -145,6 +145,9 @@ IIS for a persistent personal deployment.
   overrides, including qualified NZX symbols such as `AIR:NZX`.
 - Show current conditions and a seven-day forecast for a weather location
   searched by city or region worldwide, or from device GPS.
+  In the phone/web app, device coordinates resolve to a town such as Hamilton
+  through the configured Azure Maps service; unavailable town lookups retain
+  **Current location** while the forecast still loads. See [weather location](docs/weather-location.md).
 - Open the **Settings** gear at the top right for separate **Briefing**, **Display**,
   and **Notifications** preferences. Topic and source management stay in the main controls.
 - Enable **Disaster alerts** under **Settings → Notifications** for this device (or `#disaster-alerts`).
