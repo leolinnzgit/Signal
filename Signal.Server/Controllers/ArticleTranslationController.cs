@@ -28,7 +28,10 @@ public sealed class ArticleTranslationController(ArticleReaderService reader, Az
             var article = await reader.ReadAsync(request.Url, token);
             if (!article.Available || article.Article is null)
                 return Ok(Unavailable("The publisher did not provide full article text to translate."));
-            return Ok(await translator.TranslateAsync(request.Title, article.Article.Paragraphs, request.Language, token));
+            var articleUrl = string.IsNullOrWhiteSpace(article.Article.FinalUrl) ? request.Url : article.Article.FinalUrl;
+            return Ok(await translator.TranslateAsync(
+                request.Title, article.Article.Paragraphs, request.Language, token,
+                articleUrl, article.Article.SiteName, article.Article.Byline));
         }
         catch (ArgumentException) { return BadRequest(Unavailable("Choose a valid public article and supported language.")); }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { return StatusCode(499); }

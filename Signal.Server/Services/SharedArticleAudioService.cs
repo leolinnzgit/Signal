@@ -31,11 +31,12 @@ public sealed class SharedArticleAudioService
     internal async Task<Recording> PrepareAsync(SharedNewsArticle article, CancellationToken token, string? preferred = null)
     {
         if (!azure.Enabled) throw new HeadlineAudioUnavailableException("configuration", "Azure audio is not available on this Signal server.");
-        var paragraphs = JsonSerializer.Deserialize<string[]>(article.ParagraphsJson) ?? [];
-        if (article.Title.Length is 0 or > 2_000 || paragraphs.Length > 80
-            || paragraphs.Any(string.IsNullOrWhiteSpace) || paragraphs.Sum(text => (long)text.Length) > 80_000)
+        var rawParagraphs = JsonSerializer.Deserialize<string[]>(article.ParagraphsJson) ?? [];
+        if (article.Title.Length is 0 or > 2_000 || rawParagraphs.Length > 80
+            || rawParagraphs.Any(string.IsNullOrWhiteSpace) || rawParagraphs.Sum(text => (long)text.Length) > 80_000)
             throw new ArgumentException("This saved story cannot be prepared as audio.");
-        var texts = new[] { article.Title }.Concat(paragraphs).ToArray();
+        var (title, paragraphs) = AzureTranslatorService.NormalizeSharedArticle(article);
+        var texts = new[] { title }.Concat(paragraphs).ToArray();
         var voices = await azure.GetAllVoicesAsync(token);
         var chinese = texts.Any(text => text.Any(character => character is >= '\u3400' and <= '\u9fff'));
         var voice = ChooseVoice(voices, article.Language, chinese, azure.DefaultVoice(chinese));

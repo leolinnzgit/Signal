@@ -1,5 +1,4 @@
 using System.Net;
-using System.Text.Json;
 using Signal.Server.Models;
 
 namespace Signal.Server.Services;
@@ -10,8 +9,8 @@ public static class SharedArticlePage
 
     public static string Render(SharedNewsArticle article, string homePath)
     {
-        var paragraphs = JsonSerializer.Deserialize<string[]>(article.ParagraphsJson) ?? [];
-        var description = paragraphs.FirstOrDefault() ?? article.Title;
+        var (title, paragraphs) = AzureTranslatorService.NormalizeSharedArticle(article);
+        var description = paragraphs.FirstOrDefault() ?? title;
         if (description.Length > 240) description = description[..240] + "…";
         var languageNote = article.Language.Length > 0
             ? $"<span>Translated · {Encode(LanguageName(article.Language))}</span>"
@@ -21,11 +20,11 @@ public static class SharedArticlePage
             : "<aside>A saved reading view shared from Signal. "
                 + (article.Language.Length > 0 ? "This translation is preserved in the language chosen by the person who shared it. " : "")
                 + "Reporting belongs to the original publisher.</aside>";
-        return Document(article.Title, article.Language.Length > 0 ? article.Language : "und", description, $"""
+        return Document(title, article.Language.Length > 0 ? article.Language : "und", description, $"""
             <header><a class="brand" href="{Encode(homePath)}" lang="en">SIGNAL<span>Shared story</span></a></header>
             <main><article>
             <div class="meta" lang="en"><span>{Encode(article.Source)}</span>{languageNote}</div>
-            <h1 id="story-title" dir="auto" data-audio-section="0">{Encode(article.Title)}</h1>
+            <h1 id="story-title" dir="auto" data-audio-section="0">{Encode(title)}</h1>
             {(article.Byline.Length > 0 ? $"<p class=\"byline\" dir=\"auto\">{Encode(article.Byline)}</p>" : "")}
             <div lang="en">{notice}</div>
             <section class="shared-audio" lang="en" aria-label="Listen to this story">

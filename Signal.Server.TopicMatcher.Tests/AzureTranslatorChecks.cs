@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
+using Signal.Server.Models;
 using Signal.Server.Services;
 
 internal static class AzureTranslatorChecks
@@ -54,10 +55,59 @@ internal static class AzureTranslatorChecks
         settings.Endpoint = "https://signal-translator.cognitiveservices.azure.com/";
         await service.TranslateAsync("Custom", ["Body"], "en", CancellationToken.None);
         Assert(handler.LastUri!.AbsolutePath == "/translator/text/v3.0/translate", "Custom resource path was incorrect.");
+
+        var nzTranslation = await service.TranslateAsync(
+            "New central Hamilton station and hourly trains to Auckland in Te Huia revamp proposal",
+            [
+                "Over 60 years, the local share of capital and operating costs was estimated to $31.5 million per annum.",
+                "Upgrades rose from $350m to US$10 million ($16.5 million), while $10 million (NZ$16.5 million) stayed foreign.",
+            ],
+            "zh-Hant",
+            CancellationToken.None,
+            "https://www.rnz.co.nz/news/politics/2193199/new-central-hamilton-station-and-hourly-trains-to-auckland-in-te-huia-revamp-proposal",
+            "RNZ",
+            "RNZ | Te Reo Irirangi o Aotearoa");
+        Assert(handler.Texts[1] == "Over 60 years, the local share of capital and operating costs was estimated to NZ$31.5 million per annum.",
+            "New Zealand bare dollar amount was not qualified as NZ$ before translation.");
+        Assert(handler.Texts[2] == "Upgrades rose from NZ$350 million to US$10 million (NZ$16.5 million), while $10 million (NZ$16.5 million) stayed foreign.",
+            "Shorthand NZD or dual-currency USD/NZD amounts were not prepared accurately.");
+        Assert(nzTranslation.Paragraphs[0].Contains("3150萬紐西蘭元", StringComparison.Ordinal)
+            && !nzTranslation.Paragraphs[0].Contains("美元", StringComparison.Ordinal),
+            "Translated New Zealand story still reported domestic costs in USD.");
+
+        await service.TranslateAsync(
+            "White House spending plan",
+            ["The White House asked Congress in Washington for $5 billion."],
+            "zh-Hant",
+            CancellationToken.None,
+            "https://www.rnz.co.nz/news/world/99999/white-house-spending-plan",
+            "RNZ");
+        Assert(handler.Texts[1] == "The White House asked Congress in Washington for $5 billion.",
+            "Foreign US world news story on an NZ publisher was mislabelled as NZD.");
+
+        var sharedNzHtml = SharedArticlePage.Render(new SharedNewsArticle
+        {
+            Id = new string('f', 48),
+            OriginalUrl = "https://www.rnz.co.nz/news/politics/2193199/new-central-hamilton-station-and-hourly-trains-to-auckland-in-te-huia-revamp-proposal",
+            Source = "RNZ",
+            Byline = "RNZ | Te Reo Irirangi o Aotearoa",
+            Language = "zh-Hant",
+            Title = "新中央漢密爾頓車站及Te Huia改建計畫中每小時一班開往奧克蘭的列車",
+            ParagraphsJson = JsonSerializer.Serialize(new[]
+            {
+                "60年來，當地資本與營運成本的比例估計為每年3150萬美元。",
+                "公司籌集了1,000萬美元（1,650萬紐幣）的資金。",
+            }),
+        }, "/");
+        Assert(sharedNzHtml.Contains("每年3150萬紐西蘭元", StringComparison.Ordinal)
+            && !sharedNzHtml.Contains("每年3150萬美元", StringComparison.Ordinal)
+            && sharedNzHtml.Contains("1,000萬美元（1,650萬紐幣）", StringComparison.Ordinal),
+            "Shared New Zealand translation did not normalize USD mistranslation to NZD while preserving dual-currency USD.");
+
         var disabled = new AzureTranslatorService(Options.Create(new AzureTranslatorOptions()), new Factory(client), cache);
         posts = handler.Posts;
         Assert(!(await disabled.TranslateAsync("Title", ["Body"], "en", CancellationToken.None)).Available && handler.Posts == posts, "Missing key made a cloud call.");
-        Console.WriteLine("Azure Translator passed full-text order, language/text cache, endpoint validation, request limits, failures, cancellation, custom endpoint and missing-key checks without cloud calls.");
+        Console.WriteLine("Azure Translator passed full-text order, language/text cache, currency disambiguation, endpoint validation, request limits, failures, cancellation, custom endpoint and missing-key checks without cloud calls.");
     }
 
     private static void Assert(bool condition, string message) { if (!condition) throw new Exception(message); }
@@ -81,7 +131,19 @@ internal static class AzureTranslatorChecks
             Texts = body.RootElement.EnumerateArray().Select(item => item.GetProperty("text").GetString()!).ToArray();
             var language = Uri.UnescapeDataString(LastUri.Query.Split("to=")[1]);
             var items = Incomplete ? Texts.Take(1) : Texts;
-            var responseBody = JsonSerializer.Serialize(items.Select(text => new { translations = new[] { new { text = "Translated:" + text, to = language } } }));
+            var responseBody = JsonSerializer.Serialize(items.Select(text => new
+            {
+                translations = new[]
+                {
+                    new
+                    {
+                        text = text.Contains("NZ$31.5 million", StringComparison.Ordinal)
+                            ? "60年來，當地資本與營運成本的比例估計為每年3150萬美元。"
+                            : "Translated:" + text,
+                        to = language,
+                    },
+                },
+            }));
             Submitted?.Invoke();
             token.ThrowIfCancellationRequested();
             return new(Status) { Content = new StringContent(responseBody, Encoding.UTF8, "application/json") };
