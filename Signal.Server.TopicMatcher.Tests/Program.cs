@@ -13,6 +13,8 @@ using Signal.Server.Controllers;
 using Signal.Server.Models;
 using Signal.Server.Services;
 
+await ListeningHandoffChecks.RunAsync();
+if (args.Contains("--listening-handoffs-only")) return;
 await WeatherLocationChecks.RunAsync();
 if (args.Contains("--weather-location-only")) return;
 await NativeNotificationChecks.RunAsync();

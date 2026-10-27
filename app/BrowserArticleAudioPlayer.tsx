@@ -10,11 +10,11 @@ import {
   rankHeadlineVoices, selectHeadlineVoice, browserSpeechRequiresTap, browserSpeechErrorMessage, DEVICE_DEFAULT_SPEECH_VOICE,
 } from "./headline-playback";
 
-export default function BrowserArticleAudioPlayer({ title, paragraphs, autoPrepare = false, summaryOnly = false, onRecordedAudio, onReadingSectionChange }: ArticleAudioPlayerProps & { onRecordedAudio?: () => void }) {
+export default function BrowserArticleAudioPlayer({ title, paragraphs, autoPrepare = false, summaryOnly = false, onRecordedAudio, onReadingSectionChange, narrationSections }: ArticleAudioPlayerProps & { onRecordedAudio?: () => void }) {
   const sections = useMemo(() => {
-    try { return articleNarrationSections(summaryOnly && paragraphs.length === 1 && paragraphs[0] === title ? "" : title, paragraphs, 240); }
+    try { return narrationSections ?? articleNarrationSections(summaryOnly && paragraphs.length === 1 && paragraphs[0] === title ? "" : title, paragraphs, 240); }
     catch { return []; }
-  }, [title, paragraphs, summaryOnly]);
+  }, [title, paragraphs, summaryOnly, narrationSections]);
   const parts = useMemo(() => sections.map((section) => section.text), [sections]);
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(() => !autoPrepare || browserSpeechRequiresTap(navigator.userAgent, navigator.maxTouchPoints));

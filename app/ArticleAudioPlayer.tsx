@@ -2,12 +2,12 @@
 import { useHandGestureTarget } from "./hand-gesture-actions";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { recordedArticleNarrationSections, audioHeadlineIndex, preparedAudioCache, prepareArticleAudio, type ArticleNarrationSection, type PreparedHeadlineAudio, type ReadingVoicePreferences } from "./headline-audio";
+import { recordedArticleNarrationSections, prepareHeadlineAudio, audioHeadlineIndex, preparedAudioCache, prepareArticleAudio, type ArticleNarrationSection, type PreparedHeadlineAudio, type ReadingVoicePreferences } from "./headline-audio";
 import ReadingVoiceSelector, { useReadingVoices } from "./ReadingVoiceSelector";
 import BrowserArticleAudioPlayer from "./BrowserArticleAudioPlayer";
 import { openArticleAudioStream } from "./article-audio-stream";
 
-export type ArticleAudioPlayerProps = { title: string; source: string; paragraphs: string[]; autoPrepare?: boolean; summaryOnly?: boolean; defaultMode?: "browser" | "recorded"; onReadingSectionChange?: (section: ArticleNarrationSection | null, playing: boolean) => void };
+export type ArticleAudioPlayerProps = { title: string; source: string; paragraphs: string[]; autoPrepare?: boolean; summaryOnly?: boolean; defaultMode?: "browser" | "recorded"; narrationSections?: ArticleNarrationSection[]; restoreCachedPosition?: boolean; onReadingSectionChange?: (section: ArticleNarrationSection | null, playing: boolean) => void };
 
 export default function ArticleAudioPlayer(props: ArticleAudioPlayerProps) {
   const [speechSupported] = useState(() => typeof window !== "undefined" && "speechSynthesis" in window && "SpeechSynthesisUtterance" in window);
@@ -27,10 +27,10 @@ export default function ArticleAudioPlayer(props: ArticleAudioPlayerProps) {
   </div>;
 }
 
-function RecordedArticleAudioPlayer({ title, source, paragraphs, autoPrepare = false, summaryOnly = false, onReadingSectionChange }: ArticleAudioPlayerProps) {
+function RecordedArticleAudioPlayer({ title, source, paragraphs, autoPrepare = false, summaryOnly = false, onReadingSectionChange, narrationSections, restoreCachedPosition = true }: ArticleAudioPlayerProps) {
   const readingVoices = useReadingVoices();
   const narrationTitle = summaryOnly && paragraphs.length === 1 && paragraphs[0] === title ? "" : title;
-  const sections = useMemo(() => { try { return recordedArticleNarrationSections(narrationTitle, paragraphs); } catch { return []; } }, [narrationTitle, paragraphs, readingVoices.loading]);
+  const sections = useMemo(() => { try { return narrationSections ?? recordedArticleNarrationSections(narrationTitle, paragraphs); } catch { return []; } }, [narrationTitle, paragraphs, readingVoices.loading, narrationSections]);
   const parts = useMemo(() => sections.length ? sections.map((section) => section.text) : null, [sections]);
   const [attempt, setAttempt] = useState(() => autoPrepare || (parts && preparedAudioCache.get(parts, 3, navigator.language, readingVoices.preferences)) ? 1 : 0);
   const [url, setUrl] = useState("");
@@ -50,7 +50,7 @@ function RecordedArticleAudioPlayer({ title, source, paragraphs, autoPrepare = f
   const resumePart = useRef(0);
   const resumePlayback = useRef(autoPrepare);
   const resumeTime = useRef<number | null>(null);
-  const restorePosition = useRef(true);
+  const restorePosition = useRef(restoreCachedPosition);
   const recordingKey = useRef("");
   const restoredStreamPosition = useRef(false);
 
@@ -124,8 +124,12 @@ function RecordedArticleAudioPlayer({ title, source, paragraphs, autoPrepare = f
         if (!abort.signal.aborted) { setPreparing(false); setError(reason instanceof Error ? reason.message : "The audio stream could not be opened."); }
       });
     }
-    else void Promise.resolve().then(() => prepareArticleAudio(narrationTitle, paragraphs, navigator.language, abort.signal, undefined,
-      (done, total) => { if (!abort.signal.aborted) setProgress(Math.round(done / total * 100)); }, readingVoices.preferences))
+    else void Promise.resolve().then(() => {
+      const progress = (done: number, total: number) => { if (!abort.signal.aborted) setProgress(Math.round(done / total * 100)); };
+      return narrationSections && parts
+        ? prepareHeadlineAudio(parts, 3, navigator.language, abort.signal, undefined, progress, 4000, readingVoices.preferences)
+        : prepareArticleAudio(narrationTitle, paragraphs, navigator.language, abort.signal, undefined, progress, readingVoices.preferences);
+    })
       .then(useRecording)
       .catch((reason: unknown) => {
         if (abort.signal.aborted) return;

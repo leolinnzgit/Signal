@@ -1,4 +1,6 @@
 "use client";
+import WatchListeningHandoff from "./WatchListeningHandoff";
+import { clearPendingWatchHandoff, pendingWatchHandoff } from "./listening-handoff";
 
 import { type CSSProperties, type ReactNode, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -827,6 +829,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [followingTopicsExpanded, setFollowingTopicsExpanded] = useState(false);
   const [backToTopVisible, setBackToTopVisible] = useState(false);
   const [floatingNavigationSide, setFloatingNavigationSide] = useState<"left" | "right">("left");
+  const [watchHandoffId, setWatchHandoffId] = useState(() => typeof window === "undefined" ? null : pendingWatchHandoff(window.location.search));
   const [readerArticle, setReaderArticle] = useState<FollowedArticle | null>(null);
   const [readerMinimized, setReaderMinimized] = useState(false);
   const [readerAudioRequested, setReaderAudioRequested] = useState(false);
@@ -902,7 +905,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     : Object.entries(preferences.tickerOverrides)
         .find(([topic]) => topic.toLowerCase() === selectedTopic.toLowerCase())?.[1] ?? "";
 
-  const weatherAudio = useWeatherAudio(weatherBriefing(weatherStatus === "ready" ? localWeather : null, weatherForecast), !!headlineQueue || !!readerArticle);
+  const weatherAudio = useWeatherAudio(weatherBriefing(weatherStatus === "ready" ? localWeather : null, weatherForecast), !!headlineQueue || !!readerArticle || !!watchHandoffId);
   const earthquakes = useEarthquakeAlerts(user.email, !!pushNotificationStore);
 
   const trendTrafficRange = useMemo(() => {
@@ -3077,6 +3080,12 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
 
   return (
     <main className="signal-dashboard" id="top">
+      {watchHandoffId && <WatchListeningHandoff key={`${user.email}:${watchHandoffId}`} id={watchHandoffId} onClose={() => {
+        clearPendingWatchHandoff(watchHandoffId);
+        setWatchHandoffId(null);
+        const url = new URL(window.location.href); url.searchParams.delete("watchHandoff");
+        window.history.replaceState(window.history.state, "", url);
+      }} />}
       {earthquakes.banner}
       {earthquakes.map}
       <HandGestureControls />
@@ -4814,7 +4823,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           minimized={headlinesMinimized}
           onMinimize={() => { headlineFullscreenRequested.current = false; setHeadlinesMinimized(true); }}
           onRestore={() => setHeadlinesMinimized(false)}
-          suspended={readerArticle !== null}
+          suspended={readerArticle !== null || watchHandoffId !== null}
           startWithScreenOffAudio={preferScreenOffAudio(navigator.userAgent, appInstalled)}
           onArticleRead={(article) => {
             markArticleRead(article, true, headlineDuplicates.current.get(article.url) ?? [article]);

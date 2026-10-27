@@ -2,6 +2,7 @@ import { ChangeEvent, FormEvent, useEffect, useId, useRef, useState } from "reac
 import { updateInstalledAppBadge } from "../app/app-badge";
 import { prepareProfilePhoto } from "../app/profile-photo";
 import { preparedAudioCache } from "../app/headline-audio";
+import { pendingWatchHandoff } from "../app/listening-handoff";
 import { parseSignalArticleLink, signalArticlePath, type SignalArticleLink } from "../app/article-link";
 import NewsDashboard, { type ArticleHistoryPage, type ArticleStore, type FollowedArticle, type FriendShareStore, type NewsPreferences, type NewsSummary, type PreferencesStore, type PushNotificationStore, type PushSubscriptionPayload, type TopicBriefing, type TopicRefreshStore } from "../app/NewsDashboard";
 
@@ -390,6 +391,7 @@ export default function AuthApp() {
   const [latestCommentUnread, setLatestCommentUnread] = useState(0);
   const [discussionArticle, setDiscussionArticle] = useState<DiscussionArticle | null>(null);
   const [articleToOpen, setArticleToOpen] = useState<SignalArticleLink | null>(() => parseSignalArticleLink(window.location.search));
+  useEffect(() => { pendingWatchHandoff(window.location.search); }, []);
   const [socialUnread, setSocialUnread] = useState(0);
   const lastSeenCommentId = useRef(0);
   const latestCommentsOpenRef = useRef(false);

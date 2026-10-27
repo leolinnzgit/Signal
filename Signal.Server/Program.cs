@@ -141,6 +141,10 @@ builder.Services.AddRateLimiter(options => options.AddPolicy("audio", context =>
     context.User.Identity?.Name ?? context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
     _ => new FixedWindowRateLimiterOptions { PermitLimit = 120, Window = TimeSpan.FromMinutes(1), QueueLimit = 0, AutoReplenishment = true })));
 builder.Services.AddSingleton<WatchPairingService>();
+builder.Services.AddSingleton<ListeningHandoffService>();
+builder.Services.AddRateLimiter(options => options.AddPolicy("listening-handoff", context => RateLimitPartition.GetFixedWindowLimiter(
+    context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+    _ => new FixedWindowRateLimiterOptions { PermitLimit = 120, Window = TimeSpan.FromMinutes(1), QueueLimit = 0, AutoReplenishment = true })));
 builder.Services.AddRateLimiter(options => options.AddPolicy("watch-poll", context => RateLimitPartition.GetFixedWindowLimiter(
     context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
     _ => new FixedWindowRateLimiterOptions { PermitLimit = 60, Window = TimeSpan.FromMinutes(1), QueueLimit = 0, AutoReplenishment = true })));

@@ -4733,3 +4733,17 @@ footer a { color: var(--paper); text-decoration: none; }
 .weather-speech-settings .topic-confirmation-actions { justify-content: flex-start; margin-top: 0.75rem; }
 .weather-speech-settings button:disabled { opacity: 0.5; cursor: default; }
 .weather-speech-settings p { color: var(--text-muted); font-size: 0.8rem; }
+
+.watch-listening-handoff { width: min(640px, calc(100vw - 2rem)); max-height: 90dvh; overflow: auto; box-sizing: border-box; padding: clamp(1rem, 4vw, 2rem); border: 1px solid var(--line); border-radius: 20px; background: var(--page-background); color: var(--page-text); box-shadow: 0 20px 90px #0005; }
+.watch-listening-handoff::backdrop { background: #0009; }
+.watch-listening-handoff h2 { font-size: clamp(1.4rem, 5vw, 2rem); line-height: 1.2; }
+.watch-listening-handoff h3, .watch-listening-handoff p { overflow-wrap: anywhere; }
+.watch-listening-handoff p { line-height: 1.65; }
+.watch-handoff-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.watch-listening-handoff button { min-height: 44px; padding: 0.65rem 1rem; margin: 0.3rem 0.4rem 0.3rem 0; border: 1px solid var(--line); border-radius: 10px; background: var(--page-background); color: var(--page-text); font: inherit; cursor: pointer; }
+.watch-listening-handoff .watch-handoff-continue { background: var(--page-text); color: var(--page-background); }
+.watch-handoff-header button { margin: 0; font-size: 1.5rem; }
+.watch-listening-handoff audio { max-width: 100%; }
+.watch-listening-handoff [role="alert"] { color: var(--red); }
+.watch-listening-handoff details { margin: 1.5rem 0; }
+.watch-listening-handoff summary { cursor: pointer; }
