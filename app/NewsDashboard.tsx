@@ -1,4 +1,5 @@
 "use client";
+import { SharedListeningResume } from "./SharedListening";
 import WatchListeningHandoff from "./WatchListeningHandoff";
 import { clearPendingWatchHandoff, pendingWatchHandoff } from "./listening-handoff";
 
@@ -3363,6 +3364,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           </div>
         </div>
       </header>
+      <SharedListeningResume />
 
       <section ref={heroElement} className={`hero${controlsHidden ? " controls-hidden" : ""}${heroCompact ? " compact" : ""}`} id="top">
         <div className="hero-copy">

@@ -86,11 +86,13 @@ internal static class ListeningHandoffChecks
         builder.Services.AddAuthorization(); builder.Services.AddAntiforgery(options => options.HeaderName = "X-XSRF-TOKEN");
         builder.Services.AddControllersWithViews(options => options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute())).AddApplicationPart(typeof(ListeningHandoffsController).Assembly);
         builder.Services.AddSingleton<ListeningHandoffService>();
+        var progressDirectory = Path.Combine(Path.GetTempPath(), "signal-progress-http-" + Guid.NewGuid().ToString("N"));
+        builder.Services.AddSingleton(new ListeningProgressService(progressDirectory));
         builder.Services.AddRateLimiter(options => options.AddFixedWindowLimiter("listening-handoff", value => { value.PermitLimit = 1000; value.Window = TimeSpan.FromMinutes(1); }));
         await using var app = builder.Build();
         app.UseRouting(); app.UseAuthentication(); app.UseAuthorization(); app.UseRateLimiter(); app.MapControllers();
         app.MapGet("/test/login/{user}", async (HttpContext context, string user) => {
-            await context.SignInAsync("test", new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, user)], "test"))); return Results.Ok();
+            await context.SignInAsync("test", new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, user), new Claim(ClaimTypes.Email, user + "@example.com")], "test"))); return Results.Ok();
         });
         app.MapGet("/test/csrf", (HttpContext context, IAntiforgery csrf) => Results.Json(new { token = csrf.GetAndStoreTokens(context).RequestToken }));
         await app.StartAsync();
@@ -103,9 +105,11 @@ internal static class ListeningHandoffChecks
             Check((await watch.GetAsync("/api/listening-handoffs/" + new string('a', 64))).StatusCode == HttpStatusCode.Unauthorized, "Anonymous handoff reads must fail.");
             Check((await watch.PostAsJsonAsync("/api/listening-handoffs", Document())).StatusCode == HttpStatusCode.Unauthorized, "Anonymous handoff creation must fail.");
             Check((await watch.GetAsync("/api/listening-handoffs/inbox")).StatusCode == HttpStatusCode.Unauthorized, "Anonymous inbox discovery must fail.");
+            Check((await watch.GetAsync("/api/listening-progress")).StatusCode == HttpStatusCode.Unauthorized, "Anonymous shared progress must fail.");
             foreach (var client in new[] { watch, phone }) await client.GetAsync("/test/login/owner");
             await stranger.GetAsync("/test/login/stranger");
             Check((await watch.PostAsJsonAsync("/api/listening-handoffs", Document())).StatusCode == HttpStatusCode.BadRequest, "Signed-in creation must require CSRF.");
+            Check((await watch.PostAsJsonAsync("/api/listening-progress", new { accountKey = NativeNotificationService.AccountKey("owner"), baseVersion = "0", operationId = Guid.NewGuid().ToString("N"), action = "forget" })).StatusCode == HttpStatusCode.BadRequest, "Shared progress writes require CSRF.");
             foreach (var client in new[] { watch, phone, stranger })
             {
                 var csrf = await client.GetFromJsonAsync<JsonElement>("/test/csrf");
@@ -136,7 +140,17 @@ internal static class ListeningHandoffChecks
             Check((await phone.PostAsJsonAsync(reversePath + "/ready", new { sourceToken = reverse.SourceToken, partIndex = 1 })).IsSuccessStatusCode, "Phone pause acknowledgement confirms the current section.");
             watch.DefaultRequestHeaders.Add("X-Signal-Handoff-Receiver", key);
             Check((await watch.GetFromJsonAsync<ListeningHandoffView>(reversePath))!.PartIndex == 1, "Watch receives the refreshed section through HTTP.");
+            var sharedMutation = new ListeningProgressMutation(NativeNotificationService.AccountKey("owner"), "0", Guid.NewGuid().ToString("N"), "save", new("https://example.com/story", "Story", "Publisher", ["Title", "Section"], 1));
+            var sharedReply = await phone.PostAsJsonAsync("/api/listening-progress", sharedMutation);
+            Check(sharedReply.IsSuccessStatusCode && sharedReply.Headers.CacheControl?.NoStore == true, "Shared progress is authenticated, CSRF-protected and no-store.");
+            Check((await stranger.PostAsJsonAsync("/api/listening-progress", sharedMutation)).StatusCode == HttpStatusCode.Forbidden, "Queued old-account work must fail after an account switch.");
+            Check((await watch.PostAsJsonAsync("/api/listening-progress", sharedMutation with { OperationId = Guid.NewGuid().ToString("N") })).StatusCode == HttpStatusCode.Conflict, "HTTP stale updates must return the current shared state with 409.");
+            var shared = await watch.GetFromJsonAsync<JsonElement>("/api/listening-progress");
+            Check(shared.GetProperty("document").GetProperty("partIndex").GetInt32() == 1, "The other device receives exact current sections.");
+            Check(shared.GetProperty("accountEmail").GetString() == "owner@example.com", "Browser bootstrap verifies the signed-in account identity.");
+            watch.DefaultRequestHeaders.Add("X-Signal-Progress-Account", NativeNotificationService.AccountKey("another"));
+            Check((await watch.GetAsync("/api/listening-progress")).StatusCode == HttpStatusCode.Forbidden, "An old account-scoped reader cannot fetch a newly signed-in account's progress.");
         }
-        finally { await app.StopAsync(); }
+        finally { await app.StopAsync(); if (Directory.Exists(progressDirectory)) Directory.Delete(progressDirectory, true); }
     }
 }

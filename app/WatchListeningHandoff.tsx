@@ -69,7 +69,7 @@ export default function WatchListeningHandoff({ id, onClose }: { id: string; onC
     {phase === "playing" && offer && sections && <>
       <p role="status">Your watch is paused. If your browser requires it, tap Play below.</p>
       <ArticleAudioPlayer key={id} title={offer.title} source={offer.source} paragraphs={offer.parts!}
-        storyUrl={offer.url} storyImageUrl={offer.imageUrl} narrationSections={sections} restoreCachedPosition={false} autoPrepare />
+        storyUrl={offer.url} storyImageUrl={offer.imageUrl} narrationSections={sections} progressParts={offer.parts!} progressOffset={offer.partIndex} restoreCachedPosition={false} autoPrepare />
       <details><summary>Read transferred story</summary>{offer.parts!.map((part, index) => <p key={index} dir="auto">{part}</p>)}</details>
       <a href={offer.url} target="_blank" rel="noreferrer">Open publisher’s article ↗</a>
     </>}

@@ -19,6 +19,7 @@ function load(code, modules, globals = {}) {
   runInNewContext(code, { exports, require: (name) => {
     if (name === "./hand-gesture-actions" && !(name in modules)) return { useHandGestureTarget() {} };
     if (name === "./ContinueOnWatch" && !(name in modules)) return { default: () => null };
+    if (name === "./SharedListening" && !(name in modules)) return { useSharedListeningReporter: () => ({ track() {}, complete() {} }) };
     assert.ok(name in modules, `Unexpected dependency: ${name}`);
     return modules[name];
   }, ...globals });

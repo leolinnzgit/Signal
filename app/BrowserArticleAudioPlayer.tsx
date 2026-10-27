@@ -3,6 +3,7 @@ import { useHandGestureTarget } from "./hand-gesture-actions";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import ContinueOnWatch from "./ContinueOnWatch";
+import { useSharedListeningReporter } from "./SharedListening";
 import type { ArticleAudioPlayerProps } from "./ArticleAudioPlayer";
 import { articleNarrationSections, type ArticleNarrationSection } from "./headline-audio";
 import {
@@ -11,12 +12,13 @@ import {
   rankHeadlineVoices, selectHeadlineVoice, browserSpeechRequiresTap, browserSpeechErrorMessage, DEVICE_DEFAULT_SPEECH_VOICE,
 } from "./headline-playback";
 
-export default function BrowserArticleAudioPlayer({ title, source, paragraphs, storyUrl, storyImageUrl, onTransferLockChange, autoPrepare = false, summaryOnly = false, onRecordedAudio, onReadingSectionChange, narrationSections }: ArticleAudioPlayerProps & { onRecordedAudio?: () => void }) {
+export default function BrowserArticleAudioPlayer({ title, source, paragraphs, storyUrl, storyImageUrl, progressParts, progressOffset, onTransferLockChange, autoPrepare = false, summaryOnly = false, onRecordedAudio, onReadingSectionChange, narrationSections }: ArticleAudioPlayerProps & { onRecordedAudio?: () => void }) {
   const sections = useMemo(() => {
     try { return narrationSections ?? articleNarrationSections(summaryOnly && paragraphs.length === 1 && paragraphs[0] === title ? "" : title, paragraphs, 240); }
     catch { return []; }
   }, [title, paragraphs, summaryOnly, narrationSections]);
   const parts = useMemo(() => sections.map((section) => section.text), [sections]);
+  const shared = useSharedListeningReporter(summaryOnly ? undefined : storyUrl, title, source, storyImageUrl, progressParts ?? parts, progressOffset);
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(() => !autoPrepare || browserSpeechRequiresTap(navigator.userAgent, navigator.maxTouchPoints));
   const [started, setStarted] = useState(false);
@@ -111,6 +113,7 @@ export default function BrowserArticleAudioPlayer({ title, source, paragraphs, s
   }, [parts, index, completed, preferences.rate, preferredId, voicesReady, paused]);
 
   useEffect(() => () => disposePlayback(), []);
+  useEffect(() => { if (completed) shared.complete(); else shared.track(index, !paused && started); }, [index, completed, paused, started, parts]);
 
   useEffect(() => {
     onReadingSectionChange?.(completed ? null : readingSection,

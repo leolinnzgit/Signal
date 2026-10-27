@@ -4747,3 +4747,7 @@ footer a { color: var(--paper); text-decoration: none; }
 .watch-listening-handoff [role="alert"] { color: var(--red); }
 .watch-listening-handoff details { margin: 1.5rem 0; }
 .watch-listening-handoff summary { cursor: pointer; }
+
+.shared-listening-resume { max-width: 1100px; margin: 1rem auto; padding: 0 1rem; overflow-wrap: anywhere; }
+.shared-listening-resume button { margin: .4rem .5rem .4rem 0; min-height: 44px; padding: .6rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: var(--page-background); color: var(--page-text); }
+.shared-listening-resume p { line-height: 1.6; }

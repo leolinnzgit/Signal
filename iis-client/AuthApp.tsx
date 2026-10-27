@@ -552,6 +552,7 @@ export default function AuthApp() {
   }, []);
 
   async function signOut() {
+    if (user) clearSharedListening(user.email);
     try {
       if ("serviceWorker" in navigator) {
         try {
@@ -592,7 +593,7 @@ export default function AuthApp() {
 
   if (user && initialAuth !== "reset") {
     return (
-      <>
+      <SharedListeningProvider key={user.email} email={user.email}>
         <NewsDashboard
           user={{ displayName: user.displayName, email: user.email, fullName: null, isLocalPreview: false, profilePhotoUrl: user.profilePhotoUrl }}
           articleToOpen={articleToOpen}
@@ -651,7 +652,7 @@ export default function AuthApp() {
             onUnreadChange={updateSocialUnread}
           />
         )}
-      </>
+      </SharedListeningProvider>
     );
   }
 
@@ -1935,3 +1936,5 @@ function AuthInput({ label, type, value, onChange, autoComplete, minLength }: Au
     </label>
   );
 }
+import { SharedListeningProvider } from "../app/SharedListening";
+import { clearSharedListening } from "../app/shared-listening";
