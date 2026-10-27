@@ -1,7 +1,7 @@
 import type { ArticleNarrationSection } from "./headline-audio";
 
 export type ListeningHandoff = {
-  id: string; status: "pending" | "accepted" | "ready" | "cancelled";
+  id: string; status: "pending" | "accepted" | "ready" | "cancelled"; target?: "phone" | "watch"; imageUrl?: string;
   url: string; title: string; source: string; partIndex: number; partCount: number; expiresAt: string; parts?: string[] | null;
 };
 export function validHandoffToken(value: unknown): value is string { return typeof value === "string" && value.length === 64 && /^[a-f0-9]{64}$/u.test(value); }
@@ -26,7 +26,7 @@ export function clearPendingWatchHandoff(id: string) {
 }
 export function validateListeningHandoff(value: unknown, id: string): ListeningHandoff {
   const item = value as ListeningHandoff | null;
-  if (!item || item.id !== id || !["pending", "accepted", "ready", "cancelled"].includes(item.status)
+  if (!item || item.id !== id || (item.target !== undefined && !["phone", "watch"].includes(item.target)) || !["pending", "accepted", "ready", "cancelled"].includes(item.status)
     || typeof item.title !== "string" || !item.title.trim() || item.title.length > 500 || typeof item.source !== "string" || item.source.length > 256
     || typeof item.url !== "string" || item.url.length > 2048 || !Number.isInteger(item.partCount) || item.partCount < 1 || item.partCount > 190
     || !Number.isInteger(item.partIndex) || item.partIndex < 0 || item.partIndex >= item.partCount || !Number.isFinite(Date.parse(item.expiresAt))) {

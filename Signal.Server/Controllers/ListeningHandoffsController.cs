@@ -11,6 +11,8 @@ namespace Signal.Server.Controllers;
 public sealed class ListeningHandoffsController(ListeningHandoffService handoffs) : ControllerBase
 {
     private string? UserId => User.FindFirstValue(ClaimTypes.NameIdentifier);
+    [HttpGet("inbox")]
+    public IActionResult Inbox() => UserId is { } user ? Ok(handoffs.Inbox(user)) : Unauthorized();
     [HttpPost, RequestSizeLimit(150_000)]
     public IActionResult Create(ListeningHandoffDocument document)
     {
@@ -30,7 +32,7 @@ public sealed class ListeningHandoffsController(ListeningHandoffService handoffs
     public IActionResult Accept(string id, Receiver request)
     {
         if (UserId is not { } user) return Unauthorized();
-        return handoffs.Accept(user, id, request.ReceiverToken) ? Ok(new { status = "accepted" })
+        return handoffs.Accept(user, id, request.ReceiverToken, request.Target) ? Ok(new { status = "accepted" })
             : Conflict(new { error = "This transfer is expired or already claimed. Start a new transfer on your watch." });
     }
     [HttpPost("{id}/ready"), RequestSizeLimit(1024)]
@@ -47,7 +49,7 @@ public sealed class ListeningHandoffsController(ListeningHandoffService handoffs
         return handoffs.Cancel(user, id, request.SourceToken, request.ReceiverToken) ? Ok(new { status = "cancelled" })
             : Conflict(new { error = "This transfer is already complete or unavailable." });
     }
-    public sealed record Receiver(string ReceiverToken);
+    public sealed record Receiver(string ReceiverToken, string Target = "phone");
     public sealed record Source(string SourceToken, int PartIndex);
     public sealed record Cancellation(string? SourceToken, string? ReceiverToken);
 }

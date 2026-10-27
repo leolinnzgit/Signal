@@ -63,6 +63,18 @@ internal static class ListeningHandoffChecks
         {
             try { service.Create("owner", invalid); throw new Exception("Malformed transfer was accepted."); } catch (ArgumentException) { }
         }
+        var reverse = service.Create("owner", Document() with { Target = "watch", ImageUrl = "https://images.example.com/story.jpg" });
+        Check(service.Inbox("stranger").Length == 0 && service.Inbox("owner").Single().Id == reverse.Id, "Only the owning watch inbox discovers phone transfers.");
+        Check(service.Inbox("owner").Single().Parts is null, "Inbox discovery must never expose playable text.");
+        Check(service.Inbox("owner").Single().ImageUrl == "https://images.example.com/story.jpg", "Available image metadata must reach the watch without fetching an image on the server.");
+        foreach (var image in new[] { "javascript:alert(1)", "https://user:secret@example.com/image", "https://localhost/image" })
+        {
+            try { service.Create("owner", Document() with { ImageUrl = image }); throw new Exception("Unsafe image metadata was accepted."); } catch (ArgumentException) { }
+        }
+        Check(!service.Accept("owner", reverse.Id, receiver) && service.Accept("owner", reverse.Id, receiver, "watch"), "Receivers must match the intended device direction.");
+        Check(service.Inbox("owner").Length == 0 && service.Get("owner", reverse.Id, receiver)!.Parts is null, "Claimed offers leave discovery and still wait for phone pause.");
+        Check(!service.Ready("owner", reverse.Id, receiver, 2) && service.Ready("owner", reverse.Id, reverse.SourceToken, 2), "Only the phone's source proof confirms a reverse transfer.");
+        Check(service.Get("owner", reverse.Id, receiver)!.Parts!.SequenceEqual(Document().Parts), "Watch receives the exact confirmed phone sections.");
         await HttpChecksAsync();
         Console.WriteLine("Listening handoff passed exact text/section, two-phase playback, concurrent claims, identity, capacity, expiry, authorization and CSRF checks.");
     }
@@ -90,6 +102,7 @@ internal static class ListeningHandoffChecks
             using var stranger = new HttpClient(new HttpClientHandler { CookieContainer = new(), AllowAutoRedirect = false }) { BaseAddress = new(origin) };
             Check((await watch.GetAsync("/api/listening-handoffs/" + new string('a', 64))).StatusCode == HttpStatusCode.Unauthorized, "Anonymous handoff reads must fail.");
             Check((await watch.PostAsJsonAsync("/api/listening-handoffs", Document())).StatusCode == HttpStatusCode.Unauthorized, "Anonymous handoff creation must fail.");
+            Check((await watch.GetAsync("/api/listening-handoffs/inbox")).StatusCode == HttpStatusCode.Unauthorized, "Anonymous inbox discovery must fail.");
             foreach (var client in new[] { watch, phone }) await client.GetAsync("/test/login/owner");
             await stranger.GetAsync("/test/login/stranger");
             Check((await watch.PostAsJsonAsync("/api/listening-handoffs", Document())).StatusCode == HttpStatusCode.BadRequest, "Signed-in creation must require CSRF.");
@@ -112,6 +125,17 @@ internal static class ListeningHandoffChecks
             var ready = await phone.GetAsync(path); var data = await ready.Content.ReadFromJsonAsync<ListeningHandoffView>();
             Check(data!.PartIndex == 2 && data.Parts!.SequenceEqual(Document().Parts), "HTTP phone receives the exact source section text.");
             Check(ready.Headers.CacheControl?.NoStore == true, "Private transfer text must not be cached by intermediaries.");
+            var reverseResponse = await phone.PostAsJsonAsync("/api/listening-handoffs", Document() with { Target = "watch" });
+            var reverse = (await reverseResponse.Content.ReadFromJsonAsync<ListeningHandoffCreated>())!;
+            var inbox = await watch.GetFromJsonAsync<ListeningHandoffView[]>("/api/listening-handoffs/inbox");
+            Check(inbox!.Length == 1 && inbox[0].Id == reverse.Id && inbox[0].Parts is null && inbox[0].Target == "watch", "Watch discovery is metadata-only and direction-scoped.");
+            Check((await stranger.GetFromJsonAsync<ListeningHandoffView[]>("/api/listening-handoffs/inbox"))!.Length == 0, "Other accounts cannot discover phone transfers.");
+            var reversePath = "/api/listening-handoffs/" + reverse.Id;
+            Check((await watch.PostAsJsonAsync(reversePath + "/accept", new { receiverToken = key })).StatusCode == HttpStatusCode.Conflict, "Old phone consent cannot claim a watch-targeted offer.");
+            Check((await watch.PostAsJsonAsync(reversePath + "/accept", new { receiverToken = key, target = "watch" })).IsSuccessStatusCode, "Watch explicitly accepts the phone offer.");
+            Check((await phone.PostAsJsonAsync(reversePath + "/ready", new { sourceToken = reverse.SourceToken, partIndex = 1 })).IsSuccessStatusCode, "Phone pause acknowledgement confirms the current section.");
+            watch.DefaultRequestHeaders.Add("X-Signal-Handoff-Receiver", key);
+            Check((await watch.GetFromJsonAsync<ListeningHandoffView>(reversePath))!.PartIndex == 1, "Watch receives the refreshed section through HTTP.");
         }
         finally { await app.StopAsync(); }
     }

@@ -4,10 +4,10 @@ using System.Text.RegularExpressions;
 
 namespace Signal.Server.Services;
 
-public sealed record ListeningHandoffDocument(string Url, string Title, string Source, string[] Parts, int PartIndex);
+public sealed record ListeningHandoffDocument(string Url, string Title, string Source, string[] Parts, int PartIndex, string Target = "phone", string ImageUrl = "");
 public sealed record ListeningHandoffCreated(string Id, string SourceToken, DateTimeOffset ExpiresAt);
 public sealed record ListeningHandoffView(string Id, string Status, string Url, string Title, string Source,
-    int PartIndex, int PartCount, DateTimeOffset ExpiresAt, string[]? Parts = null);
+    int PartIndex, int PartCount, DateTimeOffset ExpiresAt, string[]? Parts = null, string Target = "phone", string ImageUrl = "");
 
 /// <summary>Bounded, account-scoped, two-phase transfers. No phone may play before a watch pause acknowledgement.</summary>
 public sealed partial class ListeningHandoffService(TimeProvider? clock = null, int capacity = 256)
@@ -43,7 +43,9 @@ public sealed partial class ListeningHandoffService(TimeProvider? clock = null, 
     }
     public static void Validate(ListeningHandoffDocument value)
     {
-        if (value.Url is null || value.Url.Length > 2048 || !Uri.TryCreate(value.Url, UriKind.Absolute, out var uri)
+        if (value.ImageUrl is null || value.ImageUrl.Length > 2048 || (value.ImageUrl.Length > 0 &&
+                (!Uri.TryCreate(value.ImageUrl, UriKind.Absolute, out var image) || image.Scheme != "https" || image.UserInfo.Length > 0 || image.IsLoopback))
+            || value.Target is not ("phone" or "watch") || value.Url is null || value.Url.Length > 2048 || !Uri.TryCreate(value.Url, UriKind.Absolute, out var uri)
             || uri.Scheme is not ("http" or "https") || uri.UserInfo.Length != 0 || uri.IsLoopback
             || string.IsNullOrWhiteSpace(value.Title) || value.Title.Length > 500 || value.Source is null || value.Source.Length > 256
             || value.Parts is null || value.Parts.Length is < 1 or > 190 || value.PartIndex < 0 || value.PartIndex >= value.Parts.Length
@@ -72,16 +74,27 @@ public sealed partial class ListeningHandoffService(TimeProvider? clock = null, 
             if (entry is null) return null;
             var document = entry.Document;
             return new(id, entry.Status, document.Url, document.Title, document.Source, document.PartIndex,
-                entry.PartCount, entry.Expiry, entry.Status == "ready" && Matches(entry.ReceiverHash, receiverToken) ? document.Parts.ToArray() : null);
+                entry.PartCount, entry.Expiry, entry.Status == "ready" && Matches(entry.ReceiverHash, receiverToken) ? document.Parts.ToArray() : null, document.Target, document.ImageUrl);
         }
     }
-    public bool Accept(string user, string id, string receiverToken)
+    public ListeningHandoffView[] Inbox(string user)
+    {
+        lock (gate)
+        {
+            Prune();
+            return entries.Where(pair => pair.Value.User == user && pair.Value.Document.Target == "watch" && pair.Value.Status == "pending")
+                .Reverse().Select(pair => new ListeningHandoffView(pair.Key, pair.Value.Status, pair.Value.Document.Url,
+                    pair.Value.Document.Title, pair.Value.Document.Source, pair.Value.Document.PartIndex,
+                    pair.Value.PartCount, pair.Value.Expiry, Target: "watch", ImageUrl: pair.Value.Document.ImageUrl)).ToArray();
+        }
+    }
+    public bool Accept(string user, string id, string receiverToken, string target = "phone")
     {
         if (!ValidToken(receiverToken)) return false;
         lock (gate)
         {
             var entry = Find(user, id);
-            if (entry is null || entry.Status == "cancelled") return false;
+            if (entry is null || entry.Document.Target != target || entry.Status == "cancelled") return false;
             if (entry.Status != "pending") return Matches(entry.ReceiverHash, receiverToken); // Idempotent retry by the same browser.
             entry.ReceiverHash = Hash(receiverToken);
             entry.Status = "accepted";

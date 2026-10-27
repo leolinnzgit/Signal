@@ -18,6 +18,7 @@ function load(code, modules, globals = {}) {
   const exports = {};
   runInNewContext(code, { exports, require: (name) => {
     if (name === "./hand-gesture-actions" && !(name in modules)) return { useHandGestureTarget() {} };
+    if (name === "./ContinueOnWatch" && !(name in modules)) return { default: () => null };
     assert.ok(name in modules, `Unexpected dependency: ${name}`);
     return modules[name];
   }, ...globals });

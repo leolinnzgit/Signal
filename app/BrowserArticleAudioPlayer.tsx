@@ -2,6 +2,7 @@
 import { useHandGestureTarget } from "./hand-gesture-actions";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import ContinueOnWatch from "./ContinueOnWatch";
 import type { ArticleAudioPlayerProps } from "./ArticleAudioPlayer";
 import { articleNarrationSections, type ArticleNarrationSection } from "./headline-audio";
 import {
@@ -10,7 +11,7 @@ import {
   rankHeadlineVoices, selectHeadlineVoice, browserSpeechRequiresTap, browserSpeechErrorMessage, DEVICE_DEFAULT_SPEECH_VOICE,
 } from "./headline-playback";
 
-export default function BrowserArticleAudioPlayer({ title, paragraphs, autoPrepare = false, summaryOnly = false, onRecordedAudio, onReadingSectionChange, narrationSections }: ArticleAudioPlayerProps & { onRecordedAudio?: () => void }) {
+export default function BrowserArticleAudioPlayer({ title, source, paragraphs, storyUrl, storyImageUrl, onTransferLockChange, autoPrepare = false, summaryOnly = false, onRecordedAudio, onReadingSectionChange, narrationSections }: ArticleAudioPlayerProps & { onRecordedAudio?: () => void }) {
   const sections = useMemo(() => {
     try { return narrationSections ?? articleNarrationSections(summaryOnly && paragraphs.length === 1 && paragraphs[0] === title ? "" : title, paragraphs, 240); }
     catch { return []; }
@@ -31,6 +32,8 @@ export default function BrowserArticleAudioPlayer({ title, paragraphs, autoPrepa
   const [voices, setVoices] = useState(() => window.speechSynthesis.getVoices());
   const [voicesReady, setVoicesReady] = useState(voices.length > 0);
   const playback = useRef<ReturnType<typeof createHeadlinePlayback> | null>(null);
+  const transferLock = useRef(false);
+  const [transferLocked, setTransferLocked] = useState(false);
   const playbackKey = useRef<{ parts: string[]; index: number; rate: number; voice: string } | null>(null);
   const completed = index >= parts.length;
   const text = parts[index] ?? title;
@@ -115,6 +118,7 @@ export default function BrowserArticleAudioPlayer({ title, paragraphs, autoPrepa
   }, [completed, readingSection, paused, started, sections, index, onReadingSectionChange]);
 
   function togglePlayback() {
+    if (transferLock.current) return;
     if (!paused && !completed) {
       playback.current?.setPaused(true);
       if (/Android/i.test(navigator.userAgent)) setStarted(false);
@@ -201,6 +205,11 @@ export default function BrowserArticleAudioPlayer({ title, paragraphs, autoPrepa
   }
 
   return <section className="article-audio-player" aria-label={summaryOnly ? "Browser headline and summary narration" : "Browser article narration"}>
+    {storyUrl && !summaryOnly && <ContinueOnWatch url={storyUrl} title={title} source={source} imageUrl={storyImageUrl}
+      snapshot={() => !completed && parts.length ? { parts, partIndex: index, session: JSON.stringify(preferences) } : null}
+      pause={() => { playback.current?.setPaused(true); setPaused(true); setStarted(false); }}
+      onLockChange={value => { transferLock.current = value; setTransferLocked(value); onTransferLockChange?.(value); }} />}
+    <div inert={transferLocked}>
     <div className="article-browser-transport">
       <button type="button" onClick={togglePlayback} disabled={!parts.length}>{completed ? "Read again" : paused ? "Play" : "Pause"}</button>
       <button type="button" onClick={stop}>Stop</button>
@@ -241,5 +250,6 @@ export default function BrowserArticleAudioPlayer({ title, paragraphs, autoPrepa
         <button type="button" onClick={() => { void copyVoiceDetails(); }}>{copiedDetails ? "Voice details copied" : "Copy voice details"}</button>
       </details>
     </>}
+    </div>
   </section>;
 }

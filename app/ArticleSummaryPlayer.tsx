@@ -6,7 +6,7 @@ import ArticleReadingText from "./ArticleReadingText";
 import { loadArticleSummary, type ArticleSummary } from "./article-summary";
 import type { ArticleNarrationSection } from "./headline-audio";
 
-export default function ArticleSummaryPlayer({ url, title, source, paragraphs, autoPrepare = false, onReadingSectionChange }: ArticleAudioPlayerProps & { url: string }) {
+export default function ArticleSummaryPlayer({ url, title, source, paragraphs, storyImageUrl, autoPrepare = false, onReadingSectionChange }: ArticleAudioPlayerProps & { url: string }) {
   const [summary, setSummary] = useState<ArticleSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [attempt, setAttempt] = useState(0);
@@ -59,7 +59,7 @@ export default function ArticleSummaryPlayer({ url, title, source, paragraphs, a
       {scope !== "article" && <button type="button" onClick={() => selectScope("article")}>Read full article aloud</button>}
     </>}
     {(scope === "article" || summary?.available) && <ArticleAudioPlayer
-      key={scope} title={title} source={source}
+      key={scope} title={title} source={source} storyUrl={scope === "article" ? url : undefined} storyImageUrl={storyImageUrl}
       paragraphs={scope === "summary" && summary?.available ? summary.paragraphs : paragraphs}
       autoPrepare defaultMode={scope === "summary" ? "recorded" : undefined} summaryOnly={scope === "summary"} onReadingSectionChange={updateReading} />}
   </section>;

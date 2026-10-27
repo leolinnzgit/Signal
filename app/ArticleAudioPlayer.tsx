@@ -6,12 +6,14 @@ import { recordedArticleNarrationSections, prepareHeadlineAudio, audioHeadlineIn
 import ReadingVoiceSelector, { useReadingVoices } from "./ReadingVoiceSelector";
 import BrowserArticleAudioPlayer from "./BrowserArticleAudioPlayer";
 import { openArticleAudioStream } from "./article-audio-stream";
+import ContinueOnWatch from "./ContinueOnWatch";
 
-export type ArticleAudioPlayerProps = { title: string; source: string; paragraphs: string[]; autoPrepare?: boolean; summaryOnly?: boolean; defaultMode?: "browser" | "recorded"; narrationSections?: ArticleNarrationSection[]; restoreCachedPosition?: boolean; onReadingSectionChange?: (section: ArticleNarrationSection | null, playing: boolean) => void };
+export type ArticleAudioPlayerProps = { title: string; source: string; paragraphs: string[]; storyUrl?: string; storyImageUrl?: string; onTransferLockChange?: (locked: boolean) => void; autoPrepare?: boolean; summaryOnly?: boolean; defaultMode?: "browser" | "recorded"; narrationSections?: ArticleNarrationSection[]; restoreCachedPosition?: boolean; onReadingSectionChange?: (section: ArticleNarrationSection | null, playing: boolean) => void };
 
 export default function ArticleAudioPlayer(props: ArticleAudioPlayerProps) {
   const [speechSupported] = useState(() => typeof window !== "undefined" && "speechSynthesis" in window && "SpeechSynthesisUtterance" in window);
   const [mode, setMode] = useState(() => props.defaultMode ?? "recorded");
+  const [transferLocked, setTransferLocked] = useState(false);
   useEffect(() => () => props.onReadingSectionChange?.(null, false), [props.onReadingSectionChange]);
   function changeMode(nextMode: "browser" | "recorded") {
     if (nextMode === mode) return;
@@ -20,14 +22,14 @@ export default function ArticleAudioPlayer(props: ArticleAudioPlayerProps) {
   }
   return <div className="article-narration">
     <div className="article-audio-mode" role="group" aria-label="Article audio mode">
-      <button type="button" aria-pressed={mode === "browser"} disabled={!speechSupported} onClick={() => changeMode("browser")}>Browser voice</button>
-      <button type="button" aria-pressed={mode === "recorded"} onClick={() => changeMode("recorded")}>Recorded audio</button>
+      <button type="button" aria-pressed={mode === "browser"} disabled={!speechSupported || transferLocked} onClick={() => changeMode("browser")}>Browser voice</button>
+      <button type="button" aria-pressed={mode === "recorded"} disabled={transferLocked} onClick={() => changeMode("recorded")}>Recorded audio</button>
     </div>
-    {mode === "browser" ? <BrowserArticleAudioPlayer {...props} onRecordedAudio={() => changeMode("recorded")} /> : <RecordedArticleAudioPlayer {...props} />}
+    {mode === "browser" ? <BrowserArticleAudioPlayer {...props} onTransferLockChange={setTransferLocked} onRecordedAudio={() => changeMode("recorded")} /> : <RecordedArticleAudioPlayer {...props} onTransferLockChange={setTransferLocked} />}
   </div>;
 }
 
-function RecordedArticleAudioPlayer({ title, source, paragraphs, autoPrepare = false, summaryOnly = false, onReadingSectionChange, narrationSections, restoreCachedPosition = true }: ArticleAudioPlayerProps) {
+function RecordedArticleAudioPlayer({ title, source, paragraphs, storyUrl, storyImageUrl, onTransferLockChange, autoPrepare = false, summaryOnly = false, onReadingSectionChange, narrationSections, restoreCachedPosition = true }: ArticleAudioPlayerProps) {
   const readingVoices = useReadingVoices();
   const narrationTitle = summaryOnly && paragraphs.length === 1 && paragraphs[0] === title ? "" : title;
   const sections = useMemo(() => { try { return narrationSections ?? recordedArticleNarrationSections(narrationTitle, paragraphs); } catch { return []; } }, [narrationTitle, paragraphs, readingVoices.loading, narrationSections]);
@@ -53,8 +55,11 @@ function RecordedArticleAudioPlayer({ title, source, paragraphs, autoPrepare = f
   const restorePosition = useRef(restoreCachedPosition);
   const recordingKey = useRef("");
   const restoredStreamPosition = useRef(false);
+  const transferLock = useRef(false);
+  const [transferLocked, setTransferLocked] = useState(false);
 
   useHandGestureTarget(30, true, async (action) => {
+    if (transferLock.current) return "Finish or cancel the watch transfer first.";
     if (action !== "pause" && action !== "resume" && action !== "toggle-playback") return undefined;
     if (action === "pause" || (action === "toggle-playback" && audio.current && !audio.current.paused)) { resumePlayback.current = false; audio.current?.pause(); return "Article narration paused."; }
     if (!url || !audio.current) return "Tap Read full news aloud to prepare audio first.";
@@ -179,10 +184,10 @@ function RecordedArticleAudioPlayer({ title, source, paragraphs, autoPrepare = f
     const session = navigator.mediaSession;
     if ("MediaMetadata" in window) session.metadata = new MediaMetadata({ title, artist: source, album: summaryOnly ? "Article summary" : "Full news", artwork: [{ src: "/icons/signal-medallion-512.png", sizes: "512x512", type: "image/png" }] });
     const handlers: [MediaSessionAction, MediaSessionActionHandler][] = [
-      ["play", () => { void audio.current?.play().catch(() => setMessage("Tap Play to resume reading.")); }],
+      ["play", () => { if (!transferLock.current) void audio.current?.play().catch(() => setMessage("Tap Play to resume reading.")); }],
       ["pause", () => audio.current?.pause()],
       ["stop", () => { if (audio.current) { audio.current.pause(); audio.current.currentTime = 0; } setReadingSection(null); }],
-      ["seekto", (details) => { if (audio.current && Number.isFinite(details.seekTime) && Number.isFinite(audio.current.duration)) audio.current.currentTime = Math.max(0, Math.min(audio.current.duration, details.seekTime!)); }],
+      ["seekto", (details) => { if (!transferLock.current && audio.current && Number.isFinite(details.seekTime) && Number.isFinite(audio.current.duration)) audio.current.currentTime = Math.max(0, Math.min(audio.current.duration, details.seekTime!)); }],
     ];
     for (const [action, handler] of handlers) { try { session.setActionHandler(action, handler); } catch { /* Optional media controls. */ } }
     return () => {
@@ -235,6 +240,11 @@ function RecordedArticleAudioPlayer({ title, source, paragraphs, autoPrepare = f
   }
 
   return <section className="article-audio-player" aria-label={summaryOnly ? "Headline and summary narration" : "Full article narration"}>
+    {storyUrl && !summaryOnly && <ContinueOnWatch url={storyUrl} title={title} source={source} imageUrl={storyImageUrl}
+      snapshot={() => audio.current && url && starts.length && parts && !audio.current.ended ? { parts, partIndex: audioHeadlineIndex(starts, audio.current.currentTime), session: recordingKey.current } : null}
+      pause={() => { resumePlayback.current = false; audio.current?.pause(); setPlaying(false); }}
+      onLockChange={value => { transferLock.current = value; setTransferLocked(value); onTransferLockChange?.(value); }} />}
+    <div inert={transferLocked}>
     <ReadingVoiceSelector {...readingVoices} selectVoice={selectVoice} active={attempt > 0} playbackActive={playing}
       onPreviewStart={() => { resumePlayback.current = false; audio.current?.pause(); setPlaying(false); }} />
     {!url && !preparing && <button type="button" onClick={() => { resumePlayback.current = true; setAttempt((current) => current + 1); }}>{error ? "Try audio again" : summaryOnly ? "Read headline and summary aloud" : "Read full news aloud"}</button>}
@@ -269,5 +279,6 @@ function RecordedArticleAudioPlayer({ title, source, paragraphs, autoPrepare = f
       setUseStream((current) => !current); setAttempt((current) => current + 1);
     }}>{useStream ? "Prepare recording instead" : "Stream audio instead"}</button>}
     {error && <p role="alert">{error}</p>}
+    </div>
   </section>;
 }

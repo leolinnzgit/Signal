@@ -16,6 +16,7 @@ export default function WatchListeningHandoff({ id, onClose }: { id: string; onC
     const element = dialog.current; element?.showModal();
     const abort = new AbortController(); operation.current = abort;
     void readListeningHandoff(id, key, abort.signal).then(value => {
+      if (value.target === "watch") throw new Error("Open SignalWatch to accept this transfer from your phone.");
       if (!abort.signal.aborted) { setOffer(value); setPhase("offered"); if (value.status === "cancelled") setError("This transfer was cancelled. Start again on your watch."); }
     }).catch(reason => { if (!abort.signal.aborted) { setError(reason instanceof Error ? reason.message : "The transfer could not be opened."); setPhase("offered"); } });
     return () => { abort.abort(); operation.current?.abort(); element?.close(); };
@@ -68,7 +69,7 @@ export default function WatchListeningHandoff({ id, onClose }: { id: string; onC
     {phase === "playing" && offer && sections && <>
       <p role="status">Your watch is paused. If your browser requires it, tap Play below.</p>
       <ArticleAudioPlayer key={id} title={offer.title} source={offer.source} paragraphs={offer.parts!}
-        narrationSections={sections} restoreCachedPosition={false} autoPrepare />
+        storyUrl={offer.url} storyImageUrl={offer.imageUrl} narrationSections={sections} restoreCachedPosition={false} autoPrepare />
       <details><summary>Read transferred story</summary>{offer.parts!.map((part, index) => <p key={index} dir="auto">{part}</p>)}</details>
       <a href={offer.url} target="_blank" rel="noreferrer">Open publisher’s article ↗</a>
     </>}

@@ -4689,10 +4689,10 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                   <ArticleTranslationControls key={`translation-${readerArticle.url}`} url={readerArticle.url} title={readerArticle.title}
                     translated={readerTranslation !== null} onChange={updateReaderTranslation} />
                   {readerTranslation ? <ArticleAudioPlayer key={`${readerArticle.url}-${readerTranslation.language}`}
-                    title={readerTranslation.title} source={readerArticle.source} paragraphs={readerTranslation.paragraphs}
+                    title={readerTranslation.title} source={readerArticle.source} paragraphs={readerTranslation.paragraphs} storyUrl={readerArticle.url} storyImageUrl={readerArticle.imageUrl}
                     onReadingSectionChange={updateReaderReading} />
                     : <ArticleSummaryPlayer key={readerArticle.url} url={readerArticle.url} title={readerArticle.title} source={readerArticle.source}
-                      paragraphs={readerContent.article.paragraphs} autoPrepare={readerAudioRequested} onReadingSectionChange={updateReaderReading} />}
+                      paragraphs={readerContent.article.paragraphs} storyImageUrl={readerArticle.imageUrl} autoPrepare={readerAudioRequested} onReadingSectionChange={updateReaderReading} />}
                   {readerArticle.imageUrl && (
                     <img
                       className="article-reader-image"
