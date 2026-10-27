@@ -4734,7 +4734,7 @@ footer a { color: var(--paper); text-decoration: none; }
 .weather-speech-settings button:disabled { opacity: 0.5; cursor: default; }
 .weather-speech-settings p { color: var(--text-muted); font-size: 0.8rem; }
 
-.watch-listening-handoff { width: min(640px, calc(100vw - 2rem)); max-height: 90dvh; overflow: auto; box-sizing: border-box; padding: clamp(1rem, 4vw, 2rem); border: 1px solid var(--line); border-radius: 20px; background: var(--page-background); color: var(--page-text); box-shadow: 0 20px 90px #0005; }
+.watch-listening-handoff { margin: auto; width: min(640px, calc(100vw - 2rem)); max-height: 90dvh; overflow: auto; box-sizing: border-box; padding: clamp(1rem, 4vw, 2rem); border: 1px solid var(--line); border-radius: 20px; background: var(--page-background); color: var(--page-text); box-shadow: 0 20px 90px #0005; }
 .watch-listening-handoff::backdrop { background: #0009; }
 .watch-listening-handoff h2 { font-size: clamp(1.4rem, 5vw, 2rem); line-height: 1.2; }
 .watch-listening-handoff h3, .watch-listening-handoff p { overflow-wrap: anywhere; }
