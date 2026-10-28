@@ -1,6 +1,7 @@
-const STATIC_CACHE = "signal-static-v8";
+const STATIC_CACHE = "signal-static-v9";
 const APP_BADGE_MESSAGE = "signal:update-app-badge";
 const NEWS_NOTIFICATION_TAG = "signal-new-stories";
+const publicShell = (html) => /<div\s+id=["']root["']\s*>\s*<\/div>/i.test(html) && /["']\/assets\/index-[^"']+\.js["']/i.test(html);
 const STATIC_ASSETS = [
   "/manifest.webmanifest",
   "/icons/signal-medallion-64.png",
@@ -15,7 +16,19 @@ const STATIC_ASSETS = [
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(STATIC_CACHE)
-      .then((cache) => cache.addAll(STATIC_ASSETS))
+      .then(async (cache) => {
+        // IIS serves a public, static React shell here. Account/API responses are never cached.
+        await cache.addAll(STATIC_ASSETS);
+        const shell = await fetch("/", { cache: "no-store" });
+        const html = shell.ok ? await shell.clone().text() : "";
+        if (!publicShell(html)) return;
+        await cache.put("/", shell);
+        const assets = [...html.matchAll(/(?:src|href)=["']([^"']*\/assets\/[^"']+)["']/g)]
+          .map((match) => new URL(match[1], self.location.origin))
+          .filter((url) => url.origin === self.location.origin && url.pathname.startsWith("/assets/"))
+          .map((url) => url.href);
+        await cache.addAll([...new Set(assets)]);
+      })
       .then(() => self.skipWaiting()),
   );
 });
@@ -38,6 +51,20 @@ self.addEventListener("fetch", (event) => {
 
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+
+  if (request.mode === "navigate" && url.pathname === "/") {
+    event.respondWith(fetch(request).then(async (response) => {
+      if (response.ok && !url.search && response.headers.get("Content-Type")?.includes("text/html")) {
+        const copy = response.clone();
+        if (publicShell(await copy.clone().text())) await caches.open(STATIC_CACHE).then((cache) => cache.put("/", copy));
+      }
+      return response;
+    }).catch(async () => {
+      const shell = await caches.match("/");
+      return shell || new Response("Signal is offline. Open it once while connected to save the app.", { status: 503, headers: { "Content-Type": "text/plain" } });
+    }));
+    return;
+  }
 
   const isStaticAsset = url.pathname.startsWith("/assets/")
     || url.pathname.startsWith("/icons/")

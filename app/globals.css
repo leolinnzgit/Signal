@@ -4751,3 +4751,18 @@ footer a { color: var(--paper); text-decoration: none; }
 .shared-listening-resume { max-width: 1100px; margin: 1rem auto; padding: 0 1rem; overflow-wrap: anywhere; }
 .shared-listening-resume button { margin: .4rem .5rem .4rem 0; min-height: 44px; padding: .6rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: var(--page-background); color: var(--page-text); }
 .shared-listening-resume p { line-height: 1.6; }
+.listen-later h2 { margin: 0; font-size: 1.15rem; }
+.listen-later h2 span, .listen-later small { color: var(--muted, #64748b); font-weight: 400; }
+.listen-later ol { list-style: none; padding: 0; margin: 12px 0; display: grid; gap: 10px; }
+.listen-later li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid #64748b33; }
+.listen-later li > div:first-child { min-width: 0; overflow-wrap: anywhere; }
+.listen-later small { display: block; margin-top: 4px; }
+.listen-later-actions { display: flex; flex-wrap: wrap; gap: 6px; flex-shrink: 0; }
+.listen-later-add { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.listen-later-add button { min-height: 36px; border: 1px solid #64748b55; border-radius: 8px; padding: 6px 9px; color: inherit; background: transparent; cursor: pointer; }
+.listen-later-add [role="status"] { font-size: .8rem; max-width: 260px; }
+@media (max-width: 600px) { .listen-later li { align-items: stretch; flex-direction: column; } .listen-later-actions button { min-height: 42px; } }
+
+.offline-listen-later h1 { font-size: 1.6rem; font-weight: 650; margin-bottom: 12px; }
+.offline-listen-later > p { line-height: 1.6; margin-bottom: 14px; }
+.offline-listen-later > button { min-height: 44px; padding: 10px 16px; border: 1px solid var(--line, #64748b55); border-radius: 10px; background: var(--card-background, transparent); color: inherit; cursor: pointer; margin: 6px 0 16px; }

@@ -88,6 +88,7 @@ internal static class ListeningHandoffChecks
         builder.Services.AddSingleton<ListeningHandoffService>();
         var progressDirectory = Path.Combine(Path.GetTempPath(), "signal-progress-http-" + Guid.NewGuid().ToString("N"));
         builder.Services.AddSingleton(new ListeningProgressService(progressDirectory));
+        builder.Services.AddSingleton(new ListeningQueueService(Path.Combine(progressDirectory, "queue")));
         builder.Services.AddRateLimiter(options => options.AddFixedWindowLimiter("listening-handoff", value => { value.PermitLimit = 1000; value.Window = TimeSpan.FromMinutes(1); }));
         await using var app = builder.Build();
         app.UseRouting(); app.UseAuthentication(); app.UseAuthorization(); app.UseRateLimiter(); app.MapControllers();
@@ -106,10 +107,12 @@ internal static class ListeningHandoffChecks
             Check((await watch.PostAsJsonAsync("/api/listening-handoffs", Document())).StatusCode == HttpStatusCode.Unauthorized, "Anonymous handoff creation must fail.");
             Check((await watch.GetAsync("/api/listening-handoffs/inbox")).StatusCode == HttpStatusCode.Unauthorized, "Anonymous inbox discovery must fail.");
             Check((await watch.GetAsync("/api/listening-progress")).StatusCode == HttpStatusCode.Unauthorized, "Anonymous shared progress must fail.");
+            Check((await watch.GetAsync("/api/listening-queue")).StatusCode == HttpStatusCode.Unauthorized, "Anonymous queues must fail.");
             foreach (var client in new[] { watch, phone }) await client.GetAsync("/test/login/owner");
             await stranger.GetAsync("/test/login/stranger");
             Check((await watch.PostAsJsonAsync("/api/listening-handoffs", Document())).StatusCode == HttpStatusCode.BadRequest, "Signed-in creation must require CSRF.");
             Check((await watch.PostAsJsonAsync("/api/listening-progress", new { accountKey = NativeNotificationService.AccountKey("owner"), baseVersion = "0", operationId = Guid.NewGuid().ToString("N"), action = "forget" })).StatusCode == HttpStatusCode.BadRequest, "Shared progress writes require CSRF.");
+            Check((await watch.PostAsJsonAsync("/api/listening-queue", new { })).StatusCode == HttpStatusCode.BadRequest, "Queue writes require CSRF.");
             foreach (var client in new[] { watch, phone, stranger })
             {
                 var csrf = await client.GetFromJsonAsync<JsonElement>("/test/csrf");
@@ -148,8 +151,17 @@ internal static class ListeningHandoffChecks
             var shared = await watch.GetFromJsonAsync<JsonElement>("/api/listening-progress");
             Check(shared.GetProperty("document").GetProperty("partIndex").GetInt32() == 1, "The other device receives exact current sections.");
             Check(shared.GetProperty("accountEmail").GetString() == "owner@example.com", "Browser bootstrap verifies the signed-in account identity.");
+            var queued = new ListeningQueueMutation(NativeNotificationService.AccountKey("owner"), "0", Guid.NewGuid().ToString("N"), "save",
+                new([sharedMutation.Document!], sharedMutation.Document!.Url));
+            var queueReply = await phone.PostAsJsonAsync("/api/listening-queue", queued);
+            Check(queueReply.IsSuccessStatusCode && queueReply.Headers.CacheControl?.NoStore == true, "Queue updates are authenticated, CSRF-protected and no-store.");
+            Check((await stranger.PostAsJsonAsync("/api/listening-queue", queued)).StatusCode == HttpStatusCode.Forbidden, "Queued work cannot cross accounts.");
+            Check((await watch.PostAsJsonAsync("/api/listening-queue", queued with { OperationId = Guid.NewGuid().ToString("N") })).StatusCode == HttpStatusCode.Conflict, "Stale queue writes return 409.");
+            var queueState = await watch.GetFromJsonAsync<JsonElement>("/api/listening-queue");
+            Check(queueState.GetProperty("document").GetProperty("items")[0].GetProperty("partIndex").GetInt32() == 1, "HTTP queue resume preserves exact sections.");
             watch.DefaultRequestHeaders.Add("X-Signal-Progress-Account", NativeNotificationService.AccountKey("another"));
             Check((await watch.GetAsync("/api/listening-progress")).StatusCode == HttpStatusCode.Forbidden, "An old account-scoped reader cannot fetch a newly signed-in account's progress.");
+            Check((await watch.GetAsync("/api/listening-queue")).StatusCode == HttpStatusCode.Forbidden, "Old queue readers cannot read another account after sign-in changes.");
         }
         finally { await app.StopAsync(); if (Directory.Exists(progressDirectory)) Directory.Delete(progressDirectory, true); }
     }

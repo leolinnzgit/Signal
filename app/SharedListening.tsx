@@ -2,6 +2,7 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import ArticleAudioPlayer from "./ArticleAudioPlayer";
 import { SharedListeningClient, sharedListeningKey, type SharedStory } from "./shared-listening";
+import { ListenLaterProvider } from "./ListenLater";
 const Context = createContext<{ client: SharedListeningClient | null; revision: number }>({ client: null, revision: 0 });
 
 export function SharedListeningProvider({ email, children }: { email: string; children: ReactNode }) {
@@ -18,7 +19,7 @@ export function SharedListeningProvider({ email, children }: { email: string; ch
     window.addEventListener("storage", storage);
     return () => { client.dispose(); clearInterval(timer); window.removeEventListener("storage", storage); window.removeEventListener("online", sync); document.removeEventListener("visibilitychange", sync); window.removeEventListener("signal.shared-listening-signout", signout); };
   }, [email]);
-  return <Context.Provider value={{ client, revision }}>{children}</Context.Provider>;
+  return <Context.Provider value={{ client, revision }}><ListenLaterProvider email={email}>{children}</ListenLaterProvider></Context.Provider>;
 }
 export function useSharedListeningReporter(storyUrl: string | undefined, title: string, source: string, imageUrl: string | undefined, parts: string[], offset = 0) {
   const { client } = useContext(Context), lease = useRef({ id: "", started: false, finished: false });

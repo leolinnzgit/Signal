@@ -1,4 +1,5 @@
 "use client";
+import { ListenLater, ListenLaterButton } from "./ListenLater";
 import { SharedListeningResume } from "./SharedListening";
 import WatchListeningHandoff from "./WatchListeningHandoff";
 import { clearPendingWatchHandoff, pendingWatchHandoff } from "./listening-handoff";
@@ -3365,6 +3366,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         </div>
       </header>
       <SharedListeningResume />
+      <ListenLater beforePlay={() => { weatherAudio.stop(); if (readerArticle) closeArticleReader(); if (headlineQueue) closeHeadlinePlayer(); }} />
 
       <section ref={heroElement} className={`hero${controlsHidden ? " controls-hidden" : ""}${heroCompact ? " compact" : ""}`} id="top">
         <div className="hero-copy">
@@ -4269,6 +4271,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                   >
                     <ShareIcon />
                   </button>
+                  <ListenLaterButton url={article.url} title={article.title} source={article.source} imageUrl={article.imageUrl} />
                   {articleStore && (
                     <button
                       type="button"
@@ -4688,6 +4691,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
               )}
               {readerContent.status === "ready" && (
                 <article className="article-reader-content">
+                  <ListenLaterButton url={readerArticle.url} title={readerTranslation?.title ?? readerArticle.title} source={readerArticle.source} imageUrl={readerArticle.imageUrl} paragraphs={readerTranslation?.paragraphs ?? readerContent.article.paragraphs} />
                   <ArticleTranslationControls key={`translation-${readerArticle.url}`} url={readerArticle.url} title={readerArticle.title}
                     translated={readerTranslation !== null} onChange={updateReaderTranslation} />
                   {readerTranslation ? <ArticleAudioPlayer key={`${readerArticle.url}-${readerTranslation.language}`}

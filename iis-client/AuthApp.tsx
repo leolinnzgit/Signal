@@ -5,6 +5,7 @@ import { preparedAudioCache } from "../app/headline-audio";
 import { pendingWatchHandoff } from "../app/listening-handoff";
 import { parseSignalArticleLink, signalArticlePath, type SignalArticleLink } from "../app/article-link";
 import NewsDashboard, { type ArticleHistoryPage, type ArticleStore, type FollowedArticle, type FriendShareStore, type NewsPreferences, type NewsSummary, type PreferencesStore, type PushNotificationStore, type PushSubscriptionPayload, type TopicBriefing, type TopicRefreshStore } from "../app/NewsDashboard";
+import OfflineListenLater from "./OfflineListenLater";
 
 type SessionUser = {
   email: string;
@@ -373,6 +374,7 @@ export default function AuthApp() {
   const initialAuth = query.get("auth");
   const [user, setUser] = useState<SessionUser | null>(null);
   const [checkingSession, setCheckingSession] = useState(true);
+  const [sessionUnavailable, setSessionUnavailable] = useState(false);
   const [googleAvailable, setGoogleAvailable] = useState(false);
   const [view, setView] = useState<AuthView>(initialAuth === "reset" ? "reset" : "login");
   const [notice, setNotice] = useState(() => {
@@ -532,22 +534,26 @@ export default function AuthApp() {
   }
 
   useEffect(() => {
+    if (!navigator.onLine) { setSessionUnavailable(true); setCheckingSession(false); return; }
     void fetch("/api/auth/providers", { credentials: "same-origin", cache: "no-store" })
       .then(async (response) => {
         if (response.ok) {
           const providers = await response.json() as { google?: boolean };
           setGoogleAvailable(providers.google === true);
         }
-      });
+      }).catch(() => { /* Provider information is optional while offline. */ });
 
     void fetch("/api/auth/me", { credentials: "same-origin", cache: "no-store" })
       .then(async (response) => {
         if (response.ok) {
           setUser(await response.json() as SessionUser);
+        } else if (response.status >= 500) {
+          setSessionUnavailable(true);
         } else {
           void updateInstalledAppBadge(0);
         }
       })
+      .catch(() => setSessionUnavailable(true))
       .finally(() => setCheckingSession(false));
   }, []);
 
@@ -590,6 +596,7 @@ export default function AuthApp() {
   }
 
   if (checkingSession) return <AuthLoading />;
+  if (!user && sessionUnavailable) return <OfflineListenLater />;
 
   if (user && initialAuth !== "reset") {
     return (

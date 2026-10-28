@@ -16,7 +16,10 @@ export function validateSharedProgress(raw: unknown): SharedProgress {
 export function sharedListeningKey(email: string) { return `signal.shared-listening.v1.${encodeURIComponent(email.toLowerCase())}`; }
 export function clearSharedListening(email: string) {
   window.dispatchEvent(new CustomEvent("signal.shared-listening-signout", { detail: email.toLowerCase() }));
-  try { localStorage.removeItem(sharedListeningKey(email)); } catch { /* Optional browser storage. */ }
+  try {
+    localStorage.removeItem(sharedListeningKey(email));
+    localStorage.removeItem(`signal.listening-queue.v1.${encodeURIComponent(email.toLowerCase())}`);
+  } catch { /* Optional browser storage. */ }
 }
 /** A single compare-and-swap outbox. Only our own acknowledged write may advance queued local work's base revision. */
 export class SharedListeningClient {

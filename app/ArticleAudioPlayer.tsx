@@ -9,7 +9,7 @@ import { openArticleAudioStream } from "./article-audio-stream";
 import ContinueOnWatch from "./ContinueOnWatch";
 import { useSharedListeningReporter } from "./SharedListening";
 
-export type ArticleAudioPlayerProps = { title: string; source: string; paragraphs: string[]; storyUrl?: string; storyImageUrl?: string; progressParts?: string[]; progressOffset?: number; onTransferLockChange?: (locked: boolean) => void; autoPrepare?: boolean; summaryOnly?: boolean; defaultMode?: "browser" | "recorded"; narrationSections?: ArticleNarrationSection[]; restoreCachedPosition?: boolean; onReadingSectionChange?: (section: ArticleNarrationSection | null, playing: boolean) => void };
+export type ArticleAudioPlayerProps = { onPlaybackComplete?: () => void; title: string; source: string; paragraphs: string[]; storyUrl?: string; storyImageUrl?: string; progressParts?: string[]; progressOffset?: number; onTransferLockChange?: (locked: boolean) => void; autoPrepare?: boolean; summaryOnly?: boolean; defaultMode?: "browser" | "recorded"; narrationSections?: ArticleNarrationSection[]; restoreCachedPosition?: boolean; onReadingSectionChange?: (section: ArticleNarrationSection | null, playing: boolean) => void };
 
 export default function ArticleAudioPlayer(props: ArticleAudioPlayerProps) {
   const [speechSupported] = useState(() => typeof window !== "undefined" && "speechSynthesis" in window && "SpeechSynthesisUtterance" in window);
@@ -30,7 +30,7 @@ export default function ArticleAudioPlayer(props: ArticleAudioPlayerProps) {
   </div>;
 }
 
-function RecordedArticleAudioPlayer({ title, source, paragraphs, storyUrl, storyImageUrl, progressParts, progressOffset, onTransferLockChange, autoPrepare = false, summaryOnly = false, onReadingSectionChange, narrationSections, restoreCachedPosition = true }: ArticleAudioPlayerProps) {
+function RecordedArticleAudioPlayer({ onPlaybackComplete, title, source, paragraphs, storyUrl, storyImageUrl, progressParts, progressOffset, onTransferLockChange, autoPrepare = false, summaryOnly = false, onReadingSectionChange, narrationSections, restoreCachedPosition = true }: ArticleAudioPlayerProps) {
   const readingVoices = useReadingVoices();
   const narrationTitle = summaryOnly && paragraphs.length === 1 && paragraphs[0] === title ? "" : title;
   const sections = useMemo(() => { try { return narrationSections ?? recordedArticleNarrationSections(narrationTitle, paragraphs); } catch { return []; } }, [narrationTitle, paragraphs, readingVoices.loading, narrationSections]);
@@ -267,7 +267,7 @@ function RecordedArticleAudioPlayer({ title, source, paragraphs, storyUrl, story
         onCanPlay={restoreStreamPosition} onProgress={restoreStreamPosition}
         onPlay={() => { updatePlayback(true); updatePosition(); }} onPause={() => updatePlayback(false)}
         onTimeUpdate={updatePosition} onSeeking={updatePosition}
-        onEnded={() => { shared.complete(); updatePlayback(false); setReadingSection(null); setMessage(summaryOnly ? "Finished reading the summary." : "Finished reading this article."); }}
+        onEnded={() => { shared.complete(); onPlaybackComplete?.(); updatePlayback(false); setReadingSection(null); setMessage(summaryOnly ? "Finished reading the summary." : "Finished reading this article."); }}
         onError={() => { setError("The recording could not be played. Try preparing the audio again."); setPlaying(false); setReadingSection(null); setUrl(""); }} />
       <label>Speaking speed <select value={rate} onChange={(event) => setRate(Number(event.target.value))}>{[0.8, 1, 1.1, 1.2].map((value) => <option key={value} value={value}>{value}×</option>)}</select></label>
       <p role="status">{message}</p>

@@ -1,0 +1,108 @@
+"use client";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import ArticleAudioPlayer from "./ArticleAudioPlayer";
+import { recordedArticleNarrationSections } from "./headline-audio";
+import { ListeningQueueClient, listeningQueueKey, queueImage } from "./listening-queue";
+import type { SharedStory } from "./shared-listening";
+const Context = createContext<{ client: ListeningQueueClient | null; revision: number; offline: boolean }>({ client: null, revision: 0, offline: false });
+export function ListenLaterProvider({ email, children, syncEnabled = true }: { email: string; children: ReactNode; syncEnabled?: boolean }) {
+  const [client, setClient] = useState<ListeningQueueClient | null>(null), [revision, redraw] = useState(0);
+  useEffect(() => {
+    let browserStorage: Storage | null = null; try { browserStorage = localStorage; } catch { /* Optional storage. */ }
+    const client = new ListeningQueueClient(email, browserStorage, () => redraw(value => value + 1), fetch, syncEnabled); setClient(client);
+    const sync = () => { if (!document.hidden) void client.sync(); };
+    const signout = (event: Event) => { if ((event as CustomEvent<string>).detail === email.toLowerCase()) { client.dispose(true); setClient(null); } };
+    const storage = (event: StorageEvent) => { if (event.key === listeningQueueKey(email) && event.newValue === null) { client.dispose(); setClient(null); } };
+    sync(); const timer = setInterval(sync, 15000);
+    window.addEventListener("online", sync); document.addEventListener("visibilitychange", sync);
+    window.addEventListener("signal.shared-listening-signout", signout); window.addEventListener("storage", storage);
+    return () => { client.dispose(); clearInterval(timer); window.removeEventListener("online", sync); document.removeEventListener("visibilitychange", sync); window.removeEventListener("signal.shared-listening-signout", signout); window.removeEventListener("storage", storage); };
+  }, [email, syncEnabled]);
+  return <Context.Provider value={{ client, revision, offline: !syncEnabled }}>{children}</Context.Provider>;
+}
+export function ListenLaterButton({ url, title, source, imageUrl = "", paragraphs }: { url: string; title: string; source: string; imageUrl?: string; paragraphs?: string[] }) {
+  const { client } = useContext(Context), [busy, setBusy] = useState(false), [error, setError] = useState("");
+  const lifetime = useRef<AbortController | null>(null);
+  useEffect(() => () => lifetime.current?.abort(), []);
+  if (!client) return null;
+  const queued = client.saved().items.some(item => item.url === url);
+  async function add() {
+    if (!client || busy) return;
+    if (queued) { client.remove(url); return; }
+    setBusy(true); setError(""); const abort = new AbortController(); lifetime.current = abort;
+    try {
+      let text = paragraphs;
+      if (!text) {
+        const response = await fetch(`/api/article-reader?${new URLSearchParams({ url })}`, { credentials: "same-origin", cache: "no-store", signal: AbortSignal.any([abort.signal, AbortSignal.timeout(15000)]) });
+        if (!response.ok) throw new Error("Connect to download this story for Listen later.");
+        const result = await response.json(); text = result.available ? result.article?.paragraphs : null;
+      }
+      if (!text?.length) throw new Error("Full text is unavailable for this story. Open the publisher link to read it.");
+      const parts = recordedArticleNarrationSections(title, text).map(section => section.text);
+      const image = queueImage(imageUrl);
+      if (!abort.signal.aborted) client.add({ url, title, source, imageUrl: image, parts, partIndex: 0 });
+    } catch (reason) { if (!abort.signal.aborted) setError(reason instanceof Error ? reason.message : "This story could not be queued."); }
+    finally { if (!abort.signal.aborted) setBusy(false); }
+  }
+  return <span className="listen-later-add"><button type="button" aria-pressed={queued} disabled={busy} onClick={() => void add()} aria-label={`${queued ? "Remove from" : "Add to"} Listen later: ${title}`}>
+    {busy ? "Saving text…" : queued ? "Queued ✓" : "Listen later +"}</button>{error && <span role="status">{error}</span>}</span>;
+}
+export function ListenLater({ beforePlay }: { beforePlay?: () => void }) {
+  const { client, offline } = useContext(Context), [story, setStory] = useState<SharedStory | null>(null), [starting, setStarting] = useState(false);
+  const lease = useRef(""), started = useRef(false), finished = useRef(false);
+  if (!client) return null;
+  const queue = client.saved();
+  async function play(url: string) {
+    if (!client || starting) return; setStarting(true);
+    if (navigator.onLine) await Promise.race([client.sync(), new Promise<void>(resolve => setTimeout(resolve, 2500))]);
+    const item = client.saved().items.find(item => item.url === url);
+    if (item) {
+      lease.current = crypto.randomUUID(); started.current = false; finished.current = false;
+      if (client.begin(lease.current, item.url)) { beforePlay?.(); setStory(structuredClone(item)); }
+    }
+    setStarting(false);
+  }
+  function complete() {
+    if (!client || !story || !started.current || finished.current) return;
+    finished.current = true;
+    const next = client.finish(lease.current, story.url);
+    if (next) { started.current = false; finished.current = false; setStory(next); }
+    else setStory(null);
+  }
+  return <section className="listen-later shared-listening-resume" aria-label="Listen later">
+    <h2>Listen later <span>({queue.items.length}/10)</span></h2>
+    <p>Save full stories here, then listen on your phone or Watch. Saved text works offline with a device voice. Finished stories leave the queue.</p>
+    {queue.items.length > 0 ? <>
+      <button type="button" disabled={starting || !!story} onClick={() => void play(queue.currentUrl!)}>{starting ? "Checking queue…" : "Play Listen later"}</button>
+      <ol>{queue.items.map((item, index) => <li key={item.url}>
+        <div><strong>{item.title}</strong><small>{item.source} · Section {item.partIndex + 1}/{item.parts.length}{queue.currentUrl === item.url ? " · Up next" : ""}</small></div>
+        <div className="listen-later-actions">
+          <button type="button" disabled={starting || !!story} onClick={() => void play(item.url)} aria-label={`Play ${item.title}`}>Play</button>
+          <button type="button" disabled={index === 0} onClick={() => client.move(item.url, -1)} aria-label={`Move up: ${item.title}`}>↑</button>
+          <button type="button" disabled={index === queue.items.length - 1} onClick={() => client.move(item.url, 1)} aria-label={`Move down: ${item.title}`}>↓</button>
+          <button type="button" onClick={() => { client.remove(item.url); if (story?.url === item.url) setStory(null); }} aria-label={`Remove ${item.title}`}>Remove</button>
+        </div>
+      </li>)}</ol>
+    </> : <p>Your queue is empty. Use Listen later beside a story to save it.</p>}
+    {client.message && <p role="status">{client.message}</p>}
+    {story && <QueueStory key={story.url} story={story} offline={offline} close={() => setStory(null)} complete={complete} track={(index, playing) => {
+      if (playing) started.current = true;
+      if (started.current && !finished.current) client.track(lease.current, story.url, index);
+    }} />}
+  </section>;
+}
+function QueueStory({ story, close, complete, track, offline }: { story: SharedStory; close: () => void; complete: () => void; track: (index: number, playing: boolean) => void; offline: boolean }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const callbacks = useRef({ complete, track }); callbacks.current = { complete, track };
+  useEffect(() => { dialog.current?.showModal(); return () => dialog.current?.close(); }, []);
+  const sections = useRef(story.parts.slice(story.partIndex).map((text, index) => ({ text, paragraphIndex: story.partIndex + index, start: 0, end: text.length })));
+  return <dialog ref={dialog} className="watch-listening-handoff" aria-label="Listen later player" onCancel={event => { event.preventDefault(); close(); }}>
+    <button type="button" onClick={close}>Close Listen later player</button><h2>{story.title}</h2><p>{story.source} · Saved section {story.partIndex + 1}</p>
+    {story.imageUrl && <img src={story.imageUrl} alt="" referrerPolicy="no-referrer" loading="lazy" style={{ width: "100%", maxHeight: 220, objectFit: "cover", borderRadius: 10 }} onError={event => { event.currentTarget.style.display = "none"; }} />}
+    <ArticleAudioPlayer title={story.title} source={story.source} storyUrl={story.url} storyImageUrl={story.imageUrl} paragraphs={story.parts}
+      narrationSections={sections.current} progressParts={story.parts} progressOffset={story.partIndex} restoreCachedPosition={false} autoPrepare
+      defaultMode={!offline && navigator.onLine ? "recorded" : "browser"} onPlaybackComplete={() => callbacks.current.complete()}
+      onReadingSectionChange={(section, playing) => { if (section) callbacks.current.track(section.paragraphIndex, playing); }} />
+    <details><summary>Read saved text</summary>{story.parts.map((text, index) => <p key={index}>{text}</p>)}</details>
+  </dialog>;
+}

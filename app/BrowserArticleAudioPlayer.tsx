@@ -12,7 +12,7 @@ import {
   rankHeadlineVoices, selectHeadlineVoice, browserSpeechRequiresTap, browserSpeechErrorMessage, DEVICE_DEFAULT_SPEECH_VOICE,
 } from "./headline-playback";
 
-export default function BrowserArticleAudioPlayer({ title, source, paragraphs, storyUrl, storyImageUrl, progressParts, progressOffset, onTransferLockChange, autoPrepare = false, summaryOnly = false, onRecordedAudio, onReadingSectionChange, narrationSections }: ArticleAudioPlayerProps & { onRecordedAudio?: () => void }) {
+export default function BrowserArticleAudioPlayer({ onPlaybackComplete, title, source, paragraphs, storyUrl, storyImageUrl, progressParts, progressOffset, onTransferLockChange, autoPrepare = false, summaryOnly = false, onRecordedAudio, onReadingSectionChange, narrationSections }: ArticleAudioPlayerProps & { onRecordedAudio?: () => void }) {
   const sections = useMemo(() => {
     try { return narrationSections ?? articleNarrationSections(summaryOnly && paragraphs.length === 1 && paragraphs[0] === title ? "" : title, paragraphs, 240); }
     catch { return []; }
@@ -113,7 +113,7 @@ export default function BrowserArticleAudioPlayer({ title, source, paragraphs, s
   }, [parts, index, completed, preferences.rate, preferredId, voicesReady, paused]);
 
   useEffect(() => () => disposePlayback(), []);
-  useEffect(() => { if (completed) shared.complete(); else shared.track(index, !paused && started); }, [index, completed, paused, started, parts]);
+  useEffect(() => { if (completed) { shared.complete(); onPlaybackComplete?.(); } else shared.track(index, !paused && started); }, [index, completed, paused, started, parts]);
 
   useEffect(() => {
     onReadingSectionChange?.(completed ? null : readingSection,
