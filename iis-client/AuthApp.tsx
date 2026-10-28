@@ -1,3 +1,4 @@
+import SeasonalBrand, { SeasonalEdition } from "../app/SeasonalBrand";
 import { ChangeEvent, FormEvent, useEffect, useId, useRef, useState } from "react";
 import { updateInstalledAppBadge } from "../app/app-badge";
 import { prepareProfilePhoto } from "../app/profile-photo";
@@ -685,7 +686,7 @@ export default function AuthApp() {
 function AuthLoading() {
   return (
     <main className="auth-shell auth-loading" aria-label="Checking your session">
-      <span className="brand"><img className="brand-mark" src="/icons/signal-medallion-64.png" alt="" aria-hidden="true" />SIGNAL</span>
+      <span className="brand"><SeasonalBrand />SIGNAL</span>
       <span className="auth-spinner" aria-hidden="true" />
     </main>
   );
@@ -737,10 +738,11 @@ function AuthScreen(props: AuthScreenProps) {
     <main className="auth-shell">
       <section className="auth-intro">
         <a className="brand" href="/" aria-label="Signal home">
-          <img className="brand-mark" src="/icons/signal-medallion-64.png" alt="" aria-hidden="true" />
+          <SeasonalBrand />
           SIGNAL
         </a>
         <div>
+          <SeasonalEdition />
           <p className="eyebrow">Your interests, continuously monitored</p>
           <h1>Stay current on<br /><em>what matters.</em></h1>
           <p>Build one private briefing from the topics and publishers you trust.</p>

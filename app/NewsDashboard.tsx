@@ -1,4 +1,5 @@
 "use client";
+import SeasonalBrand, { SeasonalEdition } from "./SeasonalBrand";
 import { ListenLaterButton } from "./ListenLater";
 import ListeningLibrary from "./ListeningLibrary";
 import WatchListeningHandoff from "./WatchListeningHandoff";
@@ -3093,7 +3094,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
       <HandGestureControls />
       <header ref={headerElement} className="site-header">
         <a className="brand" href="#top" aria-label="Signal home">
-          <img className="brand-mark" src="/icons/signal-medallion-64.png" alt="" aria-hidden="true" />
+          <SeasonalBrand />
           <span>SIGNAL</span>
         </a>
         <div className="header-actions">
@@ -3368,6 +3369,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
       </header>
       <section ref={heroElement} className={`hero${controlsHidden ? " controls-hidden" : ""}${heroCompact ? " compact" : ""}`} id="top">
         <div className="hero-copy">
+          <SeasonalEdition />
           <p className="eyebrow">Your interests, continuously monitored</p>
           <h1>Stay current on<br />{" "}<em>what matters.</em></h1>
           <p className="lede">One focused briefing across multiple news networks and the publishers you trust.</p>

@@ -1,0 +1,36 @@
+html[data-season="halloween"] {
+  --mint: #ffb16b;
+  --muted: #c5b2c8;
+  --surface: #2b2033;
+  --bg: #130f19;
+}
+html[data-season="halloween"] body { background: #130f19; color: #fff1e2; }
+html[data-season="halloween"] a { color: #ffb16b; }
+html[data-season="halloween"] .brand::before {
+  content: ""; display: inline-block; width: 32px; height: 32px;
+  background: url('/icons/signal-halloween.svg') center / contain no-repeat;
+  vertical-align: middle; margin-right: 8px; flex-shrink: 0;
+}
+html[data-season="halloween"] .brand i { display: none; }
+html[data-season="halloween"] .eyebrow::before { content: "Halloween edition · "; }
+html[data-season="halloween"] .wordmark::before {
+  content: ""; display: block; width: 32px; height: 32px; margin: 0 auto 8px;
+  background: url('/icons/signal-halloween.svg') center / contain no-repeat;
+}
+html[data-season="halloween"] .watch-area { background: radial-gradient(ellipse at center, #9f5bbf33, transparent 65%); }
+html[data-season="halloween"] .screen { background: #130f19; border-color: #08060c; }
+html[data-season="halloween"] .clock { background: linear-gradient(#130f19 60%, transparent); color: #e4d0e8; }
+html[data-season="halloween"] .strap { background: linear-gradient(90deg, #17111e, #3d2a46 20%, #291e32 70%, #17111e); border-color: #5a4265; }
+html[data-season="halloween"] .card,
+html[data-season="halloween"] .chip { background: #2b2033; color: #fff1e2; border-color: #60456b; }
+html[data-season="halloween"] input { background: #1c1523; border-color: #92799c; }
+html[data-season="halloween"] button,
+html[data-season="halloween"] .button,
+html[data-season="halloween"] .download { background: #ffb16b; color: #24142a; }
+html[data-season="halloween"] .nav button { background: transparent; color: #ead4ed; border-color: #60456b; }
+html[data-season="halloween"] .nav button[aria-pressed="true"] { background: #ffb16b; color: #24142a; border-color: #ffb16b; }
+html[data-season="halloween"] .summary,
+html[data-season="halloween"] .muted,
+html[data-season="halloween"] footer { color: #c5b2c8; }
+html[data-season="halloween"] .urgent-warning .chip { background: #b3261e; color: white; }
+html[data-season="halloween"] .urgent-warning .demo { color: #ffb4ab; }

@@ -1,3 +1,4 @@
+import {previewHandler} from './preview-assets.mjs';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { readFile, mkdir } from 'node:fs/promises';
@@ -7,6 +8,7 @@ const { chromium } = require(process.env.SIGNAL_PLAYWRIGHT_MODULE || 'playwright
 let ready = false;
 const server = createServer(async (req, res) => {
   const path = new URL(req.url, 'http://localhost').pathname;
+  if (['/seasonal-branding.js', '/signalwatch/halloween.css', '/icons/signal-halloween.svg'].includes(path)) return previewHandler('')(req, res);
   if (path === '/api/native/status') {
     res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify({ ready }));
   }

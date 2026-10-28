@@ -1,5 +1,34 @@
 # SignalWatch release preparation
 
+
+## Halloween edition: SignalWatch 0.18.1 (30)
+
+[Seasonal branding](halloween-theme.md) adds a pumpkin mark, orange accents and
+plum surfaces to the native app, briefing tile, web app and browser preview.
+The device's local October calendar controls the theme; standard branding
+returns in November. Signal Companion remains 0.12.0 (21).
+
+Native source commit: `7f33f05`. All 106 release JVM tests passed; release lint
+reported zero errors (38 warnings). Signed APK/AAB, bundletool, unchanged upload
+certificate, 64-bit/16 KB alignment and private-file checks passed. Checked
+outputs: `../SignalWatch/outputs/play-release/0.18.1-30/`. APK SHA256:
+`5ba21932779fedc4c661e300c97513db0b189c8ca63e4c965b7b7d1315c1661e`.
+
+Web validation passed client type checking, 228 client tests, the production IIS
+build, phone/desktop light/dark layouts, local October/November date boundaries,
+midnight/foreground branding reset, offline reopening, watch preview interactions,
+images, queue, Resume, phone approvals and disaster warning colors. IIS storage,
+watchdog and publication-script syntax checks passed. No ADB devices were
+connected; physical watch QA remains outstanding. No Google Play upload was made.
+
+
+Publication verification (28 October 2026): the existing IIS app and both Watch
+download channels serve this release. Both HTTPS APK hashes match the checked
+release above; deployed seasonal assets and the service worker match source.
+Live phone/desktop app and preview checks passed. Publication backed up the
+database and preserved recorded production configuration hashes.
+
+
 ## Listen later: SignalWatch 0.18.0 (29)
 
 Save full stories with **Listen later +** on the phone feed or reader, or **Add to Listen later** on Watch. Phone controls reorder or remove stories; Watch offers Play Listen later, individual story playback and removal. Reordering preserves the selected story and its saved section. Selecting another story starts there and cycles through the remaining queue. Finished or skipped stories leave the queue, without changing read/bookmark status. Additions and reorders during Watch playback apply on the next queue start; the playing snapshot remains fixed.

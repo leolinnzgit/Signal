@@ -1,8 +1,10 @@
-const STATIC_CACHE = "signal-static-v9";
+const STATIC_CACHE = "signal-static-v10";
 const APP_BADGE_MESSAGE = "signal:update-app-badge";
 const NEWS_NOTIFICATION_TAG = "signal-new-stories";
 const publicShell = (html) => /<div\s+id=["']root["']\s*>\s*<\/div>/i.test(html) && /["']\/assets\/index-[^"']+\.js["']/i.test(html);
 const STATIC_ASSETS = [
+  "/seasonal-branding.js",
+  "/icons/signal-halloween.svg",
   "/manifest.webmanifest",
   "/icons/signal-medallion-64.png",
   "/icons/signal-medallion-180.png",

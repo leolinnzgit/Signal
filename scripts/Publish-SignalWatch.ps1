@@ -67,7 +67,7 @@ if ($NotificationPreview) {
 }
 $releaseInfo |
     ConvertTo-Json | Set-Content -LiteralPath (Join-Path $source 'release.json') -Encoding utf8
-$files = @('index.html', 'SignalWatch-release.apk', 'SignalWatch-debug.apk', 'release.json', 'web.config', 'connect.html', 'connect.js', 'support.css', 'privacy.html', 'data-deletion.html', 'promo-briefing.png', 'promo-saved.png')
+$files = @('index.html', 'SignalWatch-release.apk', 'SignalWatch-debug.apk', 'release.json', 'web.config', 'connect.html', 'connect.js', 'support.css', 'halloween.css', 'privacy.html', 'data-deletion.html', 'promo-briefing.png', 'promo-saved.png')
 if ($NotificationPreview) { $files = @('index.html', 'SignalWatch-release.apk', 'SignalCompanion-release.apk', 'release.json', 'web.config') }
 $backup = Join-Path $repository ('work\signalwatch-backups\' + [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss'))
 New-Item -ItemType Directory -Force -Path $target, $backup | Out-Null
@@ -84,10 +84,12 @@ foreach ($name in $before.Keys) {
     if ((Get-FileHash -LiteralPath (Join-Path $site $name)).Hash -ne $before[$name]) { throw "A protected production file changed: $name" }
 }
 if ($NotificationPreview) {
-    foreach ($name in @('connect.js', 'support.css', 'privacy.html')) {
+    foreach ($name in @('connect.js', 'support.css', 'halloween.css', 'privacy.html')) {
         $destination = Join-Path $site "signalwatch/$name"
-        if ((Get-Item -LiteralPath $destination).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Support publication cannot follow redirected files.' }
-        Copy-Item -LiteralPath $destination -Destination (Join-Path $backup $name) -Force
+        if (Test-Path -LiteralPath $destination) {
+            if ((Get-Item -LiteralPath $destination).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Support publication cannot follow redirected files.' }
+            Copy-Item -LiteralPath $destination -Destination (Join-Path $backup $name) -Force
+        }
         Copy-Item -LiteralPath (Join-Path $supportSource $name) -Destination $destination -Force
         if ((Get-FileHash -LiteralPath $destination).Hash -ne (Get-FileHash -LiteralPath (Join-Path $supportSource $name)).Hash) { throw "Published support hash mismatch: $name" }
     }

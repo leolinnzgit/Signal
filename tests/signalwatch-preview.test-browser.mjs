@@ -1,3 +1,4 @@
+import {previewHandler} from './preview-assets.mjs';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { readFile, mkdir } from 'node:fs/promises';
@@ -5,7 +6,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.SIGNAL_PLAYWRIGHT_MODULE || 'playwright');
 const html = await readFile(new URL('../public/signalwatch/index.html', import.meta.url));
-const server = createServer((_req, res) => { res.setHeader('Content-Type', 'text/html'); res.end(html); });
+const server = createServer(previewHandler(html));
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 let browser;
 try {
