@@ -1,6 +1,6 @@
 "use client";
-import { ListenLater, ListenLaterButton } from "./ListenLater";
-import { SharedListeningResume } from "./SharedListening";
+import { ListenLaterButton } from "./ListenLater";
+import ListeningLibrary from "./ListeningLibrary";
 import WatchListeningHandoff from "./WatchListeningHandoff";
 import { clearPendingWatchHandoff, pendingWatchHandoff } from "./listening-handoff";
 
@@ -3148,6 +3148,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
             <span className="theme-toggle-icon" aria-hidden="true">{theme === "dark" ? "\u263E" : "\u2600"}</span>
             <span className="theme-toggle-label">{theme === "dark" ? "Dark" : theme === "light" ? "Light" : "Theme"}</span>
           </button>
+          <ListeningLibrary beforePlay={() => { weatherAudio.stop(); if (readerArticle) closeArticleReader(); if (headlineQueue) closeHeadlinePlayer(); }} />
           <AppSettings
             briefing={<>
           <div className="settings-row">
@@ -3365,9 +3366,6 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           </div>
         </div>
       </header>
-      <SharedListeningResume />
-      <ListenLater beforePlay={() => { weatherAudio.stop(); if (readerArticle) closeArticleReader(); if (headlineQueue) closeHeadlinePlayer(); }} />
-
       <section ref={heroElement} className={`hero${controlsHidden ? " controls-hidden" : ""}${heroCompact ? " compact" : ""}`} id="top">
         <div className="hero-copy">
           <p className="eyebrow">Your interests, continuously monitored</p>
@@ -4271,7 +4269,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                   >
                     <ShareIcon />
                   </button>
-                  <ListenLaterButton url={article.url} title={article.title} source={article.source} imageUrl={article.imageUrl} />
+                  <ListenLaterButton compact url={article.url} title={article.title} source={article.source} imageUrl={article.imageUrl} />
                   {articleStore && (
                     <button
                       type="button"

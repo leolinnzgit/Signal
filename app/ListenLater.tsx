@@ -20,7 +20,10 @@ export function ListenLaterProvider({ email, children, syncEnabled = true }: { e
   }, [email, syncEnabled]);
   return <Context.Provider value={{ client, revision, offline: !syncEnabled }}>{children}</Context.Provider>;
 }
-export function ListenLaterButton({ url, title, source, imageUrl = "", paragraphs }: { url: string; title: string; source: string; imageUrl?: string; paragraphs?: string[] }) {
+export function useListenLaterCount() {
+  const { client } = useContext(Context); return client ? client.saved().items.length : null;
+}
+export function ListenLaterButton({ url, title, source, imageUrl = "", paragraphs, compact = false }: { url: string; title: string; source: string; imageUrl?: string; paragraphs?: string[]; compact?: boolean }) {
   const { client } = useContext(Context), [busy, setBusy] = useState(false), [error, setError] = useState("");
   const lifetime = useRef<AbortController | null>(null);
   useEffect(() => () => lifetime.current?.abort(), []);
@@ -44,17 +47,20 @@ export function ListenLaterButton({ url, title, source, imageUrl = "", paragraph
     } catch (reason) { if (!abort.signal.aborted) setError(reason instanceof Error ? reason.message : "This story could not be queued."); }
     finally { if (!abort.signal.aborted) setBusy(false); }
   }
-  return <span className="listen-later-add"><button type="button" aria-pressed={queued} disabled={busy} onClick={() => void add()} aria-label={`${queued ? "Remove from" : "Add to"} Listen later: ${title}`}>
-    {busy ? "Saving text…" : queued ? "Queued ✓" : "Listen later +"}</button>{error && <span role="status">{error}</span>}</span>;
+  return <span className={`listen-later-add${compact ? " listen-later-add-compact" : ""}`}><button type="button" aria-pressed={queued} aria-busy={busy} disabled={busy} onClick={() => void add()} aria-label={`${queued ? "Remove from" : "Add to"} Listen later: ${title}`} title={busy ? "Saving story text…" : queued ? "Remove from Listen later" : "Add to Listen later"}>
+    {compact ? <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10M4 12h10M4 18h7" />{queued ? <path d="m15 17 2 2 4-5" /> : <path d="M18 14v7m-3.5-3.5h7" />}</svg> : busy ? "Saving text…" : queued ? "Queued ✓" : "Listen later +"}</button>{error && <span role="status">{error}</span>}</span>;
 }
 export function ListenLater({ beforePlay }: { beforePlay?: () => void }) {
   const { client, offline } = useContext(Context), [story, setStory] = useState<SharedStory | null>(null), [starting, setStarting] = useState(false);
   const lease = useRef(""), started = useRef(false), finished = useRef(false);
+  const active = useRef(true);
+  useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
   if (!client) return null;
   const queue = client.saved();
   async function play(url: string) {
     if (!client || starting) return; setStarting(true);
     if (navigator.onLine) await Promise.race([client.sync(), new Promise<void>(resolve => setTimeout(resolve, 2500))]);
+    if (!active.current) return;
     const item = client.saved().items.find(item => item.url === url);
     if (item) {
       lease.current = crypto.randomUUID(); started.current = false; finished.current = false;

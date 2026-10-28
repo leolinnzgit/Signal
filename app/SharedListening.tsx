@@ -39,14 +39,21 @@ export function useSharedListeningReporter(storyUrl: string | undefined, title: 
   };
 }
 
-export function SharedListeningResume() {
+export function useSavedListeningSummary() {
+  const { client } = useContext(Context); return { available: !!client, hasStory: !!client?.saved() };
+}
+export function SharedListeningResume({ beforePlay }: { beforePlay?: () => void }) {
   const { client } = useContext(Context), [open, setOpen] = useState(false), [story, setStory] = useState<SharedStory | null>(null);
   const [starting, setStarting] = useState(false);
+  const active = useRef(true);
+  useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
   const saved = client?.saved();
   async function resume() {
     if (!client || starting) return; setStarting(true);
     if (navigator.onLine) await Promise.race([client.sync(), new Promise<void>(resolve => setTimeout(resolve, 3000))]);
+    if (!active.current) return;
     if (client.saved()) {
+      beforePlay?.();
       setStory(structuredClone(client.saved())); setOpen(true);
     }
     setStarting(false);
