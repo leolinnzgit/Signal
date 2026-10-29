@@ -30,8 +30,23 @@ try{
  await page.getByRole('button',{name:'Next section',exact:true}).click();await page.waitForFunction(()=>JSON.parse(localStorage.getItem('signal.listening-queue.v1.owner%40example.com')).pending?.document.items[0].partIndex===2);
  await page.getByRole('button',{name:'Close Listen later player'}).click();await page.reload();assert.match(await page.locator('.listen-later').innerText(),/Section 3\/3/);
  await mkdir('work/listening-queue',{recursive:true});await page.screenshot({path:'work/listening-queue/offline-phone.png',fullPage:true});
+ // Install a completed recording locally, then reopen with the whole network offline.
+ await page.evaluate(async()=>{
+  const queue=JSON.parse(localStorage.getItem('signal.listening-queue.v1.owner%40example.com'));
+  const story=(queue.pending?.document??queue.progress.document).items[0];
+  const header=new ArrayBuffer(44),v=new DataView(header),n=96000;
+  const tag=(i,s)=>[...s].forEach((c,j)=>v.setUint8(i+j,c.charCodeAt(0)));
+  tag(0,'RIFF');tag(8,'WAVEfmt ');tag(36,'data');v.setUint32(4,n+36,true);v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,16000,true);v.setUint32(28,32000,true);v.setUint16(32,2,true);v.setUint16(34,16,true);v.setUint32(40,n,true);
+  const db=await new Promise(resolve=>{const request=indexedDB.open('signal-queue-audio-v1',1);request.onupgradeneeded=()=>request.result.createObjectStore('audio',{keyPath:'key'});request.onsuccess=()=>resolve(request.result)});
+  await new Promise((resolve,reject)=>{const tx=db.transaction('audio','readwrite');tx.objectStore('audio').put({key:JSON.stringify(['owner@example.com',story.url]),account:'owner@example.com',url:story.url,parts:story.parts,voices:{en:'saved',zh:''},blob:new Blob([header,new Uint8Array(n)],{type:'audio/wav'}),starts:[0,1,2]});tx.oncomplete=resolve;tx.onerror=reject});db.close();
+ });
+ await page.reload();await page.getByRole('button',{name:'Remove downloaded audio: Offline story',exact:true}).waitFor();
+ await page.getByRole('button',{name:'Play Listen later',exact:true}).click();await page.getByText('Downloaded audio · saved recorded voice',{exact:true}).waitFor();await page.waitForFunction(()=>document.querySelector('audio')?.duration===1);
+ assert.equal(await page.evaluate(()=>window.offlineSpeech.length),0,'Downloaded PCM plays without falling back to a device voice');
+ await page.getByRole('button',{name:'Close Listen later player',exact:true}).click();
  await page.getByRole('button',{name:'Remove offline copy from this device'}).click();assert.equal(await page.evaluate(()=>localStorage.getItem('signal.listening-queue.v1.owner%40example.com')),null);
+ await page.waitForFunction(async()=>{const db=await new Promise(resolve=>{const r=indexedDB.open('signal-queue-audio-v1',1);r.onsuccess=()=>resolve(r.result)});return new Promise(resolve=>{const r=db.transaction('audio').objectStore('audio').count();r.onsuccess=()=>{db.close();resolve(r.result===0)}})});
  authentication=401;await context.setOffline(false);await page.getByRole('button',{name:'Reconnect to Signal'}).click();await page.getByRole('button',{name:'Sign in',exact:true}).waitFor();assert.equal(await page.getByRole('heading',{name:'Offline Listen later',exact:true}).count(),0);
- assert.equal(requests.some(path=>path==='/api/listening-queue'),false);assert.deepEqual(errors,[]);console.log('PASS built IIS client: cached public shell, genuine network-offline reopen, exact device-voice resume, local outbox, offline copy removal, and 401 remains sign-in');
+ assert.equal(requests.some(path=>path==='/api/listening-queue'),false);assert.deepEqual(errors,[]);console.log('PASS built IIS client: cached public shell, genuine network-offline reopen, exact device-voice and downloaded PCM resume, local outbox, offline copy/media removal, and 401 remains sign-in');
  await context.close();
 }finally{await browser?.close();await new Promise(resolve=>server.close(resolve))}

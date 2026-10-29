@@ -21,16 +21,16 @@ try{
   });
   const item=n=>({url:`https://example.com/${n}`,title:n===1?'A quieter way to keep up with the stories that matter':n===2?'How clean energy is changing the cities we live in':'What researchers learned from a year of listening',source:'Publisher',imageUrl:'',parts:['Heading.','Saved section.','Final section.'],partIndex:1});
   const state=document=>({accountKey:'A'.repeat(64),accountEmail:'owner@example.com',version:'1'.repeat(32),state:'active',updatedAt:new Date().toISOString(),document});
-  let queue=state({items:[item(1),item(2),item(3)],currentUrl:item(1).url}),saved=state(item(1)),serial=1,delayProgress=false;
+  let queue=state({items:[item(1),item(2),item(3)],currentUrl:item(1).url}),saved=state(item(1)),serial=1,delayProgress=false;const pendingProgress=[];
   await page.route('**/api/**',async route=>{
    const request=route.request(),path=new URL(request.url()).pathname;
    if(path==='/api/listening-queue'||path==='/api/listening-progress'){
-    if(path==='/api/listening-progress'&&delayProgress)await new Promise(resolve=>setTimeout(resolve,700));
+    if(path==='/api/listening-progress'&&delayProgress)await new Promise(resolve=>pendingProgress.push(resolve));
     if(request.method()==='POST'){
      const body=request.postDataJSON();const next={...state(body.document),version:(++serial).toString(16).padStart(32,'0')};
      if(path==='/api/listening-queue')queue=next;else saved={...next,state:body.action==='save'?'active':'forgotten'};
     }
-    return route.fulfill({json:path==='/api/listening-queue'?queue:saved});
+    return route.fulfill({json:path==='/api/listening-queue'?queue:saved}).catch(()=>{});
    }
    if(path==='/api/auth/csrf')return route.fulfill({json:{token:'csrf'}});
    if(path==='/api/news')return route.fulfill({json:{articles:[{...item(1),publishedAt:new Date().toISOString(),summary:'A sample story in your regular briefing.',matchedTopics:['Technology']}],fetchedAt:new Date().toISOString()}});
@@ -75,6 +75,7 @@ try{
   await trigger.click();await library.getByRole('tab',{name:'Resume',exact:true}).click();
   const speechCount=await page.evaluate(()=>window.librarySpeech.length);
   await library.getByRole('button',{name:'Resume saved story',exact:true}).click();await library.getByRole('button',{name:'Close listening library',exact:true}).click();
+  delayProgress=false;pendingProgress.splice(0).forEach(resolve=>resolve());
   await new Promise(resolve=>setTimeout(resolve,1100));assert.equal(await page.locator('dialog[open]').count(),0);assert.equal(await page.evaluate(()=>window.librarySpeech.length),speechCount);
   assert.deepEqual(errors,[]);await context.close();console.log(`PASS ${width}px: clean header/hero, compact story action, tabs/keyboard, queue reorder/remove, nested Resume and queue players, focus return, dark theme and no horizontal overflow`);
  }

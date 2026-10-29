@@ -19,7 +19,7 @@ function savedAccounts() {
 export default function OfflineListenLater() {
   const [accounts, setAccounts] = useState(savedAccounts), [selected, setSelected] = useState(() => accounts[0] ?? "");
   return <main className="auth-shell offline-listen-later" style={{ display: "block", maxWidth: 1000, margin: "auto", padding: 20 }}>
-    <h1>Offline Listen later</h1><p>Signal cannot connect. You can play the story text saved on this device with a device voice. Changes stay here until you reconnect and sign in to the same account.</p>
+    <h1>Offline Listen later</h1><p>Signal cannot connect. You can listen to downloaded queue audio, or play the story text saved on this device with a device voice. Changes stay here until you reconnect and sign in to the same account.</p>
     <button type="button" onClick={() => location.reload()}>Reconnect to Signal</button>
     {accounts.length > 1 && <label>Saved account <select value={selected} onChange={event => setSelected(event.target.value)}>{accounts.map(email => <option key={email}>{email}</option>)}</select></label>}
     {selected && <p>Saved account: {selected}</p>}

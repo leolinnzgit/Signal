@@ -23,7 +23,7 @@ async function saveServerVoicePreferences(preferences: ReadingVoicePreferences) 
   }
 }
 
-export function useReadingVoices() {
+export function useReadingVoices(enabled = true) {
   const [preferences, setPreferences] = useState<ReadingVoicePreferences>(() => {
     try { return normalizeReadingVoices(JSON.parse(localStorage.getItem(storageKey) ?? "null")); }
     catch { return normalizeReadingVoices(null); }
@@ -33,6 +33,7 @@ export function useReadingVoices() {
   const [error, setError] = useState("");
   const [streaming, setStreaming] = useState(false);
   useEffect(() => {
+    if (!enabled) { setLoading(false); return; }
     const abort = new AbortController();
     void fetch("/api/headline-audio/voices", { credentials: "same-origin", cache: "no-store", signal: abort.signal })
       .then(async (response) => {
@@ -63,7 +64,7 @@ export function useReadingVoices() {
       .catch((reason: unknown) => { if (!abort.signal.aborted) setError(reason instanceof Error ? reason.message : "Voice choices are unavailable."); })
       .finally(() => { if (!abort.signal.aborted) setLoading(false); });
     return () => abort.abort();
-  }, []);
+  }, [enabled]);
   useEffect(() => {
     try { localStorage.setItem(storageKey, JSON.stringify(preferences)); }
     catch { /* Choices still work when device storage is unavailable. */ }

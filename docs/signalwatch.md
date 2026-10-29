@@ -1,5 +1,16 @@
 # SignalWatch release preparation
 
+## Offline queue audio: SignalWatch 0.20.0 (33)
+
+Download one Listen later story or the whole queue on the phone web app or Watch. Downloads use the current recorded reading voices, show progress and support cancellation/retry. Playback prefers a completed local recording, starts at the saved section and advances through the queue. Missing or damaged Watch recordings fall back to streaming when available, then the device voice. Browser offline playback uses a completed local recording or device voice. Queue order, text, shared positions and two-phase handoff remain independent of audio downloads. Media files stay on the downloading device.
+
+The web Listening panel keeps its compact header entry. Its Offline audio disclosure shows storage use, the 100 MB browser-profile cap, queue download/cancel/clear controls and optional removal of audio when stories leave the queue. Each recording is committed to IndexedDB only after synthesis completes; cancelled and failed recordings cannot appear ready. Reloading preserves completed recordings and exact speech section offsets. Browser storage eviction can remove downloaded audio. Watch files and metadata use Android Keystore encryption in app-private no-backup storage, with a 100 MB audio cap, atomic per-section writes and retries that retain completed sections. Changed story text and voices invalidate the relevant recordings. Watch can optionally wait for Wi-Fi and charging while SignalWatch remains open. Keep the app open until downloads complete; background scheduling and automatic restart after process death are not promised. Sign-out clears downloaded media; ordinary cancellation and playback stop do not.
+
+Release validation passed 115 Watch JVM tests, release lint (zero errors, 39 warnings), signed APK/AAB and bundletool verification, unchanged upload certificate, 64-bit/16 KB alignment and private-file exclusion. Checked artifacts: `../SignalWatch/outputs/play-release/0.20.0-33/`. APK SHA256: `7441c63b7121629d17686cdfcdc7715e5640cc8f0c8efb6f888064b81f32c0f4`.
+
+Web validation passed type checking, 250 client tests, the full IIS/server check suite, durable recorded audio with exact section resume, cancellation/retry, account isolation, storage failure, cleanup and sign-out deletion. Phone and desktop queue handoff, preview audio controls and news images passed. The compact Listening panel passed at 360, 390 and 1280 pixels in both seasonal themes. The pending-Resume cancellation regression now holds its mocked response until the panel closes, avoiding a machine-timing dependency.
+
+Companion remains 0.12.0 (21). Physical-device download, screen-off, headphone and interruption QA requires connected hardware. Production build and publication verification are recorded after deployment.
 
 ## Seasonal themes: SignalWatch 0.19.1 (32)
 

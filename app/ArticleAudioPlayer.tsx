@@ -9,7 +9,7 @@ import { openArticleAudioStream } from "./article-audio-stream";
 import ContinueOnWatch, { type QueueTransferSource } from "./ContinueOnWatch";
 import { useSharedListeningReporter } from "./SharedListening";
 
-export type ArticleAudioPlayerProps = { queueTransfer?: QueueTransferSource; onPlaybackComplete?: () => void; title: string; source: string; paragraphs: string[]; storyUrl?: string; storyImageUrl?: string; progressParts?: string[]; progressOffset?: number; onTransferLockChange?: (locked: boolean) => void; autoPrepare?: boolean; summaryOnly?: boolean; defaultMode?: "browser" | "recorded"; narrationSections?: ArticleNarrationSection[]; restoreCachedPosition?: boolean; onReadingSectionChange?: (section: ArticleNarrationSection | null, playing: boolean) => void };
+export type ArticleAudioPlayerProps = { downloadedAudio?: PreparedHeadlineAudio; queueTransfer?: QueueTransferSource; onPlaybackComplete?: () => void; title: string; source: string; paragraphs: string[]; storyUrl?: string; storyImageUrl?: string; progressParts?: string[]; progressOffset?: number; onTransferLockChange?: (locked: boolean) => void; autoPrepare?: boolean; summaryOnly?: boolean; defaultMode?: "browser" | "recorded"; narrationSections?: ArticleNarrationSection[]; restoreCachedPosition?: boolean; onReadingSectionChange?: (section: ArticleNarrationSection | null, playing: boolean) => void };
 
 export default function ArticleAudioPlayer(props: ArticleAudioPlayerProps) {
   const [speechSupported] = useState(() => typeof window !== "undefined" && "speechSynthesis" in window && "SpeechSynthesisUtterance" in window);
@@ -31,8 +31,8 @@ export default function ArticleAudioPlayer(props: ArticleAudioPlayerProps) {
   </div>;
 }
 
-function RecordedArticleAudioPlayer({ queueTransfer, onPlaybackComplete, title, source, paragraphs, storyUrl, storyImageUrl, progressParts, progressOffset, onTransferLockChange, autoPrepare = false, summaryOnly = false, onReadingSectionChange, narrationSections, restoreCachedPosition = true }: ArticleAudioPlayerProps) {
-  const readingVoices = useReadingVoices();
+function RecordedArticleAudioPlayer({ downloadedAudio, queueTransfer, onPlaybackComplete, title, source, paragraphs, storyUrl, storyImageUrl, progressParts, progressOffset, onTransferLockChange, autoPrepare = false, summaryOnly = false, onReadingSectionChange, narrationSections, restoreCachedPosition = true }: ArticleAudioPlayerProps) {
+  const readingVoices = useReadingVoices(!downloadedAudio);
   const narrationTitle = summaryOnly && paragraphs.length === 1 && paragraphs[0] === title ? "" : title;
   const sections = useMemo(() => { try { return narrationSections ?? recordedArticleNarrationSections(narrationTitle, paragraphs); } catch { return []; } }, [narrationTitle, paragraphs, readingVoices.loading, narrationSections]);
   const parts = useMemo(() => sections.length ? sections.map((section) => section.text) : null, [sections]);
@@ -71,11 +71,11 @@ function RecordedArticleAudioPlayer({ queueTransfer, onPlaybackComplete, title, 
   });
 
   useEffect(() => {
-    if (!attempt || readingVoices.loading) return;
+    if (!attempt || !downloadedAudio && readingVoices.loading) return;
     const abort = new AbortController();
     preparation.current = abort;
     let recordingUrl = "";
-    const ready = parts ? preparedAudioCache.get(parts, 3, navigator.language, readingVoices.preferences) : undefined;
+    const ready = downloadedAudio ?? (parts ? preparedAudioCache.get(parts, 3, navigator.language, readingVoices.preferences) : undefined);
     const streamThisArticle = !ready && useStream && readingVoices.streaming && parts;
     recordingKey.current = (streamThisArticle ? "stream:" : "") + preparedAudioCache.key(parts ?? [], 3, navigator.language, readingVoices.preferences);
     setUrl("");
@@ -97,7 +97,7 @@ function RecordedArticleAudioPlayer({ queueTransfer, onPlaybackComplete, title, 
         setUrl(recordingUrl);
         setStarts(recording.starts);
         setPreparing(false);
-        setMessage(ready ? "Audio ready. Tap Play to resume reading." : "Ready. Tap Play if the audio does not start automatically.");
+        setMessage(downloadedAudio ? "Playing downloaded audio from this device." : ready ? "Audio ready. Tap Play to resume reading." : "Ready. Tap Play if the audio does not start automatically.");
     };
     if (ready) useRecording(ready);
     else if (useStream && readingVoices.streaming && parts) {
@@ -149,7 +149,7 @@ function RecordedArticleAudioPlayer({ queueTransfer, onPlaybackComplete, title, 
       if (recordingUrl) URL.revokeObjectURL(recordingUrl);
       else if (useStream && readingVoices.streaming) { audio.current?.pause(); audio.current?.removeAttribute("src"); audio.current?.load(); }
     };
-  }, [attempt, narrationTitle, paragraphs, parts, readingVoices.loading, readingVoices.preferences.en, readingVoices.preferences.zh, readingVoices.streaming, useStream]);
+  }, [downloadedAudio, attempt, narrationTitle, paragraphs, parts, readingVoices.loading, readingVoices.preferences.en, readingVoices.preferences.zh, readingVoices.streaming, useStream]);
 
   useEffect(() => {
     if (!url || !audio.current) return;
@@ -250,8 +250,8 @@ function RecordedArticleAudioPlayer({ queueTransfer, onPlaybackComplete, title, 
       pause={() => { resumePlayback.current = false; audio.current?.pause(); setPlaying(false); updatePosition(); }}
       onLockChange={value => { transferLock.current = value; setTransferLocked(value); onTransferLockChange?.(value); }} />}
     <div inert={transferLocked}>
-    <ReadingVoiceSelector {...readingVoices} selectVoice={selectVoice} active={attempt > 0} playbackActive={playing}
-      onPreviewStart={() => { resumePlayback.current = false; audio.current?.pause(); setPlaying(false); }} />
+    {downloadedAudio ? <p>Downloaded audio · saved recorded voice</p> : <ReadingVoiceSelector {...readingVoices} selectVoice={selectVoice} active={attempt > 0} playbackActive={playing}
+      onPreviewStart={() => { resumePlayback.current = false; audio.current?.pause(); setPlaying(false); }} />}
     {!url && !preparing && <button type="button" onClick={() => { resumePlayback.current = true; setAttempt((current) => current + 1); }}>{error ? "Try audio again" : summaryOnly ? "Read headline and summary aloud" : "Read full news aloud"}</button>}
     {preparing && <>
       <p role="status">{streaming ? "Opening audio stream…" : `Preparing ${summaryOnly ? "summary" : "full article"} audio… ${progress}%`}</p>
