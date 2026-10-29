@@ -8,7 +8,7 @@ const { chromium } = require(process.env.SIGNAL_PLAYWRIGHT_MODULE || 'playwright
 let ready = false;
 const server = createServer(async (req, res) => {
   const path = new URL(req.url, 'http://localhost').pathname;
-  if (['/seasonal-branding.js', '/signalwatch/halloween.css', '/icons/signal-halloween.svg'].includes(path)) return previewHandler('')(req, res);
+  if (['/seasonal-branding.js', '/signalwatch/seasonal.css', '/icons/signal-halloween.svg', '/icons/signal-christmas.svg', '/icons/signal-new-year.svg', '/icons/signal-chinese-new-year.svg'].includes(path)) return previewHandler('')(req, res);
   if (path === '/api/native/status') {
     res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify({ ready }));
   }

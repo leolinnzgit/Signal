@@ -1,0 +1,89 @@
+/* Calendar-based themes share the saved light/dark preference. */
+.brand-mark.brand-mark-seasonal, .seasonal-edition { display: none; }
+.seasonal-edition [data-brand-season] { display: none; }
+html[data-season="halloween"] {
+  --ink: #211525; --paper: #fff1e2; --paper-deep: #f0dfcb;
+  --red: #a44313; --sage: #6e557c; --page-background: #fbf1e3;
+  --content-background: #fff8ee; --card-background: #fff8ee;
+  --line: color-mix(in srgb, #211525 20%, transparent);
+  --provider: #a44313; --shimmer-middle: #f0dfcb; --season-glow: #bc77d21a;
+}
+html[data-season="halloween"][data-theme="dark"] {
+  --paper-deep: #332339; --red: #ffab60; --sage: #d1b2e4;
+  --page-background: #130f19; --page-text: #fff1e2;
+  --content-background: #1c1523; --card-background: #332339;
+  --line: color-mix(in srgb, #dfcddd 20%, transparent);
+  --text-strong-muted: #dfcddd; --text-muted: #c5b2c8; --text-soft: #bcabbd;
+  --text-faint: #ac99ad; --text-body: #d3c1d0; --provider: #ffab60; --shimmer-middle: #332339;
+}
+html[data-season="halloween"] .brand-mark[data-brand-season="halloween"] { display: block; }
+html[data-season="halloween"] .seasonal-edition [data-brand-season="halloween"] { display: inline; }
+html[data-season="christmas"] {
+  --ink: #173b32; --paper: #fff1e2; --paper-deep: #dce8dc;
+  --red: #216049; --sage: #9c3d4b; --page-background: #f2f5ec;
+  --content-background: #fbfcf5; --card-background: #fbfcf5;
+  --line: color-mix(in srgb, #173b32 20%, transparent);
+  --provider: #216049; --shimmer-middle: #dce8dc; --season-glow: #be405d1a;
+}
+html[data-season="christmas"][data-theme="dark"] {
+  --paper-deep: #223d34; --red: #97dbb7; --sage: #f3b7b7;
+  --page-background: #0d1b19; --page-text: #fff1e2;
+  --content-background: #152923; --card-background: #223d34;
+  --line: color-mix(in srgb, #d5e7de 20%, transparent);
+  --text-strong-muted: #d5e7de; --text-muted: #b5cec2; --text-soft: #acc7ba;
+  --text-faint: #94b2a4; --text-body: #c7ded2; --provider: #97dbb7; --shimmer-middle: #223d34;
+}
+html[data-season="christmas"] .brand-mark[data-brand-season="christmas"] { display: block; }
+html[data-season="christmas"] .seasonal-edition [data-brand-season="christmas"] { display: inline; }
+html[data-season="new-year"] {
+  --ink: #17243c; --paper: #fff1e2; --paper-deep: #e9dfc7;
+  --red: #765918; --sage: #45648d; --page-background: #faf3e4;
+  --content-background: #fffaf0; --card-background: #fffaf0;
+  --line: color-mix(in srgb, #17243c 20%, transparent);
+  --provider: #765918; --shimmer-middle: #e9dfc7; --season-glow: #c4a3551a;
+}
+html[data-season="new-year"][data-theme="dark"] {
+  --paper-deep: #273752; --red: #f2cf79; --sage: #b8c9ed;
+  --page-background: #101624; --page-text: #fff1e2;
+  --content-background: #18243a; --card-background: #273752;
+  --line: color-mix(in srgb, #d8e2f2 20%, transparent);
+  --text-strong-muted: #d8e2f2; --text-muted: #b9c9df; --text-soft: #aebed4;
+  --text-faint: #95aac5; --text-body: #c8d6e9; --provider: #f2cf79; --shimmer-middle: #273752;
+}
+html[data-season="new-year"] .brand-mark[data-brand-season="new-year"] { display: block; }
+html[data-season="new-year"] .seasonal-edition [data-brand-season="new-year"] { display: inline; }
+html[data-season="chinese-new-year"] {
+  --ink: #541c2b; --paper: #fff1e2; --paper-deep: #f2ddbf;
+  --red: #a52c35; --sage: #896120; --page-background: #fff2df;
+  --content-background: #fff8ed; --card-background: #fff8ed;
+  --line: color-mix(in srgb, #541c2b 20%, transparent);
+  --provider: #a52c35; --shimmer-middle: #f2ddbf; --season-glow: #e9aa351a;
+}
+html[data-season="chinese-new-year"][data-theme="dark"] {
+  --paper-deep: #502732; --red: #ffd178; --sage: #e9b7a9;
+  --page-background: #240d15; --page-text: #fff1e2;
+  --content-background: #381923; --card-background: #502732;
+  --line: color-mix(in srgb, #f4ddca 20%, transparent);
+  --text-strong-muted: #f4ddca; --text-muted: #dec1b7; --text-soft: #d8b4a8;
+  --text-faint: #caa093; --text-body: #ebcdba; --provider: #ffd178; --shimmer-middle: #502732;
+}
+html[data-season="chinese-new-year"] .brand-mark[data-brand-season="chinese-new-year"] { display: block; }
+html[data-season="chinese-new-year"] .seasonal-edition [data-brand-season="chinese-new-year"] { display: inline; }
+html[data-season]:not([data-season="standard"]) .brand-mark-standard { display: none; }
+html[data-season]:not([data-season="standard"]) .seasonal-edition {
+  display: flex; align-items: center; width: fit-content; margin: 0 0 1rem;
+  padding: 0.45rem 0.7rem; border: 1px solid color-mix(in srgb, var(--red) 40%, transparent);
+  border-radius: 999px; color: var(--red);
+  background: color-mix(in srgb, var(--red) 7%, var(--page-background));
+  font: 700 0.63rem/1.5 "Aptos", "Segoe UI", sans-serif;
+  letter-spacing: 0.08em; text-transform: uppercase;
+}
+html[data-season]:not([data-season="standard"]) main {
+  background: radial-gradient(ellipse at 90% 0, var(--season-glow), transparent 35rem);
+}
+html[data-season]:not([data-season="standard"]) .hero,
+html[data-season]:not([data-season="standard"]) .auth-intro {
+  background-image: radial-gradient(ellipse at 85% 15%, var(--season-glow), transparent 65%);
+}
+html[data-season]:not([data-season="standard"]) .hero.compact .seasonal-edition { display: none; }
+html[data-season]:not([data-season="standard"]) .site-header { border-bottom-color: color-mix(in srgb, var(--red) 40%, transparent); }

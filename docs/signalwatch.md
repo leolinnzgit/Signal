@@ -1,5 +1,24 @@
 # SignalWatch release preparation
 
+
+## Seasonal themes: SignalWatch 0.19.1 (32)
+
+[Seasonal themes](seasonal-themes.md) adds Christmas, New Year and Chinese New Year
+to the existing Halloween style. The native app, briefing tile, web app, offline
+shell and public demo share the same calendar rules and vector identities.
+Chinese New Year uses checked Hong Kong Observatory dates for 2026–2040.
+The public demo has a Theme preview picker that affects only its sample page.
+Signal Companion remains 0.12.0 (21). Install the signed Watch APK to update the
+native app; the seasonal web styling is delivered through the IIS deployment.
+
+Release validation passed 111 Watch JVM tests, release lint (zero errors, 38 warnings), signed APK/AAB and bundletool checks, unchanged upload certificate, 64-bit/16 KB alignment and private-file exclusion. Checked artifacts are in `../SignalWatch/outputs/play-release/0.19.1-32/`. APK SHA256: `6c3034b77377c638244cf395f96a1b3a6b6c70dea20726a9af20c69fb792504f`.
+
+Web/server validation passed client type checking, 236 client tests, the complete IIS check suite, full server topic matcher and audio tests, IIS storage and public watchdog checks, workspace cleanup tests, production IIS client build and package deployment. The public watch preview includes the Theme preview picker for automatic, standard, Halloween, Christmas, New Year and Chinese New Year palettes. The companion remains 0.12.0 (21) (`e7719a23b1375eecc31fafc832235f4d89fe6130525040afde8873a15b77c612`). All 12 companion compatibility tests passed.
+
+Native source commit: `fae6e6b`.
+
+Publication verification (29 October 2026): IIS and both Watch download channels serve 0.19.1 (32), and both HTTPS APK hashes match the checked artifact above (`6c3034b77377c638244cf395f96a1b3a6b6c70dea20726a9af20c69fb792504f`). The deployed web bundle includes seasonal themes and offline vector marks; production settings, configuration hashes, App_Data and listening state were preserved. No Google Play upload was made.
+
 ## Full-queue handoff: SignalWatch 0.19.0 (31)
 
 Continue on watch in the web Listen later player, or Continue on phone during Watch queue playback, transfers every remaining queued story in its existing order and resumes the latest confirmed section. The receiving device explicitly accepts first. The source then pauses, flushes its actual position, and confirms a durable queue revision. Readiness rotates that revision atomically, preventing an old source outbox from reclaiming the queue. Only the claiming receiver can read the temporary handoff snapshot; it must also verify the current account and exact queue revision before playing. A concurrent edit or failed verification stops the handoff. The source stops its queue player after confirmation. Queue order and per-story section offsets remain intact as the receiving player advances.

@@ -1,5 +1,8 @@
 # Halloween branding
 
+The general engine now also supports Christmas, New Year and Chinese New Year;
+see [Seasonal themes](seasonal-themes.md) for the current schedule and calendar.
+
 Signal and SignalWatch share an October-only Halloween theme: a pumpkin mark,
 pumpkin orange accents, plum surfaces and warm paper in the web light theme.
 The app names, navigation and saved light/dark preference stay the same.

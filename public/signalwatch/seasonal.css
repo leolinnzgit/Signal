@@ -1,0 +1,53 @@
+html[data-season="halloween"] {
+  --mint: #ffab60; --muted: #c5b2c8; --surface: #332339; --bg: #130f19;
+  --season-mark: url('/icons/signal-halloween.svg'); --season-label: "Halloween edition · ";
+  --season-glow: #bc77d233;
+}
+html[data-season="christmas"] {
+  --mint: #97dbb7; --muted: #b5cec2; --surface: #223d34; --bg: #0d1b19;
+  --season-mark: url('/icons/signal-christmas.svg'); --season-label: "Christmas edition · ";
+  --season-glow: #be405d33;
+}
+html[data-season="new-year"] {
+  --mint: #f2cf79; --muted: #b9c9df; --surface: #273752; --bg: #101624;
+  --season-mark: url('/icons/signal-new-year.svg'); --season-label: "New Year edition · ";
+  --season-glow: #c4a35533;
+}
+html[data-season="chinese-new-year"] {
+  --mint: #ffd178; --muted: #dec1b7; --surface: #502732; --bg: #240d15;
+  --season-mark: url('/icons/signal-chinese-new-year.svg'); --season-label: "Chinese New Year · 新年快乐 · ";
+  --season-glow: #e9aa3533;
+}
+html[data-season]:not([data-season="standard"]) body { background: var(--bg); color: #fff1e2; }
+html[data-season]:not([data-season="standard"]) a { color: var(--mint); }
+html[data-season]:not([data-season="standard"]) .brand::before {
+  content: ""; display: inline-block; width: 32px; height: 32px;
+  background: var(--season-mark) center / contain no-repeat;
+  vertical-align: middle; margin-right: 8px; flex-shrink: 0;
+}
+html[data-season]:not([data-season="standard"]) .brand i { display: none; }
+html[data-season]:not([data-season="standard"]) .eyebrow::before { content: var(--season-label); }
+html[data-season]:not([data-season="standard"]) .wordmark::before {
+  content: ""; display: block; width: 32px; height: 32px; margin: 0 auto 8px;
+  background: var(--season-mark) center / contain no-repeat;
+}
+html[data-season]:not([data-season="standard"]) .watch-area { background: radial-gradient(ellipse at center, var(--season-glow), transparent 65%); }
+html[data-season]:not([data-season="standard"]) .screen { background: var(--bg); border-color: #08060c; }
+html[data-season]:not([data-season="standard"]) .clock { background: linear-gradient(var(--bg) 60%, transparent); color: #e4d0e8; }
+html[data-season]:not([data-season="standard"]) .strap { background: linear-gradient(90deg, var(--bg), var(--surface) 20%, var(--bg) 70%, var(--surface)); border-color: color-mix(in srgb, var(--mint) 30%, transparent); }
+html[data-season]:not([data-season="standard"]) .card,
+html[data-season]:not([data-season="standard"]) .chip { background: var(--surface); color: #fff1e2; border-color: color-mix(in srgb, var(--mint) 30%, transparent); }
+html[data-season]:not([data-season="standard"]) input { background: var(--bg); border-color: color-mix(in srgb, var(--mint) 50%, transparent); }
+html[data-season]:not([data-season="standard"]) button,
+html[data-season]:not([data-season="standard"]) .button,
+html[data-season]:not([data-season="standard"]) .download { background: var(--mint); color: #24142a; }
+html[data-season]:not([data-season="standard"]) .nav button { background: transparent; color: #ead4ed; border-color: color-mix(in srgb, var(--mint) 30%, transparent); }
+html[data-season]:not([data-season="standard"]) .nav button[aria-pressed="true"] { background: var(--mint); color: #24142a; border-color: var(--mint); }
+html[data-season]:not([data-season="standard"]) .summary,
+html[data-season]:not([data-season="standard"]) .muted,
+html[data-season]:not([data-season="standard"]) footer { color: var(--muted); }
+html[data-season]:not([data-season="standard"]) .urgent-warning .chip { background: #b3261e; color: white; }
+html[data-season]:not([data-season="standard"]) .urgent-warning .demo { color: #ffb4ab; }
+
+.season-picker { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 22px 0 0; color: var(--muted); font-size: 12px; }
+.season-picker select { max-width: 100%; border: 1px solid currentColor; border-radius: 8px; padding: 7px; background: var(--bg); color: var(--mint); font: inherit; }

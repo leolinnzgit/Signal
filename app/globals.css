@@ -1,5 +1,5 @@
 @import "tailwindcss";
-@import "./halloween.css";
+@import "./seasonal.css";
 
 :root {
   --site-header-height: 82px;

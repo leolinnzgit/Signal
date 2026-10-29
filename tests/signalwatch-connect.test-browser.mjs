@@ -9,7 +9,7 @@ let signedIn = false, approvalCalls = 0, rejectApproval = false;
 let expectedBrowserEndpoint = null;
 const server = createServer(async (req, res) => {
   const pathname = new URL(req.url, 'http://localhost').pathname;
-  if (['/seasonal-branding.js', '/signalwatch/halloween.css', '/icons/signal-halloween.svg'].includes(pathname)) return previewHandler('')(req, res);
+  if (['/seasonal-branding.js', '/signalwatch/seasonal.css', '/icons/signal-halloween.svg', '/icons/signal-christmas.svg', '/icons/signal-new-year.svg', '/icons/signal-chinese-new-year.svg'].includes(pathname)) return previewHandler('')(req, res);
   const json = (status, data) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(data)); };
   if (pathname === '/api/auth/me') return json(signedIn ? 200 : 401, signedIn ? { email: 'reviewer@example.invalid' } : {});
   if (pathname === '/api/auth/csrf') return json(200, { token: 'test-csrf' });
