@@ -10,6 +10,10 @@ Release validation passed 109 Watch JVM tests, release lint (zero errors, 38 war
 
 Web/server validation passed type checking, 230 client tests, the complete IIS check suite, queue transfer tests using browser and recorded audio, older-server refusal, single-story handoffs in both directions, queue conflict/offline/playback regression checks and phone/desktop preview images. The compact Listening panel passes at 360, 390 and 1280 pixels in both seasonal themes; a CSS specificity correction also prevents duplicate brand marks outside October. Physical paired-device, screen-off, interruptions and reconnect QA still require connected hardware. The companion remains 0.12.0 (21), and seasonal branding is preserved.
 
+Native source commit: `659e12a`; web/server implementation: `a6c6518`. All 12 companion compatibility tests passed. The production IIS build and built-client network-offline reopening, saved section playback, local outbox and sign-in boundary checks passed.
+
+Publication verification (29 October 2026): IIS and both Watch download channels serve 0.19.0 (31), and both HTTPS APK hashes match the checked artifact above. Live preview images, transfer, Resume and queue controls passed. The deployed web bundle includes both handoff flows and queue capabilities; anonymous listening APIs return 401. Deployment backed up the database and preserved all four production configuration hashes and all three saved listening data file hashes. No Google Play upload was made.
+
 
 
 ## Halloween edition: SignalWatch 0.18.1 (30)
