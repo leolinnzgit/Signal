@@ -1,0 +1,80 @@
+/* Article Entities (NER) chips container */
+.article-entities-container {
+  margin: 1rem 0 1.25rem;
+  padding: 0.85rem 1rem;
+  background: var(--content-background);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.article-entities-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.6rem;
+}
+
+.article-entities-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.article-entities-spinner {
+  width: 0.85rem;
+  height: 0.85rem;
+  border: 2px solid var(--line);
+  border-top-color: var(--sage);
+  border-radius: 50%;
+  animation: article-entity-spin 0.8s linear infinite;
+}
+
+@keyframes article-entity-spin {
+  to { transform: rotate(360deg); }
+}
+
+.article-entities-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.5rem;
+}
+
+.article-entity-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.65rem;
+  background: var(--card-background);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  color: var(--page-text);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+  line-height: 1.2;
+}
+
+.article-entity-chip:hover {
+  border-color: var(--sage);
+  background: var(--paper-deep);
+  transform: translateY(-1px);
+}
+
+.article-entity-chip:active {
+  transform: translateY(0);
+}
+
+.article-entity-chip .entity-icon {
+  font-size: 0.85rem;
+  opacity: 0.85;
+}
+
+.article-entity-chip .entity-name {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

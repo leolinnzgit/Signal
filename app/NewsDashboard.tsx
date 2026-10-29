@@ -27,7 +27,9 @@ import { useWeatherAudio } from "./WeatherAudio";
 import { useEarthquakeAlerts } from "./EarthquakeAlerts";
 import AppSettings from "./AppSettings";
 import { formatMarketPrice, type MarketQuote } from "./market-quote";
-import { describeWeather, weatherBriefing, type LocalWeather, type WeatherForecastDay } from "./weather-briefing";
+import { describeWeather, weatherBriefing, type ClientWeatherAlert, type LocalWeather, type WeatherForecastDay } from "./weather-briefing";
+import WeatherAlertBanner from "./WeatherAlertBanner";
+import ArticleEntities from "./ArticleEntities";
 import ArticleReadingText from "./ArticleReadingText";
 import { scrollReadingSectionIntoView } from "./article-reading-follow";
 import { preferScreenOffAudio, type ArticleNarrationSection } from "./headline-audio";
@@ -807,6 +809,8 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [heroCompact, setHeroCompact] = useState(false);
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
   const [localWeather, setLocalWeather] = useState<LocalWeather | null>(null);
+  const [weatherAlerts, setWeatherAlerts] = useState<ClientWeatherAlert[]>([]);
+  const [dismissedWeatherAlertIds, setDismissedWeatherAlertIds] = useState<Set<string>>(new Set());
   const [weatherForecast, setWeatherForecast] = useState<WeatherForecastDay[]>([]);
   const [weatherStatus, setWeatherStatus] = useState<WeatherStatus>("locating");
   const [weatherRetryKey, setWeatherRetryKey] = useState(0);
@@ -908,7 +912,11 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     : Object.entries(preferences.tickerOverrides)
         .find(([topic]) => topic.toLowerCase() === selectedTopic.toLowerCase())?.[1] ?? "";
 
-  const weatherAudio = useWeatherAudio(weatherBriefing(weatherStatus === "ready" ? localWeather : null, weatherForecast), !!headlineQueue || !!readerArticle || !!watchHandoffId);
+  const activeWeatherAlerts = useMemo(() => {
+    return weatherAlerts.filter((alert) => !dismissedWeatherAlertIds.has(alert.id));
+  }, [weatherAlerts, dismissedWeatherAlertIds]);
+
+  const weatherAudio = useWeatherAudio(weatherBriefing(weatherStatus === "ready" ? localWeather : null, weatherForecast, activeWeatherAlerts), !!headlineQueue || !!readerArticle || !!watchHandoffId);
   const earthquakes = useEarthquakeAlerts(user.email, !!pushNotificationStore);
 
   const trendTrafficRange = useMemo(() => {
@@ -1167,6 +1175,23 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     setWeatherStatus("locating");
     setLocalWeather(null);
     setWeatherForecast([]);
+    setWeatherAlerts([]);
+    const fetchWeatherAlerts = async (lat: number, lon: number) => {
+      try {
+        const res = await fetch(`/api/weather/alerts?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}`, {
+          credentials: "same-origin",
+          cache: "no-store",
+          signal: request.signal,
+        });
+        if (!res.ok) return;
+        const alertData = (await res.json()) as { available?: boolean; alerts?: ClientWeatherAlert[] };
+        if (!cancelled && alertData?.alerts && Array.isArray(alertData.alerts)) {
+          setWeatherAlerts(alertData.alerts);
+        }
+      } catch {
+        if (!cancelled) setWeatherAlerts([]);
+      }
+    };
     const fetchWeather = async (latitude: number, longitude: number, locationName: string) => {
       try {
         const nameRequest = locationName ? Promise.resolve(locationName)
@@ -1198,6 +1223,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           throw new Error("Weather unavailable");
         }
         const resolvedLocationName = await nameRequest;
+        void fetchWeatherAlerts(latitude, longitude);
         if (cancelled) return;
         const daily = data.daily;
         const forecast = (daily?.time ?? []).slice(0, 7).flatMap((date, index) => {
@@ -1234,7 +1260,8 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
       } catch {
         if (!cancelled) {
           setWeatherForecast([]);
-          setWeatherStatus("error");
+    setWeatherAlerts([]);
+    setWeatherStatus("error");
         }
       }
     };
@@ -3089,6 +3116,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         const url = new URL(window.location.href); url.searchParams.delete("watchHandoff");
         window.history.replaceState(window.history.state, "", url);
       }} />}
+      <WeatherAlertBanner alerts={activeWeatherAlerts} onDismiss={(id) => setDismissedWeatherAlertIds((prev) => new Set(prev).add(id))} />
       {earthquakes.banner}
       {earthquakes.map}
       <HandGestureControls />
@@ -4716,6 +4744,20 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                         .join(" / ")}
                     </p>
                   )}
+                  <ArticleEntities
+                    url={readerArticle.url}
+                    title={readerTranslation?.title ?? readerArticle.title}
+                    paragraphs={readerTranslation?.paragraphs ?? readerContent.article.paragraphs}
+                    onEntitySelect={(entityText) => {
+                      const matched = preferences.topics.find((t) => t.toLowerCase() === entityText.toLowerCase());
+                      closeArticleReader();
+                      if (matched) {
+                        selectTopicFilter(matched);
+                      } else {
+                        changeFeedView("history", entityText);
+                      }
+                    }}
+                  />
                   {(readerTranslation?.paragraphs ?? readerContent.article.paragraphs).map((paragraph, index) => (
                     <p key={`${index}-${paragraph.slice(0, 24)}`} lang={readerTranslation?.language} dir="auto"><ArticleReadingText text={paragraph} paragraphIndex={index} section={readerReading.section} /></p>
                   ))}

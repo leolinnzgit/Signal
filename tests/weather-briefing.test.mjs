@@ -33,3 +33,19 @@ test("weather descriptions distinguish overcast and unknown codes", () => {
   assert.equal(describeWeather(-1), "Local weather");
   assert.equal(describeWeather(100), "Local weather");
 });
+test("weather briefing includes active severe weather alerts when present", () => {
+  const alert = {
+    id: "alert-1",
+    headline: "Severe Gale Warning",
+    level: "Warning",
+    severity: "Severe",
+    areaName: "Auckland Region",
+    description: "Northwest gales gusting 120 km/h.",
+    effectiveTime: "2026-10-13T08:00:00Z",
+    expires: "2026-10-13T20:00:00Z",
+    source: "MetService",
+  };
+  const briefing = weatherBriefing(weather, [today], [alert]);
+  assert.ok(briefing.includes("Attention: Severe Gale Warning."));
+  assert.ok(briefing.includes("Here is your weather for Auckland."));
+});

@@ -32,6 +32,10 @@ if (args.Contains("--disasters-only") || args.Contains("--disasters-live")) retu
 EarthquakeChecks.Run();
 if (args.Contains("--earthquakes-live")) { await EarthquakeChecks.RunLiveAsync(); return; }
 if (args.Contains("--earthquakes-only")) return;
+await WeatherAlertChecks.RunAsync();
+if (args.Contains("--weather-alerts-only")) return;
+await ArticleEntityChecks.RunAsync();
+if (args.Contains("--article-entities-only")) return;
 await SharedCommentChecks.RunAsync();
 if (args.Contains("--shared-comments-browser")) { await SharedCommentChecks.RunBrowserAsync(); return; }
 if (args.Contains("--shared-comments-only")) return;

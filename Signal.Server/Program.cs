@@ -211,6 +211,12 @@ builder.Services.AddHttpClient(AzureTranslatorService.HttpClientName, client => 
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
 builder.Services.Configure<AzureLanguageOptions>(builder.Configuration.GetSection(AzureLanguageOptions.SectionName));
 builder.Services.AddSingleton<AzureLanguageSummaryService>();
+builder.Services.AddSingleton<AzureLanguageEntityService>();
+builder.Services.AddHttpClient(AzureLanguageEntityService.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(20))
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
+builder.Services.AddSingleton<AzureMapsWeatherService>();
+builder.Services.AddHttpClient(AzureMapsWeatherService.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(15))
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
 builder.Services.Configure<AzureMapsOptions>(builder.Configuration.GetSection(AzureMapsOptions.SectionName));
 builder.Services.AddSingleton<WeatherLocationService>();
 builder.Services.AddHttpClient(WeatherLocationService.HttpClientName, client =>

@@ -1,0 +1,229 @@
+/* Weather Alerts Banner & Modal */
+.weather-alert-banner {
+  position: relative;
+  width: 100%;
+  padding: 0.65rem 1rem;
+  font-size: 0.85rem;
+  z-index: 40;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.weather-alert-banner.severe {
+  background: #b91c1c;
+  color: #fff;
+  border-bottom-color: #991b1b;
+}
+
+.weather-alert-banner.watch {
+  background: #d97706;
+  color: #fff;
+  border-bottom-color: #b45309;
+}
+
+.weather-alert-banner-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.weather-alert-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: 700;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  padding: 0.2rem 0.5rem;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 4px;
+}
+
+.weather-alert-icon {
+  width: 1rem;
+  height: 1rem;
+}
+
+.weather-alert-summary {
+  flex: 1 1 auto;
+  min-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weather-alert-summary strong {
+  font-weight: 600;
+}
+
+.weather-alert-area {
+  opacity: 0.9;
+}
+
+.weather-alert-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.weather-alert-btn {
+  padding: 0.25rem 0.75rem;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.weather-alert-btn:hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.weather-alert-dismiss {
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  line-height: 1;
+  opacity: 0.8;
+  border-radius: 4px;
+}
+
+.weather-alert-dismiss:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.15);
+}
+
+/* Weather alert details dialog */
+.weather-alert-dialog {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  max-width: min(92vw, 540px);
+  max-height: 85vh;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card-background);
+  color: var(--page-text);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.28);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.weather-alert-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+}
+
+.weather-alert-modal-content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-height: 85vh;
+  overflow: hidden;
+}
+
+.weather-alert-modal-header {
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper-deep);
+}
+
+.weather-alert-modal-header h2 {
+  margin: 0.5rem 0 0.25rem;
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.modal-level-badge {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+.modal-level-badge.severe {
+  background: #b91c1c;
+  color: #fff;
+}
+
+.modal-level-badge.watch {
+  background: #d97706;
+  color: #fff;
+}
+
+.modal-source {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.weather-alert-modal-body {
+  padding: 1.25rem 1.5rem;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.weather-alert-modal-body p {
+  margin: 0;
+}
+
+.modal-description {
+  margin-top: 0.5rem;
+  padding: 0.85rem;
+  background: var(--content-background);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  white-space: pre-line;
+}
+
+.modal-description strong {
+  display: block;
+  margin-bottom: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--text-strong-muted);
+}
+
+.weather-alert-modal-footer {
+  padding: 0.85rem 1.5rem;
+  border-top: 1px solid var(--line);
+  display: flex;
+  justify-content: flex-end;
+  background: var(--paper-deep);
+}
+
+.weather-alert-modal-footer button {
+  padding: 0.4rem 1.2rem;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--card-background);
+  color: var(--page-text);
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.weather-alert-modal-footer button:hover {
+  background: var(--line);
+}

@@ -19,6 +19,18 @@ export type WeatherForecastDay = {
   windSpeed: number;
 };
 
+export type ClientWeatherAlert = {
+  id: string;
+  category: string;
+  level: string;
+  source: string;
+  headline: string;
+  description: string;
+  areaName: string;
+  effectiveTime?: string | null;
+  expires?: string | null;
+};
+
 export function describeWeather(code: number) {
   if (code === 0) return "Clear";
   if (code === 1 || code === 2) return "Partly cloudy";
@@ -33,13 +45,28 @@ export function describeWeather(code: number) {
   return "Local weather";
 }
 
-export function weatherBriefing(weather: LocalWeather | null, forecast: WeatherForecastDay[]) {
+export function weatherBriefing(
+  weather: LocalWeather | null,
+  forecast: WeatherForecastDay[],
+  alerts: ClientWeatherAlert[] = [],
+) {
   if (!weather) return "";
   const place = weather.locationName ? ` for ${weather.locationName}` : "";
   const current = `Here is your weather${place}. Currently, ${describeWeather(weather.weatherCode).toLowerCase()}, ${Math.round(weather.temperature)} degrees Celsius, feeling like ${Math.round(weather.apparentTemperature)} degrees. Wind is ${Math.round(weather.windSpeed)} kilometres per hour.`;
   // Open-Meteo's local observation date matches the forecast location, even
   // when the device is in a different timezone. Never read tomorrow as today.
   const today = forecast.find((day) => day.date === weather.observedAt.slice(0, 10));
-  if (!today) return current;
-  return `${current} Today, expect ${describeWeather(today.weatherCode).toLowerCase()}, with a high of ${Math.round(today.temperatureMax)} and a low of ${Math.round(today.temperatureMin)} degrees Celsius. The chance of rain is ${Math.round(today.precipitationProbability)} percent.`;
+  const base = today
+    ? `${current} Today, expect ${describeWeather(today.weatherCode).toLowerCase()}, with a high of ${Math.round(today.temperatureMax)} and a low of ${Math.round(today.temperatureMin)} degrees Celsius. The chance of rain is ${Math.round(today.precipitationProbability)} percent.`
+    : current;
+
+  if (alerts && alerts.length > 0) {
+    const warning =
+      alerts.length === 1
+        ? ` Attention: ${alerts[0].headline}.`
+        : ` Attention: ${alerts.length} severe weather alerts in effect, including ${alerts[0].headline}.`;
+    return `${base}${warning}`;
+  }
+
+  return base;
 }
