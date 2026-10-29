@@ -10,7 +10,9 @@ Release validation passed 115 Watch JVM tests, release lint (zero errors, 39 war
 
 Web validation passed type checking, 250 client tests, the full IIS/server check suite, durable recorded audio with exact section resume, cancellation/retry, account isolation, storage failure, cleanup and sign-out deletion. Phone and desktop queue handoff, preview audio controls and news images passed. The compact Listening panel passed at 360, 390 and 1280 pixels in both seasonal themes. The pending-Resume cancellation regression now holds its mocked response until the panel closes, avoiding a machine-timing dependency.
 
-Companion remains 0.12.0 (21). Physical-device download, screen-off, headphone and interruption QA requires connected hardware. Production build and publication verification are recorded after deployment.
+Native source commit: `8533bfe`; web implementation: `1a1adb4`. All 12 companion compatibility tests passed; companion remains 0.12.0 (21). The production IIS build passed. With the network fully offline, the built client reopened its cached shell and resumed both device-voice text and downloaded PCM at the exact section. Removing the local copy also removed its audio; a 401 still returned the sign-in screen. No ADB devices were connected, so physical-device download, screen-off, headphone and interruption QA remains pending.
+
+Publication verification (30 October 2026): IIS and both Watch download channels serve 0.20.0 (33). Both HTTPS APK hashes match the checked artifact above, and the deployed web bundle includes persistent queue-audio storage and download controls. Live preview checks passed news images, downloads, queue progression, Resume and transfer. Anonymous listening APIs remain protected. Deployment backed up the database and preserved all four production configuration checksums and all three saved listening data file checksums. No Google Play upload was made.
 
 ## Seasonal themes: SignalWatch 0.19.1 (32)
 
