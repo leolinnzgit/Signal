@@ -32,6 +32,10 @@ export function validateQueueProgress(raw: unknown): QueueProgress {
   return state;
 }
 export const listeningQueueKey = (email: string) => `signal.listening-queue.v1.${encodeURIComponent(email.toLowerCase())}`;
+export function sameQueue(a: ListeningQueue, b: ListeningQueue) {
+  const value = (q: ListeningQueue) => [q.currentUrl, q.items.map(item => [item.url, item.title, item.source, item.imageUrl, item.partIndex, item.parts])];
+  return JSON.stringify(value(a)) === JSON.stringify(value(b));
+}
 /** Whole-queue CAS: only an acknowledgement of our own write can advance an offline edit's base. */
 export class ListeningQueueClient {
   progress: QueueProgress | null = null;
@@ -41,6 +45,7 @@ export class ListeningQueueClient {
   private blocked = false;
   private running: Promise<void> | null = null;
   private dead = false;
+  private verified = false;
   private abort = new AbortController();
   private timer: ReturnType<typeof setTimeout> | null = null;
   constructor(readonly email: string, private storage: Pick<Storage, "getItem" | "setItem" | "removeItem"> | null,
@@ -116,6 +121,28 @@ export class ListeningQueueClient {
     if (next) this.begin(id, next.url);
     return next ? structuredClone(next) : null;
   }
+  async transferSnapshot(id: string): Promise<QueueProgress> {
+    await this.sync();
+    if (this.dead || !this.verified || this.blocked || this.writer !== id || this.pending || !this.progress?.document?.items.length || this.progress.version === "0")
+      throw new Error("Connect and sync the current Listen later queue before transferring it.");
+    return structuredClone(this.progress);
+  }
+  transferred(id: string, baseVersion: string, nextVersion: string) {
+    if (this.dead || this.writer !== id || !/^[a-f0-9]{32}$/u.test(nextVersion)) return;
+    this.blocked = true;
+    if (this.progress?.version === baseVersion && !this.pending) this.progress = { ...this.progress, version: nextVersion };
+    this.message = "Listen later is ready on your Watch. Playback here has stopped."; this.persist();
+  }
+  async receiveTransfer(nextVersion: string, document: ListeningQueue): Promise<SharedStory> {
+    validateQueue(document);
+    if (!/^[a-f0-9]{32}$/u.test(nextVersion)) throw new Error("The transferred queue is incomplete.");
+    await this.sync();
+    if (this.dead || !this.verified || this.pending || this.progress?.version !== nextVersion || !sameQueue(this.saved(), document))
+      throw new Error("Listen later changed or could not be verified. Reopen the latest queue before listening.");
+    const story = document.items.find(item => item.url === document.currentUrl);
+    if (!story) throw new Error("The transferred queue is empty.");
+    return structuredClone(story);
+  }
   private adopt(state: QueueProgress, own = false) {
     if (state.accountEmail.toLowerCase() !== this.email.toLowerCase() || this.progress && state.accountKey !== this.progress.accountKey) throw new Error("The Signal account changed. Sign in again.");
     if (!own && this.writer && state.version !== this.progress?.version) { this.blocked = true; this.message = "Listen later changed on another device. Reopen it to use the latest queue."; }
@@ -126,6 +153,7 @@ export class ListeningQueueClient {
     return this.running ??= this.run().finally(() => { this.running = null; });
   }
   private async run() {
+    this.verified = false;
     const fetcher = this.fetcher, signal = AbortSignal.any([this.abort.signal, AbortSignal.timeout(10000)]);
     try {
       if (!this.progress) {
@@ -157,7 +185,7 @@ export class ListeningQueueClient {
       if (!response.ok) throw new Error("Listen later is unavailable. Your local queue is kept.");
       // A user may have edited while the GET was in flight. Never overwrite that outbox.
       const value = validateQueueProgress(await response.json());
-      if (!this.pending) { this.adopt(value); this.persist(); }
+      if (!this.pending) { this.adopt(value); this.verified = true; this.persist(); }
     } catch (error) {
       if (!this.dead) { this.message = this.pending ? "Offline or unavailable. Listen later is saved here and will retry." : error instanceof Error ? error.message : "Listen later is unavailable."; this.persist(); }
     }

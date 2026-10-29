@@ -1,8 +1,10 @@
 import type { ArticleNarrationSection } from "./headline-audio";
+import type { ListeningQueue } from "./listening-queue";
 
 export type ListeningHandoff = {
   id: string; status: "pending" | "accepted" | "ready" | "cancelled"; target?: "phone" | "watch"; imageUrl?: string;
   url: string; title: string; source: string; partIndex: number; partCount: number; expiresAt: string; parts?: string[] | null;
+  isQueue?: boolean; queueCount?: number; queueVersion?: string | null; queue?: ListeningQueue | null;
 };
 export function validHandoffToken(value: unknown): value is string { return typeof value === "string" && value.length === 64 && /^[a-f0-9]{64}$/u.test(value); }
 export function incomingWatchHandoff(search: string): string | null {
@@ -33,6 +35,8 @@ export function validateListeningHandoff(value: unknown, id: string): ListeningH
     throw new Error("This listening transfer is incomplete. Start again on your watch.");
   }
   const url = new URL(item.url);
+  if (item.isQueue && (!Number.isInteger(item.queueCount) || item.queueCount! < 1 || item.queueCount! > 10
+    || item.status === "ready" && (!/^[a-f0-9]{32}$/u.test(item.queueVersion ?? "")))) throw new Error("This queue transfer is incomplete.");
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new Error("The transferred story link is invalid.");
   if (item.parts != null && (item.status !== "ready" || !Array.isArray(item.parts) || item.parts.length !== item.partCount
     || item.parts.some(part => typeof part !== "string" || !part.trim() || part.length > 1000)
@@ -64,7 +68,7 @@ export async function changeListeningHandoff(id: string, action: "accept" | "can
   const { token } = await csrf.json() as { token?: string };
   if (!token) throw new Error("Sign in again before continuing this transfer.");
   const response = await fetcher(`/api/listening-handoffs/${id}/${action}`, { method: "POST", credentials: "same-origin", cache: "no-store", signal,
-    headers: { "Content-Type": "application/json", "X-XSRF-TOKEN": token }, body: JSON.stringify({ receiverToken }) });
+    headers: { "Content-Type": "application/json", "X-XSRF-TOKEN": token }, body: JSON.stringify({ receiverToken, supportsQueue: true }) });
   if (!response.ok) throw new Error(await errorMessage(response));
 }
 export function receiverToken(id: string): string {

@@ -159,6 +159,21 @@ internal static class ListeningHandoffChecks
             Check((await watch.PostAsJsonAsync("/api/listening-queue", queued with { OperationId = Guid.NewGuid().ToString("N") })).StatusCode == HttpStatusCode.Conflict, "Stale queue writes return 409.");
             var queueState = await watch.GetFromJsonAsync<JsonElement>("/api/listening-queue");
             Check(queueState.GetProperty("document").GetProperty("items")[0].GetProperty("partIndex").GetInt32() == 1, "HTTP queue resume preserves exact sections.");
+            var queueVersion = queueState.GetProperty("version").GetString()!;
+            var queueOfferReply = await phone.PostAsJsonAsync("/api/listening-handoffs", new ListeningHandoffDocument(sharedMutation.Document.Url,
+                sharedMutation.Document.Title, sharedMutation.Document.Source, sharedMutation.Document.Parts, 1, "watch", QueueVersion: queueVersion));
+            Check(queueOfferReply.IsSuccessStatusCode, "A synced queue can offer an authenticated handoff.");
+            var queueOffer = (await queueOfferReply.Content.ReadFromJsonAsync<ListeningHandoffCreated>())!;
+            var queuePath = "/api/listening-handoffs/" + queueOffer.Id;
+            Check((await watch.GetFromJsonAsync<ListeningHandoffView[]>("/api/listening-handoffs/inbox"))!.All(item => item.Id != queueOffer.Id), "Old inbox clients cannot see queue offers.");
+            Check((await watch.GetFromJsonAsync<ListeningHandoffView[]>("/api/listening-handoffs/inbox?queues=true"))!.Any(item => item.Id == queueOffer.Id && item.IsQueue && item.Queue is null), "Capable clients discover metadata only.");
+            Check((await watch.PostAsJsonAsync(queuePath + "/accept", new { receiverToken = key, target = "watch" })).StatusCode == HttpStatusCode.Conflict, "An old receiver cannot truncate a queue to one story.");
+            Check((await watch.PostAsJsonAsync(queuePath + "/accept", new { receiverToken = key, target = "watch", supportsQueue = true })).IsSuccessStatusCode, "A capable watch explicitly accepts the queue.");
+            Check((await phone.PostAsJsonAsync(queuePath + "/ready", new { sourceToken = queueOffer.SourceToken, partIndex = 1 })).StatusCode == HttpStatusCode.Conflict, "Readiness must confirm a durable queue revision.");
+            Check((await phone.PostAsJsonAsync(queuePath + "/ready", new { sourceToken = queueOffer.SourceToken, partIndex = 1, queueVersion })).IsSuccessStatusCode, "Source pause confirms the queue revision.");
+            var transferred = await watch.GetFromJsonAsync<ListeningHandoffView>(queuePath);
+            Check(transferred!.Queue!.Items.Length == 1 && transferred.QueueVersion != queueVersion && transferred.Queue.Items[0].PartIndex == 1, "The receiver gets the exact queue and fresh revision through HTTP.");
+            Check((await phone.PostAsJsonAsync("/api/listening-queue", queued with { BaseVersion = queueVersion, OperationId = Guid.NewGuid().ToString("N") })).StatusCode == HttpStatusCode.Conflict, "Source replay cannot overwrite a transferred queue.");
             watch.DefaultRequestHeaders.Add("X-Signal-Progress-Account", NativeNotificationService.AccountKey("another"));
             Check((await watch.GetAsync("/api/listening-progress")).StatusCode == HttpStatusCode.Forbidden, "An old account-scoped reader cannot fetch a newly signed-in account's progress.");
             Check((await watch.GetAsync("/api/listening-queue")).StatusCode == HttpStatusCode.Forbidden, "Old queue readers cannot read another account after sign-in changes.");

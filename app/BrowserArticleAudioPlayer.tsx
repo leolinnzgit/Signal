@@ -12,13 +12,13 @@ import {
   rankHeadlineVoices, selectHeadlineVoice, browserSpeechRequiresTap, browserSpeechErrorMessage, DEVICE_DEFAULT_SPEECH_VOICE,
 } from "./headline-playback";
 
-export default function BrowserArticleAudioPlayer({ onPlaybackComplete, title, source, paragraphs, storyUrl, storyImageUrl, progressParts, progressOffset, onTransferLockChange, autoPrepare = false, summaryOnly = false, onRecordedAudio, onReadingSectionChange, narrationSections }: ArticleAudioPlayerProps & { onRecordedAudio?: () => void }) {
+export default function BrowserArticleAudioPlayer({ queueTransfer, onPlaybackComplete, title, source, paragraphs, storyUrl, storyImageUrl, progressParts, progressOffset, onTransferLockChange, autoPrepare = false, summaryOnly = false, onRecordedAudio, onReadingSectionChange, narrationSections }: ArticleAudioPlayerProps & { onRecordedAudio?: () => void }) {
   const sections = useMemo(() => {
     try { return narrationSections ?? articleNarrationSections(summaryOnly && paragraphs.length === 1 && paragraphs[0] === title ? "" : title, paragraphs, 240); }
     catch { return []; }
   }, [title, paragraphs, summaryOnly, narrationSections]);
   const parts = useMemo(() => sections.map((section) => section.text), [sections]);
-  const shared = useSharedListeningReporter(summaryOnly ? undefined : storyUrl, title, source, storyImageUrl, progressParts ?? parts, progressOffset);
+  const shared = useSharedListeningReporter(summaryOnly || queueTransfer ? undefined : storyUrl, title, source, storyImageUrl, progressParts ?? parts, progressOffset);
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(() => !autoPrepare || browserSpeechRequiresTap(navigator.userAgent, navigator.maxTouchPoints));
   const [started, setStarted] = useState(false);
@@ -208,7 +208,7 @@ export default function BrowserArticleAudioPlayer({ onPlaybackComplete, title, s
   }
 
   return <section className="article-audio-player" aria-label={summaryOnly ? "Browser headline and summary narration" : "Browser article narration"}>
-    {storyUrl && !summaryOnly && <ContinueOnWatch url={storyUrl} title={title} source={source} imageUrl={storyImageUrl}
+    {storyUrl && !summaryOnly && <ContinueOnWatch queueTransfer={queueTransfer} partOffset={progressOffset} url={storyUrl} title={title} source={source} imageUrl={storyImageUrl}
       snapshot={() => !completed && parts.length ? { parts, partIndex: index, session: JSON.stringify(preferences) } : null}
       pause={() => { playback.current?.setPaused(true); setPaused(true); setStarted(false); }}
       onLockChange={value => { transferLock.current = value; setTransferLocked(value); onTransferLockChange?.(value); }} />}

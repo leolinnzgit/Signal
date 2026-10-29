@@ -24,7 +24,7 @@ function setup(){
   }
   return Response.json(state);
  };
- return {storage,fetcher,state:()=>structuredClone(state),online:value=>online=value,changeAccount(){state={...state,accountKey:'B'.repeat(64),accountEmail:'other@example.com'}}};
+ return {storage,fetcher,state:()=>structuredClone(state),handoff(){state={...state,version:(++serial).toString(16).padStart(32,'0')};return structuredClone(state)},online:value=>online=value,changeAccount(){state={...state,accountKey:'B'.repeat(64),accountEmail:'other@example.com'}}};
 }
 test('queue add, duplicate prevention, reorder, current section, consumption and clear retain durable revisions',async()=>{
  const server=setup(),client=new ListeningQueueClient(email,server.storage,()=>{},server.fetcher);
@@ -64,4 +64,25 @@ test('queue validates count, duplicate identities, exact sections, position, ima
   {items:[{...story(1),partIndex:3}],currentUrl:story(1).url},{items:Array.from({length:11},(_,i)=>story(i)),currentUrl:story(0).url},
   {items:[{...story(1),imageUrl:'http://localhost/image'}],currentUrl:story(1).url},
   {items:Array.from({length:6},(_,i)=>({...story(i),parts:Array(19).fill('x'.repeat(1000))})),currentUrl:story(0).url}])assert.throws(()=>validateQueue(doc));
+});
+test('handoff exports all original sections, advances the receiver revision and blocks the old source writer',async()=>{
+ const server=setup(),source=new ListeningQueueClient(email,server.storage,()=>{},server.fetcher),receiver=new ListeningQueueClient(email,null,()=>{},server.fetcher);
+ try{
+  await source.sync();source.add(story(1));source.add(story(2));source.begin('source',story(1).url);source.track('source',story(1).url,2);
+  const sent=await source.transferSnapshot('source');assert.deepEqual(sent.document.items[0].parts,story(1).parts);assert.equal(sent.document.items[0].partIndex,2);
+  const ready=server.handoff();source.transferred('source',sent.version,ready.version);source.track('source',story(1).url,0);source.finish('source',story(1).url);assert.equal(source.pending,null);
+  const current=await receiver.receiveTransfer(ready.version,ready.document);assert.equal(current.partIndex,2);receiver.begin('receiver',current.url);
+  const next=receiver.finish('receiver',current.url);assert.equal(next.url,story(2).url);await receiver.sync();assert.equal(server.state().document.items.length,1);
+  await assert.rejects(source.receiveTransfer(ready.version,ready.document),/changed|verified/);
+ }finally{source.dispose();receiver.dispose()}
+});
+test('handoff refuses unsynced edits, a changed queue order, a different account and a superseded lease',async()=>{
+ const server=setup(),client=new ListeningQueueClient(email,server.storage,()=>{},server.fetcher);
+ try{
+  await client.sync();client.add(story(1));client.add(story(2));client.begin('old',story(1).url);await client.sync();
+  const saved=server.state();await assert.rejects(client.receiveTransfer(saved.version,{...saved.document,items:[...saved.document.items].reverse()}),/changed|verified/);
+  server.online(false);client.track('old',story(1).url,1);await assert.rejects(client.transferSnapshot('old'),/sync/);
+  server.online(true);await client.sync();client.begin('new',story(2).url);await assert.rejects(client.transferSnapshot('old'),/sync/);
+  const snapshot=await client.transferSnapshot('new');server.changeAccount();await assert.rejects(client.receiveTransfer(snapshot.version,snapshot.document),/changed|verified/);
+ }finally{client.dispose()}
 });

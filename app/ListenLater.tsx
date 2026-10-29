@@ -20,6 +20,7 @@ export function ListenLaterProvider({ email, children, syncEnabled = true }: { e
   }, [email, syncEnabled]);
   return <Context.Provider value={{ client, revision, offline: !syncEnabled }}>{children}</Context.Provider>;
 }
+export function useListeningQueueClient() { return useContext(Context).client; }
 export function useListenLaterCount() {
   const { client } = useContext(Context); return client ? client.saved().items.length : null;
 }
@@ -52,7 +53,7 @@ export function ListenLaterButton({ url, title, source, imageUrl = "", paragraph
 }
 export function ListenLater({ beforePlay }: { beforePlay?: () => void }) {
   const { client, offline } = useContext(Context), [story, setStory] = useState<SharedStory | null>(null), [starting, setStarting] = useState(false);
-  const lease = useRef(""), started = useRef(false), finished = useRef(false);
+  const [lease, setLease] = useState("");
   const active = useRef(true);
   useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
   if (!client) return null;
@@ -63,17 +64,10 @@ export function ListenLater({ beforePlay }: { beforePlay?: () => void }) {
     if (!active.current) return;
     const item = client.saved().items.find(item => item.url === url);
     if (item) {
-      lease.current = crypto.randomUUID(); started.current = false; finished.current = false;
-      if (client.begin(lease.current, item.url)) { beforePlay?.(); setStory(structuredClone(item)); }
+      const id = crypto.randomUUID();
+      if (client.begin(id, item.url)) { setLease(id); beforePlay?.(); setStory(structuredClone(item)); }
     }
     setStarting(false);
-  }
-  function complete() {
-    if (!client || !story || !started.current || finished.current) return;
-    finished.current = true;
-    const next = client.finish(lease.current, story.url);
-    if (next) { started.current = false; finished.current = false; setStory(next); }
-    else setStory(null);
   }
   return <section className="listen-later shared-listening-resume" aria-label="Listen later">
     <h2>Listen later <span>({queue.items.length}/10)</span></h2>
@@ -91,21 +85,37 @@ export function ListenLater({ beforePlay }: { beforePlay?: () => void }) {
       </li>)}</ol>
     </> : <p>Your queue is empty. Use Listen later beside a story to save it.</p>}
     {client.message && <p role="status">{client.message}</p>}
-    {story && <QueueStory key={story.url} story={story} offline={offline} close={() => setStory(null)} complete={complete} track={(index, playing) => {
-      if (playing) started.current = true;
-      if (started.current && !finished.current) client.track(lease.current, story.url, index);
-    }} />}
+    {story && <QueueSessionPlayer story={story} lease={lease} client={client} offline={offline} close={() => setStory(null)} />}
   </section>;
 }
-function QueueStory({ story, close, complete, track, offline }: { story: SharedStory; close: () => void; complete: () => void; track: (index: number, playing: boolean) => void; offline: boolean }) {
+export function QueueSessionPlayer({ story: initial, lease, client, close, offline = false }: { story: SharedStory; lease: string; client: ListeningQueueClient; close: () => void; offline?: boolean }) {
+  const [story, setStory] = useState(initial), [locked, setLocked] = useState(false);
+  const lock = useRef(false);
+  const started = useRef(false), finished = useRef(false);
+  function onLock(value: boolean) { lock.current = value; setLocked(value); }
+  function complete() {
+    if (!started.current || finished.current || lock.current) return;
+    finished.current = true;
+    const next = client.finish(lease, story.url);
+    if (next) { started.current = false; finished.current = false; setStory(next); } else close();
+  }
+  return <QueueStory key={story.url} story={story} offline={offline} locked={locked} onLock={onLock} close={close} complete={complete}
+    transfer={{ prepare: async partIndex => { client.track(lease, story.url, partIndex); return client.transferSnapshot(lease); },
+      complete: (base, next) => { client.transferred(lease, base, next); close(); } }}
+    track={(index, playing) => {
+      if (playing) started.current = true;
+      if (started.current && !finished.current && !lock.current) client.track(lease, story.url, index);
+    }} />;
+}
+function QueueStory({ story, close, complete, track, offline, transfer, locked, onLock }: { story: SharedStory; close: () => void; complete: () => void; track: (index: number, playing: boolean) => void; offline: boolean; transfer: import("./ContinueOnWatch").QueueTransferSource; locked: boolean; onLock: (locked: boolean) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const callbacks = useRef({ complete, track }); callbacks.current = { complete, track };
   useEffect(() => { dialog.current?.showModal(); return () => dialog.current?.close(); }, []);
   const sections = useRef(story.parts.slice(story.partIndex).map((text, index) => ({ text, paragraphIndex: story.partIndex + index, start: 0, end: text.length })));
-  return <dialog ref={dialog} className="watch-listening-handoff" aria-label="Listen later player" onCancel={event => { event.preventDefault(); close(); }}>
-    <button type="button" onClick={close}>Close Listen later player</button><h2>{story.title}</h2><p>{story.source} · Saved section {story.partIndex + 1}</p>
+  return <dialog ref={dialog} className="watch-listening-handoff" aria-label="Listen later player" onCancel={event => { event.preventDefault(); if (!locked) close(); }}>
+    <button type="button" disabled={locked} onClick={close}>Close Listen later player</button><h2>{story.title}</h2><p>{story.source} · Saved section {story.partIndex + 1}</p>
     {story.imageUrl && <img src={story.imageUrl} alt="" referrerPolicy="no-referrer" loading="lazy" style={{ width: "100%", maxHeight: 220, objectFit: "cover", borderRadius: 10 }} onError={event => { event.currentTarget.style.display = "none"; }} />}
-    <ArticleAudioPlayer title={story.title} source={story.source} storyUrl={story.url} storyImageUrl={story.imageUrl} paragraphs={story.parts}
+    <ArticleAudioPlayer queueTransfer={transfer} onTransferLockChange={onLock} title={story.title} source={story.source} storyUrl={story.url} storyImageUrl={story.imageUrl} paragraphs={story.parts}
       narrationSections={sections.current} progressParts={story.parts} progressOffset={story.partIndex} restoreCachedPosition={false} autoPrepare
       defaultMode={!offline && navigator.onLine ? "recorded" : "browser"} onPlaybackComplete={() => callbacks.current.complete()}
       onReadingSectionChange={(section, playing) => { if (section) callbacks.current.track(section.paragraphIndex, playing); }} />

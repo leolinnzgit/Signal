@@ -12,7 +12,7 @@ public sealed class ListeningHandoffsController(ListeningHandoffService handoffs
 {
     private string? UserId => User.FindFirstValue(ClaimTypes.NameIdentifier);
     [HttpGet("inbox")]
-    public IActionResult Inbox() => UserId is { } user ? Ok(handoffs.Inbox(user)) : Unauthorized();
+    public IActionResult Inbox([FromQuery] bool queues = false) => UserId is { } user ? Ok(handoffs.Inbox(user, queues)) : Unauthorized();
     [HttpPost, RequestSizeLimit(150_000)]
     public IActionResult Create(ListeningHandoffDocument document)
     {
@@ -20,6 +20,7 @@ public sealed class ListeningHandoffsController(ListeningHandoffService handoffs
         try { return Ok(handoffs.Create(user, document)); }
         catch (ArgumentException error) { return BadRequest(new { error = error.Message }); }
         catch (InvalidOperationException error) { return StatusCode(503, new { error = error.Message }); }
+        catch (IOException) { return StatusCode(503, new { error = "Listen later is unavailable. Your local queue is kept." }); }
     }
     [HttpGet("{id}")]
     public IActionResult Get(string id, [FromHeader(Name = "X-Signal-Handoff-Receiver")] string? receiverToken)
@@ -32,15 +33,18 @@ public sealed class ListeningHandoffsController(ListeningHandoffService handoffs
     public IActionResult Accept(string id, Receiver request)
     {
         if (UserId is not { } user) return Unauthorized();
-        return handoffs.Accept(user, id, request.ReceiverToken, request.Target) ? Ok(new { status = "accepted" })
+        return handoffs.Accept(user, id, request.ReceiverToken, request.Target, request.SupportsQueue) ? Ok(new { status = "accepted" })
             : Conflict(new { error = "This transfer is expired or already claimed. Start a new transfer on your watch." });
     }
     [HttpPost("{id}/ready"), RequestSizeLimit(1024)]
     public IActionResult Ready(string id, Source request)
     {
         if (UserId is not { } user) return Unauthorized();
-        return handoffs.Ready(user, id, request.SourceToken, request.PartIndex) ? Ok(new { status = "ready" })
-            : Conflict(new { error = "The transfer could not confirm the watch's paused position." });
+        try {
+            return handoffs.Ready(user, id, request.SourceToken, request.PartIndex, request.QueueVersion)
+                ? Ok(new { status = "ready", queueVersion = handoffs.Get(user, id)?.QueueVersion })
+                : Conflict(new { error = "The transfer could not confirm the paused position or the queue changed. Start a new transfer." });
+        } catch (IOException) { return StatusCode(503, new { error = "Listen later is unavailable. Playback is paused; your local queue is kept." }); }
     }
     [HttpPost("{id}/cancel"), RequestSizeLimit(1024)]
     public IActionResult Cancel(string id, Cancellation request)
@@ -49,7 +53,7 @@ public sealed class ListeningHandoffsController(ListeningHandoffService handoffs
         return handoffs.Cancel(user, id, request.SourceToken, request.ReceiverToken) ? Ok(new { status = "cancelled" })
             : Conflict(new { error = "This transfer is already complete or unavailable." });
     }
-    public sealed record Receiver(string ReceiverToken, string Target = "phone");
-    public sealed record Source(string SourceToken, int PartIndex);
+    public sealed record Receiver(string ReceiverToken, string Target = "phone", bool SupportsQueue = false);
+    public sealed record Source(string SourceToken, int PartIndex, string? QueueVersion = null);
     public sealed record Cancellation(string? SourceToken, string? ReceiverToken);
 }

@@ -1,5 +1,16 @@
 # SignalWatch release preparation
 
+## Full-queue handoff: SignalWatch 0.19.0 (31)
+
+Continue on watch in the web Listen later player, or Continue on phone during Watch queue playback, transfers every remaining queued story in its existing order and resumes the latest confirmed section. The receiving device explicitly accepts first. The source then pauses, flushes its actual position, and confirms a durable queue revision. Readiness rotates that revision atomically, preventing an old source outbox from reclaiming the queue. Only the claiming receiver can read the temporary handoff snapshot; it must also verify the current account and exact queue revision before playing. A concurrent edit or failed verification stops the handoff. The source stops its queue player after confirmation. Queue order and per-story section offsets remain intact as the receiving player advances.
+
+Queue creation requires a server capability acknowledgement; acceptance requires an explicit queue-capable receiver. Older Watch apps do not discover queue offers and cannot accept them as a single story. Single-story handoffs remain compatible. Use Watch 0.19 or later and the updated Signal server/web app, keeping both apps open until acceptance. If the current story finishes before acceptance, start a new transfer for the next story. Cancellation, expiry, account changes and interruptions retain the existing fail-closed behaviour; playback never resumes automatically after failure. Offline text playback remains available, while handoff itself requires connectivity. Web controls stay inside the existing Listening panel.
+
+Release validation passed 109 Watch JVM tests, release lint (zero errors, 38 warnings), signed APK/AAB and bundletool checks, unchanged upload certificate, 64-bit/16 KB alignment and private-file exclusion. Checked artifacts are in `../SignalWatch/outputs/play-release/0.19.0-31/`. APK SHA256: `f90e7d77c430f940053cf7fb294d34f77a4f59db3d7ef6e3fccb7c90c51d9a56`.
+
+Web/server validation passed type checking, 230 client tests, the complete IIS check suite, queue transfer tests using browser and recorded audio, older-server refusal, single-story handoffs in both directions, queue conflict/offline/playback regression checks and phone/desktop preview images. The compact Listening panel passes at 360, 390 and 1280 pixels in both seasonal themes; a CSS specificity correction also prevents duplicate brand marks outside October. Physical paired-device, screen-off, interruptions and reconnect QA still require connected hardware. The companion remains 0.12.0 (21), and seasonal branding is preserved.
+
+
 
 ## Halloween edition: SignalWatch 0.18.1 (30)
 

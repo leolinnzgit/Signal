@@ -1,5 +1,5 @@
 /* Seasonal branding shares the existing light/dark preference and layout. */
-.brand-mark-halloween, .seasonal-edition { display: none; }
+.brand-mark.brand-mark-halloween, .seasonal-edition { display: none; }
 html[data-season="halloween"] {
   --ink: #211525;
   --paper: #fff1e2;

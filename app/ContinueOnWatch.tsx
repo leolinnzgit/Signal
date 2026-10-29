@@ -1,8 +1,10 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { readListeningHandoff, validHandoffToken } from "./listening-handoff";
+import type { QueueProgress } from "./listening-queue";
 
 export type WatchTransferSnapshot = { parts: string[]; partIndex: number; session: string };
+export type QueueTransferSource = { prepare: (partIndex: number) => Promise<QueueProgress>; complete: (baseVersion: string, nextVersion: string) => void };
 export async function watchTransferMutation(path: string, body: unknown, signal: AbortSignal, fetcher: typeof fetch = fetch) {
   const csrf = await fetcher("/api/auth/csrf", { credentials: "same-origin", cache: "no-store", signal });
   if (!csrf.ok) throw new Error("Sign in to the same Signal account as your watch.");
@@ -21,10 +23,11 @@ function delay(signal: AbortSignal) {
     signal.addEventListener("abort", stop, { once: true }); if (signal.aborted) stop();
   });
 }
-export default function ContinueOnWatch({ url, title, source, imageUrl = "", snapshot, pause, onLockChange }: {
+export default function ContinueOnWatch({ url, title, source, imageUrl = "", snapshot, pause, onLockChange, queueTransfer, partOffset = 0 }: {
   url: string; title: string; source: string; imageUrl?: string; snapshot: () => WatchTransferSnapshot | null; pause: () => void; onLockChange: (locked: boolean) => void;
+  queueTransfer?: QueueTransferSource; partOffset?: number;
 }) {
-  const latest = useRef({ snapshot, pause, onLockChange }); latest.current = { snapshot, pause, onLockChange };
+  const latest = useRef({ snapshot, pause, onLockChange, queueTransfer, partOffset }); latest.current = { snapshot, pause, onLockChange, queueTransfer, partOffset };
   const operation = useRef<AbortController | null>(null);
   const offer = useRef<{ id: string; sourceToken: string } | null>(null);
   const [active, setActive] = useState(false), [message, setMessage] = useState("");
@@ -48,11 +51,17 @@ export default function ContinueOnWatch({ url, title, source, imageUrl = "", sna
         return value.href.length <= 2048 && value.protocol === "https:" && !value.username && !value.password
           && value.hostname !== "localhost" && value.hostname !== "[::1]" && !/^127\./u.test(value.hostname) ? value.href : "";
       } catch { return ""; } })();
-      const value = await watchTransferMutation("", { url, title, source, imageUrl: safeImage, parts: initial.parts, partIndex: initial.partIndex, target: "watch" }, abort.signal);
+      const queue = await latest.current.queueTransfer?.prepare(initial.partIndex + latest.current.partOffset);
+      abort.signal.throwIfAborted();
+      const queuedStory = queue?.document?.items.find(item => item.url === url && item.url === queue.document?.currentUrl);
+      if (queue && !queuedStory) throw new Error("The current queued story changed. Start a new transfer.");
+      const value = await watchTransferMutation("", queuedStory ? { ...queuedStory, queueVersion: queue!.version, target: "watch" }
+        : { url, title, source, imageUrl: safeImage, parts: initial.parts, partIndex: initial.partIndex, target: "watch" }, abort.signal);
       if (!validHandoffToken(value?.id) || !validHandoffToken(value?.sourceToken) || !Number.isFinite(Date.parse(value?.expiresAt))) throw new Error("The watch transfer is invalid.");
       abort.signal.throwIfAborted();
       offer.current = value;
-      setMessage("Open SignalWatch and tap Continue from phone. Phone playback stays here until you accept.");
+      if (queue && value.isQueue !== true) throw new Error("Update your Signal server before transferring a Listen later queue.");
+      setMessage(queue ? "Open SignalWatch 0.19 or later and accept the Listen later queue. Playback stays here until you accept." : "Open SignalWatch and tap Continue from phone. Phone playback stays here until you accept.");
       const identity = JSON.stringify(initial.parts);
       while (Date.now() < Date.parse(value.expiresAt)) {
         await delay(abort.signal);
@@ -65,8 +74,16 @@ export default function ContinueOnWatch({ url, title, source, imageUrl = "", sna
         latest.current.onLockChange(true); latest.current.pause();
         const paused = latest.current.snapshot();
         if (!paused || paused.session !== initial.session || JSON.stringify(paused.parts) !== identity) throw new Error("Playback changed before it could be transferred.");
-        await watchTransferMutation(`/${value.id}/ready`, { sourceToken: value.sourceToken, partIndex: paused.partIndex }, abort.signal);
+        const latestQueue = await latest.current.queueTransfer?.prepare(paused.partIndex + latest.current.partOffset);
+        abort.signal.throwIfAborted();
+        const position = latestQueue?.document?.items.find(item => item.url === url && item.url === latestQueue.document?.currentUrl)?.partIndex;
+        if (latestQueue && position === undefined) throw new Error("Listen later changed before it could be transferred.");
+        const ready = await watchTransferMutation(`/${value.id}/ready`, { sourceToken: value.sourceToken, partIndex: position ?? paused.partIndex, queueVersion: latestQueue?.version }, abort.signal);
         abort.signal.throwIfAborted(); offer.current = null;
+        if (latestQueue) {
+          if (!/^[a-f0-9]{32}$/u.test(ready?.queueVersion)) throw new Error("The Watch did not confirm the queue transfer.");
+          latest.current.queueTransfer?.complete(latestQueue.version, ready.queueVersion);
+        }
         setMessage("Ready on your watch. Phone playback is paused."); return;
       }
       throw new Error("The watch transfer expired. Open SignalWatch and try again.");

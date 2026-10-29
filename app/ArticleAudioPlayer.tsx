@@ -6,10 +6,10 @@ import { recordedArticleNarrationSections, prepareHeadlineAudio, audioHeadlineIn
 import ReadingVoiceSelector, { useReadingVoices } from "./ReadingVoiceSelector";
 import BrowserArticleAudioPlayer from "./BrowserArticleAudioPlayer";
 import { openArticleAudioStream } from "./article-audio-stream";
-import ContinueOnWatch from "./ContinueOnWatch";
+import ContinueOnWatch, { type QueueTransferSource } from "./ContinueOnWatch";
 import { useSharedListeningReporter } from "./SharedListening";
 
-export type ArticleAudioPlayerProps = { onPlaybackComplete?: () => void; title: string; source: string; paragraphs: string[]; storyUrl?: string; storyImageUrl?: string; progressParts?: string[]; progressOffset?: number; onTransferLockChange?: (locked: boolean) => void; autoPrepare?: boolean; summaryOnly?: boolean; defaultMode?: "browser" | "recorded"; narrationSections?: ArticleNarrationSection[]; restoreCachedPosition?: boolean; onReadingSectionChange?: (section: ArticleNarrationSection | null, playing: boolean) => void };
+export type ArticleAudioPlayerProps = { queueTransfer?: QueueTransferSource; onPlaybackComplete?: () => void; title: string; source: string; paragraphs: string[]; storyUrl?: string; storyImageUrl?: string; progressParts?: string[]; progressOffset?: number; onTransferLockChange?: (locked: boolean) => void; autoPrepare?: boolean; summaryOnly?: boolean; defaultMode?: "browser" | "recorded"; narrationSections?: ArticleNarrationSection[]; restoreCachedPosition?: boolean; onReadingSectionChange?: (section: ArticleNarrationSection | null, playing: boolean) => void };
 
 export default function ArticleAudioPlayer(props: ArticleAudioPlayerProps) {
   const [speechSupported] = useState(() => typeof window !== "undefined" && "speechSynthesis" in window && "SpeechSynthesisUtterance" in window);
@@ -21,21 +21,22 @@ export default function ArticleAudioPlayer(props: ArticleAudioPlayerProps) {
     props.onReadingSectionChange?.(null, false);
     setMode(nextMode);
   }
+  function lockChange(locked: boolean) { setTransferLocked(locked); props.onTransferLockChange?.(locked); }
   return <div className="article-narration">
     <div className="article-audio-mode" role="group" aria-label="Article audio mode">
       <button type="button" aria-pressed={mode === "browser"} disabled={!speechSupported || transferLocked} onClick={() => changeMode("browser")}>Browser voice</button>
       <button type="button" aria-pressed={mode === "recorded"} disabled={transferLocked} onClick={() => changeMode("recorded")}>Recorded audio</button>
     </div>
-    {mode === "browser" ? <BrowserArticleAudioPlayer {...props} onTransferLockChange={setTransferLocked} onRecordedAudio={() => changeMode("recorded")} /> : <RecordedArticleAudioPlayer {...props} onTransferLockChange={setTransferLocked} />}
+    {mode === "browser" ? <BrowserArticleAudioPlayer {...props} onTransferLockChange={lockChange} onRecordedAudio={() => changeMode("recorded")} /> : <RecordedArticleAudioPlayer {...props} onTransferLockChange={lockChange} />}
   </div>;
 }
 
-function RecordedArticleAudioPlayer({ onPlaybackComplete, title, source, paragraphs, storyUrl, storyImageUrl, progressParts, progressOffset, onTransferLockChange, autoPrepare = false, summaryOnly = false, onReadingSectionChange, narrationSections, restoreCachedPosition = true }: ArticleAudioPlayerProps) {
+function RecordedArticleAudioPlayer({ queueTransfer, onPlaybackComplete, title, source, paragraphs, storyUrl, storyImageUrl, progressParts, progressOffset, onTransferLockChange, autoPrepare = false, summaryOnly = false, onReadingSectionChange, narrationSections, restoreCachedPosition = true }: ArticleAudioPlayerProps) {
   const readingVoices = useReadingVoices();
   const narrationTitle = summaryOnly && paragraphs.length === 1 && paragraphs[0] === title ? "" : title;
   const sections = useMemo(() => { try { return narrationSections ?? recordedArticleNarrationSections(narrationTitle, paragraphs); } catch { return []; } }, [narrationTitle, paragraphs, readingVoices.loading, narrationSections]);
   const parts = useMemo(() => sections.length ? sections.map((section) => section.text) : null, [sections]);
-  const shared = useSharedListeningReporter(summaryOnly ? undefined : storyUrl, title, source, storyImageUrl, progressParts ?? parts ?? [], progressOffset);
+  const shared = useSharedListeningReporter(summaryOnly || queueTransfer ? undefined : storyUrl, title, source, storyImageUrl, progressParts ?? parts ?? [], progressOffset);
   const [attempt, setAttempt] = useState(() => autoPrepare || (parts && preparedAudioCache.get(parts, 3, navigator.language, readingVoices.preferences)) ? 1 : 0);
   const [url, setUrl] = useState("");
   const [starts, setStarts] = useState<number[]>([]);
@@ -244,9 +245,9 @@ function RecordedArticleAudioPlayer({ onPlaybackComplete, title, source, paragra
   }
 
   return <section className="article-audio-player" aria-label={summaryOnly ? "Headline and summary narration" : "Full article narration"}>
-    {storyUrl && !summaryOnly && <ContinueOnWatch url={storyUrl} title={title} source={source} imageUrl={storyImageUrl}
+    {storyUrl && !summaryOnly && <ContinueOnWatch queueTransfer={queueTransfer} partOffset={progressOffset} url={storyUrl} title={title} source={source} imageUrl={storyImageUrl}
       snapshot={() => audio.current && url && starts.length && parts && !audio.current.ended ? { parts, partIndex: audioHeadlineIndex(starts, audio.current.currentTime), session: recordingKey.current } : null}
-      pause={() => { resumePlayback.current = false; audio.current?.pause(); setPlaying(false); }}
+      pause={() => { resumePlayback.current = false; audio.current?.pause(); setPlaying(false); updatePosition(); }}
       onLockChange={value => { transferLock.current = value; setTransferLocked(value); onTransferLockChange?.(value); }} />}
     <div inert={transferLocked}>
     <ReadingVoiceSelector {...readingVoices} selectVoice={selectVoice} active={attempt > 0} playbackActive={playing}

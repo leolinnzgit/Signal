@@ -33,7 +33,7 @@ test('acceptance and cancellation require CSRF and preserve an idempotent receiv
   await changeListeningHandoff(id,'accept',key,new AbortController().signal,fetcher);
   assert.equal(requests[1].options.method,'POST');
   assert.equal(requests[1].options.headers['X-XSRF-TOKEN'],'csrf');
-  assert.deepEqual(JSON.parse(requests[1].options.body),{receiverToken:key});
+  assert.deepEqual(JSON.parse(requests[1].options.body),{receiverToken:key,supportsQueue:true});
   await assert.rejects(changeListeningHandoff(id,'accept',key,new AbortController().signal,async()=>reply({})),/Sign in/);
 });
 test('expired and unauthenticated reads never provide playable text',async()=>{

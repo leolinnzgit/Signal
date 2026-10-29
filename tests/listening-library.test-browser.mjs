@@ -8,7 +8,7 @@ await server.listen();let browser;
 try{
  browser=await chromium.launch({headless:true,channel:'msedge'});
  await mkdir('work/listening-library',{recursive:true});
- for(const width of [360,390,1280]){
+ for(const season of ['standard','halloween'])for(const width of [360,390,1280]){
   const context=await browser.newContext({viewport:{width,height:900}}),page=await context.newPage(),errors=[];
   page.setDefaultTimeout(30000);page.setDefaultNavigationTimeout(120000);page.on('pageerror',error=>errors.push(error.message));
   await page.addInitScript(()=>{
@@ -38,12 +38,17 @@ try{
    if(path.includes('audio'))return route.fulfill({status:503,json:{error:'Use the device voice in this preview.'}});
    return route.fulfill({json:{}});
   });
-  await page.goto('http://127.0.0.1:3032/library-test');const trigger=page.getByRole('button',{name:'Listening library',exact:true});await trigger.waitFor();
+  await page.goto('http://127.0.0.1:3032/library-test');await page.evaluate(season=>{document.documentElement.dataset.season=season},season);const trigger=page.getByRole('button',{name:'Listening library',exact:true});await trigger.waitFor();
+  assert.equal(await page.locator('.brand-mark:visible').count(),1,'Exactly one seasonal brand mark is visible');
   assert.equal(await page.locator('.site-header').evaluate(header=>header.nextElementSibling.classList.contains('hero')),true,'The briefing follows the header directly');
   assert.equal(await page.locator('#listening-library').isVisible(),false);assert.equal(await page.locator('audio').count(),0);assert.equal(await page.evaluate(()=>window.librarySpeech.length),0);
   await page.getByRole('button',{name:`Remove from Listen later: ${item(1).title}`,exact:true}).waitFor();
   assert.equal(await page.locator('.listen-later-add-compact button svg').count(),1);
-  assert.equal(await page.getByRole('button',{name:'Settings',exact:true}).evaluate(button=>Math.abs(button.getBoundingClientRect().top-document.querySelector('.listening-library-toggle').getBoundingClientRect().top)<3),true,'Listening does not push Settings onto another header row');
+  await page.evaluate(()=>document.fonts.ready);
+  await page.waitForFunction(()=>Math.abs(document.querySelector('.settings-toggle').getBoundingClientRect().top-document.querySelector('.listening-library-toggle').getBoundingClientRect().top)<3).catch(async error=>{
+    await page.screenshot({path:`work/listening-library/header-failure-${width}.png`});
+    console.log('Header layout diagnostics',await page.locator('.site-header').evaluate(header=>[...header.querySelectorAll('.brand,.header-actions > button')].map(element=>({class:element.className,width:element.getBoundingClientRect().width,top:element.getBoundingClientRect().top}))));throw error;
+  });
   await page.screenshot({path:`work/listening-library/feed-${width}.png`,fullPage:false});
   const headerHeight=await page.locator('.site-header').evaluate(header=>header.getBoundingClientRect().height);
   await trigger.click();const library=page.getByRole('dialog',{name:'Listening',exact:true});await library.waitFor();

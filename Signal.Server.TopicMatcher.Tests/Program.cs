@@ -13,6 +13,7 @@ using Signal.Server.Controllers;
 using Signal.Server.Models;
 using Signal.Server.Services;
 
+await QueueHandoffChecks.RunAsync();
 await ListeningQueueChecks.RunAsync();
 await ListeningProgressChecks.RunAsync();
 await ListeningHandoffChecks.RunAsync();
