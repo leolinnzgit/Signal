@@ -32,6 +32,7 @@ import WeatherAlertBanner from "./WeatherAlertBanner";
 import ArticleEntities from "./ArticleEntities";
 import ArticleKeyPhrases from "./ArticleKeyPhrases";
 import RelatedStoriesModal from "./RelatedStoriesModal";
+import EntityPulseModal from "./EntityPulseModal";
 import { getEntityIcon } from "./article-entities";
 import { getSuggestedTopics, type SuggestedTopic } from "./suggested-topics";
 import ArticleReadingText from "./ArticleReadingText";
@@ -816,6 +817,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [weatherAlerts, setWeatherAlerts] = useState<ClientWeatherAlert[]>([]);
   const [weatherConditions, setWeatherConditions] = useState<ClientWeatherConditions | null>(null);
   const [relatedStoriesEntity, setRelatedStoriesEntity] = useState<string | null>(null);
+  const [entityPulseOpen, setEntityPulseOpen] = useState(false);
   const [dismissedWeatherAlertIds, setDismissedWeatherAlertIds] = useState<Set<string>>(new Set());
   const [weatherForecast, setWeatherForecast] = useState<WeatherForecastDay[]>([]);
   const [weatherStatus, setWeatherStatus] = useState<WeatherStatus>("locating");
@@ -4172,6 +4174,17 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                   More topics <span>{preferences.topics.length - visibleTopicFilters.length}</span>
                 </button>
               )}
+              {preferences.topics.length > 0 && (
+                <button
+                  type="button"
+                  className="topic-pulse-trigger"
+                  onClick={() => setEntityPulseOpen(true)}
+                  title="View followed topics pulse and momentum"
+                  aria-label="View followed topics pulse and momentum"
+                >
+                  📊 Pulse
+                </button>
+              )}
             </nav>
             {topicPickerOpen && (
               <div className="topic-filter-picker" id="topic-filter-picker">
@@ -5109,6 +5122,40 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           );
         }}
         onClose={() => setRelatedStoriesEntity(null)}
+      />
+      <EntityPulseModal
+        isOpen={entityPulseOpen}
+        topics={preferences.topics}
+        articles={articles}
+        suggestedTopics={suggestedTopics}
+        onClose={() => setEntityPulseOpen(false)}
+        onSelectTopic={(topic) => {
+          if (feedView !== "latest") changeFeedView("latest");
+          selectTopicFilter(topic);
+        }}
+        onUnfollowTopic={(topic) => {
+          removeTopic(topic);
+        }}
+        onFindRelatedStories={(topic) => {
+          setRelatedStoriesEntity(topic);
+        }}
+        onOpenArticle={(article) => {
+          openArticleReader(
+            {
+              url: article.url,
+              title: article.title,
+              source: article.source,
+              publishedAt: "",
+              summary: "",
+              topics: [],
+              providers: [],
+            },
+            document.activeElement instanceof HTMLElement ? document.activeElement : document.body
+          );
+        }}
+        onFollowTopic={(topic) => {
+          addTopic(topic, { select: false });
+        }}
       />
       <footer><p><span className="footer-dot" /> SIGNAL gathers public reporting and sends you to the original publisher.</p></footer>
     </main>
