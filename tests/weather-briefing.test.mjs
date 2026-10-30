@@ -49,3 +49,26 @@ test("weather briefing includes active severe weather alerts when present", () =
   assert.ok(briefing.includes("Attention: Severe Gale Warning."));
   assert.ok(briefing.includes("Here is your weather for Auckland."));
 });
+test("weather briefing includes high UV and poor air quality warnings when present", () => {
+  const highUvConditions = {
+    available: true,
+    uvIndex: 7,
+    uvCategory: "High",
+    airQualityIndex: 120,
+    airQualityCategory: "Unhealthy for Sensitive Groups",
+  };
+  const briefing = weatherBriefing(weather, [today], [], highUvConditions);
+  assert.ok(briefing.includes("The UV index is 7, High. Sun protection is recommended."));
+  assert.ok(briefing.includes("Air quality is unhealthy for sensitive groups."));
+
+  const lowUvConditions = {
+    available: true,
+    uvIndex: 3,
+    uvCategory: "Moderate",
+    airQualityIndex: 20,
+    airQualityCategory: "Good",
+  };
+  const safeBriefing = weatherBriefing(weather, [today], [], lowUvConditions);
+  assert.ok(!safeBriefing.includes("UV index"));
+  assert.ok(!safeBriefing.includes("Air quality"));
+});

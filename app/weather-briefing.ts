@@ -31,6 +31,17 @@ export type ClientWeatherAlert = {
   expires?: string | null;
 };
 
+export type ClientWeatherConditions = {
+  available: boolean;
+  message?: string;
+  uvIndex?: number | null;
+  uvCategory?: string;
+  airQualityIndex?: number | null;
+  airQualityCategory?: string;
+  dominantPollutant?: string;
+  airQualityDescription?: string;
+};
+
 export function describeWeather(code: number) {
   if (code === 0) return "Clear";
   if (code === 1 || code === 2) return "Partly cloudy";
@@ -49,6 +60,7 @@ export function weatherBriefing(
   weather: LocalWeather | null,
   forecast: WeatherForecastDay[],
   alerts: ClientWeatherAlert[] = [],
+  conditions?: ClientWeatherConditions | null,
 ) {
   if (!weather) return "";
   const place = weather.locationName ? ` for ${weather.locationName}` : "";
@@ -56,7 +68,7 @@ export function weatherBriefing(
   // Open-Meteo's local observation date matches the forecast location, even
   // when the device is in a different timezone. Never read tomorrow as today.
   const today = forecast.find((day) => day.date === weather.observedAt.slice(0, 10));
-  const base = today
+  let briefing = today
     ? `${current} Today, expect ${describeWeather(today.weatherCode).toLowerCase()}, with a high of ${Math.round(today.temperatureMax)} and a low of ${Math.round(today.temperatureMin)} degrees Celsius. The chance of rain is ${Math.round(today.precipitationProbability)} percent.`
     : current;
 
@@ -65,8 +77,16 @@ export function weatherBriefing(
       alerts.length === 1
         ? ` Attention: ${alerts[0].headline}.`
         : ` Attention: ${alerts.length} severe weather alerts in effect, including ${alerts[0].headline}.`;
-    return `${base}${warning}`;
+    briefing += warning;
   }
 
-  return base;
+  if (conditions?.uvIndex !== undefined && conditions?.uvIndex !== null && conditions.uvIndex >= 6) {
+    briefing += ` The UV index is ${conditions.uvIndex}, ${conditions.uvCategory || "High"}. Sun protection is recommended.`;
+  }
+
+  if (conditions?.airQualityCategory && /unhealthy|poor|hazardous/i.test(conditions.airQualityCategory)) {
+    briefing += ` Air quality is ${conditions.airQualityCategory.toLowerCase()}.`;
+  }
+
+  return briefing;
 }

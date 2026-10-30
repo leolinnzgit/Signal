@@ -214,6 +214,9 @@ builder.Services.AddSingleton<AzureLanguageSummaryService>();
 builder.Services.AddSingleton<AzureLanguageEntityService>();
 builder.Services.AddHttpClient(AzureLanguageEntityService.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(20))
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
+builder.Services.AddSingleton<AzureLanguageSentimentService>();
+builder.Services.AddHttpClient(AzureLanguageSentimentService.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(20))
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
 builder.Services.AddSingleton<AzureMapsWeatherService>();
 builder.Services.AddHttpClient(AzureMapsWeatherService.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(15))
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });

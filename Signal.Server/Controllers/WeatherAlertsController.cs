@@ -22,6 +22,34 @@ public sealed class WeatherAlertsController(
         [FromQuery] double? longitude,
         CancellationToken ct)
     {
+        var coords = await ResolveCoordinatesAsync(latitude, longitude, ct);
+        if (!coords.HasValue)
+        {
+            return Ok(new WeatherAlertsResult(false, "No valid weather location configured.", [], DateTime.UtcNow));
+        }
+
+        var result = await weatherService.GetAlertsAsync(coords.Value.Latitude, coords.Value.Longitude, ct);
+        return Ok(result);
+    }
+
+    [HttpGet("/api/weather/conditions")]
+    public async Task<IActionResult> GetConditions(
+        [FromQuery] double? latitude,
+        [FromQuery] double? longitude,
+        CancellationToken ct)
+    {
+        var coords = await ResolveCoordinatesAsync(latitude, longitude, ct);
+        if (!coords.HasValue)
+        {
+            return Ok(new WeatherConditions(false, "No valid weather location configured.", null, "", null, "", "", "", DateTime.UtcNow));
+        }
+
+        var result = await weatherService.GetConditionsAsync(coords.Value.Latitude, coords.Value.Longitude, ct);
+        return Ok(result);
+    }
+
+    private async Task<(double Latitude, double Longitude)?> ResolveCoordinatesAsync(double? latitude, double? longitude, CancellationToken ct)
+    {
         double? targetLat = latitude;
         double? targetLon = longitude;
 
@@ -52,12 +80,11 @@ public sealed class WeatherAlertsController(
             }
         }
 
-        if (!targetLat.HasValue || !targetLon.HasValue)
+        if (targetLat.HasValue && targetLon.HasValue)
         {
-            return Ok(new WeatherAlertsResult(false, "No valid weather location configured.", [], DateTime.UtcNow));
+            return (targetLat.Value, targetLon.Value);
         }
 
-        var result = await weatherService.GetAlertsAsync(targetLat.Value, targetLon.Value, ct);
-        return Ok(result);
+        return null;
     }
 }

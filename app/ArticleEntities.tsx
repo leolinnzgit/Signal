@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { findFollowedTopic, getEntityIcon, loadArticleEntities, type RecognizedEntity } from "./article-entities";
+import { loadArticleSentiment, getSentimentIcon, type ArticleSentimentResponse } from "./article-sentiment";
 import { recordReadArticleEntities } from "./suggested-topics";
 import "./article-entities.css";
 
@@ -12,6 +13,7 @@ export default function ArticleEntities({
   followedTopics,
   onFollow,
   onOpenTopic,
+  onFindRelatedStories,
 }: {
   url: string;
   title: string;
@@ -22,8 +24,11 @@ export default function ArticleEntities({
   onFollow: (entityText: string) => void;
   /** Opens the feed for an entity that is already followed. */
   onOpenTopic: (topic: string) => void;
+  /** Opens related stories modal for an entity. */
+  onFindRelatedStories?: (entityText: string) => void;
 }) {
   const [entities, setEntities] = useState<RecognizedEntity[]>([]);
+  const [sentiment, setSentiment] = useState<ArticleSentimentResponse | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -31,7 +36,7 @@ export default function ArticleEntities({
     const abort = new AbortController();
     setLoading(true);
 
-    loadArticleEntities(url, title, paragraphs, abort.signal)
+    const nerPromise = loadArticleEntities(url, title, paragraphs, abort.signal)
       .then((res) => {
         if (!abort.signal.aborted && res.available) {
           const loaded = res.entities || [];
@@ -40,50 +45,91 @@ export default function ArticleEntities({
         }
       })
       .catch(() => {
-        // Fall back quietly if Azure Language is disabled or unconfigured
         if (!abort.signal.aborted) setEntities([]);
-      })
-      .finally(() => {
-        if (!abort.signal.aborted) setLoading(false);
       });
+
+    const sentimentPromise = loadArticleSentiment(url, title, paragraphs, abort.signal)
+      .then((res) => {
+        if (!abort.signal.aborted && res.available) {
+          setSentiment(res);
+        }
+      })
+      .catch(() => {
+        if (!abort.signal.aborted) setSentiment(null);
+      });
+
+    Promise.allSettled([nerPromise, sentimentPromise]).finally(() => {
+      if (!abort.signal.aborted) setLoading(false);
+    });
 
     return () => abort.abort();
   }, [url, title, paragraphs]);
 
-  if (!loading && entities.length === 0) return null;
+  if (!loading && entities.length === 0 && !sentiment) return null;
 
   return (
-    <div className="article-entities-container" role="group" aria-label="Key topics and entities in this story">
+    <div className="article-entities-container" role="group" aria-label="Key topics and tone in this story">
       <div className="article-entities-header">
-        <span className="article-entities-label">Key Topics &amp; Entities</span>
-        {loading && <span className="article-entities-spinner" aria-hidden="true" />}
-        {!loading && <span className="article-entities-hint">Tap to follow</span>}
-      </div>
-      <div className="article-entities-list">
-        {entities.map((entity, index) => {
-          const followed = findFollowedTopic(followedTopics, entity.text);
-          return (
-            <button
-              key={`${entity.category}-${entity.text}-${index}`}
-              type="button"
-              className={`article-entity-chip${followed ? " followed" : ""}`}
-              aria-label={followed
-                ? `Following ${followed}. Open its stories.`
-                : `Follow ${entity.text} as a topic`}
-              title={followed
-                ? `${entity.category}: following ${followed} — tap to open its stories`
-                : `${entity.category}: tap to follow ${entity.text}`}
-              onClick={() => (followed ? onOpenTopic(followed) : onFollow(entity.text))}
+        <div className="article-entities-header-left">
+          <span className="article-entities-label">Key Topics &amp; Entities</span>
+          {sentiment && sentiment.available && (
+            <span
+              className={`article-sentiment-pill sentiment-${sentiment.sentiment}`}
+              title={`Tone: ${sentiment.sentiment} (${Math.round(sentiment.positiveScore * 100)}% positive, ${Math.round(sentiment.neutralScore * 100)}% neutral, ${Math.round(sentiment.negativeScore * 100)}% negative)`}
             >
-              <span className="entity-icon" aria-hidden="true">
-                {getEntityIcon(entity.category)}
-              </span>
-              <span className="entity-name">{entity.text}</span>
-              <span className="entity-follow-state" aria-hidden="true">{followed ? "✓" : "+"}</span>
-            </button>
-          );
-        })}
+              <span className="sentiment-icon" aria-hidden="true">{getSentimentIcon(sentiment.sentiment)}</span>
+              <span className="sentiment-text">{sentiment.sentiment.charAt(0).toUpperCase() + sentiment.sentiment.slice(1)}</span>
+            </span>
+          )}
+        </div>
+        {loading && <span className="article-entities-spinner" aria-hidden="true" />}
+        {!loading && <span className="article-entities-hint">Tap + to follow · 📰 for stories</span>}
       </div>
+      {entities.length > 0 && (
+        <div className="article-entities-list">
+          {entities.map((entity, index) => {
+            const followed = findFollowedTopic(followedTopics, entity.text);
+            return (
+              <div
+                key={`${entity.category}-${entity.text}-${index}`}
+                className={`article-entity-group${followed ? " followed" : ""}`}
+              >
+                <button
+                  type="button"
+                  className="article-entity-chip"
+                  aria-label={followed
+                    ? `Following ${followed}. Open its stories.`
+                    : `Follow ${entity.text} as a topic`}
+                  title={followed
+                    ? `${entity.category}: following ${followed} — tap to open its stories`
+                    : `${entity.category}: tap to follow ${entity.text}`}
+                  onClick={() => (followed ? onOpenTopic(followed) : onFollow(entity.text))}
+                >
+                  <span className="entity-icon" aria-hidden="true">
+                    {getEntityIcon(entity.category)}
+                  </span>
+                  <span className="entity-name">{entity.text}</span>
+                  <span className="entity-follow-state" aria-hidden="true">{followed ? "✓" : "+"}</span>
+                </button>
+                {onFindRelatedStories && (
+                  <button
+                    type="button"
+                    className="entity-related-stories-btn"
+                    aria-label={`Find related stories for ${entity.text}`}
+                    title={`Find stories mentioning ${entity.text}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onFindRelatedStories(entity.text);
+                    }}
+                  >
+                    📰
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

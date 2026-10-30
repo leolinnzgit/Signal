@@ -72,7 +72,38 @@ internal static class ArticleEntityChecks
         Assert(!result.Available, "Disabled service must report unavailable.");
         Assert(result.Entities.Length == 0, "Disabled service must return no entities.");
 
-        Console.WriteLine("Azure Language entity recognition checks passed: parsing, confidence filtering, deduplication and disabled state.");
+        // Azure Language Sentiment checks
+        var sampleSentimentJson = """
+        {
+          "kind": "SentimentAnalysisResults",
+          "results": {
+            "documents": [
+              {
+                "id": "1",
+                "sentiment": "positive",
+                "confidenceScores": {
+                  "positive": 0.88,
+                  "neutral": 0.10,
+                  "negative": 0.02
+                }
+              }
+            ]
+          }
+        }
+        """;
+        using var sentimentDoc = JsonDocument.Parse(sampleSentimentJson);
+        var parsedSentiment = AzureLanguageSentimentService.Parse(sentimentDoc.RootElement);
+        Assert(parsedSentiment.Available, "Valid sentiment response must report available.");
+        Assert(parsedSentiment.Sentiment == "positive", "Expected positive sentiment.");
+        Assert(parsedSentiment.PositiveScore == 0.88, "Positive score was parsed incorrectly.");
+        Assert(parsedSentiment.NeutralScore == 0.10, "Neutral score was parsed incorrectly.");
+        Assert(parsedSentiment.NegativeScore == 0.02, "Negative score was parsed incorrectly.");
+
+        var disabledSentimentService = new AzureLanguageSentimentService(disabledOptions, new DummyClientFactory(), cache);
+        var sentimentResult = await disabledSentimentService.AnalyzeSentimentAsync("Sample text for sentiment.", CancellationToken.None);
+        Assert(!sentimentResult.Available, "Disabled sentiment service must report unavailable.");
+
+        Console.WriteLine("Azure Language entity recognition and sentiment checks passed: parsing, confidence filtering, deduplication and disabled state.");
     }
 
     private sealed class DummyClientFactory : IHttpClientFactory

@@ -27,9 +27,10 @@ import { useWeatherAudio } from "./WeatherAudio";
 import { useEarthquakeAlerts } from "./EarthquakeAlerts";
 import AppSettings from "./AppSettings";
 import { formatMarketPrice, type MarketQuote } from "./market-quote";
-import { describeWeather, weatherBriefing, type ClientWeatherAlert, type LocalWeather, type WeatherForecastDay } from "./weather-briefing";
+import { describeWeather, weatherBriefing, type ClientWeatherAlert, type ClientWeatherConditions, type LocalWeather, type WeatherForecastDay } from "./weather-briefing";
 import WeatherAlertBanner from "./WeatherAlertBanner";
 import ArticleEntities from "./ArticleEntities";
+import RelatedStoriesModal from "./RelatedStoriesModal";
 import { getEntityIcon } from "./article-entities";
 import { getSuggestedTopics, type SuggestedTopic } from "./suggested-topics";
 import ArticleReadingText from "./ArticleReadingText";
@@ -812,6 +813,8 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
   const [localWeather, setLocalWeather] = useState<LocalWeather | null>(null);
   const [weatherAlerts, setWeatherAlerts] = useState<ClientWeatherAlert[]>([]);
+  const [weatherConditions, setWeatherConditions] = useState<ClientWeatherConditions | null>(null);
+  const [relatedStoriesEntity, setRelatedStoriesEntity] = useState<string | null>(null);
   const [dismissedWeatherAlertIds, setDismissedWeatherAlertIds] = useState<Set<string>>(new Set());
   const [weatherForecast, setWeatherForecast] = useState<WeatherForecastDay[]>([]);
   const [weatherStatus, setWeatherStatus] = useState<WeatherStatus>("locating");
@@ -923,7 +926,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     return weatherAlerts.filter((alert) => !dismissedWeatherAlertIds.has(alert.id));
   }, [weatherAlerts, dismissedWeatherAlertIds]);
 
-  const weatherAudio = useWeatherAudio(weatherBriefing(weatherStatus === "ready" ? localWeather : null, weatherForecast, activeWeatherAlerts), !!headlineQueue || !!readerArticle || !!watchHandoffId);
+  const weatherAudio = useWeatherAudio(weatherBriefing(weatherStatus === "ready" ? localWeather : null, weatherForecast, activeWeatherAlerts, weatherConditions), !!headlineQueue || !!readerArticle || !!watchHandoffId);
   const earthquakes = useEarthquakeAlerts(user.email, !!pushNotificationStore);
 
   const trendTrafficRange = useMemo(() => {
@@ -1183,6 +1186,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     setLocalWeather(null);
     setWeatherForecast([]);
     setWeatherAlerts([]);
+    setWeatherConditions(null);
     const fetchWeatherAlerts = async (lat: number, lon: number) => {
       try {
         const res = await fetch(`/api/weather/alerts?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}`, {
@@ -1197,6 +1201,22 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         }
       } catch {
         if (!cancelled) setWeatherAlerts([]);
+      }
+    };
+    const fetchWeatherConditions = async (lat: number, lon: number) => {
+      try {
+        const res = await fetch(`/api/weather/conditions?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}`, {
+          credentials: "same-origin",
+          cache: "no-store",
+          signal: request.signal,
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as ClientWeatherConditions;
+        if (!cancelled && data?.available) {
+          setWeatherConditions(data);
+        }
+      } catch {
+        if (!cancelled) setWeatherConditions(null);
       }
     };
     const fetchWeather = async (latitude: number, longitude: number, locationName: string) => {
@@ -1231,6 +1251,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         }
         const resolvedLocationName = await nameRequest;
         void fetchWeatherAlerts(latitude, longitude);
+        void fetchWeatherConditions(latitude, longitude);
         if (cancelled) return;
         const daily = data.daily;
         const forecast = (daily?.time ?? []).slice(0, 7).flatMap((date, index) => {
@@ -1268,6 +1289,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         if (!cancelled) {
           setWeatherForecast([]);
     setWeatherAlerts([]);
+    setWeatherConditions(null);
     setWeatherStatus("error");
         }
       }
@@ -3459,6 +3481,22 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                     Humidity {Math.round(localWeather.humidity)}%
                     <span aria-hidden="true"> · </span>
                     Wind {Math.round(localWeather.windSpeed)} km/h
+                    {weatherConditions?.uvIndex !== undefined && weatherConditions?.uvIndex !== null && (
+                      <>
+                        <span aria-hidden="true"> · </span>
+                        <span className={`weather-uv-pill uv-${(weatherConditions.uvCategory || "low").toLowerCase().replace(/\s+/g, "-")}`} title={`UV Index: ${weatherConditions.uvIndex} (${weatherConditions.uvCategory})`}>
+                          UV {weatherConditions.uvIndex}
+                        </span>
+                      </>
+                    )}
+                    {weatherConditions?.airQualityIndex !== undefined && weatherConditions?.airQualityIndex !== null && (
+                      <>
+                        <span aria-hidden="true"> · </span>
+                        <span className="weather-aqi-pill" title={`Air Quality: AQI ${weatherConditions.airQualityIndex} (${weatherConditions.airQualityCategory || ""})${weatherConditions.dominantPollutant ? ` · Dominant: ${weatherConditions.dominantPollutant}` : ""}`}>
+                          AQI {weatherConditions.airQualityIndex}
+                        </span>
+                      </>
+                    )}
                   </span>
                 </small>
               </div>
@@ -3494,6 +3532,20 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
               <div>
                 <span>Seven-day forecast</span>
                 <strong>{localWeather.locationName}</strong>
+                {((weatherConditions?.uvIndex !== undefined && weatherConditions?.uvIndex !== null) || (weatherConditions?.airQualityIndex !== undefined && weatherConditions?.airQualityIndex !== null)) && (
+                  <div className="weather-forecast-conditions">
+                    {weatherConditions.uvIndex !== undefined && weatherConditions.uvIndex !== null && (
+                      <span className={`weather-uv-badge uv-${(weatherConditions.uvCategory || "low").toLowerCase().replace(/\s+/g, "-")}`}>
+                        UV: {weatherConditions.uvIndex} ({weatherConditions.uvCategory})
+                      </span>
+                    )}
+                    {weatherConditions.airQualityIndex !== undefined && weatherConditions.airQualityIndex !== null && (
+                      <span className="weather-aqi-badge">
+                        Air Quality: AQI {weatherConditions.airQualityIndex} ({weatherConditions.airQualityCategory || "Moderate"}){weatherConditions.dominantPollutant ? ` · ${weatherConditions.dominantPollutant}` : ""}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="weather-forecast-heading-actions">
                 <button type="button" className="weather-change-location" onClick={() => setWeatherRetryKey(current => current + 1)}>
@@ -4787,6 +4839,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                       if (feedView !== "latest") changeFeedView("latest");
                       selectTopicFilter(topic);
                     }}
+                    onFindRelatedStories={(entityText) => setRelatedStoriesEntity(entityText)}
                   />
                   {(readerTranslation?.paragraphs ?? readerContent.article.paragraphs).map((paragraph, index) => (
                     <p key={`${index}-${paragraph.slice(0, 24)}`} lang={readerTranslation?.language} dir="auto"><ArticleReadingText text={paragraph} paragraphIndex={index} section={readerReading.section} /></p>
@@ -5025,6 +5078,31 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
             </svg>
           </button>
         </nav>
+      <RelatedStoriesModal
+        isOpen={relatedStoriesEntity !== null}
+        entity={relatedStoriesEntity ?? ""}
+        currentUrl={readerArticle?.url ?? ""}
+        liveArticles={articles}
+        articleStore={articleStore}
+        isFollowed={relatedStoriesEntity ? preferences.topics.some((t) => t.toLowerCase() === relatedStoriesEntity.toLowerCase()) : false}
+        onFollow={(entity) => addTopic(entity, { select: false })}
+        onOpenArticle={(article) => {
+          setRelatedStoriesEntity(null);
+          openArticleReader(
+            {
+              url: article.url,
+              title: article.title,
+              source: article.source,
+              publishedAt: "",
+              summary: "",
+              topics: [],
+              providers: [],
+            },
+            document.activeElement instanceof HTMLElement ? document.activeElement : document.body
+          );
+        }}
+        onClose={() => setRelatedStoriesEntity(null)}
+      />
       <footer><p><span className="footer-dot" /> SIGNAL gathers public reporting and sends you to the original publisher.</p></footer>
     </main>
   );
