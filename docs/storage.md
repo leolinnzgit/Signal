@@ -67,3 +67,49 @@ The installed Android SDK, Gradle distribution, bundletool, and downloaded Gradl
 dependencies remain available. The sibling `SignalWatch` project, its checked
 APK/AAB releases, signing keys and credentials are preserved. Signing files and
 `App_Data` directories also block cleanup if found inside a deletion candidate.
+
+## Weekly automatic cleanup
+
+Install or update the Windows task on the IIS host:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Install-SignalWeeklyCleanup.ps1
+```
+
+`Signal Weekly Cleanup` runs every Sunday at 03:00 in the host's local time
+(New Zealand time on this installation). It runs as SYSTEM without requiring a
+login, catches up after a missed schedule, and prevents overlapping runs. Failed
+runs retry twice at 30-minute intervals. The installed runner is an
+administrator-owned copy under `C:\ProgramData\SignalWeeklyCleanup`; reinstall
+after changing its source.
+
+It discovers .NET and Android build output in Signal, staging source copies and
+the sibling SignalWatch/Companion project, and clears Vite and Gradle version
+caches. Only generated files untouched for at least 48 hours are eligible;
+both creation and modification times are checked so freshly copied files stay.
+Active .NET/Java/Node builds, publication scripts and IIS maintenance cause it to
+skip cleanup. Unavailable process or Git inspection stops cleanup. It rechecks
+activity, file age and protected content before each deletion.
+
+Tracked files, configuration, databases, patches, signing material, links,
+`App_Data`, installed dependencies/tools, releases, backups and the current
+`iis-publish` package are retained. Compiled siblings of protected data may still
+be cleaned. Source checkouts with their own Git repository are not traversed.
+The running IIS application is outside the cleanup scope.
+
+Preview without deleting files:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-SignalWeeklyCleanup.ps1 -WhatIf -StateDirectory work/weekly-cleanup-preview
+```
+
+`C:\ProgramData\SignalWeeklyCleanup\latest.json` records the latest result,
+removed bytes/paths, skipped paths and errors. The latest 12 run logs are kept.
+To disable or remove scheduling, use `Disable-ScheduledTask` or
+`Unregister-ScheduledTask` with `-TaskName 'Signal Weekly Cleanup'`.
+
+Run its isolated safety tests with:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tests/weekly-cleanup.test.ps1
+```
