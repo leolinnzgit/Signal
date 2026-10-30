@@ -37,6 +37,8 @@ if (args.Contains("--weather-alerts-only")) return;
 await ArticleEntityChecks.RunAsync();
 if (args.Contains("--article-entities-only")) return;
 await ContentSafetyChecks.RunAsync();
+await PrivacyShieldChecks.RunAsync();
+Console.WriteLine("Azure Language PII and Privacy Shield checks passed: local fallback, JSON parsing, controller validation and comment redaction.");
 if (args.Contains("--content-safety-only")) return;
 await SharedCommentChecks.RunAsync();
 if (args.Contains("--shared-comments-browser")) { await SharedCommentChecks.RunBrowserAsync(); return; }

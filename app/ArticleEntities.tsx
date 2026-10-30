@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { findFollowedTopic, getEntityIcon, loadArticleEntities, type RecognizedEntity } from "./article-entities";
 import { loadArticleSentiment, getSentimentIcon, type ArticleSentimentResponse } from "./article-sentiment";
+import { calculateEntityFrequency } from "./entity-frequency";
+import type { FollowedArticle } from "./NewsDashboard";
 import { recordReadArticleEntities } from "./suggested-topics";
 import "./article-entities.css";
 
@@ -14,6 +16,7 @@ export default function ArticleEntities({
   onFollow,
   onOpenTopic,
   onFindRelatedStories,
+  liveArticles,
 }: {
   url: string;
   title: string;
@@ -26,6 +29,8 @@ export default function ArticleEntities({
   onOpenTopic: (topic: string) => void;
   /** Opens related stories modal for an entity. */
   onFindRelatedStories?: (entityText: string) => void;
+  /** Live articles for calculating mention frequency and trends. */
+  liveArticles?: FollowedArticle[];
 }) {
   const [entities, setEntities] = useState<RecognizedEntity[]>([]);
   const [sentiment, setSentiment] = useState<ArticleSentimentResponse | null>(null);
@@ -89,6 +94,7 @@ export default function ArticleEntities({
         <div className="article-entities-list">
           {entities.map((entity, index) => {
             const followed = findFollowedTopic(followedTopics, entity.text);
+            const freq = liveArticles ? calculateEntityFrequency(entity.text, liveArticles) : null;
             return (
               <div
                 key={`${entity.category}-${entity.text}-${index}`}
@@ -109,6 +115,14 @@ export default function ArticleEntities({
                     {getEntityIcon(entity.category)}
                   </span>
                   <span className="entity-name">{entity.text}</span>
+                  {freq && freq.totalMentions >= 2 && (
+                    <span
+                      className={`entity-frequency-pill${freq.trend === "surging" ? " surging" : ""}`}
+                      title={freq.trend === "surging" ? `Surging in news (${freq.totalMentions} stories)` : `${freq.totalMentions} stories this week`}
+                    >
+                      {freq.trend === "surging" ? "📈" : freq.totalMentions}
+                    </span>
+                  )}
                   <span className="entity-follow-state" aria-hidden="true">{followed ? "✓" : "+"}</span>
                 </button>
                 {onFindRelatedStories && (

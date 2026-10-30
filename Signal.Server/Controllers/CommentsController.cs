@@ -18,7 +18,8 @@ namespace Signal.Server.Controllers;
 public sealed class CommentsController(
     SignalDbContext database,
     UserManager<ApplicationUser> userManager,
-    AzureContentSafetyService? moderation = null) : ControllerBase
+    AzureContentSafetyService? moderation = null,
+    AzureLanguagePiiService? piiService = null) : ControllerBase
 {
     private const int DefaultPageSize = 50;
     private const int MaximumPageSize = 100;
@@ -113,6 +114,15 @@ public sealed class CommentsController(
             if (!check.Allowed) return BadRequest(new { error = check.Reason });
         }
 
+        if (piiService is not null)
+        {
+            var pii = await piiService.AnalyzeAndRedactAsync(body, cancellationToken);
+            if (pii.HasPii && (request.RedactPii || pii.HasHighRiskPii))
+            {
+                body = pii.RedactedText;
+            }
+        }
+
         NewsComment? parent = null;
         if (request.ParentCommentId is long parentId)
         {
@@ -174,6 +184,15 @@ public sealed class CommentsController(
         {
             var check = await moderation.AnalyzeTextAsync(body, cancellationToken);
             if (!check.Allowed) return BadRequest(new { error = check.Reason });
+        }
+
+        if (piiService is not null)
+        {
+            var pii = await piiService.AnalyzeAndRedactAsync(body, cancellationToken);
+            if (pii.HasPii && (request.RedactPii || pii.HasHighRiskPii))
+            {
+                body = pii.RedactedText;
+            }
         }
 
         var comment = await database.NewsComments
@@ -299,9 +318,10 @@ public sealed record CreateCommentRequest(
     [Required, MaxLength(2048)] string ArticleUrl,
     [Required, MaxLength(500)] string ArticleTitle,
     [Required, MaxLength(2000)] string Body,
-    long? ParentCommentId = null);
+    long? ParentCommentId = null,
+    bool RedactPii = false);
 
-public sealed record EditCommentRequest([Required, MaxLength(2000)] string Body);
+public sealed record EditCommentRequest([Required, MaxLength(2000)] string Body, bool RedactPii = false);
 
 public sealed record CommentPageResponse(CommentResponse[] Comments, int Total, bool HasMore);
 

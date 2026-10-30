@@ -47,7 +47,7 @@ public static class SharedArticlePage
             <p id="comment-name-hint" class="comment-hint">Leave blank to post as Anonymous. Your name will appear with your comment.</p>
             <label for="comment-body">Your comment</label>
             <textarea id="comment-body" name="body" rows="4" maxlength="2000" required placeholder="Share your thoughts…"></textarea>
-            <p class="comment-hint">Up to 2,000 characters. No sign-in needed.</p>
+            <p class="comment-hint">Up to 2,000 characters. No sign-in needed. 🛡️ Privacy Shield automatically masks personal contact info.</p>
             <button id="comment-submit" type="submit" disabled>Post comment</button>
             </form>
             <p id="comment-status" role="status" aria-live="polite"></p>

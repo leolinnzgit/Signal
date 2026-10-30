@@ -4841,6 +4841,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                       selectTopicFilter(topic);
                     }}
                     onFindRelatedStories={(entityText) => setRelatedStoriesEntity(entityText)}
+                    liveArticles={articles}
                   />
                   <ArticleKeyPhrases
                     url={readerArticle.url}

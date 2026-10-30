@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ArticleStore, FollowedArticle } from "./NewsDashboard";
 import type { SignalArticleLink } from "./article-link";
+import { calculateEntityFrequency } from "./entity-frequency";
+import EntityTimelineSparkline from "./EntityTimelineSparkline";
 import "./related-stories.css";
 
 export default function RelatedStoriesModal({
@@ -29,6 +31,7 @@ export default function RelatedStoriesModal({
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [matchingArticles, setMatchingArticles] = useState<SignalArticleLink[]>([]);
   const [loading, setLoading] = useState(false);
+  const stats = useMemo(() => calculateEntityFrequency(entity, liveArticles), [entity, liveArticles]);
 
   useEffect(() => {
     if (!isOpen || !entity.trim()) return;
@@ -121,6 +124,7 @@ export default function RelatedStoriesModal({
         </div>
 
         <div className="related-stories-body">
+          {entity.trim() && <EntityTimelineSparkline stats={stats} />}
           {loading && (
             <div className="related-stories-loading">
               <span className="article-entities-spinner" aria-hidden="true" />

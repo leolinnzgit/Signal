@@ -14,11 +14,14 @@ namespace Signal.Server.Controllers;
 [Route("api/shared/{id}/comments")]
 [EnableRateLimiting("account")]
 [ResponseCache(Location = ResponseCacheLocation.None, NoStore = true)]
-public sealed class SharedCommentsController(SignalDbContext database, AzureContentSafetyService? moderation = null) : ControllerBase
+public sealed class SharedCommentsController(
+    SignalDbContext database,
+    AzureContentSafetyService? moderation = null,
+    AzureLanguagePiiService? piiService = null) : ControllerBase
 {
     public sealed record PublicComment(long Id, string Body, DateTime CreatedAt, string Author);
     public sealed record PublicCommentPage(PublicComment[] Comments, int Total, bool HasMore);
-    public sealed record CreateRequest([Required, MaxLength(2000)] string Body, [MaxLength(80)] string? Name = null);
+    public sealed record CreateRequest([Required, MaxLength(2000)] string Body, [MaxLength(80)] string? Name = null, bool RedactPii = false);
 
     [HttpGet]
     public async Task<IActionResult> Get(string id, [FromQuery] long? beforeId = null, CancellationToken token = default)
@@ -47,6 +50,14 @@ public sealed class SharedCommentsController(SignalDbContext database, AzureCont
         {
             var check = await moderation.AnalyzeTextAsync(body, token);
             if (!check.Allowed) return BadRequest(new { error = check.Reason });
+        }
+        if (piiService is not null)
+        {
+            var pii = await piiService.AnalyzeAndRedactAsync(body, token);
+            if (pii.HasPii && (request.RedactPii || pii.HasHighRiskPii))
+            {
+                body = pii.RedactedText;
+            }
         }
         if (request.Name?.Length > 80) return BadRequest(new { error = "Names can contain up to 80 characters." });
         var name = string.Join(' ', (request.Name ?? "").Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));

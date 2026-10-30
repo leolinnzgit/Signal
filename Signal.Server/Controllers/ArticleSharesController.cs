@@ -16,7 +16,8 @@ namespace Signal.Server.Controllers;
 [ResponseCache(Location = ResponseCacheLocation.None, NoStore = true)]
 public sealed class ArticleSharesController(
     SignalDbContext database, ArticleReaderService reader,
-    ILogger<ArticleSharesController> logger) : ControllerBase
+    ILogger<ArticleSharesController> logger,
+    AzureLanguagePiiService? piiService = null) : ControllerBase
 {
     public sealed record ArticleSnapshot(string Title, string[] Paragraphs, string Language, string Byline);
     public sealed record CreateShareRequest(string Url, string Title, string Source, string Summary, ArticleSnapshot? Snapshot, string? DiscussionUrl = null);
@@ -84,6 +85,27 @@ public sealed class ArticleSharesController(
             }
         }
 
+        var paragraphs = snapshot.Paragraphs;
+        if (piiService is not null)
+        {
+            var sanitized = new List<string>(paragraphs.Length);
+            var changed = false;
+            foreach (var para in paragraphs)
+            {
+                var pii = await piiService.AnalyzeAndRedactAsync(para, token);
+                if (pii.HasHighRiskPii)
+                {
+                    sanitized.Add(pii.RedactedText);
+                    changed = true;
+                }
+                else
+                {
+                    sanitized.Add(para);
+                }
+            }
+            if (changed) paragraphs = sanitized.ToArray();
+        }
+
         var articleShare = new SharedNewsArticle
         {
             Id = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant(),
@@ -95,7 +117,7 @@ public sealed class ArticleSharesController(
             Source = request.Source,
             Byline = snapshot.Byline,
             Language = snapshot.Language,
-            ParagraphsJson = JsonSerializer.Serialize(snapshot.Paragraphs),
+            ParagraphsJson = JsonSerializer.Serialize(paragraphs),
             SummaryOnly = summaryOnly,
             CreatedAtUtc = DateTime.UtcNow,
         };

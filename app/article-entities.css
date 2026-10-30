@@ -252,3 +252,19 @@
   font-size: 0.85rem;
   margin-left: 0.1rem;
 }
+
+.entity-frequency-pill {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.1rem 0.35rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--line) 40%, transparent);
+  color: var(--page-text);
+  line-height: 1;
+}
+
+.entity-frequency-pill.surging {
+  background: color-mix(in srgb, #ea580c 25%, transparent);
+  color: #ea580c;
+  border: 1px solid color-mix(in srgb, #ea580c 50%, transparent);
+}
