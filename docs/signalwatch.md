@@ -10,7 +10,9 @@ Transfers use bounded four-section/four-minute batches, preserving completed aud
 
 Release validation (30 October 2026): all 128 Watch release JVM tests, 12 companion compatibility tests and 250 client tests passed. Release lint reported zero errors (42 warnings). Signed APK/AAB, bundletool, unchanged upload certificate, 64-bit/16 KB alignment and private-file checks passed. Preview checks passed at 390px and 1280px for automatic opt-in, cancellation retaining completed audio, clear/remove disabling automatic mode, manual constraints, cleanup, images and existing transfers. IIS publication/storage protection checks passed. Checked artifacts: `../SignalWatch/outputs/play-release/0.21.0-34/`. APK SHA256: `10b106b534a037035b0ae1369d8eaf798ddca292377133d7ed0684e328858303`.
 
-ADB listed no connected devices. Physical app-exit/reboot, network switching, OS quota behaviour and notification-action QA remain required. Publication verification follows below after deployment.
+ADB listed no connected devices. Physical app-exit/reboot, network switching, OS quota behaviour and notification-action QA remain required.
+
+Publication verification (30 October 2026): both Watch download channels serve 0.21.0 (34), and their HTTPS APK downloads match the checked hash above. The live preview passed automatic opt-in/cancel with completed audio retained, news images, transfer, shared Resume and queue progression. Anonymous listening APIs remain protected, and the deployed phone listening flow remains available. Watch-only publication preserved all five protected production files and all three saved listening data file checksums. Companion 0.12.0 (21) was preserved. Source commits: SignalWatch `86e7369`, Signal preview/docs `b61459a`. No Google Play upload was made.
 
 ## Offline queue audio: SignalWatch 0.20.0 (33)
 
