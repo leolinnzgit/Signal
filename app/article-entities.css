@@ -112,3 +112,67 @@
   outline: 2px solid var(--sage);
   outline-offset: 2px;
 }
+
+/* Suggested topics section in dashboard control panel */
+.suggested-topics {
+  padding: 1.2rem 0 0.4rem;
+  border-top: 1px solid var(--line);
+  margin-top: 1rem;
+}
+
+.suggested-topics-heading {
+  margin-bottom: 0.6rem;
+}
+
+.suggested-topic-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.5rem;
+}
+
+.suggested-topic-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 9999px;
+  border: 1px solid var(--line);
+  background: var(--card-background);
+  color: var(--page-text);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+}
+
+.suggested-topic-chip:hover {
+  border-color: var(--sage);
+  background: var(--paper-deep);
+  transform: translateY(-1px);
+}
+
+.suggested-topic-chip .entity-icon {
+  font-size: 0.85rem;
+}
+
+.suggested-topic-chip .entity-name {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.suggested-topic-chip .entity-count {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  background: var(--paper-deep);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+}
+
+.suggested-topic-chip b {
+  color: var(--red);
+  font-size: 0.85rem;
+  margin-left: 0.1rem;
+}

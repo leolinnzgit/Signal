@@ -218,6 +218,10 @@ builder.Services.AddSingleton<AzureMapsWeatherService>();
 builder.Services.AddHttpClient(AzureMapsWeatherService.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(15))
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
 builder.Services.Configure<AzureMapsOptions>(builder.Configuration.GetSection(AzureMapsOptions.SectionName));
+builder.Services.Configure<AzureContentSafetyOptions>(builder.Configuration.GetSection(AzureContentSafetyOptions.SectionName));
+builder.Services.AddSingleton<AzureContentSafetyService>();
+builder.Services.AddHttpClient(AzureContentSafetyService.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(15))
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
 builder.Services.AddSingleton<WeatherLocationService>();
 builder.Services.AddHttpClient(WeatherLocationService.HttpClientName, client =>
 {

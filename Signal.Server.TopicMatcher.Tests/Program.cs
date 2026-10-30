@@ -36,6 +36,8 @@ await WeatherAlertChecks.RunAsync();
 if (args.Contains("--weather-alerts-only")) return;
 await ArticleEntityChecks.RunAsync();
 if (args.Contains("--article-entities-only")) return;
+await ContentSafetyChecks.RunAsync();
+if (args.Contains("--content-safety-only")) return;
 await SharedCommentChecks.RunAsync();
 if (args.Contains("--shared-comments-browser")) { await SharedCommentChecks.RunBrowserAsync(); return; }
 if (args.Contains("--shared-comments-only")) return;

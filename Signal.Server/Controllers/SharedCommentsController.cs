@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Signal.Server.Data;
 using Signal.Server.Models;
+using Signal.Server.Services;
 
 namespace Signal.Server.Controllers;
 
@@ -13,7 +14,7 @@ namespace Signal.Server.Controllers;
 [Route("api/shared/{id}/comments")]
 [EnableRateLimiting("account")]
 [ResponseCache(Location = ResponseCacheLocation.None, NoStore = true)]
-public sealed class SharedCommentsController(SignalDbContext database) : ControllerBase
+public sealed class SharedCommentsController(SignalDbContext database, AzureContentSafetyService? moderation = null) : ControllerBase
 {
     public sealed record PublicComment(long Id, string Body, DateTime CreatedAt, string Author);
     public sealed record PublicCommentPage(PublicComment[] Comments, int Total, bool HasMore);
@@ -42,6 +43,11 @@ public sealed class SharedCommentsController(SignalDbContext database) : Control
         var body = request.Body?.Trim() ?? "";
         if (body.Length == 0) return BadRequest(new { error = "Write a comment first." });
         if (body.Length > 2000) return BadRequest(new { error = "Comments can contain up to 2,000 characters." });
+        if (moderation is not null)
+        {
+            var check = await moderation.AnalyzeTextAsync(body, token);
+            if (!check.Allowed) return BadRequest(new { error = check.Reason });
+        }
         if (request.Name?.Length > 80) return BadRequest(new { error = "Names can contain up to 80 characters." });
         var name = string.Join(' ', (request.Name ?? "").Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
         var comment = new NewsComment {

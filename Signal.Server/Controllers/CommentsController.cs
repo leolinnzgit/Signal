@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Signal.Server.Data;
 using Signal.Server.Models;
+using Signal.Server.Services;
 
 namespace Signal.Server.Controllers;
 
@@ -16,7 +17,8 @@ namespace Signal.Server.Controllers;
 [ResponseCache(Location = ResponseCacheLocation.None, NoStore = true)]
 public sealed class CommentsController(
     SignalDbContext database,
-    UserManager<ApplicationUser> userManager) : ControllerBase
+    UserManager<ApplicationUser> userManager,
+    AzureContentSafetyService? moderation = null) : ControllerBase
 {
     private const int DefaultPageSize = 50;
     private const int MaximumPageSize = 100;
@@ -105,6 +107,12 @@ public sealed class CommentsController(
         if (body.Length == 0) return BadRequest(new { error = "Write a comment first." });
         if (body.Length > 2000) return BadRequest(new { error = "Comments can contain up to 2,000 characters." });
 
+        if (moderation is not null)
+        {
+            var check = await moderation.AnalyzeTextAsync(body, cancellationToken);
+            if (!check.Allowed) return BadRequest(new { error = check.Reason });
+        }
+
         NewsComment? parent = null;
         if (request.ParentCommentId is long parentId)
         {
@@ -161,6 +169,12 @@ public sealed class CommentsController(
         var body = request.Body.Trim();
         if (body.Length == 0) return BadRequest(new { error = "Write a comment first." });
         if (body.Length > 2000) return BadRequest(new { error = "Comments can contain up to 2,000 characters." });
+
+        if (moderation is not null)
+        {
+            var check = await moderation.AnalyzeTextAsync(body, cancellationToken);
+            if (!check.Allowed) return BadRequest(new { error = check.Reason });
+        }
 
         var comment = await database.NewsComments
             .Include(item => item.User)

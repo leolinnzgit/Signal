@@ -6,7 +6,7 @@ test("existing earthquake settings migrate to all disaster types without changin
   const deviceId = "6f41d018-8a45-4d81-a4fb-881d0aa12ac1";
   const settings = normalizeDisasterSettings({ enabled: true, voice: false, radiusKm: 500, minimumMagnitude: 5, deviceId }, "new");
   assert.equal(settings.deviceId, deviceId);
-  assert.equal(settings.hazardKinds.length, 6);
+  assert.equal(settings.hazardKinds.length, 7);
   assert.equal(settings.radiusKm, 500);
   assert.equal(settings.minimumMagnitude, 5);
   assert.equal(settings.voice, false);
@@ -21,7 +21,7 @@ test("disaster narration distinguishes alert levels from earthquake magnitude an
   assert.match(text, /orange alert/);
   assert(!/magnitude|depth/i.test(text));
   assert.match(disasterAnnouncement(previewDisaster("earthquake")), /Magnitude 5.2/);
-  for (const kind of ["flood", "storm", "wildfire", "volcano", "drought"]) assert(!disasterAnnouncement(previewDisaster(kind)).includes("undefined"));
+  for (const kind of ["flood", "storm", "wildfire", "volcano", "drought", "weather"]) assert(!disasterAnnouncement(previewDisaster(kind)).includes("undefined"));
 });
 test("queued reports survive repeated polls and deduplicate by disaster episode and level", () => {
   const flood = { ...previewDisaster("flood"), notificationKey: "gdacs:FL:1:episode1:orange" };

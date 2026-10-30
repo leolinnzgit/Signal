@@ -30,6 +30,8 @@ import { formatMarketPrice, type MarketQuote } from "./market-quote";
 import { describeWeather, weatherBriefing, type ClientWeatherAlert, type LocalWeather, type WeatherForecastDay } from "./weather-briefing";
 import WeatherAlertBanner from "./WeatherAlertBanner";
 import ArticleEntities from "./ArticleEntities";
+import { getEntityIcon } from "./article-entities";
+import { getSuggestedTopics, type SuggestedTopic } from "./suggested-topics";
 import ArticleReadingText from "./ArticleReadingText";
 import { scrollReadingSectionIntoView } from "./article-reading-follow";
 import { preferScreenOffAudio, type ArticleNarrationSection } from "./headline-audio";
@@ -838,6 +840,11 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [floatingNavigationSide, setFloatingNavigationSide] = useState<"left" | "right">("left");
   const [watchHandoffId, setWatchHandoffId] = useState(() => typeof window === "undefined" ? null : pendingWatchHandoff(window.location.search));
   const [readerArticle, setReaderArticle] = useState<FollowedArticle | null>(null);
+  const [suggestedTopics, setSuggestedTopics] = useState<SuggestedTopic[]>([]);
+
+  useEffect(() => {
+    setSuggestedTopics(getSuggestedTopics(preferences.topics));
+  }, [preferences.topics, readerArticle]);
   const [readerMinimized, setReaderMinimized] = useState(false);
   const [readerAudioRequested, setReaderAudioRequested] = useState(false);
   const [readerTranslation, setReaderTranslation] = useState<ArticleTranslation | null>(null);
@@ -3710,6 +3717,31 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                   )}
                 </div>
               )}
+            </div>
+          )}
+
+          {suggestedTopics.length > 0 && (
+            <div className="suggested-topics" aria-label="Suggested topics from stories you've read">
+              <div className="suggested-topics-heading">
+                <p className="panel-label">Suggested from stories you've read</p>
+              </div>
+              <div className="suggested-topic-list">
+                {suggestedTopics.map((item) => (
+                  <button
+                    type="button"
+                    key={item.text}
+                    className="suggested-topic-chip"
+                    onClick={() => addTopic(item.text)}
+                    aria-label={`Follow ${item.text}, mentioned in ${item.count} ${item.count === 1 ? "story" : "stories"}`}
+                    title={`${item.category}: mentioned in ${item.count} ${item.count === 1 ? "story" : "stories"} — tap to follow`}
+                  >
+                    <span className="entity-icon" aria-hidden="true">{getEntityIcon(item.category)}</span>
+                    <span className="entity-name">{item.text}</span>
+                    <small className="entity-count">{item.count} {item.count === 1 ? "story" : "stories"}</small>
+                    <b aria-hidden="true">+</b>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 

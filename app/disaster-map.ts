@@ -1,7 +1,7 @@
-export const hazardKinds = ["earthquake", "flood", "storm", "wildfire", "volcano", "drought"] as const;
+export const hazardKinds = ["earthquake", "flood", "storm", "wildfire", "volcano", "drought", "weather"] as const;
 export type HazardKind = typeof hazardKinds[number];
 export const hazardLabels: Record<HazardKind, string> = {
-  earthquake: "Earthquakes", flood: "Floods", storm: "Cyclones", wildfire: "Wildfires", volcano: "Volcanoes", drought: "Droughts",
+  earthquake: "Earthquakes", flood: "Floods", storm: "Cyclones", wildfire: "Wildfires", volcano: "Volcanoes", drought: "Droughts", weather: "Severe weather",
 };
 export type MapEvent = {
   id: string; kind: HazardKind; source: string; place: string; timeUtc: string;
@@ -17,13 +17,13 @@ export function filterMapEvents(events: MapEvent[], kinds: HazardKind[], minimum
   return events.filter(e => kinds.includes(e.kind) && (e.kind !== "earthquake" || (e.magnitude ?? 0) >= minimumMagnitude));
 }
 export function eventColor(event: MapEvent): string {
-  if (event.kind !== "earthquake") return { flood: "#38bdf8", storm: "#a78bfa", wildfire: "#fb923c", volcano: "#f472b6", drought: "#facc15" }[event.kind];
+  if (event.kind !== "earthquake") return { flood: "#38bdf8", storm: "#a78bfa", wildfire: "#fb923c", volcano: "#f472b6", drought: "#facc15", weather: "#e11d48" }[event.kind];
   const mag = event.magnitude ?? 0;
   return mag >= 6 ? "#ef4444" : mag >= 5 ? "#f97316" : mag >= 4 ? "#eab308" : "#06b6d4";
 }
 export function eventSymbol(event: MapEvent): string {
   return event.kind === "earthquake" ? (event.magnitude ?? 0).toFixed(1)
-    : { flood: "FL", storm: "TC", wildfire: "WF", volcano: "VO", drought: "DR" }[event.kind];
+    : { flood: "FL", storm: "TC", wildfire: "WF", volcano: "VO", drought: "DR", weather: "WX" }[event.kind];
 }
 export function eventDetails(event: MapEvent): string {
   const distance = event.distanceKm == null ? "Distance unavailable" : `${Math.round(event.distanceKm).toLocaleString()} km away`;

@@ -7,7 +7,7 @@ export const defaultDisasterSettings: DisasterSettings = {
   enabled: false, voice: true, radiusKm: 300, minimumMagnitude: 4, deviceId: "", hazardKinds: [...hazardKinds], minimumAlertLevel: "green",
 };
 export const disasterLabels: Record<HazardKind, string> = {
-  earthquake: "Earthquake", flood: "Flood", storm: "Tropical cyclone", wildfire: "Wildfire", volcano: "Volcanic activity", drought: "Drought",
+  earthquake: "Earthquake", flood: "Flood", storm: "Tropical cyclone", wildfire: "Wildfire", volcano: "Volcanic activity", drought: "Drought", weather: "Severe weather",
 };
 export function normalizeDisasterSettings(value: Partial<DisasterSettings> | null, deviceId: string): DisasterSettings {
   const kinds = Array.isArray(value?.hazardKinds) ? hazardKinds.filter(kind => value.hazardKinds!.includes(kind)) : [...hazardKinds];

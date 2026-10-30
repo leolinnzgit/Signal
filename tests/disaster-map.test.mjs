@@ -25,9 +25,9 @@ test("hazards and earthquake magnitude tiers have distinct symbols and colors", 
   assert.equal(eventColor({ kind: "earthquake", magnitude: 5 }), "#f97316");
   assert.equal(eventColor({ kind: "earthquake", magnitude: 4 }), "#eab308");
   assert.equal(eventColor({ kind: "earthquake", magnitude: 3 }), "#06b6d4");
-  const kinds = ["flood", "storm", "wildfire", "volcano", "drought"];
-  assert.equal(new Set(kinds.map(kind => eventColor({ kind }))).size, 5);
-  assert.equal(new Set(kinds.map(kind => eventSymbol({ kind }))).size, 5);
+  const kinds = ["flood", "storm", "wildfire", "volcano", "drought", "weather"];
+  assert.equal(new Set(kinds.map(kind => eventColor({ kind }))).size, 6);
+  assert.equal(new Set(kinds.map(kind => eventSymbol({ kind }))).size, 6);
 });
 test("coordinate overview uses actual hemispheres and date-line boundaries", () => {
   assert.deepEqual(overviewPosition(90, 180), { cx: 220, cy: -110 });

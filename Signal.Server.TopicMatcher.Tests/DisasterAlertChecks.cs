@@ -47,6 +47,17 @@ internal static class DisasterAlertChecks
                 && json.RootElement.GetProperty("tag").GetString() == "signal-disaster-gdacs:FL:1:3:orange"
                 && json.RootElement.GetProperty("url").GetString() == "/#disaster-alerts", "Background pushes must carry the hazard, episode and settings link.");
         }
+        var weatherEvent = new DisasterAlertEvent(
+            "azure:weather:alert-1", "weather:alert-1:Warning", "weather", "MetService", "Wellington",
+            now, now, -41.3, 174.8, 0, "/#weather-alerts", AlertLevel: "red", Description: "Severe Gale Warning");
+        var weatherPayload = PushNotificationService.SerializeMessage(PushNotificationService.DisasterMessage(weatherEvent));
+        using (var json = JsonDocument.Parse(weatherPayload))
+        {
+            Check(json.RootElement.GetProperty("title").GetString() == "Severe weather: red alert"
+                && json.RootElement.GetProperty("tag").GetString() == "signal-disaster-weather:alert-1:Warning"
+                && json.RootElement.GetProperty("url").GetString() == "/#weather-alerts",
+                "Severe weather pushes must carry weather alert details and link.");
+        }
         foreach (var failure in new[] { "earthquakes", "disasters", "both", "none" })
         {
             var clients = new Clients(failure, now);

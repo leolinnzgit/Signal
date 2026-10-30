@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { findFollowedTopic, getEntityIcon, loadArticleEntities, type RecognizedEntity } from "./article-entities";
+import { recordReadArticleEntities } from "./suggested-topics";
 import "./article-entities.css";
 
 export default function ArticleEntities({
@@ -33,7 +34,9 @@ export default function ArticleEntities({
     loadArticleEntities(url, title, paragraphs, abort.signal)
       .then((res) => {
         if (!abort.signal.aborted && res.available) {
-          setEntities(res.entities || []);
+          const loaded = res.entities || [];
+          setEntities(loaded);
+          if (loaded.length > 0) recordReadArticleEntities(url, loaded);
         }
       })
       .catch(() => {

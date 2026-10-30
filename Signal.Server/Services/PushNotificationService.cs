@@ -168,8 +168,10 @@ public sealed class PushNotificationService(
     internal static PushMessage DisasterMessage(DisasterAlertEvent report) => new(
         report.Kind == "earthquake" ? $"Earthquake: magnitude {report.Magnitude:F1}"
             : $"{DisasterAlertFeed.Label(report.Kind)}: {report.AlertLevel} alert",
-        $"{report.Place}. About {Math.Round(report.DistanceKm)} km from your last phone location. {report.Source}.",
-        "/#disaster-alerts", 0, report.Kind == "earthquake" ? $"signal-earthquake-{report.Id}" : $"signal-disaster-{report.NotificationKey}");
+        report.Kind == "weather"
+            ? (string.IsNullOrWhiteSpace(report.Description) ? $"{report.Place}. Issued by {report.Source}." : $"{report.Place}: {report.Description}. {report.Source}.")
+            : $"{report.Place}. About {Math.Round(report.DistanceKm)} km from your last phone location. {report.Source}.",
+        report.Kind == "weather" ? (report.Url ?? "/#weather-alerts") : "/#disaster-alerts", 0, report.Kind == "earthquake" ? $"signal-earthquake-{report.Id}" : $"signal-disaster-{report.NotificationKey}");
 
     private async Task<int> SendAsync(
         string userId,
