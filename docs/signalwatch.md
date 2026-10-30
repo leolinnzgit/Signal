@@ -1,5 +1,15 @@
 # SignalWatch release preparation
 
+## Sleep timer: SignalWatch 0.23.0 (36)
+
+The player adds a compact Sleep timer control with 15-, 30- and 60-minute choices, Finish current story, a countdown, Change and Cancel. Timed choices use Android elapsed realtime, including preparation and pauses; changing the duration starts a fresh deadline. Expiry pauses playback, retains the current saved speech-section boundary, releases active/prefetched audio and requires an explicit Play to continue. Finish current story consumes the completed queue entry and leaves the next entry paused at its own saved section. The last story still completes normally. Explicitly changing stories cancels end-of-story mode; a timed deadline continues across ordinary queue advancement.
+
+The timer lives only in the existing playback service and requests no new permissions or alarms. Closing the screen/app preserves it while that service is alive. Stop, replacement playback, service destruction (including the existing five-minute paused idle timeout), reboot and incoming/accepted phone handoff clear it. Timers do not transfer to the phone or restart audio. Expiry cancels a pending outgoing handoff. Playback checks deadlines again before resume, section advancement and recorded/local-voice starts, preventing delayed preparation from starting sound after expiry. Existing queue/progress, account-conflict and disaster-warning protections remain in place. Companion stays 0.12.0 (21).
+
+Release validation (31 October 2026): all 144 Watch release JVM tests passed, including nine new timer tests for elapsed deadlines, duration changes, cancellation, stale callbacks, end-of-story boundaries and the next story's own saved section. Release lint reported zero errors (42 warnings). Signed APK/AAB, bundletool, unchanged upload certificate, 64-bit/16 KB alignment and private-file checks passed. Browser checks passed at 390px and 1280px for all timer choices, change/cancel, paused expiry, explicit resume, queue boundaries, Stop reset, existing tiles, downloads, browsing, images and phone handoff. Companion/shared phone code is unchanged.
+
+Checked artifacts: `../SignalWatch/outputs/play-release/0.23.0-36/`. APK SHA256: `51b81c1e626e48a185abdc7b52b2065c40ec4c37d91339385f97aea64fa1bd7e`. ADB listed no connected devices. Screen-off timing, Bluetooth/installed Watch voice, interruptions and physical-device queue/handoff behavior remain device QA. Publication verification follows after deployment.
+
 ## Listen later tile: SignalWatch 0.22.0 (35)
 
 Add **Signal Listen later** from the Watch tile picker. It shows the current locally saved queue story and original speech section, the number of complete recorded stories ready offline, and active, paused or waiting download status. **Queue** opens a focused screen with the existing queue, downloads and playback controls. **Play queue** or **Resume** starts the current locally saved queue only after an explicit tap. A stale playback tap from another account or server is rejected. The briefing tile and unread complication remain available separately.

@@ -10,7 +10,7 @@ try{
  browser=await chromium.launch({headless:true,channel:'msedge'});
  for(const width of [390,1280]){
   const page=await browser.newPage({viewport:{width,height:1000}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
-  await page.goto(`http://127.0.0.1:${server.address().port}`,{timeout:90000});const watch=page.locator('#watch');assert.match(await page.locator('header').innerText(),/0\.22\.0/);
+  await page.goto(`http://127.0.0.1:${server.address().port}`,{timeout:90000});const watch=page.locator('#watch');assert.match(await page.locator('header').innerText(),/0\.23\.0/);
   await page.getByRole('button',{name:'Listen later',exact:true}).click();await watch.getByRole('button',{name:'Automatic downloads: Off',exact:true}).click();await watch.getByRole('button',{name:'Automatic downloads: On',exact:true}).waitFor();await watch.getByRole('heading',{name:'Listen later',exact:true}).waitFor();
   await watch.getByRole('button',{name:'Download queue audio',exact:true}).click();assert.equal(await watch.getByRole('button',{name:'Audio saved · remove',exact:true}).count(),2);
   await watch.getByRole('button',{name:'Cancel background downloads',exact:true}).click();await watch.getByRole('button',{name:'Automatic downloads: Off',exact:true}).waitFor();assert.equal(await watch.getByRole('button',{name:'Audio saved · remove',exact:true}).count(),2);
