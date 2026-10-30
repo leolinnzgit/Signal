@@ -7,9 +7,23 @@ const source = await readFile(new URL("../app/article-entities.ts", import.meta.
 const compiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 },
 }).outputText;
-const { getEntityIcon, loadArticleEntities } = await import(
+const { getEntityIcon, loadArticleEntities, findFollowedTopic, normalizeEntityTopic } = await import(
   `data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`
 );
+
+test("findFollowedTopic matches followed topics case- and whitespace-insensitively", () => {
+  const topics = ["Microsoft", "New Zealand", "Satya Nadella"];
+  assert.equal(findFollowedTopic(topics, "microsoft"), "Microsoft");
+  assert.equal(findFollowedTopic(topics, "  new   zealand "), "New Zealand");
+  assert.equal(findFollowedTopic(topics, "Azure"), undefined);
+  assert.equal(findFollowedTopic(topics, "   "), undefined);
+  assert.equal(findFollowedTopic([], "Microsoft"), undefined);
+});
+
+test("normalizeEntityTopic mirrors saved topic normalisation", () => {
+  assert.equal(normalizeEntityTopic("  Reserve \n Bank  "), "Reserve Bank");
+  assert.equal(normalizeEntityTopic("x".repeat(120)).length, 80);
+});
 
 test("getEntityIcon maps known categories to distinctive emojis and unknown to generic tag", () => {
   assert.equal(getEntityIcon("Person"), "👤");

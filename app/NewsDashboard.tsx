@@ -2102,18 +2102,18 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     };
   }, [secondaryTimeZoneOpen]);
 
-  function addTopic(value: string) {
+  function addTopic(value: string, { select = true }: { select?: boolean } = {}) {
     const topic = value.trim().replace(/\s+/g, " ").slice(0, 80);
     if (!topic) return false;
     const existing = preferences.topics.find((followed) => followed.toLowerCase() === topic.toLowerCase());
     if (existing) {
-      setSelectedTopic(existing);
+      if (select) setSelectedTopic(existing);
       promoteTopicFilter(existing);
       setNotice(`You already follow ${existing}.`);
       return false;
     }
     setPreferences((current) => ({ ...current, topics: [...current.topics, topic] }));
-    setSelectedTopic(topic);
+    if (select) setSelectedTopic(topic);
     promoteTopicFilter(topic);
     setNotice(`Now following ${topic}.`);
     return true;
@@ -4748,14 +4748,12 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                     url={readerArticle.url}
                     title={readerTranslation?.title ?? readerArticle.title}
                     paragraphs={readerTranslation?.paragraphs ?? readerContent.article.paragraphs}
-                    onEntitySelect={(entityText) => {
-                      const matched = preferences.topics.find((t) => t.toLowerCase() === entityText.toLowerCase());
+                    followedTopics={preferences.topics}
+                    onFollow={(entityText) => { addTopic(entityText, { select: false }); }}
+                    onOpenTopic={(topic) => {
                       closeArticleReader();
-                      if (matched) {
-                        selectTopicFilter(matched);
-                      } else {
-                        changeFeedView("history", entityText);
-                      }
+                      if (feedView !== "latest") changeFeedView("latest");
+                      selectTopicFilter(topic);
                     }}
                   />
                   {(readerTranslation?.paragraphs ?? readerContent.article.paragraphs).map((paragraph, index) => (

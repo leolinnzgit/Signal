@@ -11,6 +11,18 @@ export type ArticleEntitiesResponse = {
   entities: RecognizedEntity[];
 };
 
+/** Normalises entity text the same way followed topics are saved. */
+export function normalizeEntityTopic(text: string): string {
+  return text.trim().replace(/\s+/g, " ").slice(0, 80);
+}
+
+/** Returns the followed topic matching an entity (case-insensitive), if any. */
+export function findFollowedTopic(topics: readonly string[], entityText: string): string | undefined {
+  const key = normalizeEntityTopic(entityText).toLowerCase();
+  if (!key) return undefined;
+  return topics.find((topic) => topic.toLowerCase() === key);
+}
+
 export function getEntityIcon(category: string): string {
   switch (category.toLowerCase()) {
     case "person":
