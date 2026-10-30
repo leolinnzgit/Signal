@@ -13,7 +13,7 @@ try{
   await page.goto(`http://127.0.0.1:${server.address().port}`,{timeout:90000});const watch=page.locator('#watch');
   await page.getByRole('button',{name:'Listen later',exact:true}).click();await watch.getByRole('button',{name:'Download queue audio',exact:true}).click();assert.equal(await watch.getByRole('button',{name:'Audio saved · remove',exact:true}).count(),2);
   await watch.getByRole('button',{name:'Audio saved · remove',exact:true}).first().click();assert.equal(await watch.getByRole('button',{name:'Download audio',exact:true}).count(),1);await watch.getByRole('button',{name:'Download audio',exact:true}).click();
-  await watch.getByRole('button',{name:'Wi-Fi + charging: Off',exact:true}).click();await watch.getByRole('button',{name:'Wi-Fi + charging: On',exact:true}).waitFor();
+  await watch.getByRole('button',{name:'Manual Wi-Fi + charging: Off',exact:true}).click();await watch.getByRole('button',{name:'Manual Wi-Fi + charging: On',exact:true}).waitFor();
   await watch.getByRole('button',{name:'Play Listen later',exact:true}).click();await watch.getByRole('button',{name:'Finish listening',exact:true}).click();await page.getByRole('button',{name:'Listen later',exact:true}).click();assert.equal(await watch.getByRole('button',{name:'Audio saved · remove',exact:true}).count(),1);
   await watch.getByRole('button',{name:'Clear downloaded audio',exact:true}).click();assert.equal(await watch.getByRole('button',{name:'Audio saved · remove',exact:true}).count(),0);assert.deepEqual(errors,[]);await page.close();console.log(`PASS ${width}px: offline audio preview download/remove/clear, charging preference and finished-story cleanup`);
  }
