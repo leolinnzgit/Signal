@@ -8,7 +8,9 @@ The timer lives only in the existing playback service and requests no new permis
 
 Release validation (31 October 2026): all 144 Watch release JVM tests passed, including nine new timer tests for elapsed deadlines, duration changes, cancellation, stale callbacks, end-of-story boundaries and the next story's own saved section. Release lint reported zero errors (42 warnings). Signed APK/AAB, bundletool, unchanged upload certificate, 64-bit/16 KB alignment and private-file checks passed. Browser checks passed at 390px and 1280px for all timer choices, change/cancel, paused expiry, explicit resume, queue boundaries, Stop reset, existing tiles, downloads, browsing, images and phone handoff. Companion/shared phone code is unchanged.
 
-Checked artifacts: `../SignalWatch/outputs/play-release/0.23.0-36/`. APK SHA256: `51b81c1e626e48a185abdc7b52b2065c40ec4c37d91339385f97aea64fa1bd7e`. ADB listed no connected devices. Screen-off timing, Bluetooth/installed Watch voice, interruptions and physical-device queue/handoff behavior remain device QA. Publication verification follows after deployment.
+Checked artifacts: `../SignalWatch/outputs/play-release/0.23.0-36/`. APK SHA256: `51b81c1e626e48a185abdc7b52b2065c40ec4c37d91339385f97aea64fa1bd7e`. ADB listed no connected devices. Screen-off timing, Bluetooth/installed Watch voice, interruptions and physical-device queue/handoff behavior remain device QA.
+
+Publication verification (31 October 2026): both Watch channels serve 0.23.0 (36), and both public HTTPS APK downloads match the checked hash above. The live preview passed active timer expiry and explicit resume at the saved section, queue tile readiness, images, phone transfer, shared Resume and queue/download controls. Anonymous listening APIs remain protected; the deployed phone listening flow and companion 0.12.0 (21) were preserved. Watch-only publication retained all five protected production file checksums and all three saved listening data file checksums. Source commits: SignalWatch `aca58c5`, Signal preview/docs `dc87abe`. No Google Play upload was made.
 
 ## Listen later tile: SignalWatch 0.22.0 (35)
 
