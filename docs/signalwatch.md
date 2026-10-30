@@ -1,5 +1,15 @@
 # SignalWatch release preparation
 
+## Listen later tile: SignalWatch 0.22.0 (35)
+
+Add **Signal Listen later** from the Watch tile picker. It shows the current locally saved queue story and original speech section, the number of complete recorded stories ready offline, and active, paused or waiting download status. **Queue** opens a focused screen with the existing queue, downloads and playback controls. **Play queue** or **Resume** starts the current locally saved queue only after an explicit tap. A stale playback tap from another account or server is rejected. The briefing tile and unread complication remain available separately.
+
+The tile reads existing account-bound encrypted queue and media state on a background executor. Viewing it makes no network calls, schedules no downloads and starts no playback. Queue edits, saved sections and download events request tile updates; Android controls when they render. An opportunistic five-minute freshness interval updates local charging/network status. Partial or changed recordings do not count as ready. Saved queue text remains playable with the installed Watch voice when recorded audio is missing. No new persistent store or account data collection is added. Companion remains 0.12.0 (21).
+
+Release validation (30 October 2026): all 135 Watch release JVM tests passed, including seven tile tests covering saved sections, queue edits, account/server isolation, complete/partial recording readiness, waiting states, empty queues and stale playback taps. Release lint reported zero errors (42 warnings). Signed APK/AAB, bundletool, unchanged upload certificate, 64-bit/16 KB alignment and private-file checks passed. Both protected tile services are present in the packaged manifest. Preview checks passed at 390px and 1280px for explicit Play/Resume, offline counts, waiting states, completion, empty queues, downloads, images, existing handoff and browsing. Companion and shared phone code are unchanged.
+
+Checked artifacts: `../SignalWatch/outputs/play-release/0.22.0-35/`. APK SHA256: `a400fbd7deab229abd4d7ee36cb4171f0130fe30af066e905b20eadf9b989e0c`. ADB listed no connected devices. Tile picker, small round-screen layout, app-exit/reboot recovery, network switching and notification actions remain physical-device QA. Publication verification follows after deployment.
+
 ## Background queue audio: SignalWatch 0.21.0 (34)
 
 Watch downloads now run through Android WorkManager 2.10.5. Explicit requests persist across ordinary app exits and device restarts; interrupted sections resume from the existing encrypted cache. An account-bound, opt-in Automatic downloads control checks the current shared queue while the Watch is charging on unmetered Wi-Fi. Android controls timing; periodic checks have a 15-minute minimum interval and can be delayed by quotas or power management. A force-stopped app must be opened again. The phone browser still needs to stay open for its downloads. Companion remains 0.12.0 (21).
