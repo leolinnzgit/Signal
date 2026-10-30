@@ -113,6 +113,7 @@ export function useEarthquakeAlerts(account: string, available: boolean) {
           latitude: position.coords.latitude, longitude: position.coords.longitude,
           radiusKm: settings.radiusKm, minimumMagnitude: settings.minimumMagnitude, pushEndpoint,
           hazardKinds: settings.hazardKinds, minimumAlertLevel: settings.minimumAlertLevel,
+          weatherAlertThreshold: settings.weatherAlertThreshold ?? "all",
         }, abort.signal);
         const result = await request<{ events: DisasterNotification[]; checkedAtUtc: string; source: string; warnings?: string[] }>(path, "GET", null, abort.signal);
         if (abort.signal.aborted) return;
@@ -136,7 +137,7 @@ export function useEarthquakeAlerts(account: string, available: boolean) {
     const onVisible = () => { if (document.visibilityState === "visible") void check(); };
     document.addEventListener("visibilitychange", onVisible);
     return () => { abort.abort(); clearInterval(interval); document.removeEventListener("visibilitychange", onVisible); };
-  }, [ready, available, settings.enabled, settings.deviceId, settings.radiusKm, settings.minimumMagnitude, settings.hazardKinds, settings.minimumAlertLevel, retry, storageKey, speak]);
+  }, [ready, available, settings.enabled, settings.deviceId, settings.radiusKm, settings.minimumMagnitude, settings.hazardKinds, settings.minimumAlertLevel, settings.weatherAlertThreshold, retry, storageKey, speak]);
 
   const turnOff = async () => {
     // Keep the registration until removal succeeds so a failed request can be retried.
@@ -193,6 +194,13 @@ export function useEarthquakeAlerts(account: string, available: boolean) {
           onChange={e => setSettings(value => ({ ...value, minimumAlertLevel: e.target.value as Settings["minimumAlertLevel"] }))}>
           <option value="green">All levels (green+)</option><option value="orange">Orange and red</option><option value="red">Red only</option>
         </select></label>
+        {settings.hazardKinds.includes("weather") && (
+          <label>Weather alert level <select aria-label="Weather alert threshold" value={settings.weatherAlertThreshold ?? "all"}
+            onChange={e => setSettings(s => ({ ...s, weatherAlertThreshold: e.target.value as "all" | "warnings" }))}>
+            <option value="all">Watches &amp; Warnings</option>
+            <option value="warnings">Warnings only (severe)</option>
+          </select></label>
+        )}
         <label><input type="checkbox" checked={settings.voice} onChange={e => { setSettings(s => ({ ...s, voice: e.target.checked })); if (!e.target.checked) stop(); }} />Azure voice notification</label>
       </div>
       <div className="earthquake-actions">

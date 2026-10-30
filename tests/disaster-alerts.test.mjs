@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { normalizeDisasterSettings, normalizeDisasterNotification, disasterAnnouncement, appendDisasterAlerts, previewDisaster } from "../app/disaster-alerts.ts";
+import { normalizeDisasterSettings, normalizeDisasterNotification, disasterAnnouncement, appendDisasterAlerts, previewDisaster, matchesDisasterSettings } from "../app/disaster-alerts.ts";
 
 test("existing earthquake settings migrate to all disaster types without changing distance, magnitude, voice or device", () => {
   const deviceId = "6f41d018-8a45-4d81-a4fb-881d0aa12ac1";
@@ -11,7 +11,9 @@ test("existing earthquake settings migrate to all disaster types without changin
   assert.equal(settings.minimumMagnitude, 5);
   assert.equal(settings.voice, false);
   assert.equal(settings.enabled, true);
-  assert.deepEqual(normalizeDisasterSettings({ hazardKinds: ["flood"], minimumAlertLevel: "red" }, deviceId).hazardKinds, ["flood"]);
+  assert.equal(settings.weatherAlertThreshold, "all");
+  assert.deepEqual(normalizeDisasterSettings({ hazardKinds: ["flood"], minimumAlertLevel: "red", weatherAlertThreshold: "warnings" }, deviceId).hazardKinds, ["flood"]);
+  assert.equal(normalizeDisasterSettings({ weatherAlertThreshold: "warnings" }, deviceId).weatherAlertThreshold, "warnings");
   assert.equal(normalizeDisasterSettings({ hazardKinds: [], radiusKm: -5 }, deviceId).radiusKm, 300);
 });
 test("disaster narration distinguishes alert levels from earthquake magnitude and depth", () => {
@@ -42,4 +44,15 @@ test("legacy earthquake event identifiers still deduplicate", () => {
   assert.equal(normalized.notificationKey, "geonet:123");
   assert.equal(normalized.kind, "earthquake");
   assert.deepEqual(appendDisasterAlerts([], [normalized], new Set(["geonet:123"]), ["earthquake"]), []);
+});
+test("matchesDisasterSettings filters weather alerts by threshold", () => {
+  const watch = { ...previewDisaster("weather"), alertLevel: "orange", distanceKm: 10 };
+  const warning = { ...previewDisaster("weather"), alertLevel: "red", distanceKm: 10 };
+  const allSettings = normalizeDisasterSettings({ weatherAlertThreshold: "all", hazardKinds: ["weather"] }, "dev-1");
+  const warningsOnlySettings = normalizeDisasterSettings({ weatherAlertThreshold: "warnings", hazardKinds: ["weather"] }, "dev-1");
+
+  assert.equal(matchesDisasterSettings(watch, allSettings), true);
+  assert.equal(matchesDisasterSettings(warning, allSettings), true);
+  assert.equal(matchesDisasterSettings(watch, warningsOnlySettings), false);
+  assert.equal(matchesDisasterSettings(warning, warningsOnlySettings), true);
 });

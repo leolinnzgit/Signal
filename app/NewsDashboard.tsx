@@ -30,6 +30,7 @@ import { formatMarketPrice, type MarketQuote } from "./market-quote";
 import { describeWeather, weatherBriefing, type ClientWeatherAlert, type ClientWeatherConditions, type LocalWeather, type WeatherForecastDay } from "./weather-briefing";
 import WeatherAlertBanner from "./WeatherAlertBanner";
 import ArticleEntities from "./ArticleEntities";
+import ArticleKeyPhrases from "./ArticleKeyPhrases";
 import RelatedStoriesModal from "./RelatedStoriesModal";
 import { getEntityIcon } from "./article-entities";
 import { getSuggestedTopics, type SuggestedTopic } from "./suggested-topics";
@@ -4840,6 +4841,11 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                       selectTopicFilter(topic);
                     }}
                     onFindRelatedStories={(entityText) => setRelatedStoriesEntity(entityText)}
+                  />
+                  <ArticleKeyPhrases
+                    url={readerArticle.url}
+                    title={readerTranslation?.title ?? readerArticle.title}
+                    paragraphs={readerTranslation?.paragraphs ?? readerContent.article.paragraphs}
                   />
                   {(readerTranslation?.paragraphs ?? readerContent.article.paragraphs).map((paragraph, index) => (
                     <p key={`${index}-${paragraph.slice(0, 24)}`} lang={readerTranslation?.language} dir="auto"><ArticleReadingText text={paragraph} paragraphIndex={index} section={readerReading.section} /></p>

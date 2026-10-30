@@ -2,9 +2,11 @@ import { hazardKinds, type HazardKind, type MapEvent } from "./disaster-map.ts";
 
 export type DisasterNotification = MapEvent & { notificationKey: string; updatedAtUtc: string };
 export type DisasterSettings = { enabled: boolean; voice: boolean; radiusKm: number; minimumMagnitude: number;
-  deviceId: string; hazardKinds: HazardKind[]; minimumAlertLevel: "green" | "orange" | "red" };
+  deviceId: string; hazardKinds: HazardKind[]; minimumAlertLevel: "green" | "orange" | "red";
+  weatherAlertThreshold: "all" | "warnings" };
 export const defaultDisasterSettings: DisasterSettings = {
   enabled: false, voice: true, radiusKm: 300, minimumMagnitude: 4, deviceId: "", hazardKinds: [...hazardKinds], minimumAlertLevel: "green",
+  weatherAlertThreshold: "all",
 };
 export const disasterLabels: Record<HazardKind, string> = {
   earthquake: "Earthquake", flood: "Flood", storm: "Tropical cyclone", wildfire: "Wildfire", volcano: "Volcanic activity", drought: "Drought", weather: "Severe weather",
@@ -18,6 +20,7 @@ export function normalizeDisasterSettings(value: Partial<DisasterSettings> | nul
     deviceId: typeof value?.deviceId === "string" && /^[0-9a-f-]{36}$/i.test(value.deviceId) ? value.deviceId : deviceId,
     hazardKinds: kinds.length ? kinds : [...hazardKinds],
     minimumAlertLevel: value?.minimumAlertLevel === "orange" || value?.minimumAlertLevel === "red" ? value.minimumAlertLevel : "green",
+    weatherAlertThreshold: value?.weatherAlertThreshold === "warnings" ? "warnings" : "all",
   };
 }
 export function normalizeDisasterNotification(event: MapEvent & { notificationKey?: string; updatedAtUtc?: string }): DisasterNotification {
@@ -36,9 +39,15 @@ export function appendDisasterAlerts(queue: DisasterNotification[], events: Disa
 }
 export function matchesDisasterSettings(event: DisasterNotification, settings: DisasterSettings) {
   const levels = { green: 0, orange: 1, red: 2 };
-  return settings.hazardKinds.includes(event.kind) && (event.distanceKm == null || event.distanceKm <= settings.radiusKm)
-    && (event.kind === "earthquake" ? (event.magnitude ?? 0) >= settings.minimumMagnitude
-      : levels[event.alertLevel as keyof typeof levels] >= levels[settings.minimumAlertLevel]);
+  if (!settings.hazardKinds.includes(event.kind)) return false;
+  if (event.distanceKm != null && event.distanceKm > settings.radiusKm) return false;
+  if (event.kind === "earthquake") {
+    return (event.magnitude ?? 0) >= settings.minimumMagnitude;
+  }
+  if (event.kind === "weather" && settings.weatherAlertThreshold === "warnings" && event.alertLevel !== "red") {
+    return false;
+  }
+  return levels[event.alertLevel as keyof typeof levels] >= levels[settings.minimumAlertLevel];
 }
 export function previewDisaster(kind: HazardKind): DisasterNotification {
   const now = new Date().toISOString();

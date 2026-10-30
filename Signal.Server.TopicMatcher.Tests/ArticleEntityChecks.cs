@@ -103,7 +103,39 @@ internal static class ArticleEntityChecks
         var sentimentResult = await disabledSentimentService.AnalyzeSentimentAsync("Sample text for sentiment.", CancellationToken.None);
         Assert(!sentimentResult.Available, "Disabled sentiment service must report unavailable.");
 
-        Console.WriteLine("Azure Language entity recognition and sentiment checks passed: parsing, confidence filtering, deduplication and disabled state.");
+        // Azure Language Key Phrases checks
+        var sampleKeyPhrasesJson = """
+        {
+          "kind": "KeyPhraseExtractionResults",
+          "results": {
+            "documents": [
+              {
+                "id": "1",
+                "keyPhrases": [
+                  "cloud AI advancements",
+                  "Satya Nadella",
+                  "Microsoft Azure",
+                  "Satya Nadella",
+                  "a",
+                  "very productive year for modern technology platforms"
+                ]
+              }
+            ]
+          }
+        }
+        """;
+        using var kpDoc = JsonDocument.Parse(sampleKeyPhrasesJson);
+        var parsedKp = AzureLanguageKeyPhraseService.Parse(kpDoc.RootElement);
+        Assert(parsedKp.Available, "Valid key phrase response must report available.");
+        Assert(parsedKp.KeyPhrases.Length == 4, $"Expected 4 filtered key phrases, got {parsedKp.KeyPhrases.Length}.");
+        Assert(parsedKp.KeyPhrases[0] == "cloud AI advancements", "First key phrase was parsed incorrectly.");
+        Assert(!parsedKp.KeyPhrases.Contains("a"), "Single-character phrases must be filtered out.");
+
+        var disabledKpService = new AzureLanguageKeyPhraseService(disabledOptions, new DummyClientFactory(), cache);
+        var kpResult = await disabledKpService.ExtractKeyPhrasesAsync("Sample text for key phrases.", CancellationToken.None);
+        Assert(!kpResult.Available, "Disabled key phrase service must report unavailable.");
+
+        Console.WriteLine("Azure Language entity recognition, sentiment, and key phrases checks passed: parsing, filtering, deduplication and disabled state.");
     }
 
     private sealed class DummyClientFactory : IHttpClientFactory

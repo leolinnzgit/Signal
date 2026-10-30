@@ -21,6 +21,8 @@ public static class DisasterDeviceSchema
                 await database.Database.ExecuteSqlRawAsync("ALTER TABLE \"EarthquakeDevices\" ADD COLUMN \"HazardKindsJson\" TEXT NOT NULL DEFAULT '[\"earthquake\"]';");
             if (!columns.Contains("MinimumAlertLevel"))
                 await database.Database.ExecuteSqlRawAsync("ALTER TABLE \"EarthquakeDevices\" ADD COLUMN \"MinimumAlertLevel\" TEXT NOT NULL DEFAULT 'green';");
+            if (!columns.Contains("WeatherAlertThreshold"))
+                await database.Database.ExecuteSqlRawAsync("ALTER TABLE \"EarthquakeDevices\" ADD COLUMN \"WeatherAlertThreshold\" TEXT NOT NULL DEFAULT 'all';");
         }
         finally { if (wasClosed) await database.Database.CloseConnectionAsync(); }
     }

@@ -118,7 +118,8 @@ public sealed class EarthquakesController(
     public async Task<IActionResult> Save(Guid id, EarthquakeDeviceRequest request, CancellationToken ct)
     {
         var userId = users.GetUserId(User)!;
-        if (request.HazardKinds is not null && (request.HazardKinds.Length is < 1 or > 6 || request.HazardKinds.Any(k => !DisasterAlertFeed.Kinds.Contains(k)))
+        if (request.HazardKinds is not null && (request.HazardKinds.Length < 1 || request.HazardKinds.Length > DisasterAlertFeed.Kinds.Length || request.HazardKinds.Any(k => !DisasterAlertFeed.Kinds.Contains(k)))
+            || request.WeatherAlertThreshold is not null && request.WeatherAlertThreshold != "all" && request.WeatherAlertThreshold != "warnings"
             || request.MinimumAlertLevel is not null && DisasterAlertFeed.Level(request.MinimumAlertLevel) < 0)
             return BadRequest(new { error = "Choose at least one supported disaster type and a valid GDACS alert level." });
         if (!EarthquakeFeed.ValidLocation(request.Latitude, request.Longitude)
@@ -140,6 +141,7 @@ public sealed class EarthquakesController(
         device.MinimumMagnitude = request.MinimumMagnitude;
         if (request.HazardKinds is not null) device.HazardKindsJson = JsonSerializer.Serialize(request.HazardKinds.Distinct());
         if (request.MinimumAlertLevel is not null) device.MinimumAlertLevel = request.MinimumAlertLevel;
+        if (request.WeatherAlertThreshold is not null) device.WeatherAlertThreshold = request.WeatherAlertThreshold;
         device.LocationUpdatedAtUtc = DateTime.UtcNow;
         // Only target an authenticated subscription owned by this account.
         device.PushEndpoint = !string.IsNullOrEmpty(request.PushEndpoint)
@@ -189,4 +191,4 @@ public sealed class EarthquakesController(
 }
 
 public sealed record EarthquakeDeviceRequest(double Latitude, double Longitude, double RadiusKm, double MinimumMagnitude, string? PushEndpoint,
-    string[]? HazardKinds = null, string? MinimumAlertLevel = null);
+    string[]? HazardKinds = null, string? MinimumAlertLevel = null, string? WeatherAlertThreshold = null);

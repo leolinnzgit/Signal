@@ -93,7 +93,8 @@ public sealed class DisasterAlertFeed(EarthquakeFeed earthquakes, DisasterFeed d
                         Url: "/#weather-alerts",
                         AlertLevel: alertLevel,
                         Description: string.IsNullOrWhiteSpace(a.Headline) ? a.Description : a.Headline);
-                }).Where(e => Level(e.AlertLevel) >= Level(device.MinimumAlertLevel)).ToArray();
+                }).Where(e => Level(e.AlertLevel) >= Level(device.MinimumAlertLevel))
+                  .Where(e => device.WeatherAlertThreshold != "warnings" || e.AlertLevel == "red").ToArray();
                 return (alerts, null);
             }
             catch (Exception ex) when (!ct.IsCancellationRequested && ex is HttpRequestException or JsonException or TaskCanceledException)

@@ -85,7 +85,7 @@ internal static class DisasterAlertChecks
         await DisasterDeviceSchema.UpgradeAsync(db);
         var saved = await db.EarthquakeDevices.SingleAsync();
         Check(saved.RadiusKm == 500 && saved.MinimumMagnitude == 5 && saved.PushEndpoint == "https://push.test/1"
-            && saved.SeenJson == "[\"geonet:seen\"]" && saved.MinimumAlertLevel == "green", "Upgrade must preserve device settings, subscription and seen events.");
+            && saved.SeenJson == "[\"geonet:seen\"]" && saved.MinimumAlertLevel == "green" && saved.WeatherAlertThreshold == "all", "Upgrade must preserve device settings, subscription and seen events.");
     }
     private static async Task ControllerAsync()
     {
@@ -106,13 +106,14 @@ internal static class DisasterAlertChecks
                 User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "owner")], "test")) } }
         };
         var id = Guid.NewGuid();
-        var request = new EarthquakeDeviceRequest(-41.3, 174.8, 300, 4, null, ["flood", "earthquake"], "orange");
+        var request = new EarthquakeDeviceRequest(-41.3, 174.8, 300, 4, null, ["flood", "earthquake"], "orange", "warnings");
         Check(await controller.Save(id, request with { HazardKinds = [] }, default) is BadRequestObjectResult, "Empty hazard selection must be rejected.");
         Check(await controller.Save(id, request with { HazardKinds = ["invalid"] }, default) is BadRequestObjectResult, "Unsupported hazard must be rejected.");
         Check(await controller.Save(id, request with { MinimumAlertLevel = "invalid" }, default) is BadRequestObjectResult, "Unknown alert level must be rejected.");
+        Check(await controller.Save(id, request with { WeatherAlertThreshold = "invalid" }, default) is BadRequestObjectResult, "Unknown weather threshold must be rejected.");
         Check(await controller.Save(id, request, default) is OkObjectResult, "Disaster settings must save.");
         var device = await db.EarthquakeDevices.SingleAsync();
-        Check(DisasterAlertFeed.DeviceKinds(device).SequenceEqual(request.HazardKinds!) && device.MinimumAlertLevel == "orange", "Persist hazard and severity preferences.");
+        Check(DisasterAlertFeed.DeviceKinds(device).SequenceEqual(request.HazardKinds!) && device.MinimumAlertLevel == "orange" && device.WeatherAlertThreshold == "warnings", "Persist hazard and severity preferences.");
         await controller.Save(id, request with { HazardKinds = null, MinimumAlertLevel = null }, default);
         Check(device.MinimumAlertLevel == "orange" && DisasterAlertFeed.DeviceKinds(device).Length == 2, "Legacy clients must not overwrite disaster preferences.");
         device.LocationUpdatedAtUtc = DateTime.UtcNow.AddHours(-25); await db.SaveChangesAsync();

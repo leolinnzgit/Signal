@@ -14,4 +14,5 @@ public sealed class EarthquakeDevice
     public string SeenJson { get; set; } = "[]";
     public string HazardKindsJson { get; set; } = "[\"earthquake\"]";
     public string MinimumAlertLevel { get; set; } = "green";
+    public string WeatherAlertThreshold { get; set; } = "all";
 }
