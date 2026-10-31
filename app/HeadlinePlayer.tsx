@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import MinimizedAudioPlayer from "./MinimizedAudioPlayer";
+import SmartFocalImage from "./SmartFocalImage";
 import { useHandGestureTarget } from "./hand-gesture-actions";
 import type { FollowedArticle } from "./NewsDashboard";
 import ScreenOffAudioPlayer, { type ScreenOffAudioControls } from "./ScreenOffAudioPlayer";
@@ -305,8 +306,8 @@ export default function HeadlinePlayer({ articles, marketTopic, tickerOverrides 
         ) : (
           <div className="headline-player-story">
             {article.imageUrl && (
-              <img key={`${article.url}-${article.imageUrl}`} className="headline-player-image"
-                src={article.imageUrl} alt="" decoding="async" referrerPolicy="no-referrer"
+              <SmartFocalImage key={`${article.url}-${article.imageUrl}`} className="headline-player-image"
+                src={article.imageUrl} alt="" eagerAnalysis aiAltFallback decoding="async" referrerPolicy="no-referrer"
                 onError={(event) => { event.currentTarget.hidden = true; }} />
             )}
             <h2 key={article.url} className={`headline-player-title${article.title.length > 100 ? " headline-player-title-long" : ""}`}>{article.title}</h2>

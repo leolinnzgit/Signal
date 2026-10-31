@@ -7,6 +7,12 @@
   margin: 0;
 }
 
+@media (prefers-reduced-motion: no-preference) {
+  img[data-smart-focal="true"] {
+    transition: object-position 0.35s ease;
+  }
+}
+
 .article-ai-caption {
   display: flex;
   align-items: baseline;

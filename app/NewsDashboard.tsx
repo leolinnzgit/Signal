@@ -44,6 +44,7 @@ import {
 } from "./secondary-time-zone";
 import { suggestNewsSources } from "./source-suggestions";
 import ArticleImageCaption from "./ArticleImageCaption";
+import SmartFocalImage from "./SmartFocalImage";
 import {
   getCachedOfflineArticle,
   saveOfflineArticleContent,
@@ -4407,7 +4408,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                     <h3>{article.title}</h3>{article.summary && <p>{article.summary}</p>}
                   </article>
                   {article.imageUrl && (
-                    <img
+                    <SmartFocalImage
                       className="story-image"
                       src={article.imageUrl}
                       alt=""
@@ -4889,10 +4890,12 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                       paragraphs={readerContent.article.paragraphs} storyImageUrl={readerArticle.imageUrl} autoPrepare={readerAudioRequested} onReadingSectionChange={updateReaderReading} />}
                   {readerArticle.imageUrl && (
                     <figure className="article-reader-figure">
-                      <img
+                      <SmartFocalImage
                         className="article-reader-image"
                         src={readerArticle.imageUrl}
                         alt=""
+                        eagerAnalysis
+                        aiAltFallback
                         decoding="async"
                         referrerPolicy="no-referrer"
                         onError={(event) => { event.currentTarget.hidden = true; }}

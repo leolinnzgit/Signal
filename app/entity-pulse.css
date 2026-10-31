@@ -70,11 +70,17 @@
 /* KPI Banner */
 .entity-pulse-kpi-banner {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 0.75rem;
   padding: 1rem 1.5rem;
   background: var(--paper-deep, rgba(0, 0, 0, 0.2));
   border-bottom: 1px solid var(--line, #334155);
+}
+
+@media (max-width: 640px) {
+  .entity-pulse-kpi-banner {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 .entity-pulse-kpi-card {
@@ -94,6 +100,16 @@
   background: rgba(234, 88, 12, 0.1);
 }
 
+.entity-pulse-kpi-card.tone-kpi-positive {
+  border-color: rgba(34, 197, 94, 0.35);
+  background: rgba(34, 197, 94, 0.08);
+}
+
+.entity-pulse-kpi-card.tone-kpi-negative {
+  border-color: rgba(248, 113, 113, 0.35);
+  background: rgba(248, 113, 113, 0.08);
+}
+
 .kpi-value {
   font-size: 1.4rem;
   font-weight: 800;
@@ -103,6 +119,14 @@
 
 .surging-active .kpi-value {
   color: #fb923c;
+}
+
+.tone-kpi-positive .kpi-value {
+  color: #4ade80;
+}
+
+.tone-kpi-negative .kpi-value {
+  color: #f87171;
 }
 
 .kpi-label {
@@ -254,6 +278,88 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Sentiment Momentum & Tone Distribution Bar */
+.pulse-sentiment-block {
+  margin: 0.5rem 0 0.2rem;
+  padding: 0.45rem 0.6rem;
+  background: var(--paper-deep, rgba(0, 0, 0, 0.14));
+  border: 1px solid var(--line, rgba(140, 140, 140, 0.12));
+  border-radius: 6px;
+}
+
+.pulse-sentiment-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  margin-bottom: 0.35rem;
+  font-size: 0.73rem;
+  flex-wrap: wrap;
+}
+
+.pulse-sentiment-tone {
+  font-weight: 600;
+  color: var(--text-muted, #94a3b8);
+}
+
+.pulse-sentiment-tone.tone-positive {
+  color: #4ade80;
+}
+
+.pulse-sentiment-tone.tone-negative {
+  color: #f87171;
+}
+
+.pulse-sentiment-tone.tone-mixed {
+  color: #fbbf24;
+}
+
+.pulse-sentiment-momentum {
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.08rem 0.38rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.pulse-sentiment-momentum.momentum-improving {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+}
+
+.pulse-sentiment-momentum.momentum-cooling {
+  background: rgba(248, 113, 113, 0.15);
+  color: #f87171;
+}
+
+.pulse-sentiment-bar {
+  display: flex;
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(148, 163, 184, 0.18);
+  gap: 1px;
+}
+
+.pulse-sentiment-seg {
+  display: block;
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.pulse-sentiment-seg.seg-positive {
+  background: #22c55e;
+}
+
+.pulse-sentiment-seg.seg-neutral {
+  background: #64748b;
+}
+
+.pulse-sentiment-seg.seg-negative {
+  background: #ef4444;
 }
 
 /* Latest Headline */
