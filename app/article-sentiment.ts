@@ -14,13 +14,14 @@ export async function loadArticleSentiment(
   title?: string,
   paragraphs?: string[],
   signal?: AbortSignal,
+  fetcher: typeof fetch = fetch,
 ): Promise<ArticleSentimentResponse> {
   const cacheKey = `${url}::${(title || "").slice(0, 50)}`;
   const cached = sentimentCache.get(cacheKey);
   if (cached) return cached;
 
   try {
-    const response = await fetch("/api/article-sentiment", {
+    const response = await fetcher("/api/article-sentiment", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

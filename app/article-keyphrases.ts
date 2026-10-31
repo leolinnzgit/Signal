@@ -11,13 +11,14 @@ export async function loadArticleKeyPhrases(
   title?: string,
   paragraphs?: string[],
   signal?: AbortSignal,
+  fetcher: typeof fetch = fetch,
 ): Promise<ArticleKeyPhrasesResponse> {
   const cacheKey = `${url}::${(title || "").slice(0, 50)}`;
   const cached = keyPhrasesCache.get(cacheKey);
   if (cached) return cached;
 
   try {
-    const response = await fetch("/api/article-keyphrases", {
+    const response = await fetcher("/api/article-keyphrases", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

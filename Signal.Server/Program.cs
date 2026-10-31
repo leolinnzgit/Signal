@@ -223,6 +223,10 @@ builder.Services.AddHttpClient(AzureLanguageKeyPhraseService.HttpClientName, cli
 builder.Services.AddSingleton<AzureLanguagePiiService>();
 builder.Services.AddHttpClient(AzureLanguagePiiService.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(20))
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
+builder.Services.Configure<AzureVisionOptions>(builder.Configuration.GetSection(AzureVisionOptions.SectionName));
+builder.Services.AddSingleton<AzureVisionService>();
+builder.Services.AddHttpClient(AzureVisionService.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(20))
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
 builder.Services.AddSingleton<AzureMapsWeatherService>();
 builder.Services.AddHttpClient(AzureMapsWeatherService.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(15))
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });

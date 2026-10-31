@@ -39,6 +39,8 @@ if (args.Contains("--article-entities-only")) return;
 await ContentSafetyChecks.RunAsync();
 await PrivacyShieldChecks.RunAsync();
 Console.WriteLine("Azure Language PII and Privacy Shield checks passed: local fallback, JSON parsing, controller validation and comment redaction.");
+await AzureVisionChecks.RunAsync();
+Console.WriteLine("Azure Vision image captioning checks passed: parsing, capitalization, dimensions, disabled state and controller validation.");
 if (args.Contains("--content-safety-only")) return;
 await SharedCommentChecks.RunAsync();
 if (args.Contains("--shared-comments-browser")) { await SharedCommentChecks.RunBrowserAsync(); return; }

@@ -43,6 +43,13 @@ import {
   type SecondaryTimeZonePreference,
 } from "./secondary-time-zone";
 import { suggestNewsSources } from "./source-suggestions";
+import ArticleImageCaption from "./ArticleImageCaption";
+import {
+  getCachedOfflineArticle,
+  saveOfflineArticleContent,
+  clearOfflineArticleContent,
+  prewarmBookmarkedArticle,
+} from "./offline-prewarm";
 
 type Article = {
   title: string;
@@ -2814,7 +2821,21 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     setReaderAudioRequested(listen);
     setReaderReading({ section: null, playing: false });
     setFollowReading(true);
-    setReaderContent({ status: "loading" });
+    const cached = getCachedOfflineArticle(article.url);
+    if (cached && cached.paragraphs && cached.paragraphs.length > 0) {
+      setReaderContent({
+        status: "ready",
+        article: {
+          finalUrl: cached.finalUrl || article.url,
+          byline: cached.byline,
+          siteName: cached.siteName,
+          publishedAt: cached.publishedAt,
+          paragraphs: cached.paragraphs,
+        },
+      });
+    } else {
+      setReaderContent({ status: "loading" });
+    }
     const requestId = ++readerRequestSequence.current;
     const params = new URLSearchParams({ url: article.url });
     void fetch(`/api/article-reader?${params.toString()}`, { cache: "no-store" })
@@ -2823,6 +2844,28 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         if (requestId !== readerRequestSequence.current) return;
         if (data.available && data.article?.paragraphs.length) {
           setReaderContent({ status: "ready", article: data.article });
+          saveOfflineArticleContent(article.url, {
+            title: article.title,
+            byline: data.article.byline,
+            siteName: data.article.siteName,
+            publishedAt: data.article.publishedAt,
+            paragraphs: data.article.paragraphs,
+            finalUrl: data.article.finalUrl,
+          });
+          return;
+        }
+        const offline = getCachedOfflineArticle(article.url);
+        if (offline && offline.paragraphs && offline.paragraphs.length > 0) {
+          setReaderContent({
+            status: "ready",
+            article: {
+              finalUrl: offline.finalUrl || article.url,
+              byline: offline.byline,
+              siteName: offline.siteName,
+              publishedAt: offline.publishedAt,
+              paragraphs: offline.paragraphs,
+            },
+          });
           return;
         }
         if (listen || stayInSignal) setReaderContent({ status: "unavailable", reason: data.reason || "The publisher did not provide the full article text to Signal." });
@@ -2830,6 +2873,20 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
       })
       .catch(() => {
         if (requestId !== readerRequestSequence.current) return;
+        const offline = getCachedOfflineArticle(article.url);
+        if (offline && offline.paragraphs && offline.paragraphs.length > 0) {
+          setReaderContent({
+            status: "ready",
+            article: {
+              finalUrl: offline.finalUrl || article.url,
+              byline: offline.byline,
+              siteName: offline.siteName,
+              publishedAt: offline.publishedAt,
+              paragraphs: offline.paragraphs,
+            },
+          });
+          return;
+        }
         if (listen || stayInSignal) setReaderContent({ status: "unavailable", reason: "The full article could not be loaded. You can read it on the publisher’s website." });
         else openOriginalAfterReaderFailure(article.url, requestId);
       });
@@ -2931,6 +2988,11 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
       setNotice(bookmarked
         ? "Story bookmarked. It will be kept until you remove the bookmark."
         : "Bookmark removed. The normal history cleanup setting now applies.");
+      if (bookmarked) {
+        void prewarmBookmarkedArticle(article);
+      } else {
+        clearOfflineArticleContent(article.url);
+      }
       return true;
     } catch (caught) {
       setNotice(caught instanceof Error ? caught.message : "That bookmark could not be updated.");
@@ -4826,14 +4888,17 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                     : <ArticleSummaryPlayer key={readerArticle.url} url={readerArticle.url} title={readerArticle.title} source={readerArticle.source}
                       paragraphs={readerContent.article.paragraphs} storyImageUrl={readerArticle.imageUrl} autoPrepare={readerAudioRequested} onReadingSectionChange={updateReaderReading} />}
                   {readerArticle.imageUrl && (
-                    <img
-                      className="article-reader-image"
-                      src={readerArticle.imageUrl}
-                      alt=""
-                      decoding="async"
-                      referrerPolicy="no-referrer"
-                      onError={(event) => { event.currentTarget.hidden = true; }}
-                    />
+                    <figure className="article-reader-figure">
+                      <img
+                        className="article-reader-image"
+                        src={readerArticle.imageUrl}
+                        alt=""
+                        decoding="async"
+                        referrerPolicy="no-referrer"
+                        onError={(event) => { event.currentTarget.hidden = true; }}
+                      />
+                      <ArticleImageCaption imageUrl={readerArticle.imageUrl} />
+                    </figure>
                   )}
                   {(readerContent.article.byline || readerContent.article.siteName) && (
                     <p className="article-reader-byline">
