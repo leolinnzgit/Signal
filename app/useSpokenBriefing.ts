@@ -16,12 +16,14 @@ import {
 export type SpokenBriefingStatus = "idle" | "starting" | "playing" | "error";
 
 /**
- * Reusable hook to narrate short generated text (such as the News Pulse digest or OCR text)
- * using Signal's Azure Neural / server audio stream with automatic browser speech fallback.
+ * Reusable hook to narrate generated text (such as the Executive Daily Briefing,
+ * News Pulse digest, or OCR text) using prewarmed Offline Pack neural audio blobs,
+ * Signal's Azure Neural / server audio stream, or automatic browser speech fallback.
  */
 export function useSpokenBriefing() {
   const [status, setStatus] = useState<SpokenBriefingStatus>("idle");
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const objectUrlRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const playbackRef = useRef<ReturnType<typeof createHeadlinePlayback> | null>(null);
   const sequenceRef = useRef(0);
@@ -38,6 +40,14 @@ export function useSpokenBriefing() {
       audioRef.current.load();
       audioRef.current = null;
     }
+    if (objectUrlRef.current) {
+      try {
+        URL.revokeObjectURL(objectUrlRef.current);
+      } catch {
+        // Ignore revocation errors
+      }
+      objectUrlRef.current = null;
+    }
   }, []);
 
   const stop = useCallback(() => {
@@ -49,9 +59,9 @@ export function useSpokenBriefing() {
   }, [releaseCloud]);
 
   const speak = useCallback(
-    (rawText: string, targetLanguage?: string) => {
+    (rawText: string, targetLanguage?: string, offlineAudioBlob?: Blob | null) => {
       const clean = (rawText || "").trim();
-      if (!clean) return;
+      if (!clean && !(offlineAudioBlob && offlineAudioBlob.size > 44)) return;
 
       stop();
       const run = sequenceRef.current;
@@ -77,6 +87,7 @@ export function useSpokenBriefing() {
         releaseCloud();
 
         if (
+          !clean ||
           typeof window === "undefined" ||
           !window.speechSynthesis ||
           typeof window.SpeechSynthesisUtterance !== "function"
@@ -157,40 +168,80 @@ export function useSpokenBriefing() {
         }
       };
 
-      const onCloudFailed = () => {
+      const startOnlineStream = () => {
         if (run !== sequenceRef.current || abort.signal.aborted) return;
-        if (!started) fallbackToBrowserSpeech();
-        else {
-          releaseCloud();
-          setStatus("error");
+        if (!clean || (typeof navigator !== "undefined" && navigator.onLine === false)) {
+          fallbackToBrowserSpeech();
+          return;
         }
-      };
-      element.onerror = onCloudFailed;
 
-      let voices = normalizeReadingVoices(null);
-      try {
-        voices = normalizeReadingVoices(
-          JSON.parse(localStorage.getItem(READING_VOICES_STORAGE_KEY) ?? "null"),
-        );
-      } catch {
-        // Use server default neural voice
+        const onCloudFailed = () => {
+          if (run !== sequenceRef.current || abort.signal.aborted) return;
+          if (!started) fallbackToBrowserSpeech();
+          else {
+            releaseCloud();
+            setStatus("error");
+          }
+        };
+        element.onerror = onCloudFailed;
+
+        let voices = normalizeReadingVoices(null);
+        try {
+          voices = normalizeReadingVoices(
+            JSON.parse(localStorage.getItem(READING_VOICES_STORAGE_KEY) ?? "null"),
+          );
+        } catch {
+          // Use server default neural voice
+        }
+
+        void openArticleAudioStream(
+          articleNarrationParts("", [clean], 900),
+          language,
+          voices,
+          abort.signal,
+          (streamStatus) => {
+            if (streamStatus.error) onCloudFailed();
+          },
+        )
+          .then((url) => {
+            if (run !== sequenceRef.current || abort.signal.aborted) return;
+            element.src = url;
+            void element.play().catch(onCloudFailed);
+          })
+          .catch(onCloudFailed);
+      };
+
+      // Fast-path: play prewarmed Offline Briefing Pack neural audio Blob immediately
+      if (offlineAudioBlob && offlineAudioBlob.size > 44 && typeof URL.createObjectURL === "function") {
+        try {
+          const blobUrl = URL.createObjectURL(offlineAudioBlob);
+          objectUrlRef.current = blobUrl;
+          const onBlobFailed = () => {
+            if (run !== sequenceRef.current || abort.signal.aborted) return;
+            if (objectUrlRef.current) {
+              try {
+                URL.revokeObjectURL(objectUrlRef.current);
+              } catch {
+                // Ignore
+              }
+              objectUrlRef.current = null;
+            }
+            if (!started) startOnlineStream();
+            else {
+              releaseCloud();
+              setStatus("error");
+            }
+          };
+          element.onerror = onBlobFailed;
+          element.src = blobUrl;
+          void element.play().catch(onBlobFailed);
+          return;
+        } catch {
+          // Fall through to online stream or browser speech
+        }
       }
 
-      void openArticleAudioStream(
-        articleNarrationParts("", [clean], 900),
-        language,
-        voices,
-        abort.signal,
-        (streamStatus) => {
-          if (streamStatus.error) onCloudFailed();
-        },
-      )
-        .then((url) => {
-          if (run !== sequenceRef.current || abort.signal.aborted) return;
-          element.src = url;
-          void element.play().catch(onCloudFailed);
-        })
-        .catch(onCloudFailed);
+      startOnlineStream();
     },
     [releaseCloud, stop],
   );

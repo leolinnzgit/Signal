@@ -34,7 +34,27 @@ import ArticleKeyPhrases from "./ArticleKeyPhrases";
 import RelatedStoriesModal from "./RelatedStoriesModal";
 import EntityPulseModal from "./EntityPulseModal";
 import CompareCoverageModal from "./CompareCoverageModal";
-import DailyBriefingModal from "./DailyBriefingModal";
+import DailyBriefingModal, { type OfflinePackDownloadStatus } from "./DailyBriefingModal";
+import {
+  buildDailyBriefing,
+  dispatchWakeUpBriefingNotification,
+  formatLocalDateKey,
+  formatScheduleTimeDisplay,
+  loadBriefingSchedule,
+  loadPriorityTopics,
+  markScheduledBriefingTriggered,
+  shouldTriggerScheduledBriefing,
+  type BriefingSchedulePrefs,
+  type DailyBriefingData,
+} from "./daily-briefing";
+import {
+  clearOfflineBriefingPack,
+  computeBriefingPackId,
+  loadAutoOfflineBriefingPref,
+  loadOfflineBriefingPackMeta,
+  saveOfflineBriefingPack,
+  type OfflineBriefingPackMeta,
+} from "./daily-briefing-offline";
 import { buildEntityPulse } from "./entity-pulse";
 import { clusterArticles, type StoryCluster } from "./story-clustering";
 import { getEntityIcon } from "./article-entities";
@@ -832,6 +852,15 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [relatedStoriesEntity, setRelatedStoriesEntity] = useState<string | null>(null);
   const [entityPulseOpen, setEntityPulseOpen] = useState(false);
   const [dailyBriefingOpen, setDailyBriefingOpen] = useState(false);
+  const [dailyBriefingAutoPlay, setDailyBriefingAutoPlay] = useState(false);
+  const [wakeUpBannerReady, setWakeUpBannerReady] = useState(false);
+  const [briefingPriorityTopics, setBriefingPriorityTopics] = useState<string[]>(() => loadPriorityTopics());
+  const [briefingSchedule, setBriefingSchedule] = useState<BriefingSchedulePrefs>(() => loadBriefingSchedule());
+  const [offlineBriefingMeta, setOfflineBriefingMeta] = useState<OfflineBriefingPackMeta | null>(() => loadOfflineBriefingPackMeta());
+  const [autoOfflineBriefing, setAutoOfflineBriefing] = useState<boolean>(() => loadAutoOfflineBriefingPref());
+  const [offlineBriefingDownload, setOfflineBriefingDownload] = useState<OfflinePackDownloadStatus>({ busy: false, progress: 0, stage: "", error: null });
+  const offlinePackAbortRef = useRef<AbortController | null>(null);
+  const autoPackedSignatureRef = useRef<string>("");
   const [activeCompareCluster, setActiveCompareCluster] = useState<StoryCluster | null>(null);
   const [dismissedWeatherAlertIds, setDismissedWeatherAlertIds] = useState<Set<string>>(new Set());
   const [weatherForecast, setWeatherForecast] = useState<WeatherForecastDay[]>([]);
@@ -950,6 +979,162 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     if (preferences.topics.length === 0) return null;
     return buildEntityPulse(preferences.topics, articles);
   }, [preferences.topics, articles]);
+
+  const runSaveOfflineBriefingPack = useCallback(async (targetBriefing: DailyBriefingData) => {
+    offlinePackAbortRef.current?.abort();
+    const abort = new AbortController();
+    offlinePackAbortRef.current = abort;
+    setOfflineBriefingDownload({ busy: true, progress: 5, stage: "Preparing offline pack...", error: null });
+    try {
+      const meta = await saveOfflineBriefingPack({
+        briefing: targetBriefing,
+        signal: abort.signal,
+        onProgress: (progress, stage) => {
+          if (!abort.signal.aborted) {
+            setOfflineBriefingDownload({ busy: true, progress, stage, error: null });
+          }
+        },
+      });
+      if (!abort.signal.aborted) {
+        setOfflineBriefingMeta(meta);
+        setOfflineBriefingDownload({ busy: false, progress: 100, stage: "Offline pack ready", error: null });
+      }
+      return meta;
+    } catch (err) {
+      if (!abort.signal.aborted) {
+        setOfflineBriefingDownload({
+          busy: false,
+          progress: 0,
+          stage: "",
+          error: err instanceof Error ? err.message : "Could not save offline briefing pack.",
+        });
+      }
+      return null;
+    }
+  }, []);
+
+  const handleClearOfflinePack = useCallback(async () => {
+    offlinePackAbortRef.current?.abort();
+    offlinePackAbortRef.current = null;
+    await clearOfflineBriefingPack();
+    setOfflineBriefingMeta(null);
+    setOfflineBriefingDownload({ busy: false, progress: 0, stage: "", error: null });
+  }, []);
+
+  const triggerWakeUpBriefing = useCallback(async (
+    targetBriefing: DailyBriefingData,
+    shouldPrewarm: boolean,
+    shouldNotify: boolean,
+  ) => {
+    if (shouldPrewarm && typeof navigator !== "undefined" && navigator.onLine) {
+      await runSaveOfflineBriefingPack(targetBriefing);
+    }
+    setWakeUpBannerReady(true);
+    if (shouldNotify) {
+      await dispatchWakeUpBriefingNotification(targetBriefing);
+    }
+  }, [runSaveOfflineBriefingPack]);
+
+  // Open Daily Briefing directly when launched from a Wake-up Notification (?briefing=1)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("briefing") === "1") {
+      url.searchParams.delete("briefing");
+      window.history.replaceState(window.history.state, "", url);
+      setDailyBriefingOpen(true);
+    }
+  }, []);
+
+  // Background Wake-up Briefing Scheduler
+  useEffect(() => {
+    if (!ready || !briefingSchedule.enabled) return;
+    const checkSchedule = () => {
+      const now = new Date();
+      if (!shouldTriggerScheduledBriefing(briefingSchedule, now)) return;
+      const marked = markScheduledBriefingTriggered(briefingSchedule, now);
+      setBriefingSchedule(marked);
+      const scheduledBriefing = buildDailyBriefing({
+        weather: weatherStatus === "ready" ? localWeather : null,
+        forecast: weatherForecast,
+        alerts: activeWeatherAlerts,
+        conditions: weatherConditions,
+        marketQuote,
+        pulse,
+        articles,
+        priorityTopics: briefingPriorityTopics,
+        userTime: now,
+        maxLeadStories: 4,
+      });
+      void triggerWakeUpBriefing(
+        scheduledBriefing,
+        briefingSchedule.prewarmOfflinePack,
+        briefingSchedule.notify,
+      );
+    };
+    const initialDelay = window.setTimeout(checkSchedule, articles.length > 0 ? 800 : 4000);
+    const interval = window.setInterval(checkSchedule, 20_000);
+    return () => {
+      window.clearTimeout(initialDelay);
+      window.clearInterval(interval);
+    };
+  }, [
+    activeWeatherAlerts,
+    articles,
+    briefingPriorityTopics,
+    briefingSchedule,
+    localWeather,
+    marketQuote,
+    pulse,
+    ready,
+    triggerWakeUpBriefing,
+    weatherConditions,
+    weatherForecast,
+    weatherStatus,
+  ]);
+
+  // Automatic Offline Commute Briefing Pack Prewarmer
+  useEffect(() => {
+    if (!ready || !autoOfflineBriefing || articles.length === 0 || offlineBriefingDownload.busy) return;
+    if (typeof navigator !== "undefined" && !navigator.onLine) return;
+    const now = new Date();
+    const candidate = buildDailyBriefing({
+      weather: weatherStatus === "ready" ? localWeather : null,
+      forecast: weatherForecast,
+      alerts: activeWeatherAlerts,
+      conditions: weatherConditions,
+      marketQuote,
+      pulse,
+      articles,
+      priorityTopics: briefingPriorityTopics,
+      userTime: now,
+      maxLeadStories: 4,
+    });
+    const lang = typeof navigator !== "undefined" && navigator.language.startsWith("en") ? navigator.language : "en-NZ";
+    const packId = computeBriefingPackId(candidate, lang);
+    const editionKey = `${formatLocalDateKey(now)}:${candidate.edition}`;
+    if (offlineBriefingMeta?.id === packId || autoPackedSignatureRef.current === editionKey) return;
+    const timer = window.setTimeout(() => {
+      autoPackedSignatureRef.current = editionKey;
+      void runSaveOfflineBriefingPack(candidate);
+    }, 2500);
+    return () => window.clearTimeout(timer);
+  }, [
+    activeWeatherAlerts,
+    articles,
+    autoOfflineBriefing,
+    briefingPriorityTopics,
+    localWeather,
+    marketQuote,
+    offlineBriefingDownload.busy,
+    offlineBriefingMeta?.id,
+    pulse,
+    ready,
+    runSaveOfflineBriefingPack,
+    weatherConditions,
+    weatherForecast,
+    weatherStatus,
+  ]);
 
   const trendTrafficRange = useMemo(() => {
     const values = trendingTerms.map((term) => trendTrafficValue(term.traffic)).filter((value) => value > 0);
@@ -3231,6 +3416,47 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
       {earthquakes.banner}
       {earthquakes.map}
       <HandGestureControls />
+      {wakeUpBannerReady && (
+        <aside className="wake-up-briefing-banner" role="status" aria-live="polite">
+          <div className="wake-up-banner-copy">
+            <span aria-hidden="true">⏰</span>
+            <span>
+              <strong>Wake-up Briefing Ready</strong> &mdash; Your {formatScheduleTimeDisplay(briefingSchedule.time)} executive digest{offlineBriefingMeta?.hasNeuralAudio ? " and offline neural audio pack are" : " is"} ready.
+            </span>
+          </div>
+          <div className="wake-up-banner-actions">
+            <button
+              type="button"
+              className="wake-up-banner-btn"
+              onClick={() => {
+                setWakeUpBannerReady(false);
+                setDailyBriefingAutoPlay(true);
+                setDailyBriefingOpen(true);
+              }}
+            >
+              🔊 Play Briefing
+            </button>
+            <button
+              type="button"
+              className="wake-up-banner-btn secondary"
+              onClick={() => {
+                setWakeUpBannerReady(false);
+                setDailyBriefingOpen(true);
+              }}
+            >
+              🗞️ Open Digest
+            </button>
+            <button
+              type="button"
+              className="wake-up-banner-dismiss"
+              onClick={() => setWakeUpBannerReady(false)}
+              aria-label="Dismiss wake-up briefing banner"
+            >
+              &times;
+            </button>
+          </div>
+        </aside>
+      )}
       <header ref={headerElement} className="site-header">
         <a className="brand" href="#top" aria-label="Signal home">
           <SeasonalBrand />
@@ -3239,11 +3465,15 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         <div className="header-actions">
           <button
             type="button"
-            className="daily-briefing-trigger"
-            onClick={() => setDailyBriefingOpen(true)}
+            className={`daily-briefing-trigger${wakeUpBannerReady ? " wake-up-ready" : ""}`}
+            onClick={() => {
+              setWakeUpBannerReady(false);
+              setDailyBriefingOpen(true);
+            }}
             title="Personal Executive Daily Briefing (Weather, Markets, Momentum & News)"
             aria-label="Open Personal Executive Daily Briefing"
           >
+            {wakeUpBannerReady && <span className="daily-briefing-ready-dot" aria-hidden="true" />}
             🗞️ Daily Briefing
           </button>
           <div className="live-status"><span className="pulse" aria-hidden="true" />Live web briefing</div>
@@ -5387,6 +5617,22 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         marketQuote={marketQuote}
         pulse={pulse}
         articles={articles}
+        followedTopics={preferences.topics}
+        priorityTopics={briefingPriorityTopics}
+        onChangePriorityTopics={setBriefingPriorityTopics}
+        schedule={briefingSchedule}
+        onChangeSchedule={setBriefingSchedule}
+        offlinePackMeta={offlineBriefingMeta}
+        offlineDownloadState={offlineBriefingDownload}
+        onSaveOfflinePack={(b) => { void runSaveOfflineBriefingPack(b); }}
+        onClearOfflinePack={() => { void handleClearOfflinePack(); }}
+        autoOfflineEnabled={autoOfflineBriefing}
+        onChangeAutoOffline={setAutoOfflineBriefing}
+        onTestWakeUp={(b) => {
+          void triggerWakeUpBriefing(b, briefingSchedule.prewarmOfflinePack, briefingSchedule.notify);
+        }}
+        autoPlayOnOpen={dailyBriefingAutoPlay}
+        onAutoPlayConsumed={() => setDailyBriefingAutoPlay(false)}
         onOpenArticle={(art) => openArticleReader(art, readerCloseButton.current ?? document.body)}
         onListenArticle={(art) => openArticleReader(art, readerCloseButton.current ?? document.body, true)}
         userTime={currentTime ?? undefined}

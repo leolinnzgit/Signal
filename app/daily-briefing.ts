@@ -7,6 +7,7 @@ import {
 } from "./weather-briefing.ts";
 import { formatMarketPrice, type MarketQuote } from "./market-quote.ts";
 import type { EntityPulseSummary } from "./entity-pulse.ts";
+import { topicMatchesText } from "./api/news/topic-matching.ts";
 
 export type DailyBriefingStory = {
   title: string;
@@ -18,6 +19,7 @@ export type DailyBriefingStory = {
   topics?: string[];
   isBookmarked?: boolean;
   isRead?: boolean;
+  priorityTopic?: string;
 };
 
 export type DailyBriefingParams = {
@@ -28,6 +30,7 @@ export type DailyBriefingParams = {
   marketQuote?: MarketQuote | null;
   pulse?: EntityPulseSummary | null;
   articles?: DailyBriefingStory[];
+  priorityTopics?: readonly string[];
   userTime?: Date;
   userEmail?: string;
   maxLeadStories?: number;
@@ -80,8 +83,329 @@ export type DailyBriefingData = {
   pulseGlance?: DailyBriefingGlancePulse;
   leadStories: DailyBriefingStory[];
   unreadCount: number;
+  priorityTopics: string[];
+  priorityMatchesCount: number;
   spokenScript: string;
 };
+
+export type BriefingSchedulePrefs = {
+  enabled: boolean;
+  time: string; // "HH:MM" in 24-hour local time
+  notify: boolean;
+  prewarmOfflinePack: boolean;
+  lastTriggeredDate: string; // "YYYY-MM-DD" in local calendar time
+};
+
+export const DAILY_BRIEFING_PRIORITY_TOPICS_KEY = "signal:daily-briefing-priority-topics:v1";
+export const DAILY_BRIEFING_SCHEDULE_KEY = "signal:daily-briefing-schedule:v1";
+export const WAKE_UP_NOTIFICATION_TAG = "signal-daily-briefing";
+export const MAX_PRIORITY_TOPICS = 8;
+
+export const DEFAULT_BRIEFING_SCHEDULE: BriefingSchedulePrefs = {
+  enabled: false,
+  time: "07:00",
+  notify: true,
+  prewarmOfflinePack: true,
+  lastTriggeredDate: "",
+};
+
+function getSafeStorage(storage?: Storage): Storage | null {
+  if (storage) return storage;
+  if (typeof window !== "undefined" && window.localStorage) return window.localStorage;
+  if (typeof localStorage !== "undefined") return localStorage;
+  return null;
+}
+
+/**
+ * Normalizes, trims, and deduplicates priority highlight topics (case-insensitively),
+ * preserving user casing and priority order up to MAX_PRIORITY_TOPICS.
+ */
+export function normalizePriorityTopics(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const cleaned = item.replace(/\s+/g, " ").trim();
+    if (!cleaned || cleaned.length > 80) continue;
+    const key = cleaned.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(cleaned);
+    if (result.length >= MAX_PRIORITY_TOPICS) break;
+  }
+  return result;
+}
+
+export function loadPriorityTopics(storage?: Storage): string[] {
+  try {
+    const store = getSafeStorage(storage);
+    if (!store) return [];
+    const raw = store.getItem(DAILY_BRIEFING_PRIORITY_TOPICS_KEY);
+    if (!raw) return [];
+    return normalizePriorityTopics(JSON.parse(raw));
+  } catch {
+    return [];
+  }
+}
+
+export function savePriorityTopics(topics: readonly string[], storage?: Storage): string[] {
+  const normalized = normalizePriorityTopics(topics);
+  try {
+    const store = getSafeStorage(storage);
+    store?.setItem(DAILY_BRIEFING_PRIORITY_TOPICS_KEY, JSON.stringify(normalized));
+  } catch {
+    // Ignore storage quota errors
+  }
+  return normalized;
+}
+
+export function togglePriorityTopic(current: readonly string[], topic: string): string[] {
+  const cleaned = topic.replace(/\s+/g, " ").trim();
+  if (!cleaned) return normalizePriorityTopics(current);
+  const normalized = normalizePriorityTopics(current);
+  const lower = cleaned.toLowerCase();
+  if (normalized.some((item) => item.toLowerCase() === lower)) {
+    return normalized.filter((item) => item.toLowerCase() !== lower);
+  }
+  return normalizePriorityTopics([...normalized, cleaned]);
+}
+
+/**
+ * Matches an article against user-pinned priority topics in priority rank order.
+ */
+export function matchStoryPriorityTopic(
+  story: DailyBriefingStory,
+  priorityTopics: readonly string[],
+): { topic: string; rank: number } | null {
+  if (!priorityTopics.length) return null;
+  const storyTags = [...(story.topics ?? []), ...(story.matchedTopics ?? [])]
+    .map((t) => t.trim())
+    .filter(Boolean);
+  const searchable = `${story.title || ""} ${story.summary || ""}`;
+
+  for (let rank = 0; rank < priorityTopics.length; rank++) {
+    const priority = priorityTopics[rank];
+    const lowerPriority = priority.toLowerCase();
+    const tagMatch = storyTags.some(
+      (tag) => tag.toLowerCase() === lowerPriority || topicMatchesText(tag, priority),
+    );
+    if (tagMatch || topicMatchesText(searchable, priority)) {
+      return { topic: priority, rank };
+    }
+  }
+  return null;
+}
+
+/**
+ * Formats a Date into local calendar YYYY-MM-DD key.
+ */
+export function formatLocalDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * Parses "HH:MM" into minutes since local midnight (0..1439), or null if invalid.
+ */
+export function parseScheduleTimeMinutes(time: string): number | null {
+  if (typeof time !== "string") return null;
+  const match = time.trim().match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  return hours * 60 + minutes;
+}
+
+/**
+ * Formats "HH:MM" into human-readable 12-hour clock label (e.g. "7:00 AM", "6:30 PM").
+ */
+export function formatScheduleTimeDisplay(time: string): string {
+  const mins = parseScheduleTimeMinutes(time);
+  if (mins === null) return "7:00 AM";
+  const hours24 = Math.floor(mins / 60);
+  const minutePart = String(mins % 60).padStart(2, "0");
+  const period = hours24 >= 12 ? "PM" : "AM";
+  const hours12 = hours24 % 12 || 12;
+  return `${hours12}:${minutePart} ${period}`;
+}
+
+export function normalizeBriefingSchedule(value: unknown): BriefingSchedulePrefs {
+  const raw = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const rawTime = typeof raw.time === "string" ? raw.time.trim() : DEFAULT_BRIEFING_SCHEDULE.time;
+  const parsed = parseScheduleTimeMinutes(rawTime);
+  const normalizedTime =
+    parsed !== null
+      ? `${String(Math.floor(parsed / 60)).padStart(2, "0")}:${String(parsed % 60).padStart(2, "0")}`
+      : DEFAULT_BRIEFING_SCHEDULE.time;
+
+  const lastTriggeredDate =
+    typeof raw.lastTriggeredDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(raw.lastTriggeredDate)
+      ? raw.lastTriggeredDate
+      : "";
+
+  return {
+    enabled: typeof raw.enabled === "boolean" ? raw.enabled : DEFAULT_BRIEFING_SCHEDULE.enabled,
+    time: normalizedTime,
+    notify: typeof raw.notify === "boolean" ? raw.notify : DEFAULT_BRIEFING_SCHEDULE.notify,
+    prewarmOfflinePack:
+      typeof raw.prewarmOfflinePack === "boolean"
+        ? raw.prewarmOfflinePack
+        : DEFAULT_BRIEFING_SCHEDULE.prewarmOfflinePack,
+    lastTriggeredDate,
+  };
+}
+
+export function loadBriefingSchedule(storage?: Storage): BriefingSchedulePrefs {
+  try {
+    const store = getSafeStorage(storage);
+    if (!store) return { ...DEFAULT_BRIEFING_SCHEDULE };
+    const raw = store.getItem(DAILY_BRIEFING_SCHEDULE_KEY);
+    if (!raw) return { ...DEFAULT_BRIEFING_SCHEDULE };
+    return normalizeBriefingSchedule(JSON.parse(raw));
+  } catch {
+    return { ...DEFAULT_BRIEFING_SCHEDULE };
+  }
+}
+
+/**
+ * Updates and persists Wake-up Briefing schedule preferences.
+ * When enabling or changing the scheduled time:
+ * - If the newly configured time has already passed earlier today, marks today as
+ *   already elapsed so it cleanly schedules for tomorrow instead of surprise-firing immediately.
+ * - If the newly configured time is still upcoming today, clears today's trigger mark
+ *   so the user's new time will fire today.
+ */
+export function updateBriefingSchedule(
+  previous: BriefingSchedulePrefs,
+  patch: Partial<BriefingSchedulePrefs>,
+  now: Date = new Date(),
+  storage?: Storage,
+): BriefingSchedulePrefs {
+  const merged = normalizeBriefingSchedule({ ...previous, ...patch });
+  const timeOrEnableChanged =
+    (patch.time !== undefined && merged.time !== previous.time) ||
+    (patch.enabled === true && !previous.enabled);
+
+  if (timeOrEnableChanged && patch.lastTriggeredDate === undefined && merged.enabled) {
+    const scheduledMins = parseScheduleTimeMinutes(merged.time);
+    if (scheduledMins !== null) {
+      const nowMins = now.getHours() * 60 + now.getMinutes();
+      const todayKey = formatLocalDateKey(now);
+      if (scheduledMins < nowMins) {
+        merged.lastTriggeredDate = todayKey;
+      } else if (merged.lastTriggeredDate === todayKey) {
+        merged.lastTriggeredDate = "";
+      }
+    }
+  }
+
+  try {
+    const store = getSafeStorage(storage);
+    store?.setItem(DAILY_BRIEFING_SCHEDULE_KEY, JSON.stringify(merged));
+  } catch {
+    // Ignore storage quota errors
+  }
+  return merged;
+}
+
+/**
+ * Evaluates whether the scheduled Wake-up Briefing should trigger at `now`.
+ * Fires at most once per calendar day within [scheduledTime, scheduledTime + catchUpMinutes].
+ */
+export function shouldTriggerScheduledBriefing(
+  prefs: BriefingSchedulePrefs,
+  now: Date = new Date(),
+  catchUpMinutes = 360,
+): boolean {
+  if (!prefs.enabled) return false;
+  const todayKey = formatLocalDateKey(now);
+  if (prefs.lastTriggeredDate === todayKey) return false;
+  const scheduledMins = parseScheduleTimeMinutes(prefs.time);
+  if (scheduledMins === null) return false;
+  const nowMins = now.getHours() * 60 + now.getMinutes();
+  return nowMins >= scheduledMins && nowMins <= scheduledMins + Math.max(1, catchUpMinutes);
+}
+
+export function markScheduledBriefingTriggered(
+  prefs: BriefingSchedulePrefs,
+  now: Date = new Date(),
+  storage?: Storage,
+): BriefingSchedulePrefs {
+  const updated: BriefingSchedulePrefs = {
+    ...normalizeBriefingSchedule(prefs),
+    lastTriggeredDate: formatLocalDateKey(now),
+  };
+  try {
+    const store = getSafeStorage(storage);
+    store?.setItem(DAILY_BRIEFING_SCHEDULE_KEY, JSON.stringify(updated));
+  } catch {
+    // Ignore storage quota errors
+  }
+  return updated;
+}
+
+export async function dispatchWakeUpBriefingNotification(
+  briefing: DailyBriefingData,
+  env?: {
+    Notification?: {
+      permission: NotificationPermission;
+      new (title: string, options?: NotificationOptions): unknown;
+    };
+    serviceWorkerReady?: Promise<{
+      showNotification: (title: string, options?: NotificationOptions) => Promise<void>;
+    }>;
+  },
+): Promise<boolean> {
+  const NotificationApi =
+    env?.Notification ?? (typeof Notification !== "undefined" ? Notification : undefined);
+  if (!NotificationApi || NotificationApi.permission !== "granted") {
+    return false;
+  }
+
+  const title = `🗞️ ${briefing.greeting} — Signal Briefing Ready`;
+  const leadHeadline = briefing.leadStories[0]?.title;
+  const weatherPart = briefing.weatherGlance
+    ? `${briefing.weatherGlance.temperature}°C ${briefing.weatherGlance.condition} in ${briefing.weatherGlance.location}. `
+    : "";
+  const body = leadHeadline
+    ? `${weatherPart}Lead: ${leadHeadline}`
+    : `${weatherPart}Your executive audio digest for ${briefing.formattedDate} is prewarmed and ready.`;
+
+  const options: NotificationOptions = {
+    body,
+    icon: "/icons/signal-medallion-192.png",
+    badge: "/icons/signal-notification-medallion-96.png",
+    tag: WAKE_UP_NOTIFICATION_TAG,
+    data: { url: "/?briefing=1" },
+  };
+
+  try {
+    const swPromise =
+      env?.serviceWorkerReady ??
+      (typeof navigator !== "undefined" && navigator.serviceWorker
+        ? navigator.serviceWorker.ready
+        : undefined);
+    if (swPromise) {
+      const reg = await swPromise;
+      if (reg && typeof reg.showNotification === "function") {
+        await reg.showNotification(title, options);
+        return true;
+      }
+    }
+  } catch {
+    // Fall back to direct Notification constructor
+  }
+
+  try {
+    new NotificationApi(title, options);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Strips HTML tags and collapses whitespace for clean speech synthesis.
@@ -111,8 +435,8 @@ function extractFirstSentence(summary?: string): string {
 
 /**
  * Generates an executive daily briefing combining local weather, market movers,
- * entity pulse momentum, and lead news stories into structured glances and a
- * radio-ready neural spoken narration script.
+ * entity pulse momentum, personalized priority topic highlights, and lead news stories
+ * into structured glances and a radio-ready neural spoken narration script.
  */
 export function buildDailyBriefing(params: DailyBriefingParams = {}): DailyBriefingData {
   const {
@@ -123,9 +447,12 @@ export function buildDailyBriefing(params: DailyBriefingParams = {}): DailyBrief
     marketQuote,
     pulse,
     articles = [],
+    priorityTopics: rawPriorityTopics = [],
     userTime = new Date(),
     maxLeadStories = 4,
   } = params;
+
+  const priorityTopics = normalizePriorityTopics(rawPriorityTopics);
 
   // 1. Time-of-day edition & greeting
   const hour = userTime.getHours();
@@ -250,45 +577,70 @@ export function buildDailyBriefing(params: DailyBriefingParams = {}): DailyBrief
     }
   }
 
-  // 5. Lead Stories
+  // 5. Lead Stories with Personalized Priority Topic Highlights
   const seenUrls = new Set<string>();
-  const uniqueArticles: DailyBriefingStory[] = [];
-  for (const art of articles) {
-    if (!seenUrls.has(art.url)) {
-      seenUrls.add(art.url);
-      uniqueArticles.push(art);
-    }
+  type RankedStory = {
+    story: DailyBriefingStory;
+    index: number;
+    priorityRank: number | null;
+  };
+  const rankedArticles: RankedStory[] = [];
+  for (let i = 0; i < articles.length; i++) {
+    const art = articles[i];
+    if (seenUrls.has(art.url)) continue;
+    seenUrls.add(art.url);
+    const match = matchStoryPriorityTopic(art, priorityTopics);
+    rankedArticles.push({
+      story: match ? { ...art, priorityTopic: match.topic } : { ...art },
+      index: i,
+      priorityRank: match ? match.rank : null,
+    });
   }
 
-  const unreadArticles = uniqueArticles.filter((a) => !a.isRead);
-  const unreadCount = unreadArticles.length;
+  const unreadCount = rankedArticles.filter((r) => !r.story.isRead).length;
 
-  const leadStories: DailyBriefingStory[] = [];
-  for (const art of unreadArticles) {
-    if (leadStories.length >= maxLeadStories) break;
-    leadStories.push(art);
-  }
-  if (leadStories.length < maxLeadStories) {
-    for (const art of uniqueArticles) {
-      if (leadStories.length >= maxLeadStories) break;
-      if (!leadStories.some((lead) => lead.url === art.url)) {
-        leadStories.push(art);
-      }
+  // Tier ordering:
+  // 0: Unread + Priority (ordered by priorityRank, then feed order)
+  // 1: Unread + General (feed order)
+  // 2: Read + Priority (ordered by priorityRank, then feed order)
+  // 3: Read + General (feed order)
+  const sortedForBriefing = [...rankedArticles].sort((a, b) => {
+    const tierA = (a.story.isRead ? 2 : 0) + (a.priorityRank !== null ? 0 : 1);
+    const tierB = (b.story.isRead ? 2 : 0) + (b.priorityRank !== null ? 0 : 1);
+    if (tierA !== tierB) return tierA - tierB;
+    if (a.priorityRank !== null && b.priorityRank !== null && a.priorityRank !== b.priorityRank) {
+      return a.priorityRank - b.priorityRank;
     }
-  }
+    return a.index - b.index;
+  });
+
+  const leadStories = sortedForBriefing.slice(0, maxLeadStories).map((r) => r.story);
+  const priorityMatchesCount = leadStories.filter((s) => Boolean(s.priorityTopic)).length;
 
   if (leadStories.length > 0) {
     spokenSections.push("Here are your lead stories today.");
     const intros = ["First", "Next", "Also in the news", "Finally"];
     leadStories.forEach((story, idx) => {
-      const prefix = intros[idx] || "Additionally";
       const cleanTitle = cleanSpeechText(story.title);
       const cleanSummary = extractFirstSentence(story.summary);
       const source = story.source ? `from ${story.source}` : "";
-      if (cleanSummary && cleanSummary !== cleanTitle) {
-        spokenSections.push(`${prefix}, ${source}: ${cleanTitle}. ${cleanSummary}`);
+
+      let leadPrefix: string;
+      if (story.priorityTopic) {
+        const highlightIntro =
+          idx === 0
+            ? `Starting with your priority topic ${story.priorityTopic}`
+            : `Next, on your priority topic ${story.priorityTopic}`;
+        leadPrefix = source ? `${highlightIntro}, ${source}` : highlightIntro;
       } else {
-        spokenSections.push(`${prefix}, ${source}: ${cleanTitle}.`);
+        const prefix = intros[idx] || "Additionally";
+        leadPrefix = `${prefix}, ${source}`;
+      }
+
+      if (cleanSummary && cleanSummary !== cleanTitle) {
+        spokenSections.push(`${leadPrefix}: ${cleanTitle}. ${cleanSummary}`);
+      } else {
+        spokenSections.push(`${leadPrefix}: ${cleanTitle}.`);
       }
     });
   }
@@ -311,6 +663,8 @@ export function buildDailyBriefing(params: DailyBriefingParams = {}): DailyBrief
     pulseGlance,
     leadStories,
     unreadCount,
+    priorityTopics,
+    priorityMatchesCount,
     spokenScript: spokenSections.join(" "),
   };
 }

@@ -504,3 +504,388 @@
   background: rgba(56, 189, 248, 0.22);
   transform: translateY(-1px);
 }
+
+
+/* Edition Kicker & Status Pills */
+.daily-briefing-kicker-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.daily-briefing-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 0.14rem 0.5rem;
+  border-radius: 9999px;
+}
+
+.daily-briefing-status-pill.ready {
+  background: rgba(34, 197, 94, 0.16);
+  color: #4ade80;
+  border: 1px solid rgba(74, 222, 128, 0.35);
+}
+
+.daily-briefing-status-pill.offline {
+  background: rgba(251, 191, 36, 0.16);
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+}
+
+/* Offline Commute Pack & Wake-up Schedule Toolbar */
+.daily-briefing-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 1.75rem;
+  border-bottom: 1px solid var(--line, #2d3748);
+  background: var(--surface, rgba(30, 41, 59, 0.55));
+}
+
+.briefing-offline-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.briefing-offline-ready-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.briefing-offline-ready-text {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: #4ade80;
+}
+
+.briefing-offline-progress {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--accent-color, #38bdf8);
+}
+
+.briefing-offline-stale-hint {
+  font-size: 0.72rem;
+  color: var(--subtle-text, #94a3b8);
+}
+
+.briefing-toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.7rem;
+  border-radius: 8px;
+  border: 1px solid var(--line, #334155);
+  background: var(--card-background, #171923);
+  color: var(--page-text, #f1f5f9);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.briefing-toolbar-btn:hover:not(:disabled) {
+  border-color: var(--accent-color, #38bdf8);
+  color: var(--accent-color, #38bdf8);
+}
+
+.briefing-toolbar-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.briefing-toolbar-btn.subtle {
+  padding: 0.22rem 0.5rem;
+  font-size: 0.72rem;
+  color: var(--subtle-text, #94a3b8);
+}
+
+.briefing-toolbar-btn.schedule-toggle.enabled {
+  border-color: rgba(251, 191, 36, 0.55);
+  background: rgba(251, 191, 36, 0.12);
+  color: #fbbf24;
+}
+
+.briefing-auto-pack-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.74rem;
+  color: var(--subtle-text, #cbd5e1);
+  cursor: pointer;
+  user-select: none;
+}
+
+.briefing-toolbar-error {
+  width: 100%;
+  margin: 0;
+  font-size: 0.75rem;
+  color: #f87171;
+}
+
+/* Expandable Wake-up Briefing Schedule Panel */
+.daily-briefing-schedule-panel {
+  margin: 0.85rem 1.75rem 0;
+  padding: 0.95rem 1.15rem;
+  border-radius: 12px;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  background: rgba(251, 191, 36, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.schedule-panel-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.schedule-switch-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.84rem;
+  cursor: pointer;
+}
+
+.schedule-time-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  color: var(--subtle-text, #cbd5e1);
+}
+
+.schedule-time-label input[type="time"] {
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--line, #334155);
+  background: var(--card-background, #171923);
+  color: var(--page-text, #f8fafc);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.schedule-panel-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.schedule-option-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.78rem;
+  color: var(--subtle-text, #cbd5e1);
+  cursor: pointer;
+}
+
+.schedule-panel-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid var(--line, #2d3748);
+}
+
+.schedule-panel-hint {
+  font-size: 0.74rem;
+  color: var(--subtle-text, #94a3b8);
+}
+
+/* Personalized Priority Topic Highlights Bar */
+.daily-briefing-priority-bar {
+  margin: 0.85rem 1.75rem 0;
+  padding: 0.85rem 1.05rem;
+  background: var(--surface, #1e293b);
+  border: 1px solid var(--line, #334155);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.priority-bar-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.priority-bar-label {
+  font-size: 0.74rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #fbbf24;
+}
+
+.priority-bar-hint {
+  font-size: 0.73rem;
+  color: var(--subtle-text, #94a3b8);
+}
+
+.priority-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.priority-topic-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.26rem 0.62rem;
+  border-radius: 9999px;
+  border: 1px solid var(--line, #334155);
+  background: var(--card-background, #171923);
+  color: var(--subtle-text, #cbd5e1);
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+
+.priority-topic-chip:hover {
+  border-color: #fbbf24;
+  color: var(--page-text, #f8fafc);
+}
+
+.priority-topic-chip.pinned {
+  border-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.18);
+  color: #fbbf24;
+}
+
+.priority-counter-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  padding: 0.1rem 0.48rem;
+  border-radius: 9999px;
+}
+
+.briefing-story-item.priority-highlighted {
+  border-color: rgba(245, 158, 11, 0.45);
+}
+
+.briefing-story-priority-badge {
+  font-weight: 700;
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.16);
+  padding: 0.06rem 0.4rem;
+  border-radius: 4px;
+}
+
+.briefing-story-offline-indicator {
+  font-weight: 600;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.14);
+  padding: 0.05rem 0.38rem;
+  border-radius: 4px;
+}
+
+/* Header Trigger Ready Dot & Wake-up Briefing Banner */
+.daily-briefing-trigger.wake-up-ready {
+  border-color: #fbbf24;
+  background: rgba(251, 191, 36, 0.18);
+  color: #fbbf24;
+}
+
+.daily-briefing-ready-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #4ade80;
+  box-shadow: 0 0 6px #4ade80;
+}
+
+.wake-up-briefing-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0.5rem auto;
+  padding: 0.75rem 1.15rem;
+  max-width: 1180px;
+  width: calc(100% - 2rem);
+  border-radius: 12px;
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.94), rgba(30, 41, 59, 0.94));
+  color: #f8fafc;
+  box-shadow: 0 10px 25px -8px rgba(0, 0, 0, 0.4);
+}
+
+.wake-up-banner-copy {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  font-size: 0.84rem;
+}
+
+.wake-up-banner-copy strong {
+  color: #38bdf8;
+}
+
+.wake-up-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.wake-up-banner-btn {
+  padding: 0.38rem 0.8rem;
+  border-radius: 9999px;
+  border: 1px solid var(--accent-color, #38bdf8);
+  background: rgba(56, 189, 248, 0.18);
+  color: #38bdf8;
+  font-size: 0.76rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.wake-up-banner-btn:hover {
+  background: rgba(56, 189, 248, 0.3);
+}
+
+.wake-up-banner-btn.secondary {
+  border-color: rgba(148, 163, 184, 0.35);
+  background: transparent;
+  color: #cbd5e1;
+}
+
+.wake-up-banner-dismiss {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 1.15rem;
+  line-height: 1;
+  padding: 0.2rem 0.4rem;
+  cursor: pointer;
+}
+
+.wake-up-banner-dismiss:hover {
+  color: #f8fafc;
+}

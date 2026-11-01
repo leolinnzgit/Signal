@@ -14,7 +14,7 @@ export class PreparedAudioCache {
   private recordings = new Map<PreparedHeadlineAudio, number>();
   private bytes = 0;
   private positions = new Map<string, number>();
-  constructor(private maximumBytes = 96 * 1024 * 1024, private maximumClips = 512) {}
+  private maximumBytes: number; private maximumClips: number; constructor(maximumBytes = 96 * 1024 * 1024, maximumClips = 512) { this.maximumBytes = maximumBytes; this.maximumClips = maximumClips; }
 
   key(titles: string[], seconds: number, language: string, voices?: ReadingVoicePreferences) {
     return JSON.stringify([titles, seconds, language, normalizeReadingVoices(voices)]);
