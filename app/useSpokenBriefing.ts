@@ -15,13 +15,21 @@ import {
 
 export type SpokenBriefingStatus = "idle" | "starting" | "playing" | "error";
 
+export interface SpeakChaptersOptions {
+  startIndex?: number;
+  targetLanguage?: string;
+  offlineAudioBlob?: Blob | null;
+  onComplete?: () => void;
+}
+
 /**
- * Reusable hook to narrate generated text (such as the Executive Daily Briefing,
- * News Pulse digest, or OCR text) using prewarmed Offline Pack neural audio blobs,
- * Signal's Azure Neural / server audio stream, or automatic browser speech fallback.
+ * Reusable hook to narrate generated text or chaptered briefings (such as the
+ * Executive Daily Briefing, News Pulse digest, or OCR text) using prewarmed Offline Pack
+ * neural audio blobs, Signal's Azure Neural / server audio stream, or automatic browser speech fallback.
  */
 export function useSpokenBriefing() {
   const [status, setStatus] = useState<SpokenBriefingStatus>("idle");
+  const [activeChapterIndex, setActiveChapterIndex] = useState<number | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -35,6 +43,7 @@ export function useSpokenBriefing() {
       audioRef.current.onplaying = null;
       audioRef.current.onended = null;
       audioRef.current.onerror = null;
+      audioRef.current.ontimeupdate = null;
       audioRef.current.pause();
       audioRef.current.removeAttribute("src");
       audioRef.current.load();
@@ -55,17 +64,39 @@ export function useSpokenBriefing() {
     releaseCloud();
     playbackRef.current?.dispose();
     playbackRef.current = null;
+    setActiveChapterIndex(null);
     setStatus("idle");
   }, [releaseCloud]);
 
-  const speak = useCallback(
-    (rawText: string, targetLanguage?: string, offlineAudioBlob?: Blob | null) => {
-      const clean = (rawText || "").trim();
-      if (!clean && !(offlineAudioBlob && offlineAudioBlob.size > 44)) return;
+  const speakChapters = useCallback(
+    (
+      chaptersInput: ReadonlyArray<{ text: string }>,
+      options: SpeakChaptersOptions = {},
+    ) => {
+      const validChapters = chaptersInput
+        .map((ch) => ({ text: (ch?.text || "").trim() }))
+        .filter((ch) => ch.text.length > 0);
+
+      const offlineAudioBlob = options.offlineAudioBlob;
+      if (validChapters.length === 0 && !(offlineAudioBlob && offlineAudioBlob.size > 44)) {
+        return;
+      }
+
+      const startIndex = Math.max(
+        0,
+        Math.min(Math.max(0, validChapters.length - 1), options.startIndex ?? 0),
+      );
+      const remainingChapters = validChapters.slice(startIndex);
+      const clean = remainingChapters.map((ch) => ch.text).join(" ").trim();
+      const canUseOfflineFullBlob =
+        startIndex === 0 && Boolean(offlineAudioBlob && offlineAudioBlob.size > 44);
+
+      if (!clean && !canUseOfflineFullBlob) return;
 
       stop();
       const run = sequenceRef.current;
       setStatus("starting");
+      setActiveChapterIndex(validChapters.length > 0 ? startIndex : null);
 
       let preferences = normalizeHeadlineSpeechPreferences(null);
       try {
@@ -77,70 +108,120 @@ export function useSpokenBriefing() {
       }
 
       const language =
-        targetLanguage ||
+        options.targetLanguage ||
         (typeof navigator !== "undefined" && navigator.language.startsWith("en")
           ? navigator.language
           : "en-NZ");
+
+      // Build cumulative character fractions across remainingChapters so cloud/blob audio
+      // updates activeChapterIndex smoothly as playback progresses.
+      const totalChars = Math.max(
+        1,
+        remainingChapters.reduce((sum, ch) => sum + ch.text.length, 0),
+      );
+      const cumulativeEndRatios: number[] = [];
+      let runningChars = 0;
+      for (const ch of remainingChapters) {
+        runningChars += ch.text.length;
+        cumulativeEndRatios.push(runningChars / totalChars);
+      }
+
+      const updateChapterFromProgress = (currentTimeSec: number, durationSec: number) => {
+        if (run !== sequenceRef.current || remainingChapters.length <= 1) return;
+        const estimatedTotalSec =
+          Number.isFinite(durationSec) && durationSec > 0.5
+            ? durationSec
+            : Math.max(2, totalChars / (14.5 * Math.max(0.5, preferences.rate)));
+        const ratio = Math.max(0, Math.min(0.9999, currentTimeSec / estimatedTotalSec));
+        let relIdx = remainingChapters.length - 1;
+        for (let i = 0; i < cumulativeEndRatios.length; i++) {
+          if (ratio <= cumulativeEndRatios[i]) {
+            relIdx = i;
+            break;
+          }
+        }
+        setActiveChapterIndex(startIndex + relIdx);
+      };
 
       const fallbackToBrowserSpeech = () => {
         if (run !== sequenceRef.current) return;
         releaseCloud();
 
         if (
-          !clean ||
+          remainingChapters.length === 0 ||
           typeof window === "undefined" ||
           !window.speechSynthesis ||
           typeof window.SpeechSynthesisUtterance !== "function"
         ) {
+          setActiveChapterIndex(null);
           setStatus("error");
           return;
         }
 
-        const parts = articleNarrationParts("", [clean], 240);
-        const speakPart = (index: number) => {
+        const speakChapterAt = (relChapterIdx: number) => {
           if (run !== sequenceRef.current) return;
-          if (index >= parts.length) {
+          if (relChapterIdx >= remainingChapters.length) {
             playbackRef.current = null;
+            setActiveChapterIndex(null);
             setStatus("idle");
+            options.onComplete?.();
             return;
           }
 
-          const current = createHeadlinePlayback(
-            {
-              title: parts[index],
-              seconds: 0,
-              readAloud: true,
-              rate: preferences.rate,
-              preferredVoiceId: preferences.voices.en,
-              onSpeechStart: () => {
-                if (run === sequenceRef.current) setStatus("playing");
-              },
-              onAdvance: () => {
-                current.dispose();
-                speakPart(index + 1);
-              },
-              onSpeechError: () => {
-                if (run !== sequenceRef.current) return;
-                current.dispose();
-                playbackRef.current = null;
-                setStatus("error");
-              },
-            },
-            {
-              speech: window.speechSynthesis,
-              createUtterance: (val) => new SpeechSynthesisUtterance(val),
-              language,
-              preferDeviceVoice: true,
-              now: () => performance.now(),
-              schedule: (cb, ms) => window.setTimeout(cb, ms),
-              clear: (timer) => window.clearTimeout(timer),
-            },
+          setActiveChapterIndex(startIndex + relChapterIdx);
+          const parts = articleNarrationParts(
+            "",
+            [remainingChapters[relChapterIdx].text],
+            240,
           );
-          playbackRef.current = current;
-          current.setPaused(false);
+
+          const speakPart = (partIdx: number) => {
+            if (run !== sequenceRef.current) return;
+            if (partIdx >= parts.length) {
+              speakChapterAt(relChapterIdx + 1);
+              return;
+            }
+
+            const current = createHeadlinePlayback(
+              {
+                title: parts[partIdx],
+                seconds: 0,
+                readAloud: true,
+                rate: preferences.rate,
+                preferredVoiceId: preferences.voices.en,
+                onSpeechStart: () => {
+                  if (run === sequenceRef.current) setStatus("playing");
+                },
+                onAdvance: () => {
+                  current.dispose();
+                  speakPart(partIdx + 1);
+                },
+                onSpeechError: () => {
+                  if (run !== sequenceRef.current) return;
+                  current.dispose();
+                  playbackRef.current = null;
+                  setActiveChapterIndex(null);
+                  setStatus("error");
+                },
+              },
+              {
+                speech: window.speechSynthesis,
+                createUtterance: (val) => new SpeechSynthesisUtterance(val),
+                language,
+                preferDeviceVoice: true,
+                now: () => performance.now(),
+                schedule: (cb, ms) => window.setTimeout(cb, ms),
+                clear: (timer) => window.clearTimeout(timer),
+              },
+            );
+            playbackRef.current = current;
+            current.setPaused(false);
+          };
+
+          speakPart(0);
         };
 
-        speakPart(0);
+        speakChapterAt(0);
       };
 
       if (typeof window === "undefined" || typeof window.Audio !== "function") {
@@ -161,10 +242,15 @@ export function useSpokenBriefing() {
           setStatus("playing");
         }
       };
+      element.ontimeupdate = () => {
+        updateChapterFromProgress(element.currentTime, element.duration);
+      };
       element.onended = () => {
         if (run === sequenceRef.current) {
           releaseCloud();
+          setActiveChapterIndex(null);
           setStatus("idle");
+          options.onComplete?.();
         }
       };
 
@@ -180,6 +266,7 @@ export function useSpokenBriefing() {
           if (!started) fallbackToBrowserSpeech();
           else {
             releaseCloud();
+            setActiveChapterIndex(null);
             setStatus("error");
           }
         };
@@ -211,8 +298,8 @@ export function useSpokenBriefing() {
           .catch(onCloudFailed);
       };
 
-      // Fast-path: play prewarmed Offline Briefing Pack neural audio Blob immediately
-      if (offlineAudioBlob && offlineAudioBlob.size > 44 && typeof URL.createObjectURL === "function") {
+      // Fast-path: play prewarmed Offline Briefing Pack neural audio Blob immediately when starting from Chapter 0
+      if (canUseOfflineFullBlob && offlineAudioBlob && typeof URL.createObjectURL === "function") {
         try {
           const blobUrl = URL.createObjectURL(offlineAudioBlob);
           objectUrlRef.current = blobUrl;
@@ -229,6 +316,7 @@ export function useSpokenBriefing() {
             if (!started) startOnlineStream();
             else {
               releaseCloud();
+              setActiveChapterIndex(null);
               setStatus("error");
             }
           };
@@ -246,19 +334,36 @@ export function useSpokenBriefing() {
     [releaseCloud, stop],
   );
 
+  const speak = useCallback(
+    (
+      rawText: string,
+      targetLanguage?: string,
+      offlineAudioBlob?: Blob | null,
+      onComplete?: () => void,
+    ) => {
+      speakChapters([{ text: rawText }], {
+        startIndex: 0,
+        targetLanguage,
+        offlineAudioBlob,
+        onComplete,
+      });
+    },
+    [speakChapters],
+  );
+
   useEffect(() => {
     return () => {
-      sequenceRef.current += 1;
-      releaseCloud();
-      playbackRef.current?.dispose();
-      playbackRef.current = null;
+      stop();
     };
-  }, [releaseCloud]);
+  }, [stop]);
 
   return {
     status,
     isActive: status === "starting" || status === "playing",
+    isSpeaking: status === "starting" || status === "playing",
+    activeChapterIndex,
     speak,
+    speakChapters,
     stop,
   };
 }

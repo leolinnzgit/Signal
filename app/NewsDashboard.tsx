@@ -26,7 +26,8 @@ import type { ArticleTranslation } from "./article-translation";
 import { useWeatherAudio } from "./WeatherAudio";
 import { useEarthquakeAlerts } from "./EarthquakeAlerts";
 import AppSettings from "./AppSettings";
-import { formatMarketPrice, loadMarketWatchlist, type MarketQuote } from "./market-quote";
+import { attributeMarketMoversToStories, formatMarketPrice, loadMarketWatchlist, type MarketQuote } from "./market-quote";
+import { MarketSparkline } from "./MarketSparkline";
 import { describeWeather, weatherBriefing, type ClientWeatherAlert, type ClientWeatherConditions, type LocalWeather, type WeatherForecastDay } from "./weather-briefing";
 import WeatherAlertBanner from "./WeatherAlertBanner";
 import ArticleEntities from "./ArticleEntities";
@@ -43,6 +44,10 @@ import {
   loadBriefingSchedule,
   loadPriorityTopics,
   markScheduledBriefingTriggered,
+  normalizeBriefingSchedule,
+  normalizePriorityTopics,
+  savePriorityTopics,
+  updateBriefingSchedule,
   shouldTriggerScheduledBriefing,
   type BriefingSchedulePrefs,
   type DailyBriefingData,
@@ -56,6 +61,20 @@ import {
   type OfflineBriefingPackMeta,
 } from "./daily-briefing-offline";
 import { buildEntityPulse } from "./entity-pulse";
+import {
+  loadBriefingLanguage,
+  normalizeBriefingLanguage,
+  saveBriefingLanguage,
+} from "./daily-briefing-translation";
+import {
+  computeCatchUpDelta,
+  createVisitCheckpoint,
+  loadSituationRadarFeed,
+  loadVisitCheckpoint,
+  saveVisitCheckpoint,
+  type BriefingVisitCheckpoint,
+  type SituationRadarSummary,
+} from "./daily-briefing-radar";
 import { clusterArticles, type StoryCluster } from "./story-clustering";
 import { getEntityIcon } from "./article-entities";
 import { getSuggestedTopics, type SuggestedTopic } from "./suggested-topics";
@@ -222,6 +241,19 @@ export type WeatherLocationPreference = {
   timezone: string;
 };
 
+export type SyncedBriefingPreferences = {
+  priorityTopics: string[];
+  language: string;
+  scheduleEnabled: boolean;
+  scheduleTime: string;
+  timeZone: string;
+  notifyPush: boolean;
+  deliverEmail: boolean;
+  prewarmOfflinePack: boolean;
+  autoContinueStories: boolean;
+  lastServerDeliveredDate?: string;
+};
+
 export type NewsPreferences = {
   topics: string[];
   limit: number;
@@ -239,6 +271,7 @@ export type NewsPreferences = {
   trendRegions: string[];
   trendsPerRegion: number;
   sources: SourcePreferences;
+  briefingPreferences?: SyncedBriefingPreferences;
 };
 
 export type NewsSummary = {
@@ -390,6 +423,18 @@ const DEFAULTS: NewsPreferences = {
   trendRegions: GOOGLE_TREND_REGIONS.map((region) => region.code),
   trendsPerRegion: 5,
   sources: { google: true, gdelt: true, rssFeeds: [] },
+  briefingPreferences: {
+    priorityTopics: [],
+    language: "en",
+    scheduleEnabled: false,
+    scheduleTime: "07:00",
+    timeZone: "UTC",
+    notifyPush: true,
+    deliverEmail: false,
+    prewarmOfflinePack: true,
+    autoContinueStories: false,
+    lastServerDeliveredDate: "",
+  },
 };
 const STORY_LIMIT_OPTIONS = [10, ...Array.from({ length: 25 }, (_, index) => (index + 1) * 20)];
 
@@ -711,6 +756,32 @@ function normalizePreferences(saved: Partial<NewsPreferences> & { topic?: string
     secondaryTimeZone: normalizeSecondaryTimeZone(saved.secondaryTimeZone),
     trendRegions: selectedTrendRegions,
     trendsPerRegion: Math.min(10, Math.max(1, Math.round(Number(saved.trendsPerRegion) || DEFAULTS.trendsPerRegion))),
+    briefingPreferences: saved.briefingPreferences && typeof saved.briefingPreferences === "object"
+      ? {
+          priorityTopics: normalizePriorityTopics(saved.briefingPreferences.priorityTopics),
+          language: normalizeBriefingLanguage(saved.briefingPreferences.language),
+          scheduleEnabled: Boolean(saved.briefingPreferences.scheduleEnabled),
+          scheduleTime: normalizeBriefingSchedule({ time: saved.briefingPreferences.scheduleTime }).time,
+          timeZone:
+            typeof saved.briefingPreferences.timeZone === "string" && saved.briefingPreferences.timeZone.trim()
+              ? saved.briefingPreferences.timeZone.trim().slice(0, 80)
+              : "UTC",
+          notifyPush:
+            typeof saved.briefingPreferences.notifyPush === "boolean"
+              ? saved.briefingPreferences.notifyPush
+              : true,
+          deliverEmail: Boolean(saved.briefingPreferences.deliverEmail),
+          prewarmOfflinePack:
+            typeof saved.briefingPreferences.prewarmOfflinePack === "boolean"
+              ? saved.briefingPreferences.prewarmOfflinePack
+              : true,
+          autoContinueStories: Boolean(saved.briefingPreferences.autoContinueStories),
+          lastServerDeliveredDate:
+            typeof saved.briefingPreferences.lastServerDeliveredDate === "string"
+              ? saved.briefingPreferences.lastServerDeliveredDate
+              : "",
+        }
+      : DEFAULTS.briefingPreferences,
     sources: {
       google: typeof saved.sources?.google === "boolean" ? saved.sources.google : true,
       gdelt: typeof saved.sources?.gdelt === "boolean" ? saved.sources.gdelt : true,
@@ -852,6 +923,10 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [relatedStoriesEntity, setRelatedStoriesEntity] = useState<string | null>(null);
   const [entityPulseOpen, setEntityPulseOpen] = useState(false);
   const [dailyBriefingOpen, setDailyBriefingOpen] = useState(false);
+  const [dailyBriefingMinimized, setDailyBriefingMinimized] = useState(false);
+  const [briefingLanguage, setBriefingLanguage] = useState<string>(() => loadBriefingLanguage());
+  const [situationRadar, setSituationRadar] = useState<SituationRadarSummary | null>(null);
+  const [previousVisitCheckpoint] = useState<BriefingVisitCheckpoint | null>(() => loadVisitCheckpoint());
   const [dailyBriefingAutoPlay, setDailyBriefingAutoPlay] = useState(false);
   const [wakeUpBannerReady, setWakeUpBannerReady] = useState(false);
   const [briefingPriorityTopics, setBriefingPriorityTopics] = useState<string[]>(() => loadPriorityTopics());
@@ -976,10 +1051,98 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
 
   const weatherAudio = useWeatherAudio(weatherBriefing(weatherStatus === "ready" ? localWeather : null, weatherForecast, activeWeatherAlerts, weatherConditions), !!headlineQueue || !!readerArticle || !!watchHandoffId);
   const earthquakes = useEarthquakeAlerts(user.email, !!pushNotificationStore);
+  const watchlistCatalysts = useMemo(
+    () =>
+      attributeMarketMoversToStories(
+        [...marketWatchlist, ...(marketQuote ? [marketQuote] : [])],
+        articles,
+        1.0,
+      ),
+    [articles, marketQuote, marketWatchlist],
+  );
+  const syncBriefingPreferencesToServer = useCallback(
+    (patch: {
+      priorityTopics?: string[];
+      language?: string;
+      schedule?: BriefingSchedulePrefs;
+    }) => {
+      const nextPriority = patch.priorityTopics ?? briefingPriorityTopics;
+      const nextLanguage = patch.language ?? briefingLanguage;
+      const nextSchedule = patch.schedule ?? briefingSchedule;
+      const resolvedTz =
+        preferences.weatherLocation?.timezone ||
+        (typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "") ||
+        "UTC";
+      setPreferences((current) => ({
+        ...current,
+        briefingPreferences: {
+          priorityTopics: nextPriority,
+          language: nextLanguage,
+          scheduleEnabled: nextSchedule.enabled,
+          scheduleTime: nextSchedule.time,
+          timeZone: resolvedTz,
+          notifyPush: nextSchedule.notify,
+          deliverEmail: Boolean(nextSchedule.deliverEmail),
+          prewarmOfflinePack: nextSchedule.prewarmOfflinePack,
+          autoContinueStories: Boolean(nextSchedule.autoContinueStories),
+          lastServerDeliveredDate:
+            current.briefingPreferences?.lastServerDeliveredDate ?? "",
+        },
+      }));
+    },
+    [briefingLanguage, briefingPriorityTopics, briefingSchedule, preferences.weatherLocation?.timezone],
+  );
   const pulse = useMemo(() => {
     if (preferences.topics.length === 0) return null;
     return buildEntityPulse(preferences.topics, articles);
   }, [preferences.topics, articles]);
+
+  const catchUpDelta = useMemo(
+    () =>
+      computeCatchUpDelta(previousVisitCheckpoint, {
+        articles,
+        pulse,
+        marketWatchlist,
+        now: currentTime ?? undefined,
+      }),
+    [articles, currentTime, marketWatchlist, previousVisitCheckpoint, pulse],
+  );
+
+  useEffect(() => {
+    if (!ready || articles.length === 0) return;
+    const persistCheckpoint = () => {
+      saveVisitCheckpoint(
+        createVisitCheckpoint({
+          articles,
+          pulse,
+          marketWatchlist,
+        }),
+      );
+    };
+    window.addEventListener("pagehide", persistCheckpoint);
+    return () => {
+      window.removeEventListener("pagehide", persistCheckpoint);
+    };
+  }, [articles, marketWatchlist, pulse, ready]);
+
+  useEffect(() => {
+    if (!dailyBriefingOpen) return;
+    const controller = new AbortController();
+    void loadSituationRadarFeed(
+      preferences.weatherLocation?.latitude ?? null,
+      preferences.weatherLocation?.longitude ?? null,
+      controller.signal,
+    ).then((radar) => {
+      if (!controller.signal.aborted) {
+        setSituationRadar(radar);
+      }
+    });
+    return () => controller.abort();
+  }, [
+    dailyBriefingOpen,
+    preferences.weatherLocation?.latitude,
+    preferences.weatherLocation?.longitude,
+  ]);
 
   const runSaveOfflineBriefingPack = useCallback(async (targetBriefing: DailyBriefingData, language?: string) => {
     offlinePackAbortRef.current?.abort();
@@ -1191,6 +1354,31 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         localStorage.removeItem(STORAGE_KEY);
         localStorage.removeItem(PENDING_STORAGE_KEY);
         setPreferences(next);
+        const bp = next.briefingPreferences;
+        const serverHasCustomBriefing = Boolean(
+          bp &&
+          (bp.priorityTopics.length > 0 ||
+            bp.language !== "en" ||
+            bp.scheduleEnabled ||
+            bp.deliverEmail ||
+            bp.autoContinueStories ||
+            bp.scheduleTime !== "07:00"),
+        );
+        if (bp && serverHasCustomBriefing) {
+          const syncedTopics = savePriorityTopics(bp.priorityTopics);
+          setBriefingPriorityTopics(syncedTopics);
+          const syncedLang = saveBriefingLanguage(bp.language);
+          setBriefingLanguage(syncedLang);
+          const syncedSched = updateBriefingSchedule(loadBriefingSchedule(), {
+            enabled: bp.scheduleEnabled,
+            time: bp.scheduleTime,
+            notify: bp.notifyPush,
+            deliverEmail: bp.deliverEmail,
+            prewarmOfflinePack: bp.prewarmOfflinePack,
+            autoContinueStories: bp.autoContinueStories,
+          });
+          setBriefingSchedule(syncedSched);
+        }
         lastSavedPreferences.current = JSON.stringify(next);
         setStorageStatus("saved");
       } catch {
@@ -1548,7 +1736,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
 
     const loadMarketQuote = async () => {
       try {
-        const params = new URLSearchParams({ topic: selectedTopic });
+        const params = new URLSearchParams({ topic: selectedTopic, sparkline: "true" });
         if (selectedTickerOverride) params.set("symbol", selectedTickerOverride);
         const response = await fetch(`/api/market?${params.toString()}`, {
           credentials: "same-origin",
@@ -3463,7 +3651,9 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
               onClick={() => {
                 setWakeUpBannerReady(false);
                 setDailyBriefingAutoPlay(true);
-                setDailyBriefingOpen(true);
+                setDailyBriefingMinimized(false);
+                setDailyBriefingMinimized(false);
+              setDailyBriefingOpen(true);
               }}
             >
               🔊 Play Briefing
@@ -3473,7 +3663,9 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
               className="wake-up-banner-btn secondary"
               onClick={() => {
                 setWakeUpBannerReady(false);
-                setDailyBriefingOpen(true);
+                setDailyBriefingMinimized(false);
+                setDailyBriefingMinimized(false);
+              setDailyBriefingOpen(true);
               }}
             >
               🗞️ Open Digest
@@ -3500,6 +3692,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
             className={`daily-briefing-trigger${wakeUpBannerReady ? " wake-up-ready" : ""}`}
             onClick={() => {
               setWakeUpBannerReady(false);
+              setDailyBriefingMinimized(false);
               setDailyBriefingOpen(true);
             }}
             title="Personal Executive Daily Briefing (Weather, Markets, Momentum & News)"
@@ -4368,9 +4561,19 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                 type="button"
                 className="dashboard-watchlist-pill"
                 onClick={() => setSelectedTopic(item.topic)}
-                title={`${item.name} (${item.topic}) — click to filter stories`}
+                title={
+                  watchlistCatalysts[item.symbol.toUpperCase()]
+                    ? `${item.name} (${item.topic}) — Why it's moving: ${watchlistCatalysts[item.symbol.toUpperCase()].story.title}`
+                    : `${item.name} (${item.topic}) — click to filter stories`
+                }
               >
                 <strong>{item.symbol}</strong>
+                <MarketSparkline
+                  points={item.sparkline}
+                  isPositive={item.percentChange >= 0}
+                  width={42}
+                  height={15}
+                />
                 <span className="dashboard-watchlist-price">
                   {formatMarketPrice(item.price, item.currency)}
                 </span>
@@ -4405,6 +4608,12 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
               <span>{[marketQuote.exchange, marketQuote.currency].filter(Boolean).join(" / ")}</span>
             </div>
             <div className="market-price">
+              <MarketSparkline
+                points={marketQuote.sparkline}
+                isPositive={marketQuote.percentChange >= 0}
+                width={68}
+                height={22}
+              />
               <strong>{formatMarketPrice(marketQuote.price, marketQuote.currency)}</strong>
               <span className={marketQuote.change > 0 ? "positive" : marketQuote.change < 0 ? "negative" : "unchanged"}>
                 {marketQuote.change > 0 ? "+" : ""}
@@ -4496,7 +4705,13 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                 {marketQuote && marketQuote.topic.toLowerCase() === selectedTopic.toLowerCase() && (
                   <span className="filter-sticky-market" aria-label={`${marketQuote.symbol} ${formatMarketPrice(marketQuote.price, marketQuote.currency)}, ${marketQuote.percentChange >= 0 ? "up" : "down"} ${Math.abs(marketQuote.percentChange).toFixed(2)} percent`}>
                     <b>{marketQuote.symbol}</b>
-                    <strong>{formatMarketPrice(marketQuote.price, marketQuote.currency)}</strong>
+                    <MarketSparkline
+                points={marketQuote.sparkline}
+                isPositive={marketQuote.percentChange >= 0}
+                width={68}
+                height={22}
+              />
+              <strong>{formatMarketPrice(marketQuote.price, marketQuote.currency)}</strong>
                     <em className={marketQuote.percentChange > 0 ? "positive" : marketQuote.percentChange < 0 ? "negative" : "unchanged"}>
                       {marketQuote.percentChange > 0 ? "+" : ""}{marketQuote.percentChange.toFixed(2)}%
                     </em>
@@ -5673,7 +5888,19 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
       />
       <DailyBriefingModal
         isOpen={dailyBriefingOpen}
-        onClose={() => setDailyBriefingOpen(false)}
+        onClose={() => {
+          setDailyBriefingMinimized(false);
+          setDailyBriefingOpen(false);
+          if (articles.length > 0) {
+            saveVisitCheckpoint(
+              createVisitCheckpoint({
+                articles,
+                pulse,
+                marketWatchlist,
+              }),
+            );
+          }
+        }}
         weather={weatherStatus === "ready" ? localWeather : null}
         forecast={weatherForecast}
         alerts={activeWeatherAlerts}
@@ -5684,9 +5911,26 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         articles={articles}
         followedTopics={preferences.topics}
         priorityTopics={briefingPriorityTopics}
-        onChangePriorityTopics={setBriefingPriorityTopics}
+        onChangePriorityTopics={(nextTopics) => {
+          setBriefingPriorityTopics(nextTopics);
+          syncBriefingPreferencesToServer({ priorityTopics: nextTopics });
+        }}
+        onChangeSchedule={(nextSchedule) => {
+          setBriefingSchedule(nextSchedule);
+          syncBriefingPreferencesToServer({ schedule: nextSchedule });
+        }}
+        language={briefingLanguage}
+        onChangeLanguage={(nextLang) => {
+          setBriefingLanguage(nextLang);
+          syncBriefingPreferencesToServer({ language: nextLang });
+        }}
+        isMinimized={dailyBriefingMinimized}
+        onMinimizeChange={setDailyBriefingMinimized}
+        situationRadar={situationRadar}
+        catchUpDelta={catchUpDelta}
+        accountSyncActive={Boolean(preferencesStore)}
         schedule={briefingSchedule}
-        onChangeSchedule={setBriefingSchedule}
+
         offlinePackMeta={offlineBriefingMeta}
         offlineDownloadState={offlineBriefingDownload}
         onSaveOfflinePack={(b, lang) => { void runSaveOfflineBriefingPack(b, lang); }}

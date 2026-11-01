@@ -9,6 +9,10 @@ public interface IAccountEmailSender
         string email,
         SharedArticleEmail sharedArticle,
         CancellationToken cancellationToken);
+    Task SendExecutiveBriefingEmailAsync(
+        string email,
+        ExecutiveBriefingEmailDigest digest,
+        CancellationToken cancellationToken) => Task.CompletedTask;
 }
 
 public sealed record SharedArticleEmail(
@@ -31,3 +35,26 @@ public sealed record NewsSummaryArticle(
     string Summary,
     IReadOnlyList<string> Topics,
     IReadOnlyList<string> Providers);
+
+public sealed record ExecutiveBriefingEmailStory(
+    string Title,
+    string Url,
+    string Source,
+    string Summary,
+    string? PriorityTopic = null);
+
+public sealed record ExecutiveBriefingEmailMarket(
+    string Symbol,
+    string Name,
+    string FormattedPrice,
+    decimal PercentChange);
+
+public sealed record ExecutiveBriefingEmailDigest(
+    string Greeting,
+    string EditionLabel,
+    string FormattedDate,
+    string OpenBriefingUrl,
+    string? HostedAudioShareUrl,
+    IReadOnlyList<string> PriorityTopics,
+    IReadOnlyList<ExecutiveBriefingEmailMarket> Markets,
+    IReadOnlyList<ExecutiveBriefingEmailStory> LeadStories);

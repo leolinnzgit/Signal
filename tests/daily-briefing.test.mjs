@@ -12,11 +12,21 @@ import {
   normalizePriorityTopics,
   parseScheduleTimeMinutes,
   savePriorityTopics,
+  sendServerBriefingNow,
   shouldTriggerScheduledBriefing,
   togglePriorityTopic,
   updateBriefingSchedule,
   WAKE_UP_NOTIFICATION_TAG,
 } from "../app/daily-briefing.ts";
+import { queueBriefingLeadStories } from "../app/daily-briefing-queue.ts";
+import {
+  buildSituationRadar,
+  computeCatchUpDelta,
+  createVisitCheckpoint,
+  loadSituationRadarFeed,
+  loadVisitCheckpoint,
+  saveVisitCheckpoint,
+} from "../app/daily-briefing-radar.ts";
 import {
   BrowserCacheStorageAudioStore,
   clearOfflineBriefingPack,
@@ -31,7 +41,12 @@ import {
   saveOfflineBriefingPack,
 } from "../app/daily-briefing-offline.ts";
 import { saveOfflineArticleContent } from "../app/offline-prewarm.ts";
-import { loadMarketWatchlist, sortWatchlistByMagnitude } from "../app/market-quote.ts";
+import {
+  attributeMarketMoversToStories,
+  buildSparklineGeometry,
+  loadMarketWatchlist,
+  sortWatchlistByMagnitude,
+} from "../app/market-quote.ts";
 import {
   briefingSpeechLocale,
   clearBriefingTranslationCache,
@@ -909,4 +924,332 @@ test("Ask Today's Briefing Q&A supports suggested chips, cloud AI answers, and o
   assert.equal(cloudRes.language, "fr");
   assert.equal(cloudRes.citations.length, 1);
   assert.match(cloudRes.answer, /4,25 %/);
+});
+
+
+test("Market Sparklines & 'Why It's Moving' Catalyst Attribution link movers to matching stories", () => {
+  const upGeo = buildSparklineGeometry([120, 124.5, 123, 131.2, 138.6], 56, 18);
+  assert.ok(upGeo);
+  assert.equal(upGeo.isUp, true);
+  assert.equal(upGeo.min, 120);
+  assert.equal(upGeo.max, 138.6);
+  assert.match(upGeo.linePath, /^M /);
+  assert.match(upGeo.areaPath, / Z$/);
+
+  const downGeo = buildSparklineGeometry([180, 176, 172.1], 56, 18);
+  assert.ok(downGeo);
+  assert.equal(downGeo.isUp, false);
+  assert.equal(buildSparklineGeometry([100]), null);
+
+  const quotes = [
+    {
+      topic: "NVIDIA",
+      symbol: "NVDA",
+      name: "NVIDIA Corp",
+      exchange: "NASDAQ",
+      currency: "USD",
+      price: 138.6,
+      change: 5.65,
+      percentChange: 4.25,
+      quoteTime: "2026-11-01",
+      isMarketOpen: true,
+      provider: "Twelve Data",
+      sparkline: [129.1, 131.8, 133.2, 135.4, 138.6],
+    },
+    {
+      topic: "Apple",
+      symbol: "AAPL",
+      name: "Apple Inc",
+      exchange: "NASDAQ",
+      currency: "USD",
+      price: 228.5,
+      change: 0.4,
+      percentChange: 0.18, // below 1.0% threshold -> not attributed as major mover
+      quoteTime: "2026-11-01",
+      isMarketOpen: true,
+      provider: "Twelve Data",
+    },
+  ];
+
+  const feedArticles = [
+    {
+      title: "NVIDIA unveils Blackwell Ultra rack servers on surging hyperscale demand",
+      url: "https://example.com/nvda-blackwell",
+      source: "Reuters",
+      summary: "Cloud providers boosted quarterly accelerator orders.",
+      topics: ["NVIDIA", "AI"],
+    },
+    {
+      title: "Apple refreshes MacBook Air lineup",
+      url: "https://example.com/apple-macbook",
+      source: "The Verge",
+      topics: ["Apple"],
+    },
+  ];
+
+  const catalysts = attributeMarketMoversToStories(quotes, feedArticles, 1.0);
+  assert.ok(catalysts.NVDA);
+  assert.equal(catalysts.NVDA.story.url, "https://example.com/nvda-blackwell");
+  assert.equal(catalysts.AAPL, undefined);
+
+  const briefing = buildDailyBriefing({
+    marketWatchlist: quotes,
+    articles: feedArticles,
+  });
+  assert.deepEqual(briefing.marketGlance?.sparkline, [129.1, 131.8, 133.2, 135.4, 138.6]);
+  assert.equal(
+    briefing.marketGlance?.catalystTitle,
+    "NVIDIA unveils Blackwell Ultra rack servers on surging hyperscale demand",
+  );
+  assert.equal(briefing.marketGlance?.catalystUrl, "https://example.com/nvda-blackwell");
+});
+
+test("Live Situation Radar & 'Since Your Last Visit' Catch-Up Delta enrich briefing chapters when elevated", async () => {
+  const now = new Date("2026-11-01T08:00:00Z");
+
+  // 1. Calm radar when only distant small quakes exist
+  const calmRadar = buildSituationRadar({
+    hasUserLocation: true,
+    now,
+    events: [
+      {
+        id: "q-small",
+        source: "GeoNet",
+        magnitude: 2.9,
+        place: "20 km west of Taupo",
+        timeUtc: "2026-11-01T07:10:00Z",
+        distanceKm: 190,
+      },
+    ],
+    disasters: [],
+  });
+  assert.equal(calmRadar.level, "calm");
+  assert.equal(calmRadar.spokenAlert, null);
+
+  // 2. Elevated radar when nearby M5.1 quake + Orange GDACS cyclone are active
+  const radarFetcher = async (url) => {
+    assert.match(url, /\/api\/earthquakes\/map-feed\?latitude=-41\.28&longitude=174\.77/);
+    return {
+      ok: true,
+      json: async () => ({
+        source: "GeoNet",
+        events: [
+          {
+            id: "q-wlg",
+            source: "GeoNet",
+            magnitude: 5.1,
+            place: "15 km north-west of Wellington",
+            timeUtc: "2026-11-01T06:45:00Z",
+            distanceKm: 18.4,
+            url: "https://www.geonet.org.nz/earthquake/q-wlg",
+          },
+        ],
+        disasters: [
+          {
+            id: "tc-1",
+            kind: "TC",
+            title: "Tropical Cyclone Lola",
+            alertLevel: "Orange",
+            timeUtc: "2026-10-31T12:00:00Z",
+            distanceKm: 820,
+          },
+        ],
+      }),
+    };
+  };
+  const elevatedRadar = await loadSituationRadarFeed(-41.28, 174.77, undefined, radarFetcher);
+  assert.equal(elevatedRadar.level, "elevated");
+  assert.equal(elevatedRadar.items.length, 2);
+  assert.match(elevatedRadar.spokenAlert ?? "", /magnitude 5\.1 earthquake was recorded 18 kilometers away/);
+
+  // 3. Visit checkpoint & Catch-Up Delta calculation
+  const storage = createMemoryStorage();
+  const prevCheckpoint = createVisitCheckpoint({
+    now: new Date("2026-11-01T02:00:00Z"),
+    articles: [{ title: "Earlier Story", url: "https://example.com/old", source: "RNZ" }],
+    pulse: {
+      items: [{ topic: "Clean Energy", category: "Topic", stats: { trend: "steady", totalMentions: 2 }, sentiment: {} }],
+      totalTracked: 1,
+      surgingCount: 0,
+      totalMentionsThisWeek: 2,
+      overallSentiment: {},
+    },
+    marketWatchlist: [
+      {
+        topic: "NVIDIA",
+        symbol: "NVDA",
+        name: "NVIDIA Corp",
+        exchange: "NASDAQ",
+        currency: "USD",
+        price: 132.0,
+        change: 1.0,
+        percentChange: 0.75,
+        quoteTime: "2026-10-31",
+        isMarketOpen: false,
+        provider: "Twelve Data",
+      },
+    ],
+  });
+  saveVisitCheckpoint(prevCheckpoint, storage);
+
+  const loadedCheckpoint = loadVisitCheckpoint(storage);
+  const delta = computeCatchUpDelta(loadedCheckpoint, {
+    now,
+    articles: [
+      { title: "New Semiconductor Fab Announced", url: "https://example.com/new-1", source: "Reuters" },
+      { title: "Grid Battery Breakthrough", url: "https://example.com/new-2", source: "Bloomberg" },
+      { title: "Earlier Story", url: "https://example.com/old", source: "RNZ" },
+    ],
+    pulse: {
+      items: [{ topic: "NVIDIA", category: "Company", stats: { trend: "surging", totalMentions: 9 }, sentiment: {} }],
+      totalTracked: 2,
+      surgingCount: 1,
+      totalMentionsThisWeek: 11,
+      overallSentiment: {},
+    },
+    marketWatchlist: [
+      {
+        topic: "NVIDIA",
+        symbol: "NVDA",
+        name: "NVIDIA Corp",
+        exchange: "NASDAQ",
+        currency: "USD",
+        price: 138.6,
+        change: 6.6,
+        percentChange: 5.0,
+        quoteTime: "2026-11-01",
+        isMarketOpen: true,
+        provider: "Twelve Data",
+      },
+    ],
+  });
+
+  assert.equal(delta.hasChanges, true);
+  assert.equal(delta.elapsedLabel, "6h ago");
+  assert.equal(delta.newStoriesCount, 2);
+  assert.deepEqual(delta.newlySurgingTopics, ["NVIDIA"]);
+  assert.equal(delta.marketSwings.length, 1);
+  assert.equal(delta.marketSwings[0].symbol, "NVDA");
+  assert.equal(delta.marketSwings[0].deltaPercent, 5);
+  assert.match(delta.spokenCatchUp ?? "", /Since your last visit \(6h ago\), 2 new stories have arrived, NVIDIA is newly surging, NVDA climbed 5\.0 percent\./);
+
+  // 4. Structured chapters include intro -> situation -> catchup -> story-1 -> signoff and match spokenScript word-for-word
+  const briefing = buildDailyBriefing({
+    userTime: now,
+    situationRadar: elevatedRadar,
+    catchUpDelta: delta,
+    articles: [
+      { title: "New Semiconductor Fab Announced", url: "https://example.com/new-1", source: "Reuters" },
+    ],
+  });
+  assert.deepEqual(
+    briefing.chapters.map((c) => c.kind),
+    ["intro", "situation", "catchup", "story", "signoff"],
+  );
+  assert.equal(briefing.spokenScript, briefing.chapters.map((c) => c.text).join(" "));
+});
+
+test("Chapter translation, Listen Later queue helper, and Server Briefing Send-Now work end-to-end", async () => {
+  clearBriefingTranslationCache();
+  const base = buildDailyBriefing({
+    userTime: new Date("2026-11-01T08:00:00Z"),
+    articles: [
+      {
+        title: "Quantum Networking Milestone Achieved",
+        url: "https://example.com/quantum",
+        source: "Nature",
+        summary: "Entangled photons traveled across metropolitan fiber.",
+      },
+      {
+        title: "Offline Fallback Story",
+        url: "https://example.com/offline-story",
+        source: "RNZ",
+        summary: "Summary text is used cleanly when reader scraping is unavailable.",
+      },
+    ],
+  });
+
+  // 1. translateDailyBriefing translates structured chapter labels + texts and keeps spokenScript aligned
+  const translateFetcher = async (url, init) => {
+    if (url === "/api/auth/csrf") {
+      return { ok: true, json: async () => ({ token: "csrf-de-1" }) };
+    }
+    const body = JSON.parse(init.body);
+    return {
+      ok: true,
+      json: async () => ({
+        available: true,
+        translations: body.texts.map((t) => `[DE] ${t}`),
+      }),
+    };
+  };
+  const translated = await translateDailyBriefing(base, "de", undefined, translateFetcher);
+  assert.equal(translated.translated, true);
+  assert.equal(translated.briefing.chapters.length, base.chapters.length);
+  assert.ok(translated.briefing.chapters.every((ch) => ch.text.startsWith("[DE] ")));
+  assert.equal(
+    translated.briefing.spokenScript,
+    translated.briefing.chapters.map((ch) => ch.text).join(" "),
+  );
+
+  // 2. queueBriefingLeadStories extracts reader paragraphs or falls back to summary and deduplicates
+  const queuedItems = [];
+  const fakeQueueClient = {
+    saved: () => ({ items: queuedItems }),
+    add: (item) => {
+      queuedItems.push(item);
+    },
+  };
+  const readerFetcher = async (url) => {
+    if (String(url).includes("quantum")) {
+      return {
+        ok: true,
+        json: async () => ({
+          available: true,
+          article: {
+            paragraphs: [
+              "Researchers transmitted entangled photons over 40 kilometers of standard telecom fiber.",
+              "The demonstration paves the way for metropolitan quantum key distribution.",
+            ],
+          },
+        }),
+      };
+    }
+    return { ok: false, status: 502 };
+  };
+
+  const firstQueueRun = await queueBriefingLeadStories(base.leadStories, fakeQueueClient, readerFetcher);
+  assert.equal(firstQueueRun.added, 2);
+  assert.equal(firstQueueRun.alreadyQueued, 0);
+  assert.equal(queuedItems.length, 2);
+  assert.ok(queuedItems[0].parts.some((p) => p.includes("40 kilometers")));
+  assert.ok(queuedItems[1].parts.some((p) => p.includes("Summary text is used cleanly")));
+
+  const secondQueueRun = await queueBriefingLeadStories(base.leadStories, fakeQueueClient, readerFetcher);
+  assert.equal(secondQueueRun.added, 0);
+  assert.equal(secondQueueRun.alreadyQueued, 2);
+
+  // 3. sendServerBriefingNow posts CSRF + Push/Email trigger
+  let deliveryBody = null;
+  const deliveryFetcher = async (url, init) => {
+    if (url === "/api/auth/csrf") {
+      return { ok: true, json: async () => ({ token: "csrf-deliver-99" }) };
+    }
+    assert.equal(url, "/api/briefing-delivery/send-now");
+    assert.equal(init.headers["X-XSRF-TOKEN"], "csrf-deliver-99");
+    deliveryBody = JSON.parse(init.body);
+    return {
+      ok: true,
+      json: async () => ({
+        sentPush: true,
+        sentEmail: true,
+        hostedSharePath: "/shared/" + "b".repeat(48),
+      }),
+    };
+  };
+  const deliveryRes = await sendServerBriefingNow({ sendPush: true, sendEmail: true }, deliveryFetcher);
+  assert.equal(deliveryRes.ok, true);
+  assert.equal(deliveryRes.sentPush, true);
+  assert.equal(deliveryRes.sentEmail, true);
+  assert.deepEqual(deliveryBody, { sendPush: true, sendEmail: true });
 });

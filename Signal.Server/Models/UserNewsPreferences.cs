@@ -45,5 +45,7 @@ public sealed class UserNewsPreferences
 
     public int TrendsPerRegion { get; set; } = 5;
 
+    public string BriefingPreferencesJson { get; set; } = "{}";
+
     public DateTimeOffset UpdatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
 }

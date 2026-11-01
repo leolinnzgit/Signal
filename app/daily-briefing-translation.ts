@@ -197,7 +197,14 @@ export async function translateDailyBriefing(
     summarySlot: pushSlot(story.summary),
   }));
 
-  const scriptChunks = splitScriptIntoChunks(briefing.spokenScript, 1500);
+  const chapterList = Array.isArray(briefing.chapters) ? briefing.chapters : [];
+  const chapterSlots = chapterList.map((chapter) => ({
+    labelSlot: pushSlot(chapter.label),
+    textSlot: pushSlot(chapter.text),
+  }));
+
+  const scriptChunks =
+    chapterList.length === 0 ? splitScriptIntoChunks(briefing.spokenScript, 1500) : [];
   const scriptSlots = scriptChunks.map((chunk) => pushSlot(chunk));
 
   const { available, translations } = await translateBatchedSnippets(
@@ -213,6 +220,12 @@ export async function translateDailyBriefing(
 
   const pick = (slot: number, fallback: string): string =>
     slot >= 0 && translations[slot] ? translations[slot] : fallback;
+
+  const translatedChapters = chapterList.map((chapter, idx) => ({
+    ...chapter,
+    label: pick(chapterSlots[idx].labelSlot, chapter.label),
+    text: pick(chapterSlots[idx].textSlot, chapter.text),
+  }));
 
   const translatedBriefing: DailyBriefingData = {
     ...briefing,
@@ -238,10 +251,13 @@ export async function translateDailyBriefing(
       title: pick(storySlots[idx].titleSlot, story.title),
       summary: story.summary ? pick(storySlots[idx].summarySlot, story.summary) : story.summary,
     })),
+    chapters: translatedChapters,
     spokenScript:
-      scriptSlots.length > 0
-        ? scriptSlots.map((slot, idx) => pick(slot, scriptChunks[idx])).join(" ")
-        : briefing.spokenScript,
+      translatedChapters.length > 0
+        ? translatedChapters.map((ch) => ch.text).join(" ")
+        : scriptSlots.length > 0
+          ? scriptSlots.map((slot, idx) => pick(slot, scriptChunks[idx])).join(" ")
+          : briefing.spokenScript,
   };
 
   if (briefingTranslationCache.size >= 24) {

@@ -5,8 +5,14 @@ import {
   type LocalWeather,
   type WeatherForecastDay,
 } from "./weather-briefing.ts";
-import { formatMarketPrice, sortWatchlistByMagnitude, type MarketQuote } from "./market-quote.ts";
+import {
+  attributeMarketMoversToStories,
+  formatMarketPrice,
+  sortWatchlistByMagnitude,
+  type MarketQuote,
+} from "./market-quote.ts";
 import type { EntityPulseSummary } from "./entity-pulse.ts";
+import type { CatchUpDeltaSummary, SituationRadarSummary } from "./daily-briefing-radar.ts";
 import { topicMatchesText } from "./api/news/topic-matching.ts";
 
 export type DailyBriefingStory = {
@@ -35,6 +41,8 @@ export type DailyBriefingParams = {
   userTime?: Date;
   userEmail?: string;
   maxLeadStories?: number;
+  situationRadar?: SituationRadarSummary | null;
+  catchUpDelta?: CatchUpDeltaSummary | null;
 };
 
 export type DailyBriefingGlanceWeather = {
@@ -64,6 +72,30 @@ export type DailyBriefingGlanceMarket = {
   change: number;
   percentChange: number;
   isPositive: boolean;
+  sparkline?: number[];
+  catalystTitle?: string;
+  catalystSource?: string;
+  catalystUrl?: string;
+};
+
+export type DailyBriefingChapterKind =
+  | "intro"
+  | "situation"
+  | "weather"
+  | "catchup"
+  | "markets"
+  | "momentum"
+  | "story"
+  | "signoff";
+
+export type DailyBriefingChapter = {
+  id: string;
+  kind: DailyBriefingChapterKind;
+  label: string;
+  icon: string;
+  text: string;
+  storyIndex?: number;
+  storyUrl?: string;
 };
 
 export type DailyBriefingGlancePulse = {
@@ -83,10 +115,13 @@ export type DailyBriefingData = {
   marketGlance?: DailyBriefingGlanceMarket;
   marketWatchlistGlance?: DailyBriefingGlanceMarket[];
   pulseGlance?: DailyBriefingGlancePulse;
+  situationRadar?: SituationRadarSummary;
+  catchUpDelta?: CatchUpDeltaSummary;
   leadStories: DailyBriefingStory[];
   unreadCount: number;
   priorityTopics: string[];
   priorityMatchesCount: number;
+  chapters: DailyBriefingChapter[];
   spokenScript: string;
 };
 
@@ -94,7 +129,9 @@ export type BriefingSchedulePrefs = {
   enabled: boolean;
   time: string; // "HH:MM" in 24-hour local time
   notify: boolean;
+  deliverEmail: boolean;
   prewarmOfflinePack: boolean;
+  autoContinueStories: boolean;
   lastTriggeredDate: string; // "YYYY-MM-DD" in local calendar time
 };
 
@@ -107,7 +144,9 @@ export const DEFAULT_BRIEFING_SCHEDULE: BriefingSchedulePrefs = {
   enabled: false,
   time: "07:00",
   notify: true,
+  deliverEmail: false,
   prewarmOfflinePack: true,
+  autoContinueStories: false,
   lastTriggeredDate: "",
 };
 
@@ -252,10 +291,18 @@ export function normalizeBriefingSchedule(value: unknown): BriefingSchedulePrefs
     enabled: typeof raw.enabled === "boolean" ? raw.enabled : DEFAULT_BRIEFING_SCHEDULE.enabled,
     time: normalizedTime,
     notify: typeof raw.notify === "boolean" ? raw.notify : DEFAULT_BRIEFING_SCHEDULE.notify,
+    deliverEmail:
+      typeof raw.deliverEmail === "boolean"
+        ? raw.deliverEmail
+        : DEFAULT_BRIEFING_SCHEDULE.deliverEmail,
     prewarmOfflinePack:
       typeof raw.prewarmOfflinePack === "boolean"
         ? raw.prewarmOfflinePack
         : DEFAULT_BRIEFING_SCHEDULE.prewarmOfflinePack,
+    autoContinueStories:
+      typeof raw.autoContinueStories === "boolean"
+        ? raw.autoContinueStories
+        : DEFAULT_BRIEFING_SCHEDULE.autoContinueStories,
     lastTriggeredDate,
   };
 }
@@ -453,6 +500,8 @@ export function buildDailyBriefing(params: DailyBriefingParams = {}): DailyBrief
     priorityTopics: rawPriorityTopics = [],
     userTime = new Date(),
     maxLeadStories = 4,
+    situationRadar: rawSituationRadar = null,
+    catchUpDelta: rawCatchUpDelta = null,
   } = params;
 
   const priorityTopics = normalizePriorityTopics(rawPriorityTopics);
@@ -476,8 +525,29 @@ export function buildDailyBriefing(params: DailyBriefingParams = {}): DailyBrief
     day: "numeric",
   });
 
-  const spokenSections: string[] = [];
-  spokenSections.push(`${greeting}. Here is your Signal Executive Briefing for ${formattedDate}.`);
+  const chapters: DailyBriefingChapter[] = [];
+  chapters.push({
+    id: "intro",
+    kind: "intro",
+    label: "Intro",
+    icon: "🎙️",
+    text: `${greeting}. Here is your Signal Executive Briefing for ${formattedDate}.`,
+  });
+
+  // 1b. Live Situation Radar (Quakes + GDACS Disasters) — highlighted when elevated/advisory
+  const situationRadar =
+    rawSituationRadar && rawSituationRadar.level !== "calm" && rawSituationRadar.items.length > 0
+      ? rawSituationRadar
+      : undefined;
+  if (situationRadar?.spokenAlert) {
+    chapters.push({
+      id: "situation",
+      kind: "situation",
+      label: "Situation Radar",
+      icon: "🚨",
+      text: cleanSpeechText(situationRadar.spokenAlert),
+    });
+  }
 
   // 2. Weather Glance & Narration
   let weatherGlance: DailyBriefingGlanceWeather | undefined;
@@ -521,10 +591,29 @@ export function buildDailyBriefing(params: DailyBriefingParams = {}): DailyBrief
     if (activeAlertsCount > 0 && topAlertHeadline) {
       weatherLine += ` Attention: severe weather alert in effect. ${topAlertHeadline}.`;
     }
-    spokenSections.push(weatherLine);
+    chapters.push({
+      id: "weather",
+      kind: "weather",
+      label: "Weather",
+      icon: "⛅",
+      text: weatherLine,
+    });
   }
 
-  // 3. Market Movers Glance & Narration (Single Quote + Multi-Ticker Watchlist)
+  // 2b. "Since Your Last Visit" Catch-Up Delta
+  const catchUpDelta =
+    rawCatchUpDelta && rawCatchUpDelta.hasChanges ? rawCatchUpDelta : undefined;
+  if (catchUpDelta?.spokenCatchUp) {
+    chapters.push({
+      id: "catchup",
+      kind: "catchup",
+      label: "Catch-Up",
+      icon: "⏱️",
+      text: cleanSpeechText(catchUpDelta.spokenCatchUp),
+    });
+  }
+
+  // 3. Market Movers Glance & Narration (Single Quote + Multi-Ticker Watchlist + Sparklines + Catalyst Attribution)
   let marketGlance: DailyBriefingGlanceMarket | undefined;
   let marketWatchlistGlance: DailyBriefingGlanceMarket[] | undefined;
 
@@ -534,17 +623,26 @@ export function buildDailyBriefing(params: DailyBriefingParams = {}): DailyBrief
   ]).slice(0, 5);
 
   if (combinedMarketQuotes.length > 0) {
-    marketWatchlistGlance = combinedMarketQuotes.map((quote) => ({
-      topic: quote.topic,
-      symbol: quote.symbol,
-      name: quote.name || quote.symbol,
-      price: quote.price,
-      currency: quote.currency,
-      formattedPrice: formatMarketPrice(quote.price, quote.currency),
-      change: quote.change,
-      percentChange: quote.percentChange,
-      isPositive: quote.percentChange >= 0,
-    }));
+    const catalysts = attributeMarketMoversToStories(combinedMarketQuotes, articles, 1.0);
+    marketWatchlistGlance = combinedMarketQuotes.map((quote) => {
+      const symUpper = (quote.symbol || "").trim().toUpperCase();
+      const catalyst = catalysts[symUpper];
+      return {
+        topic: quote.topic,
+        symbol: quote.symbol,
+        name: quote.name || quote.symbol,
+        price: quote.price,
+        currency: quote.currency,
+        formattedPrice: formatMarketPrice(quote.price, quote.currency),
+        change: quote.change,
+        percentChange: quote.percentChange,
+        isPositive: quote.percentChange >= 0,
+        sparkline: Array.isArray(quote.sparkline) ? quote.sparkline : undefined,
+        catalystTitle: catalyst?.story.title,
+        catalystSource: catalyst?.story.source,
+        catalystUrl: catalyst?.story.url,
+      };
+    });
 
     marketGlance = marketWatchlistGlance[0];
     const leadQuote = combinedMarketQuotes[0];
@@ -554,12 +652,11 @@ export function buildDailyBriefing(params: DailyBriefingParams = {}): DailyBrief
     const marketName = leadQuote.name || leadQuote.symbol;
     const marketCurrency = leadQuote.currency ? ` ${leadQuote.currency}` : "";
 
+    let marketLine: string;
     if (marketWatchlistGlance.length === 1) {
-      spokenSections.push(
-        `In financial markets, ${marketName} is trading at ${leadQuote.price.toFixed(2)}${marketCurrency}, ${direction} ${absPercent} percent.`,
-      );
+      marketLine = `In financial markets, ${marketName} is trading at ${leadQuote.price.toFixed(2)}${marketCurrency}, ${direction} ${absPercent} percent.`;
     } else {
-      let marketLine = `In financial markets, top mover ${marketName} is trading at ${leadQuote.price.toFixed(2)}${marketCurrency}, ${direction} ${absPercent} percent.`;
+      marketLine = `In financial markets, top mover ${marketName} is trading at ${leadQuote.price.toFixed(2)}${marketCurrency}, ${direction} ${absPercent} percent.`;
       const secondaryMovers = marketWatchlistGlance.slice(1, 3).map((item) => {
         const dir = item.percentChange > 0 ? "up" : item.percentChange < 0 ? "down" : "unchanged at";
         return `${item.symbol} is ${dir} ${Math.abs(item.percentChange).toFixed(2)} percent`;
@@ -567,8 +664,14 @@ export function buildDailyBriefing(params: DailyBriefingParams = {}): DailyBrief
       if (secondaryMovers.length > 0) {
         marketLine += ` Elsewhere on your watchlist, ${secondaryMovers.join(", and ")}.`;
       }
-      spokenSections.push(marketLine);
     }
+    chapters.push({
+      id: "markets",
+      kind: "markets",
+      label: "Markets",
+      icon: "📈",
+      text: marketLine,
+    });
   }
 
   // 4. Entity Pulse Momentum Glance & Narration
@@ -588,13 +691,21 @@ export function buildDailyBriefing(params: DailyBriefingParams = {}): DailyBrief
 
     if (topSurging && (pulse.surgingCount > 0 || (pulse.topSurging?.stats.totalMentions ?? 0) > 0)) {
       const mentions = pulse.topSurging?.stats.totalMentions ?? 0;
-      spokenSections.push(
-        `In topic momentum, top surging entity is ${topSurging} with ${mentions} mentions this week across your ${pulse.totalTracked} tracked topics.`
-      );
+      chapters.push({
+        id: "momentum",
+        kind: "momentum",
+        label: "Momentum",
+        icon: "⚡",
+        text: `In topic momentum, top surging entity is ${topSurging} with ${mentions} mentions this week across your ${pulse.totalTracked} tracked topics.`,
+      });
     } else if (pulse.totalMentionsThisWeek > 0) {
-      spokenSections.push(
-        `In topic momentum, you have ${pulse.totalMentionsThisWeek} mentions this week across ${pulse.totalTracked} tracked topics.`
-      );
+      chapters.push({
+        id: "momentum",
+        kind: "momentum",
+        label: "Momentum",
+        icon: "⚡",
+        text: `In topic momentum, you have ${pulse.totalMentionsThisWeek} mentions this week across ${pulse.totalTracked} tracked topics.`,
+      });
     }
   }
 
@@ -639,7 +750,6 @@ export function buildDailyBriefing(params: DailyBriefingParams = {}): DailyBrief
   const priorityMatchesCount = leadStories.filter((s) => Boolean(s.priorityTopic)).length;
 
   if (leadStories.length > 0) {
-    spokenSections.push("Here are your lead stories today.");
     const intros = ["First", "Next", "Also in the news", "Finally"];
     leadStories.forEach((story, idx) => {
       const cleanTitle = cleanSpeechText(story.title);
@@ -658,11 +768,22 @@ export function buildDailyBriefing(params: DailyBriefingParams = {}): DailyBrief
         leadPrefix = `${prefix}, ${source}`;
       }
 
-      if (cleanSummary && cleanSummary !== cleanTitle) {
-        spokenSections.push(`${leadPrefix}: ${cleanTitle}. ${cleanSummary}`);
-      } else {
-        spokenSections.push(`${leadPrefix}: ${cleanTitle}.`);
-      }
+      const storyBody =
+        cleanSummary && cleanSummary !== cleanTitle
+          ? `${leadPrefix}: ${cleanTitle}. ${cleanSummary}`
+          : `${leadPrefix}: ${cleanTitle}.`;
+      const chapterText =
+        idx === 0 ? `Here are your lead stories today. ${storyBody}` : storyBody;
+
+      chapters.push({
+        id: `story-${idx + 1}`,
+        kind: "story",
+        label: story.priorityTopic ? `★ ${story.priorityTopic}` : `Story ${idx + 1}`,
+        icon: story.priorityTopic ? "★" : `${idx + 1}`,
+        text: chapterText,
+        storyIndex: idx,
+        storyUrl: story.url,
+      });
     });
   }
 
@@ -673,7 +794,13 @@ export function buildDailyBriefing(params: DailyBriefingParams = {}): DailyBrief
       : edition === "afternoon"
         ? "That concludes your afternoon executive briefing. Have a wonderful remainder of the day."
         : "That concludes your evening executive briefing. Rest well and stay informed.";
-  spokenSections.push(signoff);
+  chapters.push({
+    id: "signoff",
+    kind: "signoff",
+    label: "Sign-off",
+    icon: "✨",
+    text: signoff,
+  });
 
   return {
     greeting,
@@ -683,10 +810,83 @@ export function buildDailyBriefing(params: DailyBriefingParams = {}): DailyBrief
     marketGlance,
     marketWatchlistGlance,
     pulseGlance,
+    situationRadar,
+    catchUpDelta,
     leadStories,
     unreadCount,
     priorityTopics,
     priorityMatchesCount,
-    spokenScript: spokenSections.join(" "),
+    chapters,
+    spokenScript: chapters.map((ch) => ch.text).join(" "),
   };
+}
+
+export async function sendServerBriefingNow(
+  options: { sendPush?: boolean; sendEmail?: boolean } = {},
+  fetcher: typeof fetch = fetch,
+): Promise<{
+  ok: boolean;
+  sentPush: boolean;
+  sentEmail: boolean;
+  hostedSharePath?: string | null;
+  warning?: string | null;
+  error?: string;
+}> {
+  try {
+    const csrf = await fetcher("/api/auth/csrf", {
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+    if (!csrf.ok) {
+      return { ok: false, sentPush: false, sentEmail: false, error: "Could not authorize delivery request." };
+    }
+    const { token } = (await csrf.json()) as { token?: string };
+    if (!token) {
+      return { ok: false, sentPush: false, sentEmail: false, error: "Missing CSRF token." };
+    }
+
+    const res = await fetcher("/api/briefing-delivery/send-now", {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: {
+        "Content-Type": "application/json",
+        "X-XSRF-TOKEN": token,
+      },
+      body: JSON.stringify({
+        sendPush: options.sendPush ?? true,
+        sendEmail: options.sendEmail ?? false,
+      }),
+    });
+
+    if (!res.ok) {
+      return {
+        ok: false,
+        sentPush: false,
+        sentEmail: false,
+        error: `Delivery failed (${res.status}).`,
+      };
+    }
+
+    const payload = (await res.json()) as {
+      sentPush?: boolean;
+      sentEmail?: boolean;
+      hostedSharePath?: string | null;
+      warning?: string | null;
+    };
+    return {
+      ok: true,
+      sentPush: Boolean(payload.sentPush),
+      sentEmail: Boolean(payload.sentEmail),
+      hostedSharePath: payload.hostedSharePath,
+      warning: payload.warning,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      sentPush: false,
+      sentEmail: false,
+      error: err instanceof Error ? err.message : "Delivery request failed.",
+    };
+  }
 }

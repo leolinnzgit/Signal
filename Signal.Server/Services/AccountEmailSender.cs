@@ -43,6 +43,15 @@ public sealed class AccountEmailSender(
         return SendHtmlAsync(email, subject, BuildNewsSummaryBody(digest), cancellationToken);
     }
 
+    public Task SendExecutiveBriefingEmailAsync(
+        string email,
+        ExecutiveBriefingEmailDigest digest,
+        CancellationToken cancellationToken)
+    {
+        var subject = $"Signal {digest.EditionLabel} Executive Briefing — {digest.FormattedDate}";
+        return SendHtmlAsync(email, subject, BuildExecutiveBriefingBody(digest), cancellationToken);
+    }
+
     public Task SendSharedArticleAsync(
         string email,
         SharedArticleEmail sharedArticle,
@@ -113,6 +122,80 @@ public sealed class AccountEmailSender(
             """;
 
         await SendHtmlAsync(email, subject, body, cancellationToken);
+    }
+
+    private static string BuildExecutiveBriefingBody(ExecutiveBriefingEmailDigest digest)
+    {
+        var encoder = HtmlEncoder.Default;
+        var greeting = encoder.Encode(digest.Greeting);
+        var formattedDate = encoder.Encode(digest.FormattedDate);
+        var edition = encoder.Encode(digest.EditionLabel.ToUpperInvariant());
+        var openUrl = encoder.Encode(digest.OpenBriefingUrl);
+        var audioLinkMarkup = string.IsNullOrWhiteSpace(digest.HostedAudioShareUrl)
+            ? ""
+            : $"<a href=\"{encoder.Encode(digest.HostedAudioShareUrl)}\" style=\"display:inline-block;margin:0 10px 10px 0;background:#0f172a;color:#38bdf8;border:1px solid #38bdf8;text-decoration:none;padding:13px 18px;border-radius:999px;font-weight:700\">&#128266; Listen to Audio Briefing</a>";
+
+        var marketMarkup = new StringBuilder();
+        if (digest.Markets.Count > 0)
+        {
+            marketMarkup.Append("<tr><td style=\"padding:16px 0 8px\"><p style=\"margin:0 0 8px;color:#657364;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase\">Market Watchlist</p>");
+            foreach (var m in digest.Markets)
+            {
+                var sign = m.PercentChange > 0 ? "+" : "";
+                var color = m.PercentChange > 0 ? "#166534" : m.PercentChange < 0 ? "#991b1b" : "#4f514b";
+                marketMarkup.Append($"<span style=\"display:inline-block;margin:0 8px 8px 0;padding:7px 11px;border:1px solid #ded7ca;background:#fffdf8;border-radius:999px;font-size:12px\"><strong>{encoder.Encode(m.Symbol)}</strong> {encoder.Encode(m.FormattedPrice)} <span style=\"color:{color};font-weight:700\">{sign}{m.PercentChange:F2}%</span></span>");
+            }
+            marketMarkup.Append("</td></tr>");
+        }
+
+        var storyMarkup = new StringBuilder();
+        foreach (var story in digest.LeadStories)
+        {
+            var safeUrl = encoder.Encode(story.Url);
+            var safeTitle = encoder.Encode(story.Title);
+            var safeSource = encoder.Encode(story.Source);
+            var safeSummary = encoder.Encode(story.Summary);
+            var priorityBadge = string.IsNullOrWhiteSpace(story.PriorityTopic)
+                ? ""
+                : $" &middot; <span style=\"color:#b45309\">&#9733; {encoder.Encode(story.PriorityTopic)}</span>";
+            storyMarkup.Append($$"""
+                <tr><td style="padding:0 0 14px">
+                  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #ded7ca;background:#fffdf8">
+                    <tr><td style="padding:20px 22px">
+                      <p style="margin:0 0 8px;color:#c83f32;font-size:11px;font-weight:700;letter-spacing:.11em;text-transform:uppercase">{{safeSource}}{{priorityBadge}}</p>
+                      <h2 style="margin:0 0 9px;font-family:Georgia,serif;font-size:22px;font-weight:400;line-height:1.26"><a href="{{safeUrl}}" style="color:#171815;text-decoration:none">{{safeTitle}}</a></h2>
+                      {{(string.IsNullOrWhiteSpace(safeSummary) ? "" : $"<p style=\"margin:0;color:#4f514b;font-size:14px;line-height:1.55\">{safeSummary}</p>")}}
+                    </td></tr>
+                  </table>
+                </td></tr>
+                """);
+        }
+
+        return $$"""
+            <!doctype html>
+            <html lang="en"><body style="margin:0;background:#f4f0e7;color:#171815;font-family:Arial,sans-serif">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f4f0e7">
+                <tr><td align="center" style="padding:38px 18px">
+                  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:660px">
+                    <tr><td style="padding:0 0 22px;border-bottom:2px solid #171815">
+                      <p style="margin:0 0 14px;color:#c83f32;font-size:12px;font-weight:700;letter-spacing:.22em">SIGNAL &middot; {{edition}} DIGEST</p>
+                      <h1 style="margin:0 0 10px;font-family:Georgia,serif;font-size:36px;font-weight:400;line-height:1.08">{{greeting}}.</h1>
+                      <p style="margin:0 0 18px;color:#657364;font-size:14px;line-height:1.5">Executive Daily Briefing for {{formattedDate}}</p>
+                      <div>
+                        {{audioLinkMarkup}}
+                        <a href="{{openUrl}}" style="display:inline-block;margin:0 10px 10px 0;background:#171815;color:#f4f0e7;text-decoration:none;padding:13px 18px;border-radius:999px;font-weight:700">Open Executive Briefing</a>
+                      </div>
+                    </td></tr>
+                    {{marketMarkup}}
+                    <tr><td style="padding:18px 0 6px">{{storyMarkup}}</td></tr>
+                    <tr><td style="padding:18px 0 8px;border-top:1px solid #d9d2c4;color:#77796f;font-size:12px;line-height:1.6">
+                      Delivered by your scheduled Signal Wake-up Briefing. Adjust your wake-up time or delivery channels inside Signal at any time.
+                    </td></tr>
+                  </table>
+                </td></tr>
+              </table>
+            </body></html>
+            """;
     }
 
     private static string BuildNewsSummaryBody(NewsSummaryDigest digest)

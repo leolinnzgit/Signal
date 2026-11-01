@@ -35,7 +35,8 @@ public sealed record MarketQuote(
     decimal PercentChange,
     string QuoteTime,
     bool? IsMarketOpen,
-    string Provider);
+    string Provider,
+    decimal[]? Sparkline = null);
 
 public sealed record MarketWatchlistTopicInput(string Topic, string? Symbol = null);
 
@@ -112,7 +113,8 @@ public sealed class MarketDataService(
     public async Task<MarketQuote?> GetForTopicAsync(
         string requestedTopic,
         string? tickerOverride,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool includeSparkline = false)
     {
         var topic = NormalizeDisplayText(requestedTopic, 80);
         if (topic.Length == 0) throw new ArgumentException("Choose a topic.");
@@ -126,7 +128,19 @@ public sealed class MarketDataService(
 
         var quoteCacheKey = $"market-quote:{match.Symbol}:{match.Exchange}".ToLowerInvariant();
         if (cache.TryGetValue(quoteCacheKey, out MarketQuote? cachedQuote) && cachedQuote is not null)
-            return cachedQuote with { Topic = topic };
+        {
+            var resolved = cachedQuote with { Topic = topic };
+            if (includeSparkline && resolved.Sparkline is null)
+            {
+                var spark = await TryGetSparklineAsync(match, cancellationToken);
+                if (spark is not null)
+                {
+                    resolved = resolved with { Sparkline = spark };
+                    cache.Set(quoteCacheKey, resolved, TimeSpan.FromMinutes(2));
+                }
+            }
+            return resolved;
+        }
 
         MarketQuote quote;
         try
@@ -148,6 +162,12 @@ public sealed class MarketDataService(
         {
             throw new ArgumentException("That ticker could not be verified.", exception);
         }
+        if (includeSparkline)
+        {
+            var spark = await TryGetSparklineAsync(match, cancellationToken);
+            if (spark is not null)
+                quote = quote with { Sparkline = spark };
+        }
         cache.Set(quoteCacheKey, quote, TimeSpan.FromMinutes(2));
         return quote;
     }
@@ -155,7 +175,8 @@ public sealed class MarketDataService(
     public async Task<MarketQuote[]> GetWatchlistAsync(
         IReadOnlyList<MarketWatchlistTopicInput>? items,
         int maxQuotes,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool includeSparklines = false)
     {
         if (!IsConfigured || items is null || items.Count == 0)
             return [];
@@ -215,10 +236,34 @@ public sealed class MarketDataService(
             }
         }
 
-        return results
+        var sorted = results
             .OrderByDescending(q => Math.Abs(q.PercentChange))
             .ThenBy(q => q.Symbol, StringComparer.OrdinalIgnoreCase)
             .ToArray();
+
+        if (!includeSparklines || sorted.Length == 0)
+            return sorted;
+
+        var uncachedFetches = 0;
+        for (var i = 0; i < sorted.Length; i++)
+        {
+            var item = sorted[i];
+            if (item.Sparkline is not null) continue;
+            var sparkCacheKey = $"market-sparkline:{item.Symbol}:{item.Exchange}".ToLowerInvariant();
+            if (cache.TryGetValue(sparkCacheKey, out decimal[]? cachedSpark))
+            {
+                if (cachedSpark is { Length: >= 2 })
+                    sorted[i] = item with { Sparkline = cachedSpark };
+                continue;
+            }
+            if (uncachedFetches >= 3) continue;
+            uncachedFetches++;
+            var fetchedSpark = await TryGetSparklineAsync(new StockMatch(item.Symbol, item.Name, item.Exchange), cancellationToken);
+            if (fetchedSpark is { Length: >= 2 })
+                sorted[i] = item with { Sparkline = fetchedSpark };
+        }
+
+        return sorted;
     }
 
     private bool HasFastSymbolMatch(string topic, out bool matched)
@@ -303,6 +348,59 @@ public sealed class MarketDataService(
             ReadString(root, "datetime"),
             ReadBoolean(root, "is_market_open"),
             "Twelve Data");
+    }
+
+    private async Task<decimal[]?> TryGetSparklineAsync(
+        StockMatch match,
+        CancellationToken cancellationToken)
+    {
+        var cacheKey = $"market-sparkline:{match.Symbol}:{match.Exchange}".ToLowerInvariant();
+        if (cache.TryGetValue(cacheKey, out decimal[]? cached))
+            return cached is { Length: >= 2 } ? cached : null;
+
+        try
+        {
+            var query = $"time_series?symbol={Uri.EscapeDataString(match.Symbol)}&interval=1day&outputsize=14";
+            if (match.Exchange.Length > 0)
+                query += $"&exchange={Uri.EscapeDataString(match.Exchange)}";
+
+            using var document = await SendAsync(query, cancellationToken);
+            if (!document.RootElement.TryGetProperty("values", out var values)
+                || values.ValueKind != JsonValueKind.Array)
+            {
+                cache.Set(cacheKey, Array.Empty<decimal>(), TimeSpan.FromMinutes(10));
+                return null;
+            }
+
+            var points = new List<decimal>(14);
+            foreach (var row in values.EnumerateArray())
+            {
+                var close = ReadDecimal(row, "close");
+                if (close is > 0)
+                    points.Add(close.Value);
+            }
+
+            // Twelve Data returns newest-first; reverse into chronological order (oldest -> latest)
+            points.Reverse();
+            if (points.Count < 2)
+            {
+                cache.Set(cacheKey, Array.Empty<decimal>(), TimeSpan.FromMinutes(10));
+                return null;
+            }
+
+            var result = points.ToArray();
+            cache.Set(cacheKey, result, TimeSpan.FromMinutes(60));
+            return result;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            cache.Set(cacheKey, Array.Empty<decimal>(), TimeSpan.FromMinutes(10));
+            return null;
+        }
     }
 
     private async Task<JsonDocument> SendAsync(string relativePath, CancellationToken cancellationToken)

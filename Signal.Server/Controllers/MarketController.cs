@@ -12,18 +12,19 @@ public sealed class MarketController(
     MarketDataService marketData,
     ILogger<MarketController> logger) : ControllerBase
 {
-    public sealed record MarketWatchlistRequest(MarketWatchlistTopicInput[]? Items, int MaxQuotes = 5);
+    public sealed record MarketWatchlistRequest(MarketWatchlistTopicInput[]? Items, int MaxQuotes = 5, bool IncludeSparklines = false);
     public sealed record MarketWatchlistResponse(bool Configured, MarketQuote[] Quotes);
 
     [HttpGet]
     public async Task<IActionResult> Get(
         [FromQuery] string topic,
         [FromQuery] string? symbol,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        [FromQuery] bool sparkline = false)
     {
         try
         {
-            var quote = await marketData.GetForTopicAsync(topic, symbol, cancellationToken);
+            var quote = await marketData.GetForTopicAsync(topic, symbol, cancellationToken, sparkline);
             Response.Headers.CacheControl = "private, max-age=60";
             if (quote is not null) return Ok(new { matched = true, quote });
 
@@ -74,7 +75,8 @@ public sealed class MarketController(
             var quotes = await marketData.GetWatchlistAsync(
                 request?.Items,
                 request?.MaxQuotes ?? 5,
-                cancellationToken);
+                cancellationToken,
+                request?.IncludeSparklines ?? false);
             return Ok(new MarketWatchlistResponse(true, quotes));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

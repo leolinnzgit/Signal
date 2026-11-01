@@ -273,6 +273,7 @@ builder.Services.AddHttpClient<ArticleReaderService>(client =>
     AutomaticDecompression = System.Net.DecompressionMethods.All,
 });
 builder.Services.AddScoped<TopicRefreshService>();
+builder.Services.AddScoped<ExecutiveBriefingDeliveryService>();
 builder.Services.AddSingleton<VapidKeyStore>();
 builder.Services.AddScoped<PushNotificationService>();
 builder.Services.AddSingleton<INativePushSender, NativePushSender>();
@@ -285,6 +286,7 @@ builder.Services.AddSingleton<DisasterFeed>();
 builder.Services.AddSingleton<DisasterAlertFeed>();
 builder.Services.AddHostedService<EarthquakeMonitor>();
 builder.Services.AddHostedService<TopicRefreshBackgroundService>();
+builder.Services.AddHostedService<ExecutiveBriefingBackgroundService>();
 
 var app = builder.Build();
 
@@ -395,6 +397,7 @@ await using (var scope = app.Services.CreateAsyncScope())
             "SecondaryTimeZoneJson" TEXT NOT NULL DEFAULT '{{}}',
             "TrendRegionsJson" TEXT NOT NULL DEFAULT '[]',
             "TrendsPerRegion" INTEGER NOT NULL DEFAULT 5,
+            "BriefingPreferencesJson" TEXT NOT NULL DEFAULT '{{}}',
             "UpdatedAtUtc" TEXT NOT NULL,
             CONSTRAINT "FK_UserNewsPreferences_AspNetUsers_UserId"
                 FOREIGN KEY ("UserId") REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE
@@ -622,6 +625,15 @@ await using (var scope = app.Services.CreateAsyncScope())
         {
             await database.Database.ExecuteSqlRawAsync(
                 "ALTER TABLE \"UserNewsPreferences\" ADD COLUMN \"TrendsPerRegion\" INTEGER NOT NULL DEFAULT 5;");
+        }
+
+        await using var briefingPrefsColumnCheck = database.Database.GetDbConnection().CreateCommand();
+        briefingPrefsColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('UserNewsPreferences') WHERE name = 'BriefingPreferencesJson';";
+        var briefingPrefsColumnExists = Convert.ToInt32(await briefingPrefsColumnCheck.ExecuteScalarAsync()) > 0;
+        if (!briefingPrefsColumnExists)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"UserNewsPreferences\" ADD COLUMN \"BriefingPreferencesJson\" TEXT NOT NULL DEFAULT '{{}}';");
         }
 
         await using var directMessageColumnCheck = database.Database.GetDbConnection().CreateCommand();

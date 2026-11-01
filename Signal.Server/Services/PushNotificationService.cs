@@ -165,6 +165,24 @@ public sealed class PushNotificationService(
     public Task<int> SendDisasterAsync(string userId, string endpoint, DisasterAlertEvent report, CancellationToken ct) =>
         SendAsync(userId, [DisasterMessage(report)], ct, endpoint);
 
+    public Task<int> SendExecutiveBriefingAsync(
+        string userId,
+        string title,
+        string body,
+        int badgeCount,
+        CancellationToken cancellationToken)
+    {
+        var safeTitle = ShortPreview(title, 110);
+        var safeBody = ShortPreview(body, 220);
+        var message = new PushMessage(
+            safeTitle.Length > 0 ? safeTitle : "Your Signal Executive Briefing is ready",
+            safeBody.Length > 0 ? safeBody : "Tap to open and listen to today's digest.",
+            "/?briefing=1",
+            badgeCount,
+            "signal-daily-briefing");
+        return SendAsync(userId, [message], cancellationToken, watchBriefing: message);
+    }
+
     internal static PushMessage DisasterMessage(DisasterAlertEvent report) => new(
         report.Kind == "earthquake" ? $"Earthquake: magnitude {report.Magnitude:F1}"
             : $"{DisasterAlertFeed.Label(report.Kind)}: {report.AlertLevel} alert",

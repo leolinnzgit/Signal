@@ -1,12 +1,19 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Signal.Server.Controllers;
+using Signal.Server.Data;
+using Signal.Server.Models;
 using Signal.Server.Services;
 
 internal static class DailyBriefingBackendChecks
@@ -14,8 +21,10 @@ internal static class DailyBriefingBackendChecks
     public static async Task RunAsync()
     {
         await RunMarketWatchlistChecksAsync();
+        await RunMarketSparklineChecksAsync();
         await RunMultilingualSpeechVoiceChecksAsync();
         await RunBriefingQaChecksAsync();
+        await RunExecutiveBriefingDeliveryChecksAsync();
     }
 
     private static async Task RunMarketWatchlistChecksAsync()
@@ -245,6 +254,248 @@ internal static class DailyBriefingBackendChecks
             "AI + Multilingual Briefing Q&A did not synthesize 3-sentence answer and translate to Spanish.");
     }
 
+    private static async Task RunMarketSparklineChecksAsync()
+    {
+        using var cache = new MemoryCache(new MemoryCacheOptions());
+        var handler = new FakeMarketWatchlistHandler();
+        using var http = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("https://api.twelvedata.com/")
+        };
+
+        var service = new MarketDataService(
+            http,
+            cache,
+            Options.Create(new MarketDataOptions { ApiKey = "fake-twelve-data-api-key" }));
+
+        // 1. Default GetForTopicAsync does NOT fetch time_series unless includeSparkline: true
+        var withoutSparkline = await service.GetForTopicAsync("NVIDIA", null, CancellationToken.None);
+        Assert(withoutSparkline is { Symbol: "NVDA", Sparkline: null } && handler.TimeSeriesCalls == 0,
+            "Default GetForTopicAsync must not call time_series when includeSparkline is false.");
+
+        // 2. Opt-in GetForTopicAsync(includeSparkline: true) reverses Twelve Data newest->oldest into oldest->newest
+        var withSparkline = await service.GetForTopicAsync("NVIDIA", null, CancellationToken.None, includeSparkline: true);
+        Assert(withSparkline is { Symbol: "NVDA", Sparkline.Length: 5 }
+            && withSparkline.Sparkline[0] == 129.10m
+            && withSparkline.Sparkline[4] == 138.60m
+            && handler.TimeSeriesCalls == 1,
+            "Opt-in GetForTopicAsync(includeSparkline: true) must reverse 14-day series oldest -> newest.");
+
+        // 3. Watchlist with includeSparklines: true reuses cached NVDA sparkline and fetches up to 3 uncached symbols
+        var watchlist = await service.GetWatchlistAsync(
+            [new("NVIDIA"), new("Broadcom", "AVGO"), new("Apple")],
+            maxQuotes: 5,
+            CancellationToken.None,
+            includeSparklines: true);
+        Assert(watchlist.Length == 3
+            && watchlist.All(item => item.Sparkline is { Length: >= 4 })
+            && handler.TimeSeriesCalls == 3,
+            $"Watchlist sparklines must reuse cached series (expected 3 total time_series calls, got {handler.TimeSeriesCalls}).");
+    }
+
+    private static async Task RunExecutiveBriefingDeliveryChecksAsync()
+    {
+        // 1. MergePatch & IsDueAt timezone schedule logic
+        var fixedMorningUtc = new DateTimeOffset(2026, 11, 2, 18, 15, 0, TimeSpan.Zero); // 07:15 NZDT (+13:00 on 2026-11-03)
+        var (_, resolvedUtcId) = ExecutiveBriefingDeliveryService.ResolveTimeZone("UTC");
+        Assert(resolvedUtcId == "UTC", "UTC timezone must resolve cleanly.");
+
+        var utcMorning = new DateTimeOffset(2026, 11, 2, 7, 15, 0, TimeSpan.Zero);
+        var enabledAfterTime = ExecutiveBriefingDeliveryService.MergePatch(
+            ExecutiveBriefingPreferencesDto.Default,
+            new ExecutiveBriefingPreferencesPatch(
+                PriorityTopics: ["AI", "NVIDIA"],
+                Language: "es-ES",
+                ScheduleEnabled: true,
+                ScheduleTime: "07:00",
+                TimeZone: "UTC",
+                NotifyPush: true,
+                DeliverEmail: true),
+            weatherTimeZone: null,
+            requestOrigin: "https://signal.example.test",
+            utcNow: utcMorning);
+        Assert(enabledAfterTime.LastServerDeliveredDate == "2026-11-02"
+            && enabledAfterTime.Language == "es"
+            && !ExecutiveBriefingDeliveryService.IsDueAt(enabledAfterTime, utcMorning),
+            "Enabling schedule after today's scheduled minute must mark today delivered so it waits until tomorrow.");
+
+        // Moving schedule forward to 07:30 later today clears today's lock so it fires at 07:30!
+        var movedLaterToday = ExecutiveBriefingDeliveryService.MergePatch(
+            enabledAfterTime,
+            new ExecutiveBriefingPreferencesPatch(ScheduleTime: "07:30"),
+            weatherTimeZone: null,
+            requestOrigin: "https://signal.example.test",
+            utcNow: utcMorning);
+        Assert(movedLaterToday.LastServerDeliveredDate == ""
+            && !ExecutiveBriefingDeliveryService.IsDueAt(movedLaterToday, utcMorning)
+            && ExecutiveBriefingDeliveryService.IsDueAt(movedLaterToday, new DateTimeOffset(2026, 11, 2, 7, 31, 0, TimeSpan.Zero)),
+            "Moving schedule to an upcoming time today must allow firing once that time arrives.");
+
+        // 2. End-to-end DeliverAsync & ProcessDueScheduledBriefingsAsync with SQLite, Push, Email, Translator & Hosted Share
+        var tempRoot = Path.Combine(Path.GetTempPath(), "SignalBriefingDeliveryTests-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            await using var connection = new SqliteConnection("Data Source=:memory:");
+            await connection.OpenAsync();
+            await using var database = new SignalDbContext(
+                new DbContextOptionsBuilder<SignalDbContext>().UseSqlite(connection).Options);
+            await database.Database.EnsureCreatedAsync();
+
+            var user = new ApplicationUser
+            {
+                Id = "exec-user-1",
+                UserName = "exec@example.com",
+                Email = "exec@example.com",
+                EmailConfirmed = true
+            };
+            database.Users.Add(user);
+            database.StoredNewsArticles.AddRange(
+                new StoredNewsArticle
+                {
+                    UserId = user.Id,
+                    Url = "https://example.com/nvda-earnings",
+                    Title = "NVIDIA data center revenue surges 94% on Blackwell demand",
+                    Source = "Reuters",
+                    Summary = "Hyperscale AI clusters drove record quarterly shipments.",
+                    TopicsJson = JsonSerializer.Serialize(new[] { "NVIDIA", "AI" }),
+                    PublishedAtUtc = DateTime.UtcNow.AddHours(-2),
+                    FirstSeenAtUtc = DateTime.UtcNow.AddHours(-2),
+                    LastSeenAtUtc = DateTime.UtcNow
+                },
+                new StoredNewsArticle
+                {
+                    UserId = user.Id,
+                    Url = "https://example.com/grid-storage",
+                    Title = "Grid-scale battery installations double across Asia-Pacific",
+                    Source = "Bloomberg",
+                    Summary = "Falling cell costs accelerated utility storage deployments.",
+                    TopicsJson = JsonSerializer.Serialize(new[] { "Clean energy" }),
+                    PublishedAtUtc = DateTime.UtcNow.AddHours(-4),
+                    FirstSeenAtUtc = DateTime.UtcNow.AddHours(-4),
+                    LastSeenAtUtc = DateTime.UtcNow
+                });
+
+            var duePrefs = new ExecutiveBriefingPreferencesDto(
+                PriorityTopics: ["NVIDIA"],
+                Language: "es",
+                ScheduleEnabled: true,
+                ScheduleTime: "07:30",
+                TimeZone: "UTC",
+                NotifyPush: true,
+                DeliverEmail: true,
+                PrewarmOfflinePack: true,
+                AutoContinueStories: true,
+                LastServerDeliveredDate: "",
+                PublicOrigin: "https://signal.example.test");
+
+            database.UserNewsPreferences.Add(new UserNewsPreferences
+            {
+                UserId = user.Id,
+                TopicsJson = JsonSerializer.Serialize(new[] { "NVIDIA", "Clean energy" }),
+                BriefingPreferencesJson = JsonSerializer.Serialize(duePrefs),
+                UpdatedAtUtc = DateTimeOffset.UtcNow
+            });
+            database.UserPushSubscriptions.Add(new UserPushSubscription
+            {
+                UserId = user.Id,
+                Endpoint = "https://push.invalid/exec-phone",
+                P256Dh = "key",
+                Auth = "auth"
+            });
+            await database.SaveChangesAsync();
+
+            var receipts = new NativeDeliveryReceipts();
+            var nativeSender = new FakeBriefingNativeSender(receipts, user.Id, "exec-phone-1");
+            var nativeNotifications = new NativeNotificationService(database, nativeSender, receipts);
+            await nativeNotifications.RegisterAsync(
+                user.Id,
+                new NativeNotificationDevice
+                {
+                    Id = "exec-phone-1",
+                    Kind = "phone",
+                    Token = "fcm-exec-1",
+                    BrowserEndpoint = "https://push.invalid/exec-phone"
+                },
+                CancellationToken.None);
+
+            var vapidStore = new VapidKeyStore(new TempHostEnv(tempRoot), NullLogger<VapidKeyStore>.Instance);
+            var pushService = new PushNotificationService(
+                database,
+                vapidStore,
+                NullLogger<PushNotificationService>.Instance,
+                nativeNotifications);
+
+            var emailRecorder = new RecordingBriefingEmailSender();
+            using var cache = new MemoryCache(new MemoryCacheOptions());
+            using var marketHttp = new HttpClient(new FakeMarketWatchlistHandler())
+            {
+                BaseAddress = new Uri("https://api.twelvedata.com/")
+            };
+            var marketService = new MarketDataService(
+                marketHttp,
+                cache,
+                Options.Create(new MarketDataOptions { ApiKey = "fake-twelve-data-api-key" }));
+
+            var translatorHandler = new QaTranslatorHandler("fake-qa-translator-key-1234567890");
+            using var translatorHttp = new HttpClient(translatorHandler);
+            var translator = new AzureTranslatorService(
+                Options.Create(new AzureTranslatorOptions
+                {
+                    Endpoint = "https://api.cognitive.microsofttranslator.com/",
+                    Key = "fake-qa-translator-key-1234567890",
+                    Region = "australiaeast"
+                }),
+                new NamedClientFactory(translatorHttp, translatorHttp),
+                cache);
+
+            var config = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["PublicOrigin"] = "https://signal.example.test"
+                })
+                .Build();
+
+            var deliveryService = new ExecutiveBriefingDeliveryService(
+                database,
+                pushService,
+                emailRecorder,
+                marketService,
+                translator,
+                config,
+                NullLogger<ExecutiveBriefingDeliveryService>.Instance);
+
+            var fireTimeUtc = new DateTimeOffset(2026, 11, 2, 7, 32, 0, TimeSpan.Zero);
+            var deliveredCount = await deliveryService.ProcessDueScheduledBriefingsAsync(CancellationToken.None, fireTimeUtc);
+            Assert(deliveredCount == 1, $"Expected 1 scheduled briefing delivery, got {deliveredCount}.");
+            Assert(nativeSender.Sends == 1, $"Expected 1 native push send, got {nativeSender.Sends}.");
+            Assert(emailRecorder.LastDigest is not null
+                && emailRecorder.LastRecipient == "exec@example.com"
+                && emailRecorder.LastDigest.LeadStories.Count == 2
+                && emailRecorder.LastDigest.LeadStories[0].PriorityTopic == "NVIDIA"
+                && emailRecorder.LastDigest.LeadStories[0].Title.StartsWith("[ES] ", StringComparison.Ordinal)
+                && emailRecorder.LastDigest.HostedAudioShareUrl is not null
+                && emailRecorder.LastDigest.HostedAudioShareUrl.StartsWith("https://signal.example.test/shared/", StringComparison.Ordinal),
+                "Scheduled briefing email digest did not contain priority-ranked translated stories and hosted /shared/ listen link.");
+
+            var sharedSnapshotCount = await database.SharedNewsArticles.CountAsync(item => item.UserId == user.Id);
+            Assert(sharedSnapshotCount == 1, "Executive briefing delivery must create a hosted SharedNewsArticle audio snapshot.");
+
+            // Duplicate tick on the same local day must be skipped!
+            var duplicateCount = await deliveryService.ProcessDueScheduledBriefingsAsync(
+                CancellationToken.None,
+                fireTimeUtc.AddMinutes(5));
+            Assert(duplicateCount == 0, "Second scheduler tick on the same local date must not re-deliver.");
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
+
     private static void Assert(bool condition, string message)
     {
         if (!condition) throw new InvalidOperationException(message);
@@ -270,9 +521,31 @@ internal static class DailyBriefingBackendChecks
 
     private sealed class FakeMarketWatchlistHandler : HttpMessageHandler
     {
+        public int TimeSeriesCalls { get; private set; }
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var query = request.RequestUri?.PathAndQuery ?? "";
+            if (query.Contains("time_series?", StringComparison.OrdinalIgnoreCase))
+            {
+                TimeSeriesCalls++;
+                const string seriesJson = """
+                    {
+                      "values": [
+                        {"datetime":"2026-11-01","close":"138.60"},
+                        {"datetime":"2026-10-31","close":"135.40"},
+                        {"datetime":"2026-10-30","close":"133.20"},
+                        {"datetime":"2026-10-29","close":"131.80"},
+                        {"datetime":"2026-10-28","close":"129.10"}
+                      ]
+                    }
+                    """;
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(seriesJson, Encoding.UTF8, "application/json")
+                });
+            }
+
             string json;
             if (query.Contains("symbol=AIR", StringComparison.OrdinalIgnoreCase))
             {
@@ -300,6 +573,50 @@ internal static class DailyBriefingBackendChecks
                 Content = new StringContent(json, Encoding.UTF8, "application/json")
             });
         }
+    }
+
+    private sealed class FakeBriefingNativeSender(NativeDeliveryReceipts receipts, string accountId, string deviceId) : INativePushSender
+    {
+        public bool Ready => true;
+        public int Sends { get; private set; }
+
+        public Task<NativePushResult> SendAsync(string token, IReadOnlyDictionary<string, string> data, CancellationToken ct)
+        {
+            Sends++;
+            receipts.Receive(data["id"], accountId, deviceId, true);
+            return Task.FromResult(NativePushResult.Delivered);
+        }
+    }
+
+    private sealed class RecordingBriefingEmailSender : IAccountEmailSender
+    {
+        public string? LastRecipient { get; private set; }
+        public ExecutiveBriefingEmailDigest? LastDigest { get; private set; }
+
+        public Task SendConfirmationAsync(string toEmail, string confirmationLink, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task SendPasswordResetAsync(string toEmail, string resetLink, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task SendNewsSummaryAsync(string toEmail, NewsSummaryDigest digest, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task SendSharedArticleAsync(string toEmail, SharedArticleEmail article, CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public Task SendExecutiveBriefingEmailAsync(
+            string email,
+            ExecutiveBriefingEmailDigest digest,
+            CancellationToken cancellationToken)
+        {
+            LastRecipient = email;
+            LastDigest = digest;
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class TempHostEnv(string contentRoot) : IWebHostEnvironment
+    {
+        public string WebRootPath { get; set; } = contentRoot;
+        public IFileProvider WebRootFileProvider { get; set; } = new NullFileProvider();
+        public string ApplicationName { get; set; } = "Signal.Server.Tests";
+        public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
+        public string ContentRootPath { get; set; } = contentRoot;
+        public string EnvironmentName { get; set; } = "Development";
     }
 
     private sealed class MultilingualVoiceListHandler : HttpMessageHandler

@@ -4,6 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FollowedArticle } from "./NewsDashboard";
 import { translationLanguages } from "./article-translation";
 import ContinueOnWatch from "./ContinueOnWatch";
+import { useListeningQueueClient } from "./ListenLater";
+import { MarketSparkline } from "./MarketSparkline";
+import MinimizedAudioPlayer from "./MinimizedAudioPlayer";
 import VoiceMicButton from "./VoiceMicButton";
 import {
   buildDailyBriefing,
@@ -11,12 +14,15 @@ import {
   loadBriefingSchedule,
   loadPriorityTopics,
   savePriorityTopics,
+  sendServerBriefingNow,
   togglePriorityTopic,
   updateBriefingSchedule,
   type BriefingSchedulePrefs,
   type DailyBriefingData,
   type DailyBriefingStory,
 } from "./daily-briefing";
+import { queueBriefingLeadStories } from "./daily-briefing-queue";
+import type { CatchUpDeltaSummary, SituationRadarSummary } from "./daily-briefing-radar";
 import {
   clearOfflineBriefingPack,
   computeBriefingPackId,
@@ -123,6 +129,13 @@ export default function DailyBriefingModal({
   onOpenArticle,
   onListenArticle,
   userTime,
+  language: controlledLanguage,
+  onChangeLanguage,
+  isMinimized: controlledMinimized,
+  onMinimizeChange,
+  situationRadar = null,
+  catchUpDelta = null,
+  accountSyncActive = false,
 }: {
   isOpen: boolean;
   onClose: () => void;
@@ -151,6 +164,13 @@ export default function DailyBriefingModal({
   onOpenArticle?: (article: FollowedArticle) => void;
   onListenArticle?: (article: FollowedArticle) => void;
   userTime?: Date;
+  language?: string;
+  onChangeLanguage?: (language: string) => void;
+  isMinimized?: boolean;
+  onMinimizeChange?: (minimized: boolean) => void;
+  situationRadar?: SituationRadarSummary | null;
+  catchUpDelta?: CatchUpDeltaSummary | null;
+  accountSyncActive?: boolean;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const speech = useSpokenBriefing();
@@ -172,18 +192,35 @@ export default function DailyBriefingModal({
     error: null,
   });
 
+  const queueClient = useListeningQueueClient();
+
   // Multilingual Executive Briefing state
-  const [briefingLanguage, setBriefingLanguage] = useState<string>(() => loadBriefingLanguage());
+  const [localBriefingLanguage, setLocalBriefingLanguage] = useState<string>(() => loadBriefingLanguage());
+  const briefingLanguage = controlledLanguage ?? localBriefingLanguage;
+  const [localMinimized, setLocalMinimized] = useState<boolean>(false);
+  const isMinimized = controlledMinimized ?? localMinimized;
+  const setMinimized = useCallback(
+    (next: boolean) => {
+      if (onMinimizeChange) onMinimizeChange(next);
+      else setLocalMinimized(next);
+    },
+    [onMinimizeChange],
+  );
+
   const [translationState, setTranslationState] = useState<{
     sourceKey: string;
     briefing: DailyBriefingData | null;
     busy: boolean;
   }>({ sourceKey: "", briefing: null, busy: false });
 
-  // Export, Hosted Share & Watch Handoff state
+  // Export, Hosted Share, Queue & Server Delivery state
   const [shareFeedback, setShareFeedback] = useState<string>("");
   const [hostedShareBusy, setHostedShareBusy] = useState<boolean>(false);
   const [hostedShareUrl, setHostedShareUrl] = useState<string>("");
+  const [queueBusy, setQueueBusy] = useState<boolean>(false);
+  const [queueFeedback, setQueueFeedback] = useState<string>("");
+  const [deliveryBusy, setDeliveryBusy] = useState<boolean>(false);
+  const [deliveryFeedback, setDeliveryFeedback] = useState<string>("");
 
   // "Ask Today's Briefing" Q&A state
   const [qaInput, setQaInput] = useState<string>("");
@@ -232,6 +269,8 @@ export default function DailyBriefingModal({
       priorityTopics,
       userTime,
       maxLeadStories: 4,
+      situationRadar,
+      catchUpDelta,
     });
   }, [
     weather,
@@ -244,6 +283,8 @@ export default function DailyBriefingModal({
     articles,
     priorityTopics,
     userTime,
+    situationRadar,
+    catchUpDelta,
   ]);
 
   // When offline and live feed has no stories yet, restore the saved Offline Briefing Pack snapshot
@@ -315,22 +356,60 @@ export default function DailyBriefingModal({
     [baseBriefing],
   );
 
-  const playBriefingAudio = useCallback(async () => {
-    stopQaSpeech();
-    let cachedBlob: Blob | null = null;
-    if (offlineMeta?.hasNeuralAudio) {
-      if (offlineMeta.id === currentPackId) {
-        cachedBlob = await loadOfflineBriefingAudio(currentPackId);
-      } else if (!isOnline) {
-        cachedBlob = await loadOfflineBriefingAudio(offlineMeta.id);
-      }
+  const handleRadioAutoContinue = useCallback(async () => {
+    if (!schedule.autoContinueStories || briefing.leadStories.length === 0) return;
+    if (queueClient) {
+      await queueBriefingLeadStories(briefing.leadStories, queueClient);
     }
-    const scriptToSpeak =
-      !isOnline && cachedBlob && offlineMeta ? offlineMeta.briefing.spokenScript : briefing.spokenScript;
-    speech.speak(scriptToSpeak, speechLocale, cachedBlob);
-  }, [briefing.spokenScript, currentPackId, isOnline, offlineMeta, speech, speechLocale, stopQaSpeech]);
+    const firstLead = briefing.leadStories[0];
+    if (firstLead && onListenArticle) {
+      const matched = articles.find((a) => a.url === firstLead.url);
+      setMinimized(false);
+      onClose();
+      onListenArticle(toFollowedArticle(firstLead, matched));
+    }
+  }, [articles, briefing.leadStories, onClose, onListenArticle, queueClient, schedule.autoContinueStories, setMinimized]);
 
-  // Manage native dialog open/close lifecycle
+  const playBriefingFromChapter = useCallback(
+    async (startIndex = 0) => {
+      stopQaSpeech();
+      let cachedBlob: Blob | null = null;
+      if (startIndex === 0 && offlineMeta?.hasNeuralAudio) {
+        if (offlineMeta.id === currentPackId) {
+          cachedBlob = await loadOfflineBriefingAudio(currentPackId);
+        } else if (!isOnline) {
+          cachedBlob = await loadOfflineBriefingAudio(offlineMeta.id);
+        }
+      }
+      const targetBriefing =
+        !isOnline && cachedBlob && offlineMeta ? offlineMeta.briefing : briefing;
+      const chaptersToSpeak =
+        targetBriefing.chapters && targetBriefing.chapters.length > 0
+          ? targetBriefing.chapters
+          : [{ text: targetBriefing.spokenScript }];
+
+      speech.speakChapters(chaptersToSpeak, {
+        startIndex,
+        targetLanguage: speechLocale,
+        offlineAudioBlob: cachedBlob,
+        onComplete: () => {
+          void handleRadioAutoContinue();
+        },
+      });
+    },
+    [
+      briefing,
+      currentPackId,
+      handleRadioAutoContinue,
+      isOnline,
+      offlineMeta,
+      speech,
+      speechLocale,
+      stopQaSpeech,
+    ],
+  );
+
+  // Stop audio ONLY when the briefing is closed (not when minimized into floating bar)
   useEffect(() => {
     if (!isOpen) {
       stopBriefing();
@@ -338,8 +417,23 @@ export default function DailyBriefingModal({
       qaAbortRef.current?.abort();
       return;
     }
+    return () => {
+      stopBriefing();
+      stopQaSpeech();
+      qaAbortRef.current?.abort();
+    };
+  }, [isOpen, stopBriefing, stopQaSpeech]);
 
+  // Manage native <dialog> visibility so minimizing keeps audio alive while freeing the dashboard
+  useEffect(() => {
     const dialog = dialogRef.current;
+    if (!isOpen || isMinimized) {
+      if (dialog && dialog.open) {
+        dialog.close();
+      }
+      return;
+    }
+
     if (dialog && !dialog.open) {
       dialog.showModal();
     }
@@ -354,32 +448,47 @@ export default function DailyBriefingModal({
     window.addEventListener("keydown", handleKeyDown);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
-      stopBriefing();
-      stopQaSpeech();
-      qaAbortRef.current?.abort();
-      if (dialog && dialog.open) {
-        dialog.close();
-      }
     };
-  }, [isOpen, onClose, stopBriefing, stopQaSpeech]);
+  }, [isMinimized, isOpen, onClose]);
 
   // Auto-play support when launched from Wake-up Briefing "Play Briefing" button
   useEffect(() => {
     if (!isOpen || !autoPlayOnOpen) return;
     onAutoPlayConsumed?.();
-    void playBriefingAudio();
-  }, [autoPlayOnOpen, isOpen, onAutoPlayConsumed, playBriefingAudio]);
+    void playBriefingFromChapter(0);
+  }, [autoPlayOnOpen, isOpen, onAutoPlayConsumed, playBriefingFromChapter]);
 
   if (!isOpen) return null;
 
   const isAudioActive = speech.status === "starting" || speech.status === "playing";
   const isQaAudioActive = qaSpeech.status === "starting" || qaSpeech.status === "playing";
+  const chapters = briefing.chapters || [];
+  const activeChapter =
+    isAudioActive &&
+    speech.activeChapterIndex !== null &&
+    chapters[speech.activeChapterIndex]
+      ? chapters[speech.activeChapterIndex]
+      : null;
+
+  if (isMinimized) {
+    const chapterSuffix = activeChapter ? ` · ${activeChapter.icon} ${activeChapter.label}` : "";
+    return (
+      <MinimizedAudioPlayer
+        title={`Executive Briefing (${briefing.edition})${chapterSuffix}`}
+        onRestore={() => setMinimized(false)}
+        onClose={() => {
+          setMinimized(false);
+          onClose();
+        }}
+      />
+    );
+  }
 
   const handleAudioToggle = () => {
     if (isAudioActive) {
       speech.stop();
     } else {
-      void playBriefingAudio();
+      void playBriefingFromChapter(0);
     }
   };
 
@@ -387,8 +496,55 @@ export default function DailyBriefingModal({
     speech.stop();
     qaSpeech.stop();
     const saved = saveBriefingLanguage(nextLang);
-    setBriefingLanguage(saved);
+    setLocalBriefingLanguage(saved);
+    onChangeLanguage?.(saved);
     setHostedShareUrl("");
+  };
+
+  const handleQueueStoriesClick = async () => {
+    if (!queueClient || queueBusy || briefing.leadStories.length === 0) return;
+    setQueueBusy(true);
+    setQueueFeedback("");
+    try {
+      const res = await queueBriefingLeadStories(briefing.leadStories, queueClient);
+      if (res.added > 0) {
+        setQueueFeedback(`Queued ${res.added} ${res.added === 1 ? "story" : "stories"} to Listen Later`);
+      } else if (res.alreadyQueued > 0) {
+        setQueueFeedback("Lead stories already in Listen Later");
+      } else {
+        setQueueFeedback("Listen Later queue is full (10 max)");
+      }
+      window.setTimeout(() => setQueueFeedback(""), 4000);
+    } finally {
+      setQueueBusy(false);
+    }
+  };
+
+  const handleSendServerDeliveryClick = async () => {
+    if (deliveryBusy || !isOnline) return;
+    setDeliveryBusy(true);
+    setDeliveryFeedback("");
+    try {
+      const res = await sendServerBriefingNow({
+        sendPush: schedule.notify,
+        sendEmail: schedule.deliverEmail || !schedule.notify,
+      });
+      if (!res.ok) {
+        setDeliveryFeedback(res.error || "Could not dispatch briefing.");
+      } else {
+        const channels: string[] = [];
+        if (res.sentPush) channels.push("Push");
+        if (res.sentEmail) channels.push("Email");
+        setDeliveryFeedback(
+          channels.length > 0
+            ? `Delivered via ${channels.join(" + ")}${res.warning ? ` (${res.warning})` : ""}`
+            : res.warning || "Dispatched (configure push device or SMTP email to receive).",
+        );
+      }
+      window.setTimeout(() => setDeliveryFeedback(""), 5000);
+    } finally {
+      setDeliveryBusy(false);
+    }
   };
 
   const handleShareDigestClick = async () => {
@@ -599,6 +755,11 @@ export default function DailyBriefingModal({
                   ⚡ Instant Audio Ready
                 </span>
               )}
+              {accountSyncActive && (
+                <span className="daily-briefing-status-pill synced" title="Briefing priorities, language, and schedule sync across your devices">
+                  ☁️ Synced
+                </span>
+              )}
             </div>
             <h2 id="daily-briefing-title" className="daily-briefing-title">
               Executive Daily Briefing
@@ -649,6 +810,15 @@ export default function DailyBriefingModal({
             </button>
             <button
               type="button"
+              className="daily-briefing-minimize-btn"
+              onClick={() => setMinimized(true)}
+              title="Minimize briefing to floating player bar (audio keeps playing)"
+              aria-label="Minimize executive briefing"
+            >
+              &#8211;
+            </button>
+            <button
+              type="button"
               className="daily-briefing-close-btn"
               onClick={onClose}
               title="Close briefing"
@@ -658,6 +828,99 @@ export default function DailyBriefingModal({
             </button>
           </div>
         </header>
+
+        {/* Interactive Chapter Scrubber & Radio Queue Bar */}
+        {chapters.length > 0 && (
+          <section className="daily-briefing-chapters-bar" aria-label="Briefing chapters and radio queue">
+            <div className="chapters-top-row">
+              <div className="chapters-nav-controls">
+                <button
+                  type="button"
+                  className="chapters-step-btn"
+                  disabled={!isAudioActive || (speech.activeChapterIndex ?? 0) <= 0}
+                  onClick={() =>
+                    void playBriefingFromChapter(Math.max(0, (speech.activeChapterIndex ?? 0) - 1))
+                  }
+                  title="Previous chapter"
+                >
+                  &larr; Prev
+                </button>
+                <button
+                  type="button"
+                  className="chapters-step-btn"
+                  disabled={
+                    chapters.length <= 1 ||
+                    (isAudioActive && (speech.activeChapterIndex ?? 0) >= chapters.length - 1)
+                  }
+                  onClick={() =>
+                    void playBriefingFromChapter(
+                      isAudioActive
+                        ? Math.min(chapters.length - 1, (speech.activeChapterIndex ?? 0) + 1)
+                        : 0,
+                    )
+                  }
+                  title="Next chapter"
+                >
+                  Next &rarr;
+                </button>
+              </div>
+
+              <div className="chapters-radio-actions">
+                {queueClient && briefing.leadStories.length > 0 && (
+                  <button
+                    type="button"
+                    className="briefing-toolbar-btn"
+                    disabled={queueBusy}
+                    onClick={() => void handleQueueStoriesClick()}
+                    title="Push today's lead briefing stories into your Listen Later queue"
+                  >
+                    {queueBusy ? "⏳ Queueing…" : "➕ Queue Lead Stories"}
+                  </button>
+                )}
+
+                <label
+                  className="briefing-radio-continue-toggle"
+                  title="Automatically transition into full-story narration when the briefing digest finishes"
+                >
+                  <input
+                    type="checkbox"
+                    checked={Boolean(schedule.autoContinueStories)}
+                    onChange={(e) =>
+                      void handleSchedulePatch({ autoContinueStories: e.target.checked })
+                    }
+                  />
+                  <span>📻 Continue into full stories</span>
+                </label>
+
+                {queueFeedback && (
+                  <span className="briefing-queue-feedback" role="status" aria-live="polite">
+                    {queueFeedback}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="chapters-pill-strip" role="tablist" aria-label="Jump to briefing chapter">
+              {chapters.map((chapter, idx) => {
+                const isCurrent = isAudioActive && speech.activeChapterIndex === idx;
+                return (
+                  <button
+                    key={chapter.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={isCurrent}
+                    className={`chapter-scrubber-pill ${isCurrent ? "active" : ""}`}
+                    onClick={() => void playBriefingFromChapter(idx)}
+                    title={`Play from ${chapter.label}`}
+                  >
+                    <span aria-hidden="true">{chapter.icon}</span>
+                    <span>{chapter.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        )}
 
         {/* Commute Offline Pack, Share/Export, Watch Handoff & Wake-up Schedule Toolbar */}
         <section className="daily-briefing-toolbar" aria-label="Briefing automation, sharing, and offline pack controls">
@@ -830,26 +1093,168 @@ export default function DailyBriefingModal({
                   onChange={(e) => void handleSchedulePatch({ notify: e.target.checked })}
                 />
                 <span>
-                  Show Wake-up Notification when ready
+                  Deliver Wake-up Push Notification (even when Signal is closed)
                   {notificationPermission === "denied" ? " (Blocked in browser settings)" : ""}
+                </span>
+              </label>
+
+              <label className="schedule-option-check">
+                <input
+                  type="checkbox"
+                  checked={Boolean(schedule.deliverEmail)}
+                  onChange={(e) => void handleSchedulePatch({ deliverEmail: e.target.checked })}
+                />
+                <span>
+                  Deliver Morning Email Digest with one-tap hosted audio link
                 </span>
               </label>
             </div>
 
-            {onTestWakeUp && (
-              <div className="schedule-panel-footer">
-                <span className="schedule-panel-hint">
-                  {schedule.enabled
-                    ? `Scheduled daily at ${formatScheduleTimeDisplay(schedule.time)}. Prewarms automatically when Signal is open or launched in the morning.`
-                    : "Turn on to automatically prewarm your morning audio digest."}
-                </span>
+            <div className="schedule-panel-footer">
+              <span className="schedule-panel-hint">
+                {schedule.enabled
+                  ? `Scheduled daily at ${formatScheduleTimeDisplay(schedule.time)}. Server delivers Push/Email automatically and prewarms on launch.`
+                  : "Turn on to schedule server-delivered wake-up alerts, morning email digests, and offline audio packs."}
+              </span>
+              <div className="schedule-delivery-actions">
+                {onTestWakeUp && (
+                  <button
+                    type="button"
+                    className="briefing-toolbar-btn"
+                    onClick={() => onTestWakeUp(briefing)}
+                  >
+                    ▶ Test Local Wake-up
+                  </button>
+                )}
                 <button
                   type="button"
                   className="briefing-toolbar-btn"
-                  onClick={() => onTestWakeUp(briefing)}
+                  disabled={!isOnline || deliveryBusy}
+                  onClick={() => void handleSendServerDeliveryClick()}
+                  title="Dispatch an immediate server Push and/or Email Executive Briefing digest"
                 >
-                  ▶ Test Wake-up Now
+                  {deliveryBusy ? "⏳ Sending…" : "📨 Send Push / Email Now"}
                 </button>
+              </div>
+              {deliveryFeedback && (
+                <span className="schedule-delivery-feedback" role="status" aria-live="polite">
+                  {deliveryFeedback}
+                </span>
+              )}
+            </div>
+          </section>
+        )}
+
+        {/* Live Situation Radar (Earthquakes + GDACS Disasters — shown when advisory or elevated) */}
+        {briefing.situationRadar && briefing.situationRadar.level !== "calm" && (
+          <section
+            className={`daily-briefing-situation-radar ${briefing.situationRadar.level} ${
+              activeChapter?.kind === "situation" ? "is-speaking-chapter" : ""
+            }`}
+            aria-label="Live Situation Radar"
+          >
+            <div className="situation-radar-header">
+              <span className="situation-radar-title">
+                🚨 Live Situation Radar &bull;{" "}
+                {briefing.situationRadar.level === "elevated" ? "Elevated Alert" : "Active Advisory"}
+              </span>
+              {briefing.situationRadar.source && (
+                <span className="situation-radar-source">
+                  {briefing.situationRadar.source} + GDACS
+                </span>
+              )}
+            </div>
+            <div className="situation-radar-list">
+              {briefing.situationRadar.items.map((item) =>
+                item.url ? (
+                  <a
+                    key={item.id}
+                    href={item.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`situation-radar-item ${item.severity}`}
+                  >
+                    <span className="situation-radar-badge">{item.badge}</span>
+                    <strong>{item.title}</strong>
+                    <span className="situation-radar-detail">{item.detail}</span>
+                  </a>
+                ) : (
+                  <div key={item.id} className={`situation-radar-item ${item.severity}`}>
+                    <span className="situation-radar-badge">{item.badge}</span>
+                    <strong>{item.title}</strong>
+                    <span className="situation-radar-detail">{item.detail}</span>
+                  </div>
+                ),
+              )}
+            </div>
+          </section>
+        )}
+
+        {/* "Since Your Last Visit" Catch-Up Delta Card */}
+        {briefing.catchUpDelta && briefing.catchUpDelta.hasChanges && (
+          <section
+            className={`daily-briefing-catchup-card ${
+              activeChapter?.kind === "catchup" ? "is-speaking-chapter" : ""
+            }`}
+            aria-label="Since your last visit catch-up delta"
+          >
+            <div className="catchup-card-header">
+              <span className="catchup-card-title">⏱️ Since Your Last Visit</span>
+              <span className="catchup-card-elapsed">Checkpoint {briefing.catchUpDelta.elapsedLabel}</span>
+            </div>
+            <div className="catchup-metrics-row">
+              {briefing.catchUpDelta.newStoriesCount > 0 && (
+                <span className="catchup-metric-pill">
+                  🗞️ +{briefing.catchUpDelta.newStoriesCount} new{" "}
+                  {briefing.catchUpDelta.newStoriesCount === 1 ? "story" : "stories"}
+                </span>
+              )}
+              {briefing.catchUpDelta.newlySurgingTopics.map((topic) => (
+                <span key={topic} className="catchup-metric-pill">
+                  ⚡ {topic} surging
+                </span>
+              ))}
+              {briefing.catchUpDelta.marketSwings.map((swing) => (
+                <span
+                  key={swing.symbol}
+                  className={`catchup-metric-pill ${swing.deltaPercent >= 0 ? "positive" : "negative"}`}
+                >
+                  {swing.deltaPercent >= 0 ? "▲" : "▼"} {swing.symbol}{" "}
+                  {swing.deltaPercent >= 0 ? "+" : ""}
+                  {swing.deltaPercent.toFixed(1)}%
+                </span>
+              ))}
+            </div>
+            {briefing.catchUpDelta.topNewStories.length > 0 && (
+              <div className="catchup-headlines-row">
+                {briefing.catchUpDelta.topNewStories.map((story) => {
+                  const matched = articles.find((a) => a.url === story.url);
+                  return onOpenArticle ? (
+                    <button
+                      key={story.url}
+                      type="button"
+                      className="catchup-headline-btn"
+                      onClick={() => {
+                        onClose();
+                        onOpenArticle(toFollowedArticle(story, matched));
+                      }}
+                      title={story.title}
+                    >
+                      <strong>{story.source}:</strong> {story.title}
+                    </button>
+                  ) : (
+                    <a
+                      key={story.url}
+                      href={story.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="catchup-headline-btn"
+                      title={story.title}
+                    >
+                      <strong>{story.source}:</strong> {story.title}
+                    </a>
+                  );
+                })}
               </div>
             )}
           </section>
@@ -858,7 +1263,11 @@ export default function DailyBriefingModal({
         {/* Glance KPI Grid */}
         <section className="daily-briefing-glance-grid" aria-label="Executive briefing glance">
           {/* Weather Glance */}
-          <article className="glance-card weather-glance">
+          <article
+            className={`glance-card weather-glance ${
+              activeChapter?.kind === "weather" ? "is-speaking-chapter" : ""
+            }`}
+          >
             <div className="glance-card-header">
               <span className="glance-card-icon" aria-hidden="true">
                 {briefing.weatherGlance ? getWeatherIcon(briefing.weatherGlance.weatherCode) : "⛅"}
@@ -888,8 +1297,12 @@ export default function DailyBriefingModal({
             )}
           </article>
 
-          {/* Market Glance (Top Mover + Multi-Ticker Watchlist Pills) */}
-          <article className="glance-card market-glance">
+          {/* Market Glance (Top Mover + Sparklines + "Why It's Moving" + Multi-Ticker Watchlist Pills) */}
+          <article
+            className={`glance-card market-glance ${
+              activeChapter?.kind === "markets" ? "is-speaking-chapter" : ""
+            }`}
+          >
             <div className="glance-card-header">
               <span className="glance-card-icon" aria-hidden="true">📈</span>
               <span className="glance-card-label">
@@ -898,25 +1311,72 @@ export default function DailyBriefingModal({
             </div>
             {briefing.marketGlance ? (
               <div className="glance-card-content">
-                <div className="glance-main-stat">
-                  <strong>{briefing.marketGlance.symbol}</strong>
-                  <span
-                    className={`glance-stat-pill ${
-                      briefing.marketGlance.change > 0
-                        ? "positive"
-                        : briefing.marketGlance.change < 0
-                          ? "negative"
-                          : "neutral"
-                    }`}
-                  >
-                    {briefing.marketGlance.change > 0 ? "+" : ""}
-                    {briefing.marketGlance.percentChange.toFixed(2)}%
-                  </span>
+                <div className="glance-main-stat glance-main-stat-with-spark">
+                  <div className="glance-main-stat">
+                    <strong>{briefing.marketGlance.symbol}</strong>
+                    <span
+                      className={`glance-stat-pill ${
+                        briefing.marketGlance.change > 0
+                          ? "positive"
+                          : briefing.marketGlance.change < 0
+                            ? "negative"
+                            : "neutral"
+                      }`}
+                    >
+                      {briefing.marketGlance.change > 0 ? "+" : ""}
+                      {briefing.marketGlance.percentChange.toFixed(2)}%
+                    </span>
+                  </div>
+                  <MarketSparkline
+                    points={briefing.marketGlance.sparkline}
+                    isPositive={briefing.marketGlance.isPositive}
+                    width={64}
+                    height={22}
+                  />
                 </div>
                 <p className="glance-subtext">
                   <span>{briefing.marketGlance.name}</span>
                   <span> &bull; {briefing.marketGlance.formattedPrice}</span>
                 </p>
+
+                {briefing.marketGlance.catalystTitle && briefing.marketGlance.catalystUrl && (
+                  onOpenArticle ? (
+                    <button
+                      type="button"
+                      className="glance-catalyst-link"
+                      onClick={() => {
+                        const url = briefing.marketGlance!.catalystUrl!;
+                        const matched = articles.find((a) => a.url === url);
+                        onClose();
+                        onOpenArticle(
+                          toFollowedArticle(
+                            {
+                              title: briefing.marketGlance!.catalystTitle!,
+                              url,
+                              source: briefing.marketGlance!.catalystSource || "Signal",
+                            },
+                            matched,
+                          ),
+                        );
+                      }}
+                      title={`Why ${briefing.marketGlance.symbol} is moving: ${briefing.marketGlance.catalystTitle}`}
+                    >
+                      <span className="glance-catalyst-kicker">Why it&apos;s moving:</span>
+                      {briefing.marketGlance.catalystTitle}
+                    </button>
+                  ) : (
+                    <a
+                      href={briefing.marketGlance.catalystUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="glance-catalyst-link"
+                      title={briefing.marketGlance.catalystTitle}
+                    >
+                      <span className="glance-catalyst-kicker">Why it&apos;s moving:</span>
+                      {briefing.marketGlance.catalystTitle}
+                    </a>
+                  )
+                )}
 
                 {secondaryWatchlistQuotes.length > 0 && (
                   <div className="glance-watchlist-strip" aria-label="Additional watched market movers">
@@ -930,9 +1390,19 @@ export default function DailyBriefingModal({
                               ? "negative"
                               : "neutral"
                         }`}
-                        title={`${item.name} (${item.topic}): ${item.formattedPrice}`}
+                        title={
+                          item.catalystTitle
+                            ? `${item.name} (${item.formattedPrice}) — Why it's moving: ${item.catalystTitle}`
+                            : `${item.name} (${item.topic}): ${item.formattedPrice}`
+                        }
                       >
                         <strong>{item.symbol}</strong>
+                        <MarketSparkline
+                          points={item.sparkline}
+                          isPositive={item.isPositive}
+                          width={32}
+                          height={12}
+                        />
                         <span>
                           {item.percentChange > 0 ? "+" : ""}
                           {item.percentChange.toFixed(1)}%
@@ -950,7 +1420,11 @@ export default function DailyBriefingModal({
           </article>
 
           {/* Pulse Momentum Glance */}
-          <article className="glance-card pulse-glance">
+          <article
+            className={`glance-card pulse-glance ${
+              activeChapter?.kind === "momentum" ? "is-speaking-chapter" : ""
+            }`}
+          >
             <div className="glance-card-header">
               <span className="glance-card-icon" aria-hidden="true">⚡</span>
               <span className="glance-card-label">Topic Momentum</span>
@@ -1187,14 +1661,17 @@ export default function DailyBriefingModal({
             </div>
           ) : (
             <div className="daily-briefing-story-list">
-              {briefing.leadStories.map((story) => {
+              {briefing.leadStories.map((story, storyIdx) => {
                 const matchedArticle = articles.find((a) => a.url === story.url);
                 const articleRecord = toFollowedArticle(story, matchedArticle);
                 const hasOfflineReader = Boolean(getCachedOfflineArticle(story.url)?.paragraphs?.length);
+                const isSpeakingThisStory = activeChapter?.storyIndex === storyIdx;
                 return (
                   <article
                     key={story.url}
-                    className={`briefing-story-item ${story.priorityTopic ? "priority-highlighted" : ""}`}
+                    className={`briefing-story-item ${story.priorityTopic ? "priority-highlighted" : ""} ${
+                      isSpeakingThisStory ? "is-speaking-chapter" : ""
+                    }`}
                   >
                     <div className="briefing-story-meta">
                       <span className="briefing-story-source">{story.source}</span>

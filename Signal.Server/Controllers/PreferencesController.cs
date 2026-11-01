@@ -95,6 +95,15 @@ public sealed class PreferencesController(
         preferences.SecondaryTimeZoneJson = secondaryTimeZoneJson;
         preferences.TrendRegionsJson = trendRegionsJson;
         preferences.TrendsPerRegion = NormalizeTrendsPerRegion(request.TrendsPerRegion);
+        var requestOrigin = Request?.Host.HasValue == true
+            ? $"{Request.Scheme}://{Request.Host}{Request.PathBase}"
+            : null;
+        var mergedBriefing = ExecutiveBriefingDeliveryService.MergePatch(
+            ExecutiveBriefingDeliveryService.Deserialize(preferences.BriefingPreferencesJson),
+            request.BriefingPreferences,
+            weatherLocation?.Timezone,
+            requestOrigin);
+        preferences.BriefingPreferencesJson = JsonSerializer.Serialize(mergedBriefing);
         preferences.UpdatedAtUtc = DateTimeOffset.UtcNow;
 
         await SyncTopicRefreshStatesAsync(
@@ -211,7 +220,8 @@ public sealed class PreferencesController(
         new NewsSourcesResponse(
             preferences.GoogleEnabled,
             preferences.GdeltEnabled,
-            DeserializeList(preferences.RssFeedsJson)));
+            DeserializeList(preferences.RssFeedsJson)),
+        ExecutiveBriefingDeliveryService.Deserialize(preferences.BriefingPreferencesJson) with { PublicOrigin = null });
 
     internal static int NormalizeRetentionDays(int value) => AllowedRetentionDays.Contains(value) ? value : 30;
     internal static int NormalizeStoryLimit(int value) =>
@@ -449,7 +459,8 @@ public sealed record NewsPreferencesResponse(
     SecondaryTimeZoneResponse? SecondaryTimeZone,
     string[] TrendRegions,
     int TrendsPerRegion,
-    NewsSourcesResponse Sources)
+    NewsSourcesResponse Sources,
+    ExecutiveBriefingPreferencesDto? BriefingPreferences = null)
 {
     public static NewsPreferencesResponse Default { get; } = new(
         ["Artificial intelligence"],
@@ -467,7 +478,8 @@ public sealed record NewsPreferencesResponse(
         null,
         GoogleTrendsService.AvailableRegions.Select(region => region.Code).ToArray(),
         GoogleTrendsService.DefaultTrendsPerRegion,
-        new NewsSourcesResponse(true, true, []));
+        new NewsSourcesResponse(true, true, []),
+        ExecutiveBriefingPreferencesDto.Default);
 }
 
 public sealed record NewsSourcesResponse(bool Google, bool Gdelt, string[] RssFeeds);
@@ -498,7 +510,8 @@ public sealed record NewsPreferencesRequest(
     string[]? TrendRegions,
     int TrendsPerRegion,
     [Required] NewsSourcesRequest Sources,
-    bool? PushNewsTitlesEnabled = null);
+    bool? PushNewsTitlesEnabled = null,
+    ExecutiveBriefingPreferencesPatch? BriefingPreferences = null);
 
 public sealed record WeatherLocationRequest(
     [Required, MaxLength(120)] string Name,
