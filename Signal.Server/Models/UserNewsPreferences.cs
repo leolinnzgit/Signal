@@ -47,5 +47,7 @@ public sealed class UserNewsPreferences
 
     public string BriefingPreferencesJson { get; set; } = "{}";
 
+    public string MarketPortfolioJson { get; set; } = "[]";
+
     public DateTimeOffset UpdatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
 }

@@ -60,9 +60,10 @@ import type {
   ClientWeatherAlert,
   ClientWeatherConditions,
 } from "./weather-briefing";
-import type { MarketQuote } from "./market-quote";
+import type { MarketQuote, MarketPortfolioQuoteItem } from "./market-quote";
 import type { EntityPulseSummary } from "./entity-pulse";
 import { useSpokenBriefing } from "./useSpokenBriefing";
+import CarModePlayer from "./CarModePlayer";
 import "./daily-briefing.css";
 
 function getWeatherIcon(code: number): string {
@@ -136,6 +137,8 @@ export default function DailyBriefingModal({
   situationRadar = null,
   catchUpDelta = null,
   accountSyncActive = false,
+  initialCarMode = false,
+  portfolioAlerts = [],
 }: {
   isOpen: boolean;
   onClose: () => void;
@@ -171,6 +174,8 @@ export default function DailyBriefingModal({
   situationRadar?: SituationRadarSummary | null;
   catchUpDelta?: CatchUpDeltaSummary | null;
   accountSyncActive?: boolean;
+  initialCarMode?: boolean;
+  portfolioAlerts?: readonly MarketPortfolioQuoteItem[];
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const speech = useSpokenBriefing();
@@ -231,6 +236,7 @@ export default function DailyBriefingModal({
   const qaAbortRef = useRef<AbortController | null>(null);
 
   const [schedulePanelOpen, setSchedulePanelOpen] = useState(false);
+  const [carModeOpen, setCarModeOpen] = useState(Boolean(initialCarMode));
   const [isOnline, setIsOnline] = useState<boolean>(() =>
     typeof navigator !== "undefined" ? navigator.onLine : true,
   );
@@ -271,6 +277,7 @@ export default function DailyBriefingModal({
       maxLeadStories: 4,
       situationRadar,
       catchUpDelta,
+      portfolioAlerts,
     });
   }, [
     weather,
@@ -285,6 +292,7 @@ export default function DailyBriefingModal({
     userTime,
     situationRadar,
     catchUpDelta,
+    portfolioAlerts,
   ]);
 
   // When offline and live feed has no stories yet, restore the saved Offline Briefing Pack snapshot
@@ -1027,6 +1035,15 @@ export default function DailyBriefingModal({
             >
               ⏰ {schedule.enabled ? `Wake-up: ${formatScheduleTimeDisplay(schedule.time)}` : "Schedule Wake-up"}
             </button>
+
+            <button
+              type="button"
+              className="briefing-toolbar-btn car-mode-trigger-btn"
+              onClick={() => setCarModeOpen(true)}
+              title="Switch to Commute & Smart Car Mode (large touch targets, driving voice controls)"
+            >
+              🚗 Car Mode
+            </button>
           </div>
 
           {(shareFeedback || hostedShareUrl) && (
@@ -1291,6 +1308,22 @@ export default function DailyBriefingModal({
                     ⚠️ {briefing.weatherGlance.alertsCount} weather alert active
                   </div>
                 )}
+
+                {portfolioAlerts && portfolioAlerts.some((a) => a.isAlertTriggered) && (
+                  <div className="briefing-portfolio-alerts-group" role="status" aria-label="Triggered portfolio alerts">
+                    {portfolioAlerts
+                      .filter((a) => a.isAlertTriggered)
+                      .map((alert) => (
+                        <span
+                          key={alert.symbol}
+                          className={`portfolio-alert-badge ${alert.alertDirection ?? "up"}`}
+                          title={`${alert.displayName || alert.symbol} moved ${alert.quote?.percentChange.toFixed(2)}%, exceeding threshold of ${alert.alertThresholdPercent}%`}
+                        >
+                          🚨 {alert.displayName || alert.symbol} {alert.quote ? `${alert.quote.percentChange >= 0 ? "+" : ""}${alert.quote.percentChange.toFixed(1)}%` : ""} (Threshold &plusmn;{alert.alertThresholdPercent}%)
+                        </span>
+                      ))}
+                  </div>
+                )}
               </div>
             ) : (
               <div className="glance-card-empty">Local weather unavailable</div>
@@ -1409,6 +1442,22 @@ export default function DailyBriefingModal({
                         </span>
                       </span>
                     ))}
+                  </div>
+                )}
+
+                {portfolioAlerts && portfolioAlerts.some((a) => a.isAlertTriggered) && (
+                  <div className="briefing-portfolio-alerts-group" role="status" aria-label="Triggered portfolio alerts">
+                    {portfolioAlerts
+                      .filter((a) => a.isAlertTriggered)
+                      .map((alert) => (
+                        <span
+                          key={alert.symbol}
+                          className={`portfolio-alert-badge ${alert.alertDirection ?? "up"}`}
+                          title={`${alert.displayName || alert.symbol} moved ${alert.quote?.percentChange.toFixed(2)}%, exceeding threshold of ${alert.alertThresholdPercent}%`}
+                        >
+                          🚨 {alert.displayName || alert.symbol} {alert.quote ? `${alert.quote.percentChange >= 0 ? "+" : ""}${alert.quote.percentChange.toFixed(1)}%` : ""} (Threshold &plusmn;{alert.alertThresholdPercent}%)
+                        </span>
+                      ))}
                   </div>
                 )}
               </div>
@@ -1752,6 +1801,38 @@ export default function DailyBriefingModal({
             <p>{briefing.spokenScript}</p>
           </div>
         </details>
+
+        {carModeOpen && (
+          <CarModePlayer
+            briefing={briefing}
+            activeChapterIndex={speech.activeChapterIndex}
+            isSpeaking={speech.isSpeaking}
+            isPaused={speech.isPaused}
+            onPlayPause={() => {
+              if (speech.isSpeaking) speech.pause();
+              else if (speech.isPaused) speech.resume();
+              else void playBriefingFromChapter();
+            }}
+            onPreviousChapter={() => speech.previousChapter()}
+            onNextChapter={() => speech.nextChapter()}
+            onSeekRelative={(s) => speech.seekRelative(s)}
+            onClose={() => setCarModeOpen(false)}
+            onQueueStories={() => void handleQueueStoriesClick()}
+            onSnooze={(mins) => {
+              speech.pause();
+              if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+                window.setTimeout(() => {
+                  try {
+                    new Notification("⏰ Morning Briefing", {
+                      body: "Your 10-minute briefing snooze is complete. Tap to resume listening.",
+                      icon: "/icons/signal-medallion-192.png",
+                    });
+                  } catch {}
+                }, mins * 60 * 1000);
+              }
+            }}
+          />
+        )}
       </div>
     </dialog>
   );

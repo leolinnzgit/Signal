@@ -36,6 +36,29 @@ export type MarketWatchlistResult = {
   quotes: MarketQuote[];
 };
 
+export interface MarketPortfolioItem {
+  symbol: string;
+  displayName: string;
+  alertThresholdPercent: number;
+  alertEnabled: boolean;
+}
+
+export interface MarketPortfolioQuoteItem {
+  symbol: string;
+  displayName: string;
+  alertThresholdPercent: number;
+  alertEnabled: boolean;
+  isAlertTriggered: boolean;
+  alertDirection: "up" | "down" | null;
+  quote?: MarketQuote | null;
+}
+
+export interface MarketPortfolioResponse {
+  configured: boolean;
+  items: MarketPortfolioQuoteItem[];
+  hasAlerts: boolean;
+}
+
 export function formatMarketPrice(price: number, currency: string) {
   try {
     return new Intl.NumberFormat(undefined, {
@@ -159,6 +182,99 @@ export async function loadMarketWatchlist(
   } catch {
     return { configured: false, quotes: [] };
   }
+}
+
+export async function loadMarketPortfolio(
+  signal?: AbortSignal,
+  fetcher: typeof fetch = fetch,
+): Promise<MarketPortfolioResponse> {
+  try {
+    const response = await fetcher("/api/market/portfolio", {
+      credentials: "same-origin",
+      cache: "no-store",
+      signal,
+    });
+    if (!response.ok) return { configured: false, items: [], hasAlerts: false };
+    const data = (await response.json()) as MarketPortfolioResponse;
+    return {
+      configured: Boolean(data?.configured),
+      items: Array.isArray(data?.items) ? data.items : [],
+      hasAlerts: Boolean(data?.hasAlerts),
+    };
+  } catch {
+    return { configured: false, items: [], hasAlerts: false };
+  }
+}
+
+export async function saveMarketPortfolio(
+  items: readonly MarketPortfolioItem[],
+  signal?: AbortSignal,
+  fetcher: typeof fetch = fetch,
+): Promise<MarketPortfolioResponse> {
+  try {
+    const csrf = await fetcher("/api/auth/csrf", {
+      credentials: "same-origin",
+      cache: "no-store",
+      signal,
+    });
+    if (!csrf.ok) return { configured: false, items: [], hasAlerts: false };
+    const { token } = (await csrf.json()) as { token?: string };
+    if (!token) return { configured: false, items: [], hasAlerts: false };
+
+    const response = await fetcher("/api/market/portfolio", {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      signal,
+      headers: {
+        "Content-Type": "application/json",
+        "X-XSRF-TOKEN": token,
+      },
+      body: JSON.stringify(items),
+    });
+    if (!response.ok) return { configured: false, items: [], hasAlerts: false };
+    const data = (await response.json()) as MarketPortfolioResponse;
+    return {
+      configured: Boolean(data?.configured),
+      items: Array.isArray(data?.items) ? data.items : [],
+      hasAlerts: Boolean(data?.hasAlerts),
+    };
+  } catch {
+    return { configured: false, items: [], hasAlerts: false };
+  }
+}
+
+export function evaluateMarketAlerts(
+  items: readonly MarketPortfolioItem[],
+  quotes: readonly MarketQuote[],
+): MarketPortfolioQuoteItem[] {
+  if (!Array.isArray(items) || items.length === 0) return [];
+  const quoteMap = new Map<string, MarketQuote>();
+  for (const q of quotes || []) {
+    if (q?.symbol) quoteMap.set(q.symbol.toUpperCase(), q);
+    if (q?.topic) quoteMap.set(q.topic.toUpperCase(), q);
+  }
+
+  return items.map((item) => {
+    const quote =
+      quoteMap.get(item.symbol.toUpperCase()) ||
+      quoteMap.get((item.displayName || "").toUpperCase()) ||
+      null;
+    const isTriggered = Boolean(
+      quote &&
+        item.alertEnabled &&
+        Math.abs(quote.percentChange) >= item.alertThresholdPercent,
+    );
+    return {
+      symbol: item.symbol,
+      displayName: item.displayName || item.symbol,
+      alertThresholdPercent: item.alertThresholdPercent,
+      alertEnabled: item.alertEnabled,
+      isAlertTriggered: isTriggered,
+      alertDirection: quote ? (quote.percentChange >= 0 ? "up" : "down") : null,
+      quote,
+    };
+  });
 }
 
 export function buildSparklineGeometry(

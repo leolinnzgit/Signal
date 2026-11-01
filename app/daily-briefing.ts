@@ -10,6 +10,7 @@ import {
   formatMarketPrice,
   sortWatchlistByMagnitude,
   type MarketQuote,
+  type MarketPortfolioQuoteItem,
 } from "./market-quote.ts";
 import type { EntityPulseSummary } from "./entity-pulse.ts";
 import type { CatchUpDeltaSummary, SituationRadarSummary } from "./daily-briefing-radar.ts";
@@ -43,6 +44,7 @@ export type DailyBriefingParams = {
   maxLeadStories?: number;
   situationRadar?: SituationRadarSummary | null;
   catchUpDelta?: CatchUpDeltaSummary | null;
+  portfolioAlerts?: readonly MarketPortfolioQuoteItem[];
 };
 
 export type DailyBriefingGlanceWeather = {
@@ -121,6 +123,7 @@ export type DailyBriefingData = {
   unreadCount: number;
   priorityTopics: string[];
   priorityMatchesCount: number;
+  portfolioAlerts?: readonly MarketPortfolioQuoteItem[];
   chapters: DailyBriefingChapter[];
   spokenScript: string;
 };
@@ -665,6 +668,16 @@ export function buildDailyBriefing(params: DailyBriefingParams = {}): DailyBrief
         marketLine += ` Elsewhere on your watchlist, ${secondaryMovers.join(", and ")}.`;
       }
     }
+    if (params.portfolioAlerts && params.portfolioAlerts.length > 0) {
+      const triggered = params.portfolioAlerts.filter((a) => a.isAlertTriggered);
+      if (triggered.length > 0) {
+        const alertStrings = triggered.map(
+          (a) =>
+            `${a.displayName || a.symbol} is ${a.alertDirection === "down" ? "down" : "up"} ${Math.abs(a.quote?.percentChange ?? 0).toFixed(1)} percent (exceeding your ${a.alertThresholdPercent}% threshold)`,
+        );
+        marketLine += ` Personal portfolio alert: ${alertStrings.join("; ")}.`;
+      }
+    }
     chapters.push({
       id: "markets",
       kind: "markets",
@@ -816,6 +829,7 @@ export function buildDailyBriefing(params: DailyBriefingParams = {}): DailyBrief
     unreadCount,
     priorityTopics,
     priorityMatchesCount,
+    portfolioAlerts: params.portfolioAlerts,
     chapters,
     spokenScript: chapters.map((ch) => ch.text).join(" "),
   };

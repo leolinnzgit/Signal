@@ -4,8 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { openArticleAudioStream } from "./article-audio-stream";
 import {
   articleNarrationParts,
-  normalizeReadingVoices,
-  READING_VOICES_STORAGE_KEY,
 } from "./headline-audio";
 import {
   createHeadlinePlayback,
@@ -13,12 +11,14 @@ import {
   normalizeHeadlineSpeechPreferences,
 } from "./headline-playback";
 
-export type SpokenBriefingStatus = "idle" | "starting" | "playing" | "error";
+export type SpokenBriefingStatus = "idle" | "starting" | "playing" | "paused" | "error";
 
 export interface SpeakChaptersOptions {
   startIndex?: number;
   targetLanguage?: string;
   offlineAudioBlob?: Blob | null;
+  title?: string;
+  chapterTitles?: readonly string[];
   onComplete?: () => void;
 }
 
@@ -26,6 +26,7 @@ export interface SpeakChaptersOptions {
  * Reusable hook to narrate generated text or chaptered briefings (such as the
  * Executive Daily Briefing, News Pulse digest, or OCR text) using prewarmed Offline Pack
  * neural audio blobs, Signal's Azure Neural / server audio stream, or automatic browser speech fallback.
+ * Includes complete Media Session API lock-screen / automotive integration and car controls.
  */
 export function useSpokenBriefing() {
   const [status, setStatus] = useState<SpokenBriefingStatus>("idle");
@@ -35,6 +36,48 @@ export function useSpokenBriefing() {
   const abortRef = useRef<AbortController | null>(null);
   const playbackRef = useRef<ReturnType<typeof createHeadlinePlayback> | null>(null);
   const sequenceRef = useRef(0);
+
+  const currentChaptersRef = useRef<ReadonlyArray<{ text: string; label?: string }>>([]);
+  const currentOptionsRef = useRef<SpeakChaptersOptions>({});
+  const currentChapterIndexRef = useRef<number | null>(null);
+
+  const syncMediaSession = useCallback(
+    (newStatus: SpokenBriefingStatus, chapterIdx: number | null) => {
+      if (typeof window === "undefined" || typeof navigator === "undefined" || !("mediaSession" in navigator)) {
+        return;
+      }
+      const session = navigator.mediaSession;
+
+      if (newStatus === "idle" || newStatus === "error") {
+        session.playbackState = "none";
+        return;
+      }
+
+      session.playbackState = newStatus === "playing" ? "playing" : "paused";
+
+      const chs = currentChaptersRef.current;
+      const idx = chapterIdx ?? 0;
+      const currentChapter = chs[idx];
+      const customTitle = currentOptionsRef.current.chapterTitles?.[idx] || currentOptionsRef.current.title;
+      const chapterTitle =
+        customTitle ||
+        currentChapter?.label ||
+        (currentChapter?.text ? currentChapter.text.slice(0, 50) + "..." : "Executive Daily Briefing");
+
+      if ("MediaMetadata" in window) {
+        session.metadata = new MediaMetadata({
+          title: chapterTitle,
+          artist: "Signal Commute Briefing",
+          album: "Executive Daily Briefing",
+          artwork: [
+            { src: "/icons/signal-medallion-512.png", sizes: "512x512", type: "image/png" },
+            { src: "/icons/signal-medallion-192.png", sizes: "192x192", type: "image/png" },
+          ],
+        });
+      }
+    },
+    [],
+  );
 
   const releaseCloud = useCallback(() => {
     abortRef.current?.abort();
@@ -64,23 +107,67 @@ export function useSpokenBriefing() {
     releaseCloud();
     playbackRef.current?.dispose();
     playbackRef.current = null;
+    currentChapterIndexRef.current = null;
     setActiveChapterIndex(null);
     setStatus("idle");
-  }, [releaseCloud]);
+    syncMediaSession("idle", null);
+  }, [releaseCloud, syncMediaSession]);
+
+  const pause = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+    if (playbackRef.current) {
+      playbackRef.current.setPaused(true);
+    }
+    setStatus("paused");
+    syncMediaSession("paused", currentChapterIndexRef.current);
+  }, [syncMediaSession]);
+
+  const resume = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.play().catch(() => {});
+    }
+    if (playbackRef.current) {
+      playbackRef.current.setPaused(false);
+    }
+    setStatus("playing");
+    syncMediaSession("playing", currentChapterIndexRef.current);
+  }, [syncMediaSession]);
+
+  const toggle = useCallback(() => {
+    if (status === "playing") {
+      pause();
+    } else if (status === "paused") {
+      resume();
+    }
+  }, [status, pause, resume]);
+
+  const seekRelative = useCallback((seconds: number) => {
+    if (audioRef.current && Number.isFinite(audioRef.current.duration)) {
+      audioRef.current.currentTime = Math.max(
+        0,
+        Math.min(audioRef.current.duration, audioRef.current.currentTime + seconds),
+      );
+    }
+  }, []);
 
   const speakChapters = useCallback(
     (
-      chaptersInput: ReadonlyArray<{ text: string }>,
+      chaptersInput: ReadonlyArray<{ text: string; label?: string }>,
       options: SpeakChaptersOptions = {},
     ) => {
       const validChapters = chaptersInput
-        .map((ch) => ({ text: (ch?.text || "").trim() }))
+        .map((ch) => ({ text: (ch?.text || "").trim(), label: ch?.label }))
         .filter((ch) => ch.text.length > 0);
 
       const offlineAudioBlob = options.offlineAudioBlob;
       if (validChapters.length === 0 && !(offlineAudioBlob && offlineAudioBlob.size > 44)) {
         return;
       }
+
+      currentChaptersRef.current = validChapters;
+      currentOptionsRef.current = options;
 
       const startIndex = Math.max(
         0,
@@ -96,7 +183,10 @@ export function useSpokenBriefing() {
       stop();
       const run = sequenceRef.current;
       setStatus("starting");
-      setActiveChapterIndex(validChapters.length > 0 ? startIndex : null);
+      const activeIdx = validChapters.length > 0 ? startIndex : null;
+      currentChapterIndexRef.current = activeIdx;
+      setActiveChapterIndex(activeIdx);
+      syncMediaSession("playing", activeIdx);
 
       let preferences = normalizeHeadlineSpeechPreferences(null);
       try {
@@ -140,7 +230,12 @@ export function useSpokenBriefing() {
             break;
           }
         }
-        setActiveChapterIndex(startIndex + relIdx);
+        const newIdx = startIndex + relIdx;
+        if (currentChapterIndexRef.current !== newIdx) {
+          currentChapterIndexRef.current = newIdx;
+          setActiveChapterIndex(newIdx);
+          syncMediaSession("playing", newIdx);
+        }
       };
 
       const fallbackToBrowserSpeech = () => {
@@ -153,8 +248,10 @@ export function useSpokenBriefing() {
           !window.speechSynthesis ||
           typeof window.SpeechSynthesisUtterance !== "function"
         ) {
+          currentChapterIndexRef.current = null;
           setActiveChapterIndex(null);
           setStatus("error");
+          syncMediaSession("error", null);
           return;
         }
 
@@ -162,13 +259,19 @@ export function useSpokenBriefing() {
           if (run !== sequenceRef.current) return;
           if (relChapterIdx >= remainingChapters.length) {
             playbackRef.current = null;
+            currentChapterIndexRef.current = null;
             setActiveChapterIndex(null);
             setStatus("idle");
+            syncMediaSession("idle", null);
             options.onComplete?.();
             return;
           }
 
-          setActiveChapterIndex(startIndex + relChapterIdx);
+          const chapterIdx = startIndex + relChapterIdx;
+          currentChapterIndexRef.current = chapterIdx;
+          setActiveChapterIndex(chapterIdx);
+          syncMediaSession("playing", chapterIdx);
+
           const parts = articleNarrationParts(
             "",
             [remainingChapters[relChapterIdx].text],
@@ -200,8 +303,10 @@ export function useSpokenBriefing() {
                   if (run !== sequenceRef.current) return;
                   current.dispose();
                   playbackRef.current = null;
+                  currentChapterIndexRef.current = null;
                   setActiveChapterIndex(null);
                   setStatus("error");
+                  syncMediaSession("error", null);
                 },
               },
               {
@@ -235,11 +340,10 @@ export function useSpokenBriefing() {
       audioRef.current = element;
       element.playbackRate = preferences.rate;
 
-      let started = false;
       element.onplaying = () => {
         if (run === sequenceRef.current) {
-          started = true;
           setStatus("playing");
+          syncMediaSession("playing", currentChapterIndexRef.current);
         }
       };
       element.ontimeupdate = () => {
@@ -248,8 +352,10 @@ export function useSpokenBriefing() {
       element.onended = () => {
         if (run === sequenceRef.current) {
           releaseCloud();
+          currentChapterIndexRef.current = null;
           setActiveChapterIndex(null);
           setStatus("idle");
+          syncMediaSession("idle", null);
           options.onComplete?.();
         }
       };
@@ -261,78 +367,101 @@ export function useSpokenBriefing() {
           return;
         }
 
-        const onCloudFailed = () => {
-          if (run !== sequenceRef.current || abort.signal.aborted) return;
-          if (!started) fallbackToBrowserSpeech();
-          else {
-            releaseCloud();
-            setActiveChapterIndex(null);
-            setStatus("error");
-          }
-        };
-        element.onerror = onCloudFailed;
-
-        let voices = normalizeReadingVoices(null);
-        try {
-          voices = normalizeReadingVoices(
-            JSON.parse(localStorage.getItem(READING_VOICES_STORAGE_KEY) ?? "null"),
-          );
-        } catch {
-          // Use server default neural voice
-        }
-
-        void openArticleAudioStream(
-          articleNarrationParts("", [clean], 900),
+        const readingVoice = preferences.voices.en || "en-NZ-MollyNeural";
+        openArticleAudioStream(
+          [clean],
           language,
-          voices,
+          { en: readingVoice, zh: "zh-CN-XiaoxiaoNeural" },
           abort.signal,
           (streamStatus) => {
-            if (streamStatus.error) onCloudFailed();
+            if (run !== sequenceRef.current || abort.signal.aborted) return;
+            if (streamStatus.error) {
+              fallbackToBrowserSpeech();
+            }
           },
         )
-          .then((url) => {
+          .then((streamUrl) => {
             if (run !== sequenceRef.current || abort.signal.aborted) return;
-            element.src = url;
-            void element.play().catch(onCloudFailed);
+            if (!streamUrl) {
+              fallbackToBrowserSpeech();
+              return;
+            }
+            element.src = streamUrl;
+            element.play().catch(() => {
+              fallbackToBrowserSpeech();
+            });
           })
-          .catch(onCloudFailed);
+          .catch(() => {
+            fallbackToBrowserSpeech();
+          });
       };
 
-      // Fast-path: play prewarmed Offline Briefing Pack neural audio Blob immediately when starting from Chapter 0
-      if (canUseOfflineFullBlob && offlineAudioBlob && typeof URL.createObjectURL === "function") {
+      if (canUseOfflineFullBlob && offlineAudioBlob) {
         try {
           const blobUrl = URL.createObjectURL(offlineAudioBlob);
           objectUrlRef.current = blobUrl;
-          const onBlobFailed = () => {
-            if (run !== sequenceRef.current || abort.signal.aborted) return;
-            if (objectUrlRef.current) {
-              try {
-                URL.revokeObjectURL(objectUrlRef.current);
-              } catch {
-                // Ignore
-              }
-              objectUrlRef.current = null;
-            }
-            if (!started) startOnlineStream();
-            else {
-              releaseCloud();
-              setActiveChapterIndex(null);
-              setStatus("error");
-            }
-          };
-          element.onerror = onBlobFailed;
           element.src = blobUrl;
-          void element.play().catch(onBlobFailed);
+          element.play().catch(() => {
+            fallbackToBrowserSpeech();
+          });
           return;
         } catch {
-          // Fall through to online stream or browser speech
+          // If blob URL creation fails, fall back to online stream
         }
       }
 
       startOnlineStream();
     },
-    [releaseCloud, stop],
+    [releaseCloud, stop, syncMediaSession],
   );
+
+  const nextChapter = useCallback(() => {
+    const chs = currentChaptersRef.current;
+    const cur = currentChapterIndexRef.current ?? 0;
+    if (cur + 1 < chs.length) {
+      speakChapters(chs, { ...currentOptionsRef.current, startIndex: cur + 1 });
+    }
+  }, [speakChapters]);
+
+  const previousChapter = useCallback(() => {
+    const chs = currentChaptersRef.current;
+    const cur = currentChapterIndexRef.current ?? 0;
+    if (cur > 0) {
+      speakChapters(chs, { ...currentOptionsRef.current, startIndex: cur - 1 });
+    }
+  }, [speakChapters]);
+
+  // Wire lock-screen & car head unit media session action handlers
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    const session = navigator.mediaSession;
+
+    const handlers: [MediaSessionAction, MediaSessionActionHandler][] = [
+      ["play", () => resume()],
+      ["pause", () => pause()],
+      ["previoustrack", () => previousChapter()],
+      ["nexttrack", () => nextChapter()],
+      ["seekforward", (details) => seekRelative(details?.seekOffset ?? 15)],
+      ["seekbackward", (details) => seekRelative(-(details?.seekOffset ?? 15))],
+      ["stop", () => stop()],
+    ];
+
+    for (const [action, handler] of handlers) {
+      try {
+        session.setActionHandler(action, handler);
+      } catch {
+        // Not all browsers support all media actions
+      }
+    }
+
+    return () => {
+      for (const [action] of handlers) {
+        try {
+          session.setActionHandler(action, null);
+        } catch {}
+      }
+    };
+  }, [resume, pause, previousChapter, nextChapter, seekRelative, stop]);
 
   const speak = useCallback(
     (
@@ -359,9 +488,17 @@ export function useSpokenBriefing() {
 
   return {
     status,
-    isActive: status === "starting" || status === "playing",
+    isActive: status === "starting" || status === "playing" || status === "paused",
     isSpeaking: status === "starting" || status === "playing",
+    isPaused: status === "paused",
+    isPlaying: status === "playing",
     activeChapterIndex,
+    pause,
+    resume,
+    toggle,
+    nextChapter,
+    previousChapter,
+    seekRelative,
     speak,
     speakChapters,
     stop,

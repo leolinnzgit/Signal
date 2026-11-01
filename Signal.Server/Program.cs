@@ -398,6 +398,7 @@ await using (var scope = app.Services.CreateAsyncScope())
             "TrendRegionsJson" TEXT NOT NULL DEFAULT '[]',
             "TrendsPerRegion" INTEGER NOT NULL DEFAULT 5,
             "BriefingPreferencesJson" TEXT NOT NULL DEFAULT '{{}}',
+            "MarketPortfolioJson" TEXT NOT NULL DEFAULT '[]',
             "UpdatedAtUtc" TEXT NOT NULL,
             CONSTRAINT "FK_UserNewsPreferences_AspNetUsers_UserId"
                 FOREIGN KEY ("UserId") REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE
@@ -634,6 +635,15 @@ await using (var scope = app.Services.CreateAsyncScope())
         {
             await database.Database.ExecuteSqlRawAsync(
                 "ALTER TABLE \"UserNewsPreferences\" ADD COLUMN \"BriefingPreferencesJson\" TEXT NOT NULL DEFAULT '{{}}';");
+        }
+
+        await using var marketPortfolioColumnCheck = database.Database.GetDbConnection().CreateCommand();
+        marketPortfolioColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('UserNewsPreferences') WHERE name = 'MarketPortfolioJson';";
+        var marketPortfolioColumnExists = Convert.ToInt32(await marketPortfolioColumnCheck.ExecuteScalarAsync()) > 0;
+        if (!marketPortfolioColumnExists)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"UserNewsPreferences\" ADD COLUMN \"MarketPortfolioJson\" TEXT NOT NULL DEFAULT '[]';");
         }
 
         await using var directMessageColumnCheck = database.Database.GetDbConnection().CreateCommand();

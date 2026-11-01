@@ -22,6 +22,7 @@ internal static class DailyBriefingBackendChecks
     {
         await RunMarketWatchlistChecksAsync();
         await RunMarketSparklineChecksAsync();
+        await RunMarketPortfolioAndAlertChecksAsync();
         await RunMultilingualSpeechVoiceChecksAsync();
         await RunBriefingQaChecksAsync();
         await RunExecutiveBriefingDeliveryChecksAsync();
@@ -291,6 +292,65 @@ internal static class DailyBriefingBackendChecks
             && watchlist.All(item => item.Sparkline is { Length: >= 4 })
             && handler.TimeSeriesCalls == 3,
             $"Watchlist sparklines must reuse cached series (expected 3 total time_series calls, got {handler.TimeSeriesCalls}).");
+    }
+
+    private static async Task RunMarketPortfolioAndAlertChecksAsync()
+    {
+        // 1. Crypto ticker parsing
+        Assert(MarketTickerParser.TryParse("BTC/USD", out var btc) && btc!.QualifiedSymbol == "BTC/USD",
+            "MarketTickerParser must support crypto pairs like BTC/USD.");
+        Assert(MarketTickerParser.TryParse("ETH/USD", out var eth) && eth!.QualifiedSymbol == "ETH/USD",
+            "MarketTickerParser must support crypto pairs like ETH/USD.");
+        Assert(MarketTickerParser.TryParse("SOL/USD", out var sol) && sol!.QualifiedSymbol == "SOL/USD",
+            "MarketTickerParser must support crypto pairs like SOL/USD.");
+        Assert(MarketTickerParser.TryParse("AAPL", out var aapl) && aapl!.QualifiedSymbol == "AAPL",
+            "MarketTickerParser must continue supporting standard equities.");
+
+        // 2. Normalization & bounds clamping
+        var normalized = PreferencesController.NormalizeMarketPortfolio([
+            new("BTC/USD", "Bitcoin Core", 3.5m, true),
+            new("btc/usd", "Duplicate Bitcoin", 5.0m, false), // Deduplicated
+            new("NVDA", "Nvidia Corporation", 75.0m, true), // Clamped to 50.0m
+            new("INVALID $$$ TICKER", "Garbage", 2.0m, true), // Skipped
+            new("AVGO", "", 0.05m, true), // Clamped to 0.1m, default display name to symbol
+        ]);
+        Assert(normalized.Length == 3, $"Expected 3 normalized portfolio items, got {normalized.Length}.");
+        Assert(normalized[0].Symbol == "BTC/USD" && normalized[0].DisplayName == "Bitcoin Core" && normalized[0].AlertThresholdPercent == 3.5m,
+            "Normalized BTC/USD did not retain custom threshold and display name.");
+        Assert(normalized[1].Symbol == "NVDA" && normalized[1].AlertThresholdPercent == 50.0m,
+            "Threshold > 50% must be clamped to 50.0m.");
+        Assert(normalized[2].Symbol == "AVGO" && normalized[2].DisplayName == "AVGO" && normalized[2].AlertThresholdPercent == 0.1m,
+            "Threshold < 0.1% must be clamped to 0.1m and empty display name defaults to symbol.");
+
+        // 3. Quotes matching and alert threshold triggers
+        using var cache = new MemoryCache(new MemoryCacheOptions());
+        var handler = new FakeMarketWatchlistHandler();
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("https://api.twelvedata.com/") };
+        var service = new MarketDataService(http, cache, Options.Create(new MarketDataOptions { ApiKey = "fake-key" }));
+
+        var quotes = await service.GetWatchlistAsync([
+            new("Nvidia Corporation", "NVDA"),
+            new("Broadcom", "AVGO"),
+        ], 5, CancellationToken.None);
+
+        var nvdaQuote = quotes.First(q => q.Symbol == "NVDA");
+        var avgoQuote = quotes.First(q => q.Symbol == "AVGO");
+
+        // NVDA has +4.25% in fake handler:
+        // Alert threshold 2.0% -> triggered!
+        var nvdaTriggered = Math.Abs(nvdaQuote.PercentChange) >= 2.0m;
+        Assert(nvdaTriggered, "NVDA (+4.25%) should trigger alert with 2.0% threshold.");
+
+        // AVGO has -2.80% in fake handler:
+        // Alert threshold 5.0% -> NOT triggered.
+        var avgoNotTriggered = Math.Abs(avgoQuote.PercentChange) >= 5.0m;
+        Assert(!avgoNotTriggered, "AVGO (-2.80%) should not trigger alert with 5.0% threshold.");
+
+        // AVGO with threshold 2.5% -> triggered down!
+        var avgoTriggered = Math.Abs(avgoQuote.PercentChange) >= 2.5m;
+        Assert(avgoTriggered, "AVGO (-2.80%) should trigger alert with 2.5% threshold.");
+
+        await Task.CompletedTask;
     }
 
     private static async Task RunExecutiveBriefingDeliveryChecksAsync()

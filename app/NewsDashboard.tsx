@@ -26,7 +26,14 @@ import type { ArticleTranslation } from "./article-translation";
 import { useWeatherAudio } from "./WeatherAudio";
 import { useEarthquakeAlerts } from "./EarthquakeAlerts";
 import AppSettings from "./AppSettings";
-import { attributeMarketMoversToStories, formatMarketPrice, loadMarketWatchlist, type MarketQuote } from "./market-quote";
+import {
+  attributeMarketMoversToStories,
+  formatMarketPrice,
+  loadMarketPortfolio,
+  loadMarketWatchlist,
+  type MarketPortfolioQuoteItem,
+  type MarketQuote,
+} from "./market-quote";
 import { MarketSparkline } from "./MarketSparkline";
 import { describeWeather, weatherBriefing, type ClientWeatherAlert, type ClientWeatherConditions, type LocalWeather, type WeatherForecastDay } from "./weather-briefing";
 import WeatherAlertBanner from "./WeatherAlertBanner";
@@ -954,6 +961,8 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [secondaryTimeZoneError, setSecondaryTimeZoneError] = useState("");
   const [marketQuote, setMarketQuote] = useState<MarketQuote | null>(null);
   const [marketWatchlist, setMarketWatchlist] = useState<MarketQuote[]>([]);
+  const [portfolioAlerts, setPortfolioAlerts] = useState<MarketPortfolioQuoteItem[]>([]);
+  const [dailyBriefingCarMode, setDailyBriefingCarMode] = useState(false);
   const [marketNotice, setMarketNotice] = useState<MarketNotice | null>(null);
   const [tickerEditorOpen, setTickerEditorOpen] = useState(false);
   const [tickerInput, setTickerInput] = useState("");
@@ -1200,15 +1209,42 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     }
   }, [runSaveOfflineBriefingPack]);
 
-  // Open Daily Briefing directly when launched from a Wake-up Notification (?briefing=1)
+  // Open Daily Briefing directly when launched from a Wake-up Notification or Action (?briefing=1, ?carMode=1, ?autoPlayBriefing=1)
   useEffect(() => {
     if (typeof window === "undefined") return;
     const url = new URL(window.location.href);
-    if (url.searchParams.get("briefing") === "1") {
-      url.searchParams.delete("briefing");
+    const hasBriefing = url.searchParams.get("briefing") === "1";
+    const hasAutoPlay = url.searchParams.get("autoPlayBriefing") === "1";
+    const hasCarMode = url.searchParams.get("carMode") === "1";
+
+    if (hasBriefing || hasAutoPlay || hasCarMode) {
+      if (hasBriefing) url.searchParams.delete("briefing");
+      if (hasAutoPlay) url.searchParams.delete("autoPlayBriefing");
+      if (hasCarMode) url.searchParams.delete("carMode");
       window.history.replaceState(window.history.state, "", url);
+
+      if (hasCarMode) setDailyBriefingCarMode(true);
+      if (hasAutoPlay) setDailyBriefingAutoPlay(true);
       setDailyBriefingOpen(true);
     }
+  }, []);
+
+  // Listen for background service worker alarm snooze events
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
+    const handleServiceWorkerMessage = (event: MessageEvent) => {
+      if (event.data?.type === "signal:briefing-snooze") {
+        const mins = Number(event.data.minutes) || 10;
+        window.setTimeout(() => {
+          setDailyBriefingAutoPlay(true);
+          setDailyBriefingOpen(true);
+        }, mins * 60 * 1000);
+      }
+    };
+    navigator.serviceWorker.addEventListener("message", handleServiceWorkerMessage);
+    return () => {
+      navigator.serviceWorker.removeEventListener("message", handleServiceWorkerMessage);
+    };
   }, []);
 
   // Background Wake-up Briefing Scheduler
@@ -1796,6 +1832,13 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         .then((res) => {
           if (!controller.signal.aborted) {
             setMarketWatchlist(res.quotes);
+          }
+        })
+        .catch(() => {});
+      void loadMarketPortfolio(controller.signal, fetch)
+        .then((res) => {
+          if (!controller.signal.aborted) {
+            setPortfolioAlerts(res.items);
           }
         })
         .catch(() => {});
@@ -4591,6 +4634,21 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                 </span>
               </button>
             ))}
+            {portfolioAlerts && portfolioAlerts.some((a) => a.isAlertTriggered) && (
+              <span className="dashboard-watchlist-alerts" role="status" aria-label="Personal portfolio alerts">
+                {portfolioAlerts
+                  .filter((a) => a.isAlertTriggered)
+                  .map((alert) => (
+                    <span
+                      key={alert.symbol}
+                      className={`portfolio-alert-badge ${alert.alertDirection ?? "up"}`}
+                      title={`${alert.displayName || alert.symbol} moved ${alert.quote?.percentChange.toFixed(2)}%, exceeding your threshold of ±${alert.alertThresholdPercent}%`}
+                    >
+                      🚨 {alert.displayName || alert.symbol} {alert.quote ? `${alert.quote.percentChange >= 0 ? "+" : ""}${alert.quote.percentChange.toFixed(1)}%` : ""} (&plusmn;{alert.alertThresholdPercent}%)
+                    </span>
+                  ))}
+              </span>
+            )}
           </section>
         )}
 
@@ -5929,6 +5987,8 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         situationRadar={situationRadar}
         catchUpDelta={catchUpDelta}
         accountSyncActive={Boolean(preferencesStore)}
+        portfolioAlerts={portfolioAlerts}
+        initialCarMode={dailyBriefingCarMode}
         schedule={briefingSchedule}
 
         offlinePackMeta={offlineBriefingMeta}

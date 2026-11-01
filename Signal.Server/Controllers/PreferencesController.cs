@@ -104,6 +104,11 @@ public sealed class PreferencesController(
             weatherLocation?.Timezone,
             requestOrigin);
         preferences.BriefingPreferencesJson = JsonSerializer.Serialize(mergedBriefing);
+        if (request.MarketPortfolio is not null)
+        {
+            var marketPortfolio = NormalizeMarketPortfolio(request.MarketPortfolio);
+            preferences.MarketPortfolioJson = JsonSerializer.Serialize(marketPortfolio);
+        }
         preferences.UpdatedAtUtc = DateTimeOffset.UtcNow;
 
         await SyncTopicRefreshStatesAsync(
@@ -221,7 +226,46 @@ public sealed class PreferencesController(
             preferences.GoogleEnabled,
             preferences.GdeltEnabled,
             DeserializeList(preferences.RssFeedsJson)),
-        ExecutiveBriefingDeliveryService.Deserialize(preferences.BriefingPreferencesJson) with { PublicOrigin = null });
+        ExecutiveBriefingDeliveryService.Deserialize(preferences.BriefingPreferencesJson) with { PublicOrigin = null },
+        DeserializeMarketPortfolio(preferences.MarketPortfolioJson));
+
+    public static MarketPortfolioItemResponse[] DeserializeMarketPortfolio(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try
+        {
+            var raw = JsonSerializer.Deserialize<MarketPortfolioItemRequest[]>(json);
+            return NormalizeMarketPortfolio(raw);
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    public static MarketPortfolioItemResponse[] NormalizeMarketPortfolio(IEnumerable<MarketPortfolioItemRequest>? items)
+    {
+        if (items is null) return [];
+        var result = new List<MarketPortfolioItemResponse>();
+        var seenSymbols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var item in items.Take(24))
+        {
+            if (item is null) continue;
+            if (!MarketTickerParser.TryParse(item.Symbol, out var ticker) || ticker is null) continue;
+            var symbol = ticker.QualifiedSymbol;
+            if (!seenSymbols.Add(symbol)) continue;
+
+            var displayName = (item.DisplayName ?? "").Trim();
+            if (displayName.Length > 80) displayName = displayName[..80];
+            if (string.IsNullOrWhiteSpace(displayName)) displayName = symbol;
+
+            var threshold = Math.Clamp(Math.Round(item.AlertThresholdPercent, 2), 0.1m, 50.0m);
+            result.Add(new MarketPortfolioItemResponse(symbol, displayName, threshold, item.AlertEnabled));
+        }
+
+        return result.ToArray();
+    }
 
     internal static int NormalizeRetentionDays(int value) => AllowedRetentionDays.Contains(value) ? value : 30;
     internal static int NormalizeStoryLimit(int value) =>
@@ -460,7 +504,8 @@ public sealed record NewsPreferencesResponse(
     string[] TrendRegions,
     int TrendsPerRegion,
     NewsSourcesResponse Sources,
-    ExecutiveBriefingPreferencesDto? BriefingPreferences = null)
+    ExecutiveBriefingPreferencesDto? BriefingPreferences = null,
+    MarketPortfolioItemResponse[]? MarketPortfolio = null)
 {
     public static NewsPreferencesResponse Default { get; } = new(
         ["Artificial intelligence"],
@@ -479,7 +524,8 @@ public sealed record NewsPreferencesResponse(
         GoogleTrendsService.AvailableRegions.Select(region => region.Code).ToArray(),
         GoogleTrendsService.DefaultTrendsPerRegion,
         new NewsSourcesResponse(true, true, []),
-        ExecutiveBriefingPreferencesDto.Default);
+        ExecutiveBriefingPreferencesDto.Default,
+        []);
 }
 
 public sealed record NewsSourcesResponse(bool Google, bool Gdelt, string[] RssFeeds);
@@ -511,7 +557,20 @@ public sealed record NewsPreferencesRequest(
     int TrendsPerRegion,
     [Required] NewsSourcesRequest Sources,
     bool? PushNewsTitlesEnabled = null,
-    ExecutiveBriefingPreferencesPatch? BriefingPreferences = null);
+    ExecutiveBriefingPreferencesPatch? BriefingPreferences = null,
+    MarketPortfolioItemRequest[]? MarketPortfolio = null);
+
+public sealed record MarketPortfolioItemRequest(
+    string Symbol,
+    string? DisplayName = null,
+    decimal AlertThresholdPercent = 2.0m,
+    bool AlertEnabled = true);
+
+public sealed record MarketPortfolioItemResponse(
+    string Symbol,
+    string DisplayName,
+    decimal AlertThresholdPercent,
+    bool AlertEnabled);
 
 public sealed record WeatherLocationRequest(
     [Required, MaxLength(120)] string Name,

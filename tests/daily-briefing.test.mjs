@@ -1253,3 +1253,85 @@ test("Chapter translation, Listen Later queue helper, and Server Briefing Send-N
   assert.equal(deliveryRes.sentEmail, true);
   assert.deepEqual(deliveryBody, { sendPush: true, sendEmail: true });
 });
+
+test("Personalized Portfolio Threshold Alerts enrich briefing chapters with triggered price swings", () => {
+  const briefing = buildDailyBriefing({
+    marketWatchlist: [
+      {
+        topic: "Bitcoin",
+        symbol: "BTC/USD",
+        name: "Bitcoin / USD",
+        exchange: "Crypto",
+        currency: "USD",
+        price: 69200,
+        change: 2800,
+        percentChange: 4.22,
+        quoteTime: "2026-11-01 22:00:00",
+        isMarketOpen: true,
+        provider: "Twelve Data",
+      },
+      {
+        topic: "Apple",
+        symbol: "AAPL",
+        name: "Apple Inc",
+        exchange: "NASDAQ",
+        currency: "USD",
+        price: 228,
+        change: -1.2,
+        percentChange: -0.52,
+        quoteTime: "2026-11-01 22:00:00",
+        isMarketOpen: false,
+        provider: "Twelve Data",
+      },
+    ],
+    portfolioAlerts: [
+      {
+        symbol: "BTC/USD",
+        displayName: "Bitcoin",
+        alertThresholdPercent: 3.0,
+        alertEnabled: true,
+        isAlertTriggered: true,
+        alertDirection: "up",
+        quote: {
+          topic: "Bitcoin",
+          symbol: "BTC/USD",
+          name: "Bitcoin",
+          exchange: "Crypto",
+          currency: "USD",
+          price: 69200,
+          change: 2800,
+          percentChange: 4.22,
+          quoteTime: "2026-11-01 22:00:00",
+          isMarketOpen: true,
+          provider: "Twelve Data",
+        },
+      },
+      {
+        symbol: "AAPL",
+        displayName: "Apple",
+        alertThresholdPercent: 2.0,
+        alertEnabled: true,
+        isAlertTriggered: false,
+        alertDirection: "down",
+        quote: {
+          topic: "Apple",
+          symbol: "AAPL",
+          name: "Apple",
+          exchange: "NASDAQ",
+          currency: "USD",
+          price: 228,
+          change: -1.2,
+          percentChange: -0.52,
+          quoteTime: "2026-11-01 22:00:00",
+          isMarketOpen: false,
+          provider: "Twelve Data",
+        },
+      },
+    ],
+  });
+
+  const marketsChapter = briefing.chapters.find((ch) => ch.kind === "markets");
+  assert.ok(marketsChapter, "Markets chapter should be present.");
+  assert.match(marketsChapter.text, /Personal portfolio alert: Bitcoin is up 4\.2 percent/);
+  assert.match(marketsChapter.text, /exceeding your 3% threshold/);
+});

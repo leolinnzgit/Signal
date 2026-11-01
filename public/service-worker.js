@@ -136,21 +136,34 @@ self.addEventListener("push", (event) => {
   const url = requestedUrl.origin === self.location.origin
     ? `${requestedUrl.pathname}${requestedUrl.search}${requestedUrl.hash}`
     : "/";
+  const isBriefing = typeof payload.tag === "string" && (
+    payload.tag.startsWith("signal-briefing") ||
+    payload.tag === "signal-executive-briefing"
+  );
+  const actions = Array.isArray(payload.actions) && payload.actions.length > 0
+    ? payload.actions
+    : (isBriefing ? [
+        { action: "play", title: "▶ Play Now" },
+        { action: "snooze", title: "⏰ Snooze 10m" },
+        { action: "carMode", title: "🚗 Car Mode" },
+      ] : undefined);
+
   const operations = [
     self.registration.showNotification(payload.title || "New stories in Signal", {
       body: payload.body || "Fresh coverage is ready in your briefing.",
       icon: payload.icon || "/icons/signal-medallion-192.png",
       badge: payload.badge || "/icons/signal-notification-medallion-96.png",
-      tag: typeof payload.tag === "string" && (payload.tag.startsWith(`${NEWS_NOTIFICATION_TAG}-`) || payload.tag.startsWith("signal-earthquake-") || payload.tag.startsWith("signal-disaster-"))
+      tag: typeof payload.tag === "string" && (payload.tag.startsWith(`${NEWS_NOTIFICATION_TAG}-`) || payload.tag.startsWith("signal-earthquake-") || payload.tag.startsWith("signal-disaster-") || payload.tag.startsWith("signal-briefing"))
         ? payload.tag
         : NEWS_NOTIFICATION_TAG,
       renotify: false,
-      data: { url },
+      data: { url, isBriefing },
+      actions,
     }),
   ];
 
-  if (typeof payload.tag === "string" && (payload.tag.startsWith("signal-earthquake-") || payload.tag.startsWith("signal-disaster-"))) {
-    // Earthquake alerts must not clear the unrelated unread-news badge.
+  if (typeof payload.tag === "string" && (payload.tag.startsWith("signal-earthquake-") || payload.tag.startsWith("signal-disaster-") || payload.tag.startsWith("signal-briefing"))) {
+    // Alert pushes must not clear the unrelated unread-news badge.
     event.waitUntil(Promise.all(operations));
     return;
   }
@@ -164,9 +177,62 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const url = new URL(event.notification.data?.url || "/", self.location.origin).href;
+  const action = event.action;
+  const baseUrl = event.notification.data?.url || "/";
+
+  if (action === "snooze") {
+    event.waitUntil(handleBriefingSnooze(event.notification));
+    return;
+  }
+
+  let targetUrl = baseUrl;
+  if (action === "play") {
+    const u = new URL(baseUrl, self.location.origin);
+    u.searchParams.set("briefing", "1");
+    u.searchParams.set("autoPlayBriefing", "1");
+    targetUrl = u.pathname + u.search + u.hash;
+  } else if (action === "carMode") {
+    const u = new URL(baseUrl, self.location.origin);
+    u.searchParams.set("briefing", "1");
+    u.searchParams.set("carMode", "1");
+    u.searchParams.set("autoPlayBriefing", "1");
+    targetUrl = u.pathname + u.search + u.hash;
+  }
+
+  const url = new URL(targetUrl, self.location.origin).href;
   event.waitUntil(openSignalFromNotification(url));
 });
+
+async function handleBriefingSnooze(notification) {
+  if (self.clients && typeof self.clients.matchAll === "function") {
+    try {
+      const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      for (const client of windows) {
+        client.postMessage({ type: "signal:briefing-snooze", minutes: 10 });
+      }
+    } catch {
+      // Ignore broadcast failures
+    }
+  }
+
+  if (self.registration && typeof self.registration.showNotification === "function") {
+    try {
+      await self.registration.showNotification("⏰ Morning Briefing Snoozed", {
+        body: "Signal will wake you with your audio briefing in 10 minutes.",
+        icon: "/icons/signal-medallion-192.png",
+        badge: "/icons/signal-notification-medallion-96.png",
+        tag: "signal-briefing-snoozed",
+        data: { url: "/?briefing=1&autoPlayBriefing=1", isBriefing: true },
+        actions: [
+          { action: "play", title: "▶ Play Now" },
+          { action: "carMode", title: "🚗 Car Mode" },
+        ],
+      });
+    } catch {
+      // Notification triggers are best-effort
+    }
+  }
+}
 
 async function openSignalFromNotification(url) {
   const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });

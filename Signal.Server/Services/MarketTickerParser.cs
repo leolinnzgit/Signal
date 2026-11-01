@@ -8,7 +8,7 @@ public sealed record MarketTickerReference(string Symbol, string Exchange)
 public static class MarketTickerParser
 {
     public const string ValidationMessage =
-        "Enter a ticker such as AAPL or an exchange-qualified ticker such as AIR:NZX.";
+        "Enter a ticker such as AAPL, a crypto pair such as BTC/USD, or an exchange-qualified ticker such as AIR:NZX.";
 
     public static MarketTickerReference? ParseOptional(string? value)
     {
@@ -43,7 +43,7 @@ public static class MarketTickerParser
         symbol.Length is >= 1 and <= 15
         && char.IsAsciiLetterOrDigit(symbol[0])
         && symbol.All(character => char.IsAsciiLetterOrDigit(character)
-            || character is '.' or '-' or '^');
+            || character is '.' or '-' or '^' or '/');
 
     private static bool IsValidExchange(string exchange) =>
         exchange.Length is >= 2 and <= 12

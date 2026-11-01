@@ -1734,3 +1734,296 @@ a.situation-radar-item:hover {
   font-weight: 600;
   color: #38bdf8;
 }
+
+/* ==========================================================================
+   Smart Car & Commute Mode (CarModePlayer)
+   ========================================================================== */
+
+.car-mode-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 999999;
+  background: #09090b;
+  color: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  padding: env(safe-area-inset-top, 1.25rem) env(safe-area-inset-right, 1.25rem)
+    env(safe-area-inset-bottom, 1.25rem) env(safe-area-inset-left, 1.25rem);
+  box-sizing: border-box;
+  overflow: hidden;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+.car-mode-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1.5rem;
+  border-bottom: 2px solid #27272a;
+}
+
+.car-mode-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.car-mode-icon {
+  font-size: 2.2rem;
+}
+
+.car-mode-meta {
+  display: flex;
+  flex-direction: column;
+}
+
+.car-mode-title {
+  font-size: 1.15rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  color: #38bdf8;
+}
+
+.car-mode-sub {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #a1a1aa;
+}
+
+.car-mode-close-btn {
+  background: #27272a;
+  color: #f8fafc;
+  border: 2px solid #3f3f46;
+  border-radius: 9999px;
+  padding: 0.65rem 1.5rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.car-mode-close-btn:hover {
+  background: #3f3f46;
+}
+
+.car-mode-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-evenly;
+  max-width: 760px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 1rem 1.5rem;
+  box-sizing: border-box;
+}
+
+.car-mode-chapter-card {
+  background: #18181b;
+  border: 2px solid #27272a;
+  border-radius: 28px;
+  padding: 2rem 2.25rem;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+  text-align: center;
+}
+
+.car-mode-chapter-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #38bdf8;
+  margin-bottom: 0.75rem;
+}
+
+.car-mode-chapter-icon {
+  font-size: 1.35rem;
+}
+
+.car-mode-chapter-title {
+  font-size: 2.1rem;
+  font-weight: 900;
+  line-height: 1.25;
+  color: #ffffff;
+  margin: 0 0 1rem 0;
+}
+
+.car-mode-chapter-preview {
+  font-size: 1.15rem;
+  line-height: 1.55;
+  color: #d4d4d8;
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.car-mode-progress-strip {
+  width: 100%;
+  height: 12px;
+  background: #27272a;
+  border-radius: 9999px;
+  overflow: hidden;
+  margin: 0.5rem 0;
+}
+
+.car-mode-progress-fill {
+  height: 100%;
+  background: #0284c7;
+  transition: width 0.35s ease;
+}
+
+.car-mode-voice-feedback {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  background: #0369a1;
+  color: #ffffff;
+  font-size: 1.05rem;
+  font-weight: 700;
+  padding: 0.55rem 1.4rem;
+  border-radius: 9999px;
+  box-shadow: 0 4px 15px rgba(2, 132, 199, 0.4);
+}
+
+.car-mode-mic-pulse {
+  animation: car-mic-pulse 1.2s infinite alternate;
+}
+
+@keyframes car-mic-pulse {
+  from {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  to {
+    transform: scale(1.25);
+    opacity: 1;
+  }
+}
+
+.car-mode-controls-primary {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+.car-mode-btn {
+  background: #18181b;
+  color: #f8fafc;
+  border: 2px solid #3f3f46;
+  border-radius: 9999px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  transition: transform 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+}
+
+.car-mode-btn:active {
+  transform: scale(0.92);
+}
+
+.car-mode-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.car-mode-btn-nav {
+  width: 72px;
+  height: 72px;
+  font-size: 1.4rem;
+}
+
+.car-btn-text {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.car-mode-btn-seek {
+  width: 64px;
+  height: 64px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #94a3b8;
+}
+
+.car-mode-btn-play {
+  width: 108px;
+  height: 108px;
+  background: #0284c7;
+  border-color: #38bdf8;
+  font-size: 2.8rem;
+  color: #ffffff;
+  box-shadow: 0 8px 30px rgba(2, 132, 199, 0.5);
+}
+
+.car-mode-btn-play.is-playing {
+  background: #0ea5e9;
+  border-color: #7dd3fc;
+  box-shadow: 0 0 35px rgba(56, 189, 248, 0.65);
+}
+
+.car-mode-controls-secondary {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.car-mode-secondary-btn {
+  background: #18181b;
+  border: 2px solid #27272a;
+  border-radius: 18px;
+  padding: 0.9rem 1.6rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #f1f5f9;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.car-mode-secondary-btn:hover {
+  background: #27272a;
+  border-color: #3f3f46;
+}
+
+.car-mode-secondary-btn.is-active {
+  background: #dc2626;
+  border-color: #ef4444;
+  color: #ffffff;
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.5);
+}
+
+/* Portfolio Alert Badges */
+.portfolio-alert-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.65rem;
+  border-radius: 9999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.portfolio-alert-badge.up {
+  background: rgba(34, 197, 94, 0.18);
+  border: 1px solid #16a34a;
+  color: #16a34a;
+}
+
+.portfolio-alert-badge.down {
+  background: rgba(239, 68, 68, 0.18);
+  border: 1px solid #dc2626;
+  color: #dc2626;
+}
+
