@@ -28,3 +28,61 @@ export async function loadArticleTranslation(url: string, title: string, languag
     throw new Error("The article translation was incomplete. Please try again.");
   return data;
 }
+
+export type SnippetsTranslationResponse = {
+  available: boolean;
+  translations: string[];
+  language: string;
+};
+
+/**
+ * Translates short UI text snippets (such as AI image captions and OCR extracted text)
+ * into the active reader translation language using Azure Translator.
+ */
+export async function translateTextSnippets(
+  texts: string[],
+  language: string,
+  signal?: AbortSignal,
+  fetcher: typeof fetch = fetch,
+): Promise<SnippetsTranslationResponse> {
+  const cleanTexts = (texts || []).filter((t) => typeof t === "string" && t.trim().length > 0);
+  if (cleanTexts.length === 0 || !language || language === "en") {
+    return { available: true, translations: texts || [], language: language || "en" };
+  }
+
+  try {
+    const csrf = await fetcher("/api/auth/csrf", { credentials: "same-origin", cache: "no-store", signal });
+    if (!csrf.ok) return { available: false, translations: texts, language };
+    const { token } = (await csrf.json()) as { token?: string };
+    if (!token) return { available: false, translations: texts, language };
+
+    const response = await fetcher("/api/article-translation/snippets", {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      signal,
+      headers: { "Content-Type": "application/json", "X-XSRF-TOKEN": token },
+      body: JSON.stringify({ texts: cleanTexts, language }),
+    });
+
+    if (!response.ok) {
+      return { available: false, translations: texts, language };
+    }
+
+    const data = (await response.json()) as {
+      available: boolean;
+      translations?: string[];
+      language?: string;
+    };
+
+    return {
+      available: Boolean(data.available),
+      translations: Array.isArray(data.translations) && data.translations.length === cleanTexts.length
+        ? data.translations
+        : texts,
+      language: data.language || language,
+    };
+  } catch {
+    return { available: false, translations: texts, language };
+  }
+}

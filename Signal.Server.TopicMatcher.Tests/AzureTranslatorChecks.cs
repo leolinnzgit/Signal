@@ -107,6 +107,15 @@ internal static class AzureTranslatorChecks
         var disabled = new AzureTranslatorService(Options.Create(new AzureTranslatorOptions()), new Factory(client), cache);
         posts = handler.Posts;
         Assert(!(await disabled.TranslateAsync("Title", ["Body"], "en", CancellationToken.None)).Available && handler.Posts == posts, "Missing key made a cloud call.");
+
+        // Snippet translation checks for image captions & OCR text
+        var snippets = await service.TranslateTextsAsync(["A mountain peak at sunset", "Official Cash Rate 4.25%"], "zh-Hans", CancellationToken.None);
+        Assert(snippets.Length == 2 && snippets[0] == "Translated:A mountain peak at sunset" && snippets[1] == "Translated:Official Cash Rate 4.25%",
+            "Snippet translation failed to return translated texts.");
+
+        var englishNoop = await service.TranslateTextsAsync(["Original english text"], "en", CancellationToken.None);
+        Assert(englishNoop[0] == "Original english text", "English snippet translation should return immediately without API calls.");
+
         Console.WriteLine("Azure Translator passed full-text order, language/text cache, currency disambiguation, endpoint validation, request limits, failures, cancellation, custom endpoint and missing-key checks without cloud calls.");
     }
 

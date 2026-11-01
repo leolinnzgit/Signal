@@ -42,4 +42,44 @@ public sealed class ArticleTranslationController(ArticleReaderService reader, Az
             return Ok(Unavailable("The article translation is temporarily unavailable. Please try again."));
         }
     }
+
+    public sealed record SnippetTranslationRequest(string[]? Texts, string? Language);
+    public sealed record SnippetTranslationResponse(bool Available, string Reason, string[] Translations, string Language);
+
+    [HttpPost("snippets")]
+    [RequestSizeLimit(8_192)]
+    public async Task<IActionResult> TranslateSnippets([FromBody] SnippetTranslationRequest request, CancellationToken token)
+    {
+        var lang = (request.Language ?? "en").Trim();
+        var texts = (request.Texts ?? [])
+            .Where(t => !string.IsNullOrWhiteSpace(t))
+            .Take(12)
+            .Select(t => t.Trim())
+            .ToArray();
+
+        if (texts.Length == 0 || !AzureTranslatorService.Languages.Contains(lang, StringComparer.Ordinal))
+        {
+            return BadRequest(new SnippetTranslationResponse(false, "Choose valid text and a supported language.", [], lang));
+        }
+
+        if (!translator.Enabled)
+        {
+            return Ok(new SnippetTranslationResponse(false, "Azure Translator has not been configured yet.", texts, lang));
+        }
+
+        try
+        {
+            var translated = await translator.TranslateTextsAsync(texts, lang, token);
+            return Ok(new SnippetTranslationResponse(true, "", translated, lang));
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            return StatusCode(499);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning("Snippet translation failed ({FailureType}).", exception.GetType().Name);
+            return Ok(new SnippetTranslationResponse(false, "Snippet translation is temporarily unavailable.", texts, lang));
+        }
+    }
 }

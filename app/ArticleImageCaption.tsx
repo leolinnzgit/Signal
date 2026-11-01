@@ -7,28 +7,41 @@ import {
   type ArticleImageCaptionResponse,
   type ArticleImageOcrResponse,
 } from "./article-image-caption";
+import { translateTextSnippets } from "./article-translation";
 import { useSpokenBriefing } from "./useSpokenBriefing";
 import "./article-image-caption.css";
 
 export default function ArticleImageCaption({
   imageUrl,
+  targetLanguage = "en",
 }: {
   imageUrl?: string | null;
+  targetLanguage?: string;
 }) {
   const [caption, setCaption] = useState<ArticleImageCaptionResponse | null>(null);
+  const [translatedCaption, setTranslatedCaption] = useState<string | null>(null);
+  const [showOriginalCaption, setShowOriginalCaption] = useState(false);
+
   const [visionConfigured, setVisionConfigured] = useState(false);
   const [ocrOpen, setOcrOpen] = useState(false);
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrResult, setOcrResult] = useState<ArticleImageOcrResponse | null>(null);
+  const [translatedOcr, setTranslatedOcr] = useState<string | null>(null);
+  const [showOriginalOcr, setShowOriginalOcr] = useState(false);
+
   const [copied, setCopied] = useState(false);
   const ocrSpeech = useSpokenBriefing();
 
   useEffect(() => {
     setCaption(null);
+    setTranslatedCaption(null);
+    setShowOriginalCaption(false);
     setVisionConfigured(false);
     setOcrOpen(false);
     setOcrLoading(false);
     setOcrResult(null);
+    setTranslatedOcr(null);
+    setShowOriginalOcr(false);
     setCopied(false);
     ocrSpeech.stop();
 
@@ -43,7 +56,18 @@ export default function ArticleImageCaption({
         if (abort.signal.aborted) return;
         const unconfigured = !res.available && (res.reason || "").toLowerCase().includes("not been configured");
         setVisionConfigured(!unconfigured);
-        setCaption(res.available && res.caption ? res : null);
+        if (res.available && res.caption) {
+          setCaption(res);
+          if (targetLanguage && targetLanguage !== "en") {
+            void translateTextSnippets([res.caption], targetLanguage, abort.signal).then((t) => {
+              if (!abort.signal.aborted && t.available && t.translations[0]) {
+                setTranslatedCaption(t.translations[0]);
+              }
+            });
+          }
+        } else {
+          setCaption(null);
+        }
       })
       .catch(() => {
         if (!abort.signal.aborted) {
@@ -54,7 +78,7 @@ export default function ArticleImageCaption({
 
     return () => abort.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [imageUrl]);
+  }, [imageUrl, targetLanguage]);
 
   async function toggleExtractText() {
     if (!imageUrl || !imageUrl.startsWith("https://")) return;
@@ -72,15 +96,23 @@ export default function ArticleImageCaption({
     try {
       const res = await loadArticleImageOcr(imageUrl);
       setOcrResult(res);
+      if (res.available && res.text && targetLanguage && targetLanguage !== "en") {
+        void translateTextSnippets([res.text], targetLanguage).then((t) => {
+          if (t.available && t.translations[0]) {
+            setTranslatedOcr(t.translations[0]);
+          }
+        });
+      }
     } finally {
       setOcrLoading(false);
     }
   }
 
   async function copyExtractedText() {
-    if (!ocrResult?.text) return;
+    const textToCopy = (!showOriginalOcr && translatedOcr) || ocrResult?.text;
+    if (!textToCopy) return;
     try {
-      await navigator.clipboard.writeText(ocrResult.text);
+      await navigator.clipboard.writeText(textToCopy);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
     } catch {
@@ -91,6 +123,10 @@ export default function ArticleImageCaption({
   const hasCaption = Boolean(caption && caption.caption);
   if (!hasCaption && !visionConfigured) return null;
 
+  const isTranslatedLanguage = Boolean(targetLanguage && targetLanguage !== "en");
+  const displayCaptionText = !showOriginalCaption && translatedCaption ? translatedCaption : caption?.caption;
+  const activeOcrText = (!showOriginalOcr && translatedOcr) || ocrResult?.text || "";
+
   return (
     <figcaption
       className={`article-ai-caption${!hasCaption ? " article-ai-caption-compact" : ""}`}
@@ -100,9 +136,9 @@ export default function ArticleImageCaption({
         {hasCaption ? (
           <div className="article-ai-caption-main">
             <span className="ai-caption-badge" aria-hidden="true">
-              👁️ AI Description
+              👁️ {translatedCaption && !showOriginalCaption ? `AI (${targetLanguage})` : "AI Description"}
             </span>
-            <span className="ai-caption-text">{caption!.caption}</span>
+            <span className="ai-caption-text">{displayCaptionText}</span>
             {caption!.confidence > 0 && (
               <span
                 className="ai-caption-confidence"
@@ -110,6 +146,16 @@ export default function ArticleImageCaption({
               >
                 ({Math.round(caption!.confidence * 100)}%)
               </span>
+            )}
+            {translatedCaption && (
+              <button
+                type="button"
+                className="ai-caption-toggle-lang-btn"
+                onClick={() => setShowOriginalCaption((prev) => !prev)}
+                title={showOriginalCaption ? "Show translated description" : "Show original English description"}
+              >
+                {showOriginalCaption ? `Show ${targetLanguage}` : "Show original"}
+              </button>
             )}
           </div>
         ) : (
@@ -137,14 +183,24 @@ export default function ArticleImageCaption({
               <div className="article-ocr-toolbar">
                 <span className="article-ocr-meta">
                   Extracted Text · {ocrResult.lineCount} {ocrResult.lineCount === 1 ? "line" : "lines"}
+                  {translatedOcr && !showOriginalOcr && ` (${targetLanguage})`}
                 </span>
                 <div className="article-ocr-actions">
+                  {translatedOcr && (
+                    <button
+                      type="button"
+                      className="article-ocr-action-btn"
+                      onClick={() => setShowOriginalOcr((prev) => !prev)}
+                    >
+                      {showOriginalOcr ? `Translate (${targetLanguage})` : "Show original"}
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="article-ocr-action-btn"
                     onClick={() => {
                       if (ocrSpeech.isActive) ocrSpeech.stop();
-                      else ocrSpeech.speak(ocrResult.text);
+                      else ocrSpeech.speak(activeOcrText, !showOriginalOcr && translatedOcr ? targetLanguage : "en");
                     }}
                   >
                     {ocrSpeech.status === "starting"
@@ -162,7 +218,7 @@ export default function ArticleImageCaption({
                   </button>
                 </div>
               </div>
-              <pre className="article-ocr-pre">{ocrResult.text}</pre>
+              <pre className="article-ocr-pre">{activeOcrText}</pre>
             </>
           ) : (
             <p className="article-ocr-status">

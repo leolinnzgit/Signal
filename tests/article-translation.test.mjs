@@ -9,7 +9,26 @@ async function compiled(file, commonJS = false) {
     compilerOptions: { module: commonJS ? ts.ModuleKind.CommonJS : ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
   }).outputText;
 }
-const { loadArticleTranslation } = await import(`data:text/javascript;base64,${Buffer.from(await compiled("article-translation.ts")).toString("base64")}`);
+const { loadArticleTranslation, translateTextSnippets } = await import(`data:text/javascript;base64,${Buffer.from(await compiled("article-translation.ts")).toString("base64")}`);
+
+test("translateTextSnippets submits text array to /api/article-translation/snippets with CSRF and returns translated strings", async () => {
+  const calls = [];
+  const result = await translateTextSnippets(["A beautiful sunrise", "Financial statement"], "zh-Hans", undefined, async (url, options) => {
+    calls.push({ url, options });
+    return new Response(JSON.stringify(calls.length === 1 ? { token: "csrf-test" }
+      : { available: true, translations: ["美丽的日出", "财务报表"], language: "zh-Hans" }));
+  });
+  assert.equal(result.available, true);
+  assert.equal(result.translations[0], "美丽的日出");
+  assert.equal(result.translations[1], "财务报表");
+  assert.equal(calls[1].url, "/api/article-translation/snippets");
+  assert.equal(calls[1].options.headers["X-XSRF-TOKEN"], "csrf-test");
+
+  // English or empty texts return immediately without fetch calls
+  const enResult = await translateTextSnippets(["Hello"], "en");
+  assert.equal(enResult.available, true);
+  assert.equal(enResult.translations[0], "Hello");
+});
 
 test("translation submits article identity and target language with authentication, CSRF and cancellation", async () => {
   const calls = [], signal = new AbortController().signal;

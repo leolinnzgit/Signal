@@ -139,6 +139,70 @@ public sealed class AzureTranslatorService(
         finally { if (acquired) gate.Release(); }
     }
 
+    public async Task<string[]> TranslateTextsAsync(
+        IReadOnlyList<string> texts,
+        string language,
+        CancellationToken token)
+    {
+        if (!Languages.Contains(language, StringComparer.Ordinal))
+            throw new ArgumentException("Choose a supported translation language.");
+        if (!Enabled || texts.Count == 0 || language == "en")
+            return texts.ToArray();
+
+        var endpoint = options.Value.Validate();
+        var cacheKey = "azure-translation-texts:" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+            endpoint + "\n" + language + "\n" + JsonSerializer.Serialize(texts))));
+
+        if (cache.TryGetValue(cacheKey, out string[]? ready) && ready is not null)
+            return ready;
+
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(25));
+        var acquired = false;
+        try
+        {
+            await gate.WaitAsync(deadline.Token);
+            acquired = true;
+            if (cache.TryGetValue(cacheKey, out ready) && ready is not null)
+                return ready;
+
+            var path = endpoint.Host.EndsWith(".cognitiveservices.azure.com", StringComparison.OrdinalIgnoreCase)
+                ? "translator/text/v3.0/translate" : "translate";
+            using var request = new HttpRequestMessage(HttpMethod.Post,
+                new Uri(endpoint, path + "?api-version=3.0&textType=plain&to=" + Uri.EscapeDataString(language)));
+            request.Headers.Add("Ocp-Apim-Subscription-Key", options.Value.Key);
+            if (!string.IsNullOrEmpty(options.Value.Region))
+                request.Headers.Add("Ocp-Apim-Subscription-Region", options.Value.Region);
+            request.Content = JsonContent.Create(texts.Select(text => new { text }).ToArray());
+
+            using var response = await clients.CreateClient(HttpClientName).SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
+            if (!response.IsSuccessStatusCode)
+                return texts.ToArray();
+
+            await response.Content.LoadIntoBufferAsync(1_000_000, deadline.Token);
+            using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(deadline.Token));
+            if (body.RootElement.ValueKind != JsonValueKind.Array || body.RootElement.GetArrayLength() != texts.Count)
+                return texts.ToArray();
+
+            var translated = body.RootElement.EnumerateArray()
+                .Select(item => item.GetProperty("translations").EnumerateArray()
+                    .Single(t => t.GetProperty("to").GetString() == language)
+                    .GetProperty("text").GetString() ?? "")
+                .ToArray();
+
+            cache.Set(cacheKey, translated, TimeSpan.FromHours(24));
+            return translated;
+        }
+        catch
+        {
+            return texts.ToArray();
+        }
+        finally
+        {
+            if (acquired) gate.Release();
+        }
+    }
+
     internal static (string Title, string[] Paragraphs) NormalizeSharedArticle(SharedNewsArticle article)
     {
         var paragraphs = JsonSerializer.Deserialize<string[]>(article.ParagraphsJson) ?? [];

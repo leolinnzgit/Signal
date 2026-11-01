@@ -49,7 +49,7 @@ export function useSpokenBriefing() {
   }, [releaseCloud]);
 
   const speak = useCallback(
-    (rawText: string) => {
+    (rawText: string, targetLanguage?: string) => {
       const clean = (rawText || "").trim();
       if (!clean) return;
 
@@ -67,9 +67,10 @@ export function useSpokenBriefing() {
       }
 
       const language =
-        typeof navigator !== "undefined" && navigator.language.startsWith("en")
+        targetLanguage ||
+        (typeof navigator !== "undefined" && navigator.language.startsWith("en")
           ? navigator.language
-          : "en-NZ";
+          : "en-NZ");
 
       const fallbackToBrowserSpeech = () => {
         if (run !== sequenceRef.current) return;

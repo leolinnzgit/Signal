@@ -34,6 +34,8 @@ import ArticleKeyPhrases from "./ArticleKeyPhrases";
 import RelatedStoriesModal from "./RelatedStoriesModal";
 import EntityPulseModal from "./EntityPulseModal";
 import CompareCoverageModal from "./CompareCoverageModal";
+import DailyBriefingModal from "./DailyBriefingModal";
+import { buildEntityPulse } from "./entity-pulse";
 import { clusterArticles, type StoryCluster } from "./story-clustering";
 import { getEntityIcon } from "./article-entities";
 import { getSuggestedTopics, type SuggestedTopic } from "./suggested-topics";
@@ -829,6 +831,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [weatherConditions, setWeatherConditions] = useState<ClientWeatherConditions | null>(null);
   const [relatedStoriesEntity, setRelatedStoriesEntity] = useState<string | null>(null);
   const [entityPulseOpen, setEntityPulseOpen] = useState(false);
+  const [dailyBriefingOpen, setDailyBriefingOpen] = useState(false);
   const [activeCompareCluster, setActiveCompareCluster] = useState<StoryCluster | null>(null);
   const [dismissedWeatherAlertIds, setDismissedWeatherAlertIds] = useState<Set<string>>(new Set());
   const [weatherForecast, setWeatherForecast] = useState<WeatherForecastDay[]>([]);
@@ -943,6 +946,10 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
 
   const weatherAudio = useWeatherAudio(weatherBriefing(weatherStatus === "ready" ? localWeather : null, weatherForecast, activeWeatherAlerts, weatherConditions), !!headlineQueue || !!readerArticle || !!watchHandoffId);
   const earthquakes = useEarthquakeAlerts(user.email, !!pushNotificationStore);
+  const pulse = useMemo(() => {
+    if (preferences.topics.length === 0) return null;
+    return buildEntityPulse(preferences.topics, articles);
+  }, [preferences.topics, articles]);
 
   const trendTrafficRange = useMemo(() => {
     const values = trendingTerms.map((term) => trendTrafficValue(term.traffic)).filter((value) => value > 0);
@@ -3230,6 +3237,15 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           <span>SIGNAL</span>
         </a>
         <div className="header-actions">
+          <button
+            type="button"
+            className="daily-briefing-trigger"
+            onClick={() => setDailyBriefingOpen(true)}
+            title="Personal Executive Daily Briefing (Weather, Markets, Momentum & News)"
+            aria-label="Open Personal Executive Daily Briefing"
+          >
+            🗞️ Daily Briefing
+          </button>
           <div className="live-status"><span className="pulse" aria-hidden="true" />Live web briefing</div>
           {!appInstalled && (
             <button
@@ -4987,7 +5003,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                         referrerPolicy="no-referrer"
                         onError={(event) => { event.currentTarget.hidden = true; }}
                       />
-                      <ArticleImageCaption imageUrl={readerArticle.imageUrl} />
+                      <ArticleImageCaption imageUrl={readerArticle.imageUrl} targetLanguage={readerTranslation?.language ?? "en"} />
                     </figure>
                   )}
                   {(readerContent.article.byline || readerContent.article.siteName) && (
@@ -5360,6 +5376,20 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         onClose={() => setActiveCompareCluster(null)}
         onOpenArticle={(art) => openArticleReader(art, readerCloseButton.current ?? document.body)}
         onListenArticle={(art) => openArticleReader(art, readerCloseButton.current ?? document.body, true)}
+      />
+      <DailyBriefingModal
+        isOpen={dailyBriefingOpen}
+        onClose={() => setDailyBriefingOpen(false)}
+        weather={weatherStatus === "ready" ? localWeather : null}
+        forecast={weatherForecast}
+        alerts={activeWeatherAlerts}
+        conditions={weatherConditions}
+        marketQuote={marketQuote}
+        pulse={pulse}
+        articles={articles}
+        onOpenArticle={(art) => openArticleReader(art, readerCloseButton.current ?? document.body)}
+        onListenArticle={(art) => openArticleReader(art, readerCloseButton.current ?? document.body, true)}
+        userTime={currentTime ?? undefined}
       />
       <footer><p><span className="footer-dot" /> SIGNAL gathers public reporting and sends you to the original publisher.</p></footer>
     </main>
