@@ -36,14 +36,16 @@ public sealed class AzureLanguageSummaryService(
     private readonly SemaphoreSlim gate = new(1, 1);
     public bool Enabled => options.Value.Enabled;
 
-    public async Task<ArticleSummaryResult> SummarizeAsync(IReadOnlyList<string> paragraphs, CancellationToken token)
+    public async Task<ArticleSummaryResult> SummarizeAsync(IReadOnlyList<string> paragraphs, CancellationToken token, int sentenceCount = 3)
     {
         if (!Enabled) return new(false, "Azure article summaries have not been configured yet.", []);
         var endpoint = options.Value.Validate();
+        var clampedSentences = Math.Clamp(sentenceCount, 2, 6);
         var text = string.Join("\n\n", paragraphs).Trim();
         if (text.Length < 100 || text.Length > 30_000)
             return new(false, "There is not enough supported article text to summarize.", []);
-        var key = "azure-summary:" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(endpoint + "\n" + text)));
+        var keySuffix = clampedSentences == 3 ? "" : $"\nsentences={clampedSentences}";
+        var key = "azure-summary:" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(endpoint + "\n" + text + keySuffix)));
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
         deadline.CancelAfter(TimeSpan.FromSeconds(75));
         await gate.WaitAsync(deadline.Token);
@@ -56,7 +58,7 @@ public sealed class AzureLanguageSummaryService(
             {
                 displayName = "Signal article summary",
                 analysisInput = new { documents = new[] { new { id = "1", text, language = text.Count(character => character is >= '\u4e00' and <= '\u9fff') > text.Length / 5 ? "zh-hans" : "en" } } },
-                tasks = new[] { new { kind = "AbstractiveSummarization", taskName = "summary", parameters = new { sentenceCount = 3, loggingOptOut = true } } },
+                tasks = new[] { new { kind = "AbstractiveSummarization", taskName = "summary", parameters = new { sentenceCount = clampedSentences, loggingOptOut = true } } },
             });
             using var submitted = await client.SendAsync(request, deadline.Token);
             EnsureSuccess(submitted);

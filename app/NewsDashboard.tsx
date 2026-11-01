@@ -33,6 +33,8 @@ import ArticleEntities from "./ArticleEntities";
 import ArticleKeyPhrases from "./ArticleKeyPhrases";
 import RelatedStoriesModal from "./RelatedStoriesModal";
 import EntityPulseModal from "./EntityPulseModal";
+import CompareCoverageModal from "./CompareCoverageModal";
+import { clusterArticles, type StoryCluster } from "./story-clustering";
 import { getEntityIcon } from "./article-entities";
 import { getSuggestedTopics, type SuggestedTopic } from "./suggested-topics";
 import ArticleReadingText from "./ArticleReadingText";
@@ -827,6 +829,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [weatherConditions, setWeatherConditions] = useState<ClientWeatherConditions | null>(null);
   const [relatedStoriesEntity, setRelatedStoriesEntity] = useState<string | null>(null);
   const [entityPulseOpen, setEntityPulseOpen] = useState(false);
+  const [activeCompareCluster, setActiveCompareCluster] = useState<StoryCluster | null>(null);
   const [dismissedWeatherAlertIds, setDismissedWeatherAlertIds] = useState<Set<string>>(new Set());
   const [weatherForecast, setWeatherForecast] = useState<WeatherForecastDay[]>([]);
   const [weatherStatus, setWeatherStatus] = useState<WeatherStatus>("locating");
@@ -1784,6 +1787,11 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
       ? topicFilteredArticles
       : topicFilteredArticles.filter((article) => article.providers.includes(selectedProvider)),
     [topicFilteredArticles, selectedProvider],
+  );
+
+  const clusteredFeedItems = useMemo(
+    () => clusterArticles(filteredArticles),
+    [filteredArticles],
   );
 
   const topicCounts = useMemo(
@@ -4441,7 +4449,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         ) : (
           <>
             <ol className="story-list" ref={storyListElement}>
-              {filteredArticles.map((article, index) => (
+              {clusteredFeedItems.map(({ article, cluster }, index) => (
                 <li key={article.url}>
                 <a
                   href={article.url}
@@ -4453,7 +4461,26 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                 >
                   <span className="story-number">{String(index + 1).padStart(2, "0")}</span>
                   <article>
-                    <div className="story-meta"><span className="story-topic">{article.topics.join(" + ")}</span><span className="story-provider">{article.providers.join(" + ")}</span><span>{article.source}</span><span>{formatAge(article.publishedAt)}</span></div>
+                    <div className="story-meta">
+                      <span className="story-topic">{article.topics.join(" + ")}</span>
+                      <span className="story-provider">{article.providers.join(" + ")}</span>
+                      <span>{article.source}</span>
+                      <span>{formatAge(article.publishedAt)}</span>
+                      {cluster && cluster.articles.length > 1 && (
+                        <button
+                          type="button"
+                          className="story-cluster-badge"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setActiveCompareCluster(cluster);
+                          }}
+                          title={`Compare coverage from ${cluster.articles.length} sources: ${cluster.sources.join(", ")}`}
+                        >
+                          +{cluster.articles.length - 1} {cluster.articles.length - 1 === 1 ? "source" : "sources"} ⚖️
+                        </button>
+                      )}
+                    </div>
                     <h3>{article.title}</h3>{article.summary && <p>{article.summary}</p>}
                   </article>
                   {article.imageUrl && (
@@ -4509,6 +4536,17 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                   >
                     <ShareIcon />
                   </button>
+                  {cluster && cluster.articles.length > 1 && (
+                    <button
+                      type="button"
+                      className="compare-coverage-action-btn"
+                      onClick={() => setActiveCompareCluster(cluster)}
+                      aria-label={`Compare coverage across ${cluster.articles.length} sources for ${article.title}`}
+                      title="Compare Coverage ⚖️"
+                    >
+                      ⚖️
+                    </button>
+                  )}
                   <ListenLaterButton compact url={article.url} title={article.title} source={article.source} imageUrl={article.imageUrl} />
                   {articleStore && (
                     <button
@@ -5315,6 +5353,13 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         onFollowTopic={(topic) => {
           addTopic(topic, { select: false });
         }}
+      />
+      <CompareCoverageModal
+        isOpen={activeCompareCluster !== null}
+        cluster={activeCompareCluster}
+        onClose={() => setActiveCompareCluster(null)}
+        onOpenArticle={(art) => openArticleReader(art, readerCloseButton.current ?? document.body)}
+        onListenArticle={(art) => openArticleReader(art, readerCloseButton.current ?? document.body, true)}
       />
       <footer><p><span className="footer-dot" /> SIGNAL gathers public reporting and sends you to the original publisher.</p></footer>
     </main>
