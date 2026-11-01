@@ -79,16 +79,64 @@ public sealed class AzureSpeechAudioRenderer
 
     internal sealed record Clip(string Voice, string Text);
 
-    private async Task<Clip[]> GetClipsAsync(HeadlineAudioRequest request, CancellationToken token)
+    internal static string? ResolveMultilingualLanguage(string? language)
     {
-        var titles = HeadlineAudioService.Validate(request);
+        if (string.IsNullOrWhiteSpace(language)) return null;
+        var trimmed = language.Trim();
+        if (trimmed.Equals("zh-Hans", StringComparison.OrdinalIgnoreCase) || trimmed.Equals("zh-CN", StringComparison.OrdinalIgnoreCase))
+            return "zh-Hans";
+        if (trimmed.Equals("zh-Hant", StringComparison.OrdinalIgnoreCase) || trimmed.Equals("zh-TW", StringComparison.OrdinalIgnoreCase) || trimmed.Equals("zh-HK", StringComparison.OrdinalIgnoreCase))
+            return "zh-Hant";
+        var prefix = trimmed.Split('-')[0].ToLowerInvariant();
+        return prefix switch
+        {
+            "ja" => "ja",
+            "ko" => "ko",
+            "fr" => "fr",
+            "de" => "de",
+            "es" => "es",
+            "it" => "it",
+            "pt" => "pt",
+            "ar" => "ar",
+            "hi" => "hi",
+            _ => null,
+        };
+    }
+
+    internal async Task<Clip[]> SelectVoiceClipsAsync(HeadlineAudioRequest request, string[] titles, CancellationToken token)
+    {
+        if (ResolveMultilingualLanguage(request.Language) is { } multiLanguage)
+        {
+            var allVoices = await GetAllVoicesAsync(token);
+            return titles.Select(title =>
+            {
+                var chinese = title.Any(character => character is >= '\u3400' and <= '\u9fff');
+                var configured = DefaultVoice(chinese);
+                if (multiLanguage is "zh-Hans" or "zh-Hant"
+                    && request.Voices?.GetValueOrDefault("zh") is { Length: > 0 } preferredZh
+                    && allVoices.FirstOrDefault(v => v.Id.Equals(preferredZh, StringComparison.OrdinalIgnoreCase)) is { } matchedZh)
+                {
+                    return new Clip(matchedZh.Id, title);
+                }
+                var selected = SharedArticleAudioService.ChooseVoice(allVoices, multiLanguage, chinese, configured);
+                return new Clip(selected.Id, title);
+            }).ToArray();
+        }
+
         var available = await GetVoicesAsync(token);
         return titles.Select(title =>
         {
             var chinese = title.Any(character => character is >= '\u3400' and <= '\u9fff');
             var voice = ChooseVoice(available, request.Language, chinese, request.Voices?.GetValueOrDefault(chinese ? "zh" : "en"), chinese ? settings.ChineseVoice : settings.EnglishVoice);
-            return NormalizeClip(new Clip(voice.Id, title));
+            return new Clip(voice.Id, title);
         }).ToArray();
+    }
+
+    private async Task<Clip[]> GetClipsAsync(HeadlineAudioRequest request, CancellationToken token)
+    {
+        var titles = HeadlineAudioService.Validate(request);
+        var rawClips = await SelectVoiceClipsAsync(request, titles, token);
+        return rawClips.Select(NormalizeClip).ToArray();
     }
 
     internal async Task<HeadlineAudio?> GetCachedAsync(HeadlineAudioRequest request, CancellationToken token)

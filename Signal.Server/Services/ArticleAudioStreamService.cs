@@ -24,14 +24,7 @@ public sealed class ArticleAudioStreamService
         if (!Enabled) throw new HeadlineAudioUnavailableException("configuration", "Streaming narration needs Azure Speech. Choose recorded audio instead.");
         // Large shuffled briefings still use small cloud batches and start early.
         var titles = HeadlineAudioService.Validate(request, MaximumCharacters, MaximumTitles);
-        var voices = await azure.GetVoicesAsync(token);
-        var clips = titles.Select(title =>
-        {
-            var chinese = title.Any(character => character is >= '\u3400' and <= '\u9fff');
-            var configured = azure.DefaultVoice(chinese);
-            var voice = AzureSpeechAudioRenderer.ChooseVoice(voices, request.Language, chinese, request.Voices?.GetValueOrDefault(chinese ? "zh" : "en"), configured);
-            return new AzureSpeechAudioRenderer.Clip(voice.Id, title);
-        }).ToArray();
+        var clips = await azure.SelectVoiceClipsAsync(request, titles, token);
         // Serve pre-generated Azure PCM through the same owned media URL.
         // Uncached stories retain early MP3 playback while Azure renders them.
         // Avoid loading and assembling hours of PCM before opening a long stream.

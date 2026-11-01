@@ -31,6 +31,26 @@ import {
   saveOfflineBriefingPack,
 } from "../app/daily-briefing-offline.ts";
 import { saveOfflineArticleContent } from "../app/offline-prewarm.ts";
+import { loadMarketWatchlist, sortWatchlistByMagnitude } from "../app/market-quote.ts";
+import {
+  briefingSpeechLocale,
+  clearBriefingTranslationCache,
+  loadBriefingLanguage,
+  saveBriefingLanguage,
+  translateDailyBriefing,
+} from "../app/daily-briefing-translation.ts";
+import {
+  buildBriefingWatchParts,
+  createHostedDailyBriefingShare,
+  formatDailyBriefingDigestText,
+  resolveBriefingWatchHandoffUrl,
+  shareOrCopyDailyBriefingDigest,
+} from "../app/daily-briefing-share.ts";
+import {
+  answerBriefingQuestionLocally,
+  askDailyBriefing,
+  buildSuggestedBriefingQuestions,
+} from "../app/daily-briefing-qa.ts";
 
 function createMemoryStorage() {
   const map = new Map();
@@ -434,7 +454,7 @@ test("Offline Briefing Pack saves neural WAV audio in Cache Storage and prewarms
     audioStore,
     prepareAudio: async (parts, seconds, lang, signal, fetcher, onProgress) => {
       assert.ok(parts.length >= 1);
-      assert.equal(seconds, 1);
+      assert.equal(seconds, 3);
       assert.equal(lang, "en-NZ");
       onProgress?.(parts.length, parts.length);
       return { blob: fakeWav, starts: parts.map((_, idx) => idx * 2) };
@@ -518,4 +538,375 @@ test("Offline Briefing Pack degrades gracefully to text + prewarmed stories if n
   assert.equal(meta.prewarmedStoryCount, 1);
   assert.match(meta.audioWarning ?? "", /TTS temporarily unreachable/);
   assert.ok(loadOfflineBriefingPackMeta(storage));
+});
+
+
+test("Multi-Ticker Market Watchlist sorts by magnitude, forwards ticker overrides, and narrates top + secondary movers", async () => {
+  const quotes = [
+    {
+      topic: "Apple",
+      symbol: "AAPL",
+      name: "Apple Inc",
+      exchange: "NASDAQ",
+      currency: "USD",
+      price: 228.5,
+      change: 0.91,
+      percentChange: 0.4,
+      quoteTime: "2026-11-01",
+      isMarketOpen: true,
+      provider: "Twelve Data",
+    },
+    {
+      topic: "Custom Chips",
+      symbol: "AVGO",
+      name: "Broadcom Inc",
+      exchange: "NASDAQ",
+      currency: "USD",
+      price: 172.1,
+      change: -4.95,
+      percentChange: -2.8,
+      quoteTime: "2026-11-01",
+      isMarketOpen: true,
+      provider: "Twelve Data",
+    },
+    {
+      topic: "NVIDIA",
+      symbol: "NVDA",
+      name: "NVIDIA Corp",
+      exchange: "NASDAQ",
+      currency: "USD",
+      price: 138.6,
+      change: 5.65,
+      percentChange: 4.25,
+      quoteTime: "2026-11-01",
+      isMarketOpen: true,
+      provider: "Twelve Data",
+    },
+  ];
+
+  const sorted = sortWatchlistByMagnitude([...quotes, quotes[2]]);
+  assert.deepEqual(
+    sorted.map((q) => q.symbol),
+    ["NVDA", "AVGO", "AAPL"],
+  );
+
+  let postedBody = null;
+  const fakeFetcher = async (url, init) => {
+    if (url === "/api/auth/csrf") {
+      return { ok: true, json: async () => ({ token: "csrf-watchlist-123" }) };
+    }
+    assert.equal(url, "/api/market/watchlist");
+    assert.equal(init.headers["X-XSRF-TOKEN"], "csrf-watchlist-123");
+    postedBody = JSON.parse(init.body);
+    return {
+      ok: true,
+      json: async () => ({ configured: true, quotes }),
+    };
+  };
+
+  const watchlistRes = await loadMarketWatchlist(
+    ["Apple", "Custom Chips", "NVIDIA"],
+    { "custom chips": "AVGO" },
+    undefined,
+    fakeFetcher,
+    5,
+  );
+  assert.equal(watchlistRes.configured, true);
+  assert.equal(watchlistRes.quotes.length, 3);
+  assert.equal(watchlistRes.quotes[0].symbol, "NVDA");
+  assert.deepEqual(postedBody.items[1], { topic: "Custom Chips", symbol: "AVGO" });
+
+  const briefing = buildDailyBriefing({
+    userTime: new Date("2026-11-01T08:00:00"),
+    marketWatchlist: watchlistRes.quotes,
+  });
+
+  assert.equal(briefing.marketGlance?.symbol, "NVDA");
+  assert.equal(briefing.marketWatchlistGlance?.length, 3);
+  assert.match(briefing.spokenScript, /top mover NVIDIA Corp is trading at 138\.60 USD, up 4\.25 percent/);
+  assert.match(
+    briefing.spokenScript,
+    /Elsewhere on your watchlist, AVGO is down 2\.80 percent, and AAPL is up 0\.40 percent\./,
+  );
+});
+
+test("Multilingual Executive Briefing persists language, resolves native speech locales, and translates & caches digest", async () => {
+  clearBriefingTranslationCache();
+  const storage = createMemoryStorage();
+  assert.equal(loadBriefingLanguage(storage), "en");
+  assert.equal(saveBriefingLanguage("ja-JP", storage), "ja");
+  assert.equal(loadBriefingLanguage(storage), "ja");
+  assert.equal(briefingSpeechLocale("ja"), "ja-JP");
+  assert.equal(briefingSpeechLocale("zh-Hans"), "zh-CN");
+  assert.equal(briefingSpeechLocale("es"), "es-ES");
+
+  const englishBriefing = buildDailyBriefing({
+    userTime: new Date("2026-11-01T08:00:00"),
+    weather: {
+      temperature: 19,
+      apparentTemperature: 18,
+      weatherCode: 2,
+      windSpeed: 10,
+      observedAt: "2026-11-01T08:00:00",
+      locationName: "Auckland",
+    },
+    articles: [
+      {
+        title: "Quantum Breakthrough Announced",
+        url: "https://example.com/quantum",
+        source: "Reuters",
+        summary: "Researchers unveiled a fault-tolerant logical qubit milestone.",
+      },
+    ],
+  });
+
+  let snippetCalls = 0;
+  const translatorFetcher = async (url, init) => {
+    if (url === "/api/auth/csrf") {
+      return { ok: true, json: async () => ({ token: "csrf-tr-1" }) };
+    }
+    snippetCalls += 1;
+    const { texts, language } = JSON.parse(init.body);
+    assert.equal(language, "ja");
+    return {
+      ok: true,
+      json: async () => ({
+        available: true,
+        language: "ja",
+        translations: texts.map((t) => `[JA] ${t}`),
+      }),
+    };
+  };
+
+  const first = await translateDailyBriefing(englishBriefing, "ja", undefined, translatorFetcher);
+  assert.equal(first.translated, true);
+  assert.equal(first.language, "ja");
+  assert.match(first.briefing.greeting, /^\[JA\] Good morning/);
+  assert.match(first.briefing.weatherGlance?.condition ?? "", /^\[JA\] /);
+  assert.match(first.briefing.leadStories[0].title, /^\[JA\] Quantum Breakthrough Announced/);
+  assert.match(first.briefing.spokenScript, /^\[JA\] /);
+  assert.equal(snippetCalls, 1);
+
+  // Second request for the identical briefing + language hits in-memory cache with 0 network calls
+  const second = await translateDailyBriefing(englishBriefing, "ja", undefined, translatorFetcher);
+  assert.equal(second.translated, true);
+  assert.equal(snippetCalls, 1);
+});
+
+test("Briefing Export, Hosted Share & Watch Handoff format executive text, publish /shared link, and validate public URLs", async () => {
+  const briefing = buildDailyBriefing({
+    userTime: new Date("2026-11-01T08:00:00"),
+    weather: {
+      temperature: 21,
+      apparentTemperature: 20,
+      weatherCode: 0,
+      windSpeed: 8,
+      observedAt: "2026-11-01T08:00:00",
+      locationName: "Wellington",
+    },
+    marketWatchlist: [
+      {
+        topic: "NVIDIA",
+        symbol: "NVDA",
+        name: "NVIDIA Corp",
+        exchange: "NASDAQ",
+        currency: "USD",
+        price: 138.6,
+        change: 5.65,
+        percentChange: 4.25,
+        quoteTime: "2026-11-01",
+        isMarketOpen: true,
+        provider: "Twelve Data",
+      },
+    ],
+    articles: [
+      {
+        title: "Localhost Story Should Not Be Used For Watch Handoff",
+        url: "http://localhost:3000/internal",
+        source: "Local",
+      },
+      {
+        title: "Clean Energy Grid Expansion",
+        url: "https://rnz.co.nz/clean-energy",
+        source: "RNZ",
+        summary: "National grid battery storage doubled this quarter.",
+        priorityTopic: "Clean Energy",
+      },
+    ],
+  });
+
+  const digestText = formatDailyBriefingDigestText(briefing);
+  assert.match(digestText, /Signal Executive Daily Briefing \(Morning\)/);
+  assert.match(digestText, /Weather: 21°C/);
+  assert.match(digestText, /Markets: NVDA \+4\.25%/);
+  assert.match(digestText, /\[RNZ\] \[★ Clean Energy\] Clean Energy Grid Expansion/);
+
+  let copiedValue = "";
+  const copyOutcome = await shareOrCopyDailyBriefingDigest(briefing, {
+    clipboard: {
+      writeText: async (val) => {
+        copiedValue = val;
+      },
+    },
+  });
+  assert.equal(copyOutcome, "copied");
+  assert.equal(copiedValue, digestText);
+
+  // Watch handoff skips http://localhost and picks the first public HTTPS story URL
+  assert.equal(resolveBriefingWatchHandoffUrl(briefing), "https://rnz.co.nz/clean-energy");
+  const watchParts = buildBriefingWatchParts(briefing);
+  assert.ok(watchParts.length >= 1 && watchParts.every((p) => p.length > 0 && p.length <= 950));
+
+  // Hosted share creates a /shared/<48-hex> link
+  const fakeHex48 = "a1b2c3d4e5f6".repeat(4);
+  const shareFetcher = async (url, init) => {
+    if (url === "/api/auth/csrf") {
+      return { ok: true, json: async () => ({ token: "csrf-share-1" }) };
+    }
+    assert.equal(url, "/api/article-shares");
+    const body = JSON.parse(init.body);
+    assert.match(body.url, /^https:\/\/signal\.news\/briefing\//);
+    assert.equal(body.snapshot.language, "es");
+    assert.ok(body.snapshot.paragraphs.length >= 3);
+    return {
+      ok: true,
+      json: async () => ({
+        path: `/shared/${fakeHex48}`,
+        title: body.title,
+        language: "es",
+        summaryOnly: false,
+      }),
+    };
+  };
+
+  const hosted = await createHostedDailyBriefingShare(
+    {
+      briefing,
+      packId: "briefing-abc123",
+      language: "es-ES",
+      origin: "https://signal.example.com",
+    },
+    shareFetcher,
+  );
+  assert.equal(hosted.url, `https://signal.example.com/shared/${fakeHex48}`);
+});
+
+test("Ask Today's Briefing Q&A supports suggested chips, cloud AI answers, and offline pack local Q&A fallback", async () => {
+  const briefing = buildDailyBriefing({
+    userTime: new Date("2026-11-01T08:00:00"),
+    priorityTopics: ["Reserve Bank"],
+    weather: {
+      temperature: 17,
+      apparentTemperature: 16,
+      weatherCode: 61,
+      windSpeed: 18,
+      observedAt: "2026-11-01T08:00:00",
+      locationName: "Christchurch",
+    },
+    forecast: [
+      {
+        date: "2026-11-01",
+        weatherCode: 61,
+        temperatureMax: 19,
+        temperatureMin: 11,
+        precipitationProbability: 80,
+      },
+    ],
+    marketWatchlist: [
+      {
+        topic: "NVIDIA",
+        symbol: "NVDA",
+        name: "NVIDIA Corp",
+        exchange: "NASDAQ",
+        currency: "USD",
+        price: 138.6,
+        change: 5.65,
+        percentChange: 4.25,
+        quoteTime: "2026-11-01",
+        isMarketOpen: true,
+        provider: "Twelve Data",
+      },
+    ],
+    articles: [
+      {
+        title: "Reserve Bank cuts Official Cash Rate to 4.25%",
+        url: "https://rnz.co.nz/rbnz-ocr",
+        source: "RNZ",
+        summary: "Floating mortgage rates dropped within minutes of the announcement.",
+        topics: ["Reserve Bank", "Interest rates"],
+      },
+      {
+        title: "Rocket Lab launches Electron mission from Mahia",
+        url: "https://stuff.co.nz/rocket-lab",
+        source: "Stuff",
+        summary: "Five commercial Earth-observation satellites reached orbit.",
+        topics: ["Rocket Lab", "Space"],
+      },
+    ],
+  });
+
+  const suggestions = buildSuggestedBriefingQuestions(briefing);
+  assert.equal(suggestions.length, 3);
+  assert.match(suggestions[0], /Reserve Bank/);
+
+  // 1. Offline local Q&A answers topic & weather questions with citations
+  const offlineOcr = answerBriefingQuestionLocally(
+    "What did the Reserve Bank decide on rates?",
+    briefing,
+  );
+  assert.equal(offlineOcr.available, true);
+  assert.equal(offlineOcr.mode, "offline-local");
+  assert.equal(offlineOcr.citations[0].source, "RNZ");
+  assert.match(offlineOcr.answer, /Reserve Bank cuts Official Cash Rate/);
+
+  const offlineUmbrella = await askDailyBriefing({
+    question: "Do I need an umbrella for the weather today?",
+    briefing,
+    isOnline: false,
+  });
+  assert.equal(offlineUmbrella.mode, "offline-local");
+  assert.match(offlineUmbrella.answer, /80% chance of rain/);
+
+  // 2. Cloud Q&A posts to /api/briefing-qa/ask and returns AI synthesized answer + citations
+  const qaFetcher = async (url, init) => {
+    if (url === "/api/auth/csrf") {
+      return { ok: true, json: async () => ({ token: "csrf-qa-1" }) };
+    }
+    assert.equal(url, "/api/briefing-qa/ask");
+    const payload = JSON.parse(init.body);
+    assert.equal(payload.language, "fr");
+    assert.ok(payload.marketContext.includes("NVDA"));
+    return {
+      ok: true,
+      json: async () => ({
+        available: true,
+        answer: "La Banque de réserve a abaissé son taux directeur à 4,25 %.",
+        mode: "azure-ai",
+        citations: [
+          {
+            url: "https://rnz.co.nz/rbnz-ocr",
+            title: "Reserve Bank cuts Official Cash Rate to 4.25%",
+            source: "RNZ",
+          },
+        ],
+        language: "fr",
+      }),
+    };
+  };
+
+  const cloudRes = await askDailyBriefing(
+    {
+      question: "Que fait la Banque de réserve ?",
+      briefing,
+      language: "fr-FR",
+      isOnline: true,
+    },
+    undefined,
+    qaFetcher,
+  );
+  assert.equal(cloudRes.available, true);
+  assert.equal(cloudRes.mode, "azure-ai");
+  assert.equal(cloudRes.language, "fr");
+  assert.equal(cloudRes.citations.length, 1);
+  assert.match(cloudRes.answer, /4,25 %/);
 });

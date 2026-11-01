@@ -295,7 +295,7 @@ export async function saveOfflineBriefingPack(
     try {
       const prepared = await prepareAudio(
         narrationParts,
-        1,
+        3,
         resolvedLanguage,
         activeSignal,
         fetcher,

@@ -26,7 +26,7 @@ import type { ArticleTranslation } from "./article-translation";
 import { useWeatherAudio } from "./WeatherAudio";
 import { useEarthquakeAlerts } from "./EarthquakeAlerts";
 import AppSettings from "./AppSettings";
-import { formatMarketPrice, type MarketQuote } from "./market-quote";
+import { formatMarketPrice, loadMarketWatchlist, type MarketQuote } from "./market-quote";
 import { describeWeather, weatherBriefing, type ClientWeatherAlert, type ClientWeatherConditions, type LocalWeather, type WeatherForecastDay } from "./weather-briefing";
 import WeatherAlertBanner from "./WeatherAlertBanner";
 import ArticleEntities from "./ArticleEntities";
@@ -878,6 +878,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [secondaryTimeZoneSearching, setSecondaryTimeZoneSearching] = useState(false);
   const [secondaryTimeZoneError, setSecondaryTimeZoneError] = useState("");
   const [marketQuote, setMarketQuote] = useState<MarketQuote | null>(null);
+  const [marketWatchlist, setMarketWatchlist] = useState<MarketQuote[]>([]);
   const [marketNotice, setMarketNotice] = useState<MarketNotice | null>(null);
   const [tickerEditorOpen, setTickerEditorOpen] = useState(false);
   const [tickerInput, setTickerInput] = useState("");
@@ -980,7 +981,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     return buildEntityPulse(preferences.topics, articles);
   }, [preferences.topics, articles]);
 
-  const runSaveOfflineBriefingPack = useCallback(async (targetBriefing: DailyBriefingData) => {
+  const runSaveOfflineBriefingPack = useCallback(async (targetBriefing: DailyBriefingData, language?: string) => {
     offlinePackAbortRef.current?.abort();
     const abort = new AbortController();
     offlinePackAbortRef.current = abort;
@@ -988,6 +989,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     try {
       const meta = await saveOfflineBriefingPack({
         briefing: targetBriefing,
+        language,
         signal: abort.signal,
         onProgress: (progress, stage) => {
           if (!abort.signal.aborted) {
@@ -1060,6 +1062,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         alerts: activeWeatherAlerts,
         conditions: weatherConditions,
         marketQuote,
+        marketWatchlist,
         pulse,
         articles,
         priorityTopics: briefingPriorityTopics,
@@ -1085,6 +1088,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     briefingSchedule,
     localWeather,
     marketQuote,
+    marketWatchlist,
     pulse,
     ready,
     triggerWakeUpBriefing,
@@ -1104,6 +1108,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
       alerts: activeWeatherAlerts,
       conditions: weatherConditions,
       marketQuote,
+      marketWatchlist,
       pulse,
       articles,
       priorityTopics: briefingPriorityTopics,
@@ -1126,6 +1131,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     briefingPriorityTopics,
     localWeather,
     marketQuote,
+    marketWatchlist,
     offlineBriefingDownload.busy,
     offlineBriefingMeta?.id,
     pulse,
@@ -1587,6 +1593,32 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
       window.clearInterval(refresh);
     };
   }, [selectedTopic, selectedTickerOverride]);
+
+  useEffect(() => {
+    if (!ready) return;
+    if (preferences.topics.length === 0) {
+      setMarketWatchlist([]);
+      return;
+    }
+    let controller = new AbortController();
+    const refreshWatchlist = () => {
+      controller.abort();
+      controller = new AbortController();
+      void loadMarketWatchlist(preferences.topics, preferences.tickerOverrides, controller.signal, fetch, 5)
+        .then((res) => {
+          if (!controller.signal.aborted) {
+            setMarketWatchlist(res.quotes);
+          }
+        })
+        .catch(() => {});
+    };
+    refreshWatchlist();
+    const interval = window.setInterval(refreshWatchlist, 5 * 60 * 1_000);
+    return () => {
+      controller.abort();
+      window.clearInterval(interval);
+    };
+  }, [ready, preferences.topics, preferences.tickerOverrides]);
 
   useEffect(() => {
     setTickerEditorOpen(false);
@@ -4327,6 +4359,38 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           </form>
         )}
 
+        {selectedTopic === ALL_TOPICS && marketWatchlist.length > 0 && (
+          <section className="dashboard-market-watchlist" aria-label="Watched market movers">
+            <span className="dashboard-watchlist-label">📈 Watchlist</span>
+            {marketWatchlist.map((item) => (
+              <button
+                key={`${item.symbol}:${item.exchange}`}
+                type="button"
+                className="dashboard-watchlist-pill"
+                onClick={() => setSelectedTopic(item.topic)}
+                title={`${item.name} (${item.topic}) — click to filter stories`}
+              >
+                <strong>{item.symbol}</strong>
+                <span className="dashboard-watchlist-price">
+                  {formatMarketPrice(item.price, item.currency)}
+                </span>
+                <span
+                  className={`dashboard-watchlist-change ${
+                    item.percentChange > 0
+                      ? "positive"
+                      : item.percentChange < 0
+                        ? "negative"
+                        : "neutral"
+                  }`}
+                >
+                  {item.percentChange > 0 ? "+" : ""}
+                  {item.percentChange.toFixed(2)}%
+                </span>
+              </button>
+            ))}
+          </section>
+        )}
+
         {marketQuote && marketQuote.topic.toLowerCase() === selectedTopic.toLowerCase() && (
           <section className="market-snapshot" aria-label={`Market price for ${marketQuote.name}`}>
             <div className="market-match">
@@ -5615,6 +5679,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         alerts={activeWeatherAlerts}
         conditions={weatherConditions}
         marketQuote={marketQuote}
+        marketWatchlist={marketWatchlist}
         pulse={pulse}
         articles={articles}
         followedTopics={preferences.topics}
@@ -5624,7 +5689,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         onChangeSchedule={setBriefingSchedule}
         offlinePackMeta={offlineBriefingMeta}
         offlineDownloadState={offlineBriefingDownload}
-        onSaveOfflinePack={(b) => { void runSaveOfflineBriefingPack(b); }}
+        onSaveOfflinePack={(b, lang) => { void runSaveOfflineBriefingPack(b, lang); }}
         onClearOfflinePack={() => { void handleClearOfflinePack(); }}
         autoOfflineEnabled={autoOfflineBriefing}
         onChangeAutoOffline={setAutoOfflineBriefing}

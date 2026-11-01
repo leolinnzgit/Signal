@@ -37,6 +37,8 @@ public sealed record MarketQuote(
     bool? IsMarketOpen,
     string Provider);
 
+public sealed record MarketWatchlistTopicInput(string Topic, string? Symbol = null);
+
 public sealed class MarketDataService(
     HttpClient httpClient,
     IMemoryCache cache,
@@ -54,15 +56,19 @@ public sealed class MarketDataService(
             ["Arm"] = "ARM",
             ["Broadcom"] = "AVGO",
             ["Coinbase"] = "COIN",
+            ["Dow Jones"] = "DIA",
             ["Google"] = "GOOGL",
             ["IBM"] = "IBM",
             ["Intel"] = "INTC",
             ["Meta"] = "META",
             ["Microsoft"] = "MSFT",
+            ["Nasdaq"] = "QQQ",
             ["Netflix"] = "NFLX",
             ["NVIDIA"] = "NVDA",
             ["Oracle"] = "ORCL",
             ["Palantir"] = "PLTR",
+            ["S&P 500"] = "SPY",
+            ["SP500"] = "SPY",
             ["Salesforce"] = "CRM",
             ["SpaceX"] = "SPCX",
             ["Space X"] = "SPCX",
@@ -101,6 +107,8 @@ public sealed class MarketDataService(
             "REIT",
         };
 
+    public bool IsConfigured => !string.IsNullOrWhiteSpace(options.Value.ApiKey);
+
     public async Task<MarketQuote?> GetForTopicAsync(
         string requestedTopic,
         string? tickerOverride,
@@ -108,7 +116,7 @@ public sealed class MarketDataService(
     {
         var topic = NormalizeDisplayText(requestedTopic, 80);
         if (topic.Length == 0) throw new ArgumentException("Choose a topic.");
-        if (string.IsNullOrWhiteSpace(options.Value.ApiKey)) throw new MarketDataNotConfiguredException();
+        if (!IsConfigured) throw new MarketDataNotConfiguredException();
 
         var normalizedOverride = MarketTickerParser.ParseOptional(tickerOverride);
         var match = normalizedOverride is null
@@ -142,6 +150,92 @@ public sealed class MarketDataService(
         }
         cache.Set(quoteCacheKey, quote, TimeSpan.FromMinutes(2));
         return quote;
+    }
+
+    public async Task<MarketQuote[]> GetWatchlistAsync(
+        IReadOnlyList<MarketWatchlistTopicInput>? items,
+        int maxQuotes,
+        CancellationToken cancellationToken)
+    {
+        if (!IsConfigured || items is null || items.Count == 0)
+            return [];
+
+        var boundedMax = Math.Clamp(maxQuotes, 1, 8);
+        var seenTopics = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var fastCandidates = new List<(string Topic, string? Override)>();
+        var discoveryCandidates = new List<(string Topic, string? Override)>();
+
+        foreach (var raw in items.Take(24))
+        {
+            if (raw is null) continue;
+            var topic = NormalizeDisplayText(raw.Topic, 80);
+            if (topic.Length == 0 || !seenTopics.Add(topic)) continue;
+
+            var overrideSymbol = string.IsNullOrWhiteSpace(raw.Symbol) ? null : raw.Symbol.Trim();
+            if (overrideSymbol is not null)
+            {
+                fastCandidates.Add((topic, overrideSymbol));
+            }
+            else if (HasFastSymbolMatch(topic, out var knownOrCached))
+            {
+                if (knownOrCached)
+                    fastCandidates.Add((topic, null));
+            }
+            else
+            {
+                discoveryCandidates.Add((topic, null));
+            }
+        }
+
+        // Prioritize explicit overrides and known/cached symbols; allow up to 2 discovery lookups per watchlist refresh
+        var ordered = fastCandidates.Concat(discoveryCandidates.Take(2)).ToArray();
+        var results = new List<MarketQuote>(boundedMax);
+        var seenSymbols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var (topic, overrideSymbol) in ordered)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (results.Count >= boundedMax) break;
+
+            try
+            {
+                var quote = await GetForTopicAsync(topic, overrideSymbol, cancellationToken);
+                if (quote is null) continue;
+                var symbolKey = $"{quote.Symbol}:{quote.Exchange}";
+                if (seenSymbols.Add(symbolKey))
+                    results.Add(quote);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                // Skip restricted, invalid, or transiently unavailable single symbols in watchlist mode
+            }
+        }
+
+        return results
+            .OrderByDescending(q => Math.Abs(q.PercentChange))
+            .ThenBy(q => q.Symbol, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private bool HasFastSymbolMatch(string topic, out bool matched)
+    {
+        if (KnownSymbols.ContainsKey(topic) || KnownNzxSymbols.ContainsKey(topic))
+        {
+            matched = true;
+            return true;
+        }
+        var cacheKey = $"market-match:{topic}".ToLowerInvariant();
+        if (cache.TryGetValue(cacheKey, out StockMatchCache? cachedMatch) && cachedMatch is not null)
+        {
+            matched = cachedMatch.Found;
+            return true;
+        }
+        matched = false;
+        return false;
     }
 
     private async Task<StockMatch?> FindMatchAsync(string topic, CancellationToken cancellationToken)

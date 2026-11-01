@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FollowedArticle } from "./NewsDashboard";
+import { translationLanguages } from "./article-translation";
+import ContinueOnWatch from "./ContinueOnWatch";
+import VoiceMicButton from "./VoiceMicButton";
 import {
   buildDailyBriefing,
   formatScheduleTimeDisplay,
@@ -25,6 +28,25 @@ import {
   saveOfflineBriefingPack,
   type OfflineBriefingPackMeta,
 } from "./daily-briefing-offline";
+import {
+  briefingSpeechLocale,
+  getBriefingLanguageLabel,
+  loadBriefingLanguage,
+  saveBriefingLanguage,
+  translateDailyBriefing,
+} from "./daily-briefing-translation";
+import {
+  buildBriefingWatchParts,
+  copyTextToClipboard,
+  createHostedDailyBriefingShare,
+  resolveBriefingWatchHandoffUrl,
+  shareOrCopyDailyBriefingDigest,
+} from "./daily-briefing-share";
+import {
+  askDailyBriefing,
+  buildSuggestedBriefingQuestions,
+  type BriefingQaResult,
+} from "./daily-briefing-qa";
 import { getCachedOfflineArticle } from "./offline-prewarm";
 import type {
   LocalWeather,
@@ -81,6 +103,7 @@ export default function DailyBriefingModal({
   alerts = [],
   conditions,
   marketQuote,
+  marketWatchlist = [],
   pulse,
   articles = [],
   followedTopics = [],
@@ -108,6 +131,7 @@ export default function DailyBriefingModal({
   alerts?: ClientWeatherAlert[];
   conditions?: ClientWeatherConditions | null;
   marketQuote?: MarketQuote | null;
+  marketWatchlist?: MarketQuote[];
   pulse?: EntityPulseSummary | null;
   articles?: FollowedArticle[];
   followedTopics?: string[];
@@ -117,7 +141,7 @@ export default function DailyBriefingModal({
   onChangeSchedule?: (prefs: BriefingSchedulePrefs) => void;
   offlinePackMeta?: OfflineBriefingPackMeta | null;
   offlineDownloadState?: OfflinePackDownloadStatus;
-  onSaveOfflinePack?: (briefing: DailyBriefingData) => void;
+  onSaveOfflinePack?: (briefing: DailyBriefingData, language?: string) => void;
   onClearOfflinePack?: () => void;
   autoOfflineEnabled?: boolean;
   onChangeAutoOffline?: (enabled: boolean) => void;
@@ -130,7 +154,9 @@ export default function DailyBriefingModal({
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const speech = useSpokenBriefing();
+  const qaSpeech = useSpokenBriefing();
   const stopBriefing = speech.stop;
+  const stopQaSpeech = qaSpeech.stop;
 
   // Fallback internal states if parent doesn't control them
   const [localPriorityTopics, setLocalPriorityTopics] = useState<string[]>(() => loadPriorityTopics());
@@ -145,6 +171,27 @@ export default function DailyBriefingModal({
     stage: "",
     error: null,
   });
+
+  // Multilingual Executive Briefing state
+  const [briefingLanguage, setBriefingLanguage] = useState<string>(() => loadBriefingLanguage());
+  const [translationState, setTranslationState] = useState<{
+    sourceKey: string;
+    briefing: DailyBriefingData | null;
+    busy: boolean;
+  }>({ sourceKey: "", briefing: null, busy: false });
+
+  // Export, Hosted Share & Watch Handoff state
+  const [shareFeedback, setShareFeedback] = useState<string>("");
+  const [hostedShareBusy, setHostedShareBusy] = useState<boolean>(false);
+  const [hostedShareUrl, setHostedShareUrl] = useState<string>("");
+
+  // "Ask Today's Briefing" Q&A state
+  const [qaInput, setQaInput] = useState<string>("");
+  const [qaBusy, setQaBusy] = useState<boolean>(false);
+  const [qaAskedQuestion, setQaAskedQuestion] = useState<string>("");
+  const [qaResult, setQaResult] = useState<BriefingQaResult | null>(null);
+  const [qaError, setQaError] = useState<string>("");
+  const qaAbortRef = useRef<AbortController | null>(null);
 
   const [schedulePanelOpen, setSchedulePanelOpen] = useState(false);
   const [isOnline, setIsOnline] = useState<boolean>(() =>
@@ -179,31 +226,97 @@ export default function DailyBriefingModal({
       alerts,
       conditions,
       marketQuote,
+      marketWatchlist,
       pulse,
       articles,
       priorityTopics,
       userTime,
       maxLeadStories: 4,
     });
-  }, [weather, forecast, alerts, conditions, marketQuote, pulse, articles, priorityTopics, userTime]);
+  }, [
+    weather,
+    forecast,
+    alerts,
+    conditions,
+    marketQuote,
+    marketWatchlist,
+    pulse,
+    articles,
+    priorityTopics,
+    userTime,
+  ]);
 
   // When offline and live feed has no stories yet, restore the saved Offline Briefing Pack snapshot
   const usingOfflineSnapshot = Boolean(
     !isOnline && offlineMeta && liveBriefing.leadStories.length === 0,
   );
-  const briefing: DailyBriefingData = usingOfflineSnapshot && offlineMeta ? offlineMeta.briefing : liveBriefing;
+  const baseBriefing: DailyBriefingData =
+    usingOfflineSnapshot && offlineMeta ? offlineMeta.briefing : liveBriefing;
 
-  const currentLanguage =
-    typeof navigator !== "undefined" && navigator.language.startsWith("en")
-      ? navigator.language
-      : "en-NZ";
+  const translationSourceKey = `${briefingLanguage}::${baseBriefing.spokenScript}`;
+
+  useEffect(() => {
+    if (!isOpen || briefingLanguage === "en" || !isOnline) {
+      setTranslationState((prev) => (prev.busy ? { ...prev, busy: false } : prev));
+      return;
+    }
+
+    const controller = new AbortController();
+    setTranslationState((prev) =>
+      prev.sourceKey === translationSourceKey && prev.briefing
+        ? prev
+        : { sourceKey: translationSourceKey, briefing: null, busy: true },
+    );
+
+    void translateDailyBriefing(baseBriefing, briefingLanguage, controller.signal)
+      .then((res) => {
+        if (controller.signal.aborted) return;
+        setTranslationState({
+          sourceKey: translationSourceKey,
+          briefing: res.translated ? res.briefing : baseBriefing,
+          busy: false,
+        });
+      })
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        setTranslationState({
+          sourceKey: translationSourceKey,
+          briefing: baseBriefing,
+          busy: false,
+        });
+      });
+
+    return () => controller.abort();
+  }, [baseBriefing, briefingLanguage, isOnline, isOpen, translationSourceKey]);
+
+  const briefing: DailyBriefingData =
+    briefingLanguage !== "en" &&
+    translationState.sourceKey === translationSourceKey &&
+    translationState.briefing
+      ? translationState.briefing
+      : baseBriefing;
+
+  const speechLocale = useMemo(() => briefingSpeechLocale(briefingLanguage), [briefingLanguage]);
   const currentPackId = useMemo(
-    () => computeBriefingPackId(briefing, currentLanguage),
-    [briefing, currentLanguage],
+    () => computeBriefingPackId(briefing, speechLocale),
+    [briefing, speechLocale],
   );
   const isCurrentPackCached = Boolean(offlineMeta && offlineMeta.id === currentPackId);
 
+  const watchHandoffUrl = useMemo(() => resolveBriefingWatchHandoffUrl(briefing), [briefing]);
+  const watchParts = useMemo(() => buildBriefingWatchParts(briefing), [briefing]);
+  const watchTitle = useMemo(() => {
+    const editionLabel = briefing.edition.charAt(0).toUpperCase() + briefing.edition.slice(1);
+    return `Signal ${editionLabel} Briefing — ${briefing.formattedDate}`;
+  }, [briefing.edition, briefing.formattedDate]);
+
+  const suggestedQuestions = useMemo(
+    () => buildSuggestedBriefingQuestions(baseBriefing),
+    [baseBriefing],
+  );
+
   const playBriefingAudio = useCallback(async () => {
+    stopQaSpeech();
     let cachedBlob: Blob | null = null;
     if (offlineMeta?.hasNeuralAudio) {
       if (offlineMeta.id === currentPackId) {
@@ -214,13 +327,15 @@ export default function DailyBriefingModal({
     }
     const scriptToSpeak =
       !isOnline && cachedBlob && offlineMeta ? offlineMeta.briefing.spokenScript : briefing.spokenScript;
-    speech.speak(scriptToSpeak, undefined, cachedBlob);
-  }, [briefing.spokenScript, currentPackId, isOnline, offlineMeta, speech]);
+    speech.speak(scriptToSpeak, speechLocale, cachedBlob);
+  }, [briefing.spokenScript, currentPackId, isOnline, offlineMeta, speech, speechLocale, stopQaSpeech]);
 
   // Manage native dialog open/close lifecycle
   useEffect(() => {
     if (!isOpen) {
       stopBriefing();
+      stopQaSpeech();
+      qaAbortRef.current?.abort();
       return;
     }
 
@@ -240,11 +355,13 @@ export default function DailyBriefingModal({
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       stopBriefing();
+      stopQaSpeech();
+      qaAbortRef.current?.abort();
       if (dialog && dialog.open) {
         dialog.close();
       }
     };
-  }, [isOpen, onClose, stopBriefing]);
+  }, [isOpen, onClose, stopBriefing, stopQaSpeech]);
 
   // Auto-play support when launched from Wake-up Briefing "Play Briefing" button
   useEffect(() => {
@@ -256,12 +373,101 @@ export default function DailyBriefingModal({
   if (!isOpen) return null;
 
   const isAudioActive = speech.status === "starting" || speech.status === "playing";
+  const isQaAudioActive = qaSpeech.status === "starting" || qaSpeech.status === "playing";
 
   const handleAudioToggle = () => {
     if (isAudioActive) {
       speech.stop();
     } else {
       void playBriefingAudio();
+    }
+  };
+
+  const handleLanguageChange = (nextLang: string) => {
+    speech.stop();
+    qaSpeech.stop();
+    const saved = saveBriefingLanguage(nextLang);
+    setBriefingLanguage(saved);
+    setHostedShareUrl("");
+  };
+
+  const handleShareDigestClick = async () => {
+    const outcome = await shareOrCopyDailyBriefingDigest(briefing);
+    if (outcome === "shared") {
+      setShareFeedback("Digest shared");
+    } else if (outcome === "copied") {
+      setShareFeedback("Digest copied to clipboard");
+    } else if (outcome === "failed") {
+      setShareFeedback("Could not copy digest");
+    }
+    if (outcome !== "cancelled") {
+      window.setTimeout(() => setShareFeedback(""), 3500);
+    }
+  };
+
+  const handleCreateHostedShareClick = async () => {
+    if (hostedShareBusy || !isOnline) return;
+    setHostedShareBusy(true);
+    setShareFeedback("");
+    try {
+      const created = await createHostedDailyBriefingShare({
+        briefing,
+        packId: currentPackId,
+        language: briefingLanguage,
+      });
+      setHostedShareUrl(created.url);
+      const copied = await copyTextToClipboard(created.url);
+      setShareFeedback(copied ? "Hosted audio link copied" : "Hosted audio link ready");
+    } catch (err) {
+      setShareFeedback(err instanceof Error ? err.message : "Could not create hosted link");
+    } finally {
+      setHostedShareBusy(false);
+    }
+  };
+
+  const submitBriefingQuestion = async (rawQuestion: string) => {
+    const cleanQ = rawQuestion.replace(/\s+/g, " ").trim();
+    if (cleanQ.length < 2) return;
+
+    qaAbortRef.current?.abort();
+    const controller = new AbortController();
+    qaAbortRef.current = controller;
+
+    qaSpeech.stop();
+    setQaBusy(true);
+    setQaError("");
+    setQaAskedQuestion(cleanQ);
+
+    try {
+      const res = await askDailyBriefing(
+        {
+          question: cleanQ,
+          briefing,
+          articles,
+          language: briefingLanguage,
+          isOnline,
+        },
+        controller.signal,
+      );
+      if (controller.signal.aborted) return;
+      setQaResult(res);
+    } catch (err) {
+      if (controller.signal.aborted) return;
+      setQaError(err instanceof Error ? err.message : "Could not answer that question right now.");
+    } finally {
+      if (!controller.signal.aborted) {
+        setQaBusy(false);
+      }
+    }
+  };
+
+  const handleQaAudioToggle = () => {
+    if (!qaResult?.answer) return;
+    if (isQaAudioActive) {
+      qaSpeech.stop();
+    } else {
+      speech.stop();
+      qaSpeech.speak(qaResult.answer, speechLocale);
     }
   };
 
@@ -294,13 +500,14 @@ export default function DailyBriefingModal({
   const handleSaveOfflinePackClick = async () => {
     if (downloadState.busy) return;
     if (onSaveOfflinePack) {
-      onSaveOfflinePack(briefing);
+      onSaveOfflinePack(briefing, speechLocale);
       return;
     }
     setLocalDownloadState({ busy: true, progress: 5, stage: "Preparing offline pack...", error: null });
     try {
       const meta = await saveOfflineBriefingPack({
         briefing,
+        language: speechLocale,
         onProgress: (progress, stage) => {
           setLocalDownloadState({ busy: true, progress, stage, error: null });
         },
@@ -352,6 +559,11 @@ export default function DailyBriefingModal({
     ? new Date(offlineMeta.savedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
     : "";
 
+  const secondaryWatchlistQuotes =
+    briefing.marketWatchlistGlance && briefing.marketWatchlistGlance.length > 1
+      ? briefing.marketWatchlistGlance.slice(1, 5)
+      : [];
+
   return (
     <dialog
       ref={dialogRef}
@@ -371,6 +583,12 @@ export default function DailyBriefingModal({
               <span className="daily-briefing-edition-badge">
                 🗞️ {briefing.edition.toUpperCase()} DIGEST
               </span>
+              {briefingLanguage !== "en" && (
+                <span className="daily-briefing-status-pill language" title="Translated executive digest & native neural voice">
+                  🌐 {getBriefingLanguageLabel(briefingLanguage)}
+                  {translationState.busy ? " (Translating…)" : ""}
+                </span>
+              )}
               {usingOfflineSnapshot && (
                 <span className="daily-briefing-status-pill offline" title="Showing saved offline commute pack">
                   📡 Offline Snapshot
@@ -390,6 +608,23 @@ export default function DailyBriefingModal({
             </p>
           </div>
           <div className="daily-briefing-header-actions">
+            <label className="briefing-language-picker" title="Translate briefing text & switch native neural voice">
+              <span className="sr-only">Briefing language</span>
+              <span aria-hidden="true">🌐</span>
+              <select
+                className="briefing-language-select"
+                aria-label="Briefing language"
+                value={briefingLanguage}
+                onChange={(e) => handleLanguageChange(e.target.value)}
+              >
+                {translationLanguages.map(([code, name]) => (
+                  <option key={code} value={code}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
             <button
               type="button"
               className={`daily-briefing-audio-btn ${isAudioActive ? "active" : ""}`}
@@ -424,8 +659,8 @@ export default function DailyBriefingModal({
           </div>
         </header>
 
-        {/* Commute Offline Pack & Wake-up Schedule Toolbar */}
-        <section className="daily-briefing-toolbar" aria-label="Briefing automation and offline pack controls">
+        {/* Commute Offline Pack, Share/Export, Watch Handoff & Wake-up Schedule Toolbar */}
+        <section className="daily-briefing-toolbar" aria-label="Briefing automation, sharing, and offline pack controls">
           <div className="briefing-offline-bar">
             {downloadState.busy ? (
               <span className="briefing-offline-progress" role="status" aria-live="polite">
@@ -485,7 +720,41 @@ export default function DailyBriefingModal({
             </label>
           </div>
 
-          <div className="briefing-schedule-bar">
+          <div className="briefing-actions-cluster">
+            <button
+              type="button"
+              className="briefing-toolbar-btn"
+              onClick={() => void handleShareDigestClick()}
+              title="Share or copy formatted executive digest with story links"
+            >
+              📋 Share Digest
+            </button>
+
+            <button
+              type="button"
+              className="briefing-toolbar-btn"
+              disabled={!isOnline || hostedShareBusy}
+              onClick={() => void handleCreateHostedShareClick()}
+              title="Publish a hosted Signal share page with public neural audio playback"
+            >
+              {hostedShareBusy ? "⏳ Publishing…" : "🔗 Hosted Link"}
+            </button>
+
+            <div className="briefing-watch-handoff-wrap">
+              <ContinueOnWatch
+                url={watchHandoffUrl}
+                title={watchTitle}
+                source="Signal Executive Briefing"
+                snapshot={() => ({
+                  parts: watchParts,
+                  partIndex: 0,
+                  session: currentPackId,
+                })}
+                pause={() => speech.stop()}
+                onLockChange={() => {}}
+              />
+            </div>
+
             <button
               type="button"
               className={`briefing-toolbar-btn schedule-toggle ${schedule.enabled ? "enabled" : ""}`}
@@ -496,6 +765,22 @@ export default function DailyBriefingModal({
               ⏰ {schedule.enabled ? `Wake-up: ${formatScheduleTimeDisplay(schedule.time)}` : "Schedule Wake-up"}
             </button>
           </div>
+
+          {(shareFeedback || hostedShareUrl) && (
+            <div className="briefing-share-status-row" role="status" aria-live="polite">
+              {shareFeedback && <span className="briefing-share-feedback">{shareFeedback}</span>}
+              {hostedShareUrl && (
+                <a
+                  href={hostedShareUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="briefing-hosted-share-link"
+                >
+                  Open shared briefing &rarr;
+                </a>
+              )}
+            </div>
+          )}
 
           {downloadState.error && (
             <p className="briefing-toolbar-error" role="alert">
@@ -603,11 +888,13 @@ export default function DailyBriefingModal({
             )}
           </article>
 
-          {/* Market Glance */}
+          {/* Market Glance (Top Mover + Multi-Ticker Watchlist Pills) */}
           <article className="glance-card market-glance">
             <div className="glance-card-header">
               <span className="glance-card-icon" aria-hidden="true">📈</span>
-              <span className="glance-card-label">Financial Markets</span>
+              <span className="glance-card-label">
+                {secondaryWatchlistQuotes.length > 0 ? "Market Watchlist" : "Financial Markets"}
+              </span>
             </div>
             {briefing.marketGlance ? (
               <div className="glance-card-content">
@@ -630,6 +917,30 @@ export default function DailyBriefingModal({
                   <span>{briefing.marketGlance.name}</span>
                   <span> &bull; {briefing.marketGlance.formattedPrice}</span>
                 </p>
+
+                {secondaryWatchlistQuotes.length > 0 && (
+                  <div className="glance-watchlist-strip" aria-label="Additional watched market movers">
+                    {secondaryWatchlistQuotes.map((item) => (
+                      <span
+                        key={item.symbol}
+                        className={`glance-watchlist-pill ${
+                          item.percentChange > 0
+                            ? "positive"
+                            : item.percentChange < 0
+                              ? "negative"
+                              : "neutral"
+                        }`}
+                        title={`${item.name} (${item.topic}): ${item.formattedPrice}`}
+                      >
+                        <strong>{item.symbol}</strong>
+                        <span>
+                          {item.percentChange > 0 ? "+" : ""}
+                          {item.percentChange.toFixed(1)}%
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             ) : (
               <div className="glance-card-empty">
@@ -665,6 +976,164 @@ export default function DailyBriefingModal({
               <div className="glance-card-empty">Follow topics to monitor momentum</div>
             )}
           </article>
+        </section>
+
+        {/* "Ask Today's Briefing" Interactive Voice & Text Q&A */}
+        <section className="daily-briefing-qa-card" aria-label="Ask Today's Briefing">
+          <div className="briefing-qa-header">
+            <span className="briefing-qa-title">💬 Ask Today&apos;s Briefing</span>
+            <span className="briefing-qa-hint">
+              Ask a follow-up question by text or voice across today&apos;s stories, markets &amp; weather
+            </span>
+          </div>
+
+          {suggestedQuestions.length > 0 && (
+            <div className="briefing-qa-suggestions" role="group" aria-label="Suggested briefing questions">
+              {suggestedQuestions.map((suggestion) => (
+                <button
+                  key={suggestion}
+                  type="button"
+                  className="briefing-qa-chip"
+                  disabled={qaBusy}
+                  onClick={() => {
+                    setQaInput(suggestion);
+                    void submitBriefingQuestion(suggestion);
+                  }}
+                >
+                  {suggestion}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <form
+            className="briefing-qa-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void submitBriefingQuestion(qaInput);
+            }}
+          >
+            <input
+              type="text"
+              className="briefing-qa-input"
+              value={qaInput}
+              onChange={(e) => setQaInput(e.target.value)}
+              placeholder="Ask about any story, watched stock, or forecast…"
+              aria-label="Ask a question about today's briefing"
+              maxLength={300}
+            />
+            <VoiceMicButton
+              label="Ask briefing by voice"
+              language={speechLocale}
+              disabled={qaBusy}
+              className="briefing-qa-mic"
+              onVoiceCommand={(command) => {
+                const spoken = command.raw || command.query;
+                if (spoken) {
+                  setQaInput(spoken);
+                  void submitBriefingQuestion(spoken);
+                }
+              }}
+              onError={(msg) => setQaError(msg)}
+            />
+            <button
+              type="submit"
+              className="briefing-qa-submit"
+              disabled={qaBusy || qaInput.trim().length < 2}
+            >
+              {qaBusy ? "Thinking…" : "Ask"}
+            </button>
+          </form>
+
+          {qaError && (
+            <p className="briefing-qa-error" role="alert">
+              {qaError}
+            </p>
+          )}
+
+          {qaResult && (
+            <div className="briefing-qa-answer-box" role="region" aria-label="Briefing answer">
+              <div className="briefing-qa-answer-header">
+                <div className="briefing-qa-answer-badges">
+                  <span className="briefing-qa-mode-badge">
+                    {qaResult.mode === "azure-ai"
+                      ? "✨ AI Synthesis"
+                      : qaResult.mode === "offline-local"
+                        ? "📡 Offline Pack Answer"
+                        : "📑 Cited Answer"}
+                  </span>
+                  {qaAskedQuestion && (
+                    <span className="briefing-qa-question-echo">&ldquo;{qaAskedQuestion}&rdquo;</span>
+                  )}
+                </div>
+                <div className="briefing-qa-answer-controls">
+                  {qaResult.answer && (
+                    <button
+                      type="button"
+                      className={`briefing-qa-listen-btn ${isQaAudioActive ? "active" : ""}`}
+                      onClick={handleQaAudioToggle}
+                    >
+                      {isQaAudioActive ? "⏹ Stop" : "🔊 Read Answer"}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="briefing-qa-clear-btn"
+                    onClick={() => {
+                      qaSpeech.stop();
+                      setQaResult(null);
+                      setQaAskedQuestion("");
+                    }}
+                    title="Clear answer"
+                    aria-label="Clear briefing answer"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+
+              <p className="briefing-qa-answer-text">{qaResult.answer}</p>
+
+              {qaResult.citations.length > 0 && (
+                <div className="briefing-qa-citations" aria-label="Cited sources">
+                  <span className="briefing-qa-citations-label">Sources:</span>
+                  {qaResult.citations.map((cite) => {
+                    const matchedArt = articles.find((a) => a.url === cite.url);
+                    return onOpenArticle ? (
+                      <button
+                        key={cite.url}
+                        type="button"
+                        className="briefing-qa-citation-pill"
+                        onClick={() => {
+                          onClose();
+                          onOpenArticle(
+                            toFollowedArticle(
+                              { title: cite.title, url: cite.url, source: cite.source },
+                              matchedArt,
+                            ),
+                          );
+                        }}
+                        title={cite.title}
+                      >
+                        <strong>{cite.source}</strong>: {cite.title}
+                      </button>
+                    ) : (
+                      <a
+                        key={cite.url}
+                        href={cite.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="briefing-qa-citation-pill"
+                        title={cite.title}
+                      >
+                        <strong>{cite.source}</strong>: {cite.title}
+                      </a>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </section>
 
         {/* Personalized Priority Topic Highlights Selector */}

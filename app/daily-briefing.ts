@@ -5,7 +5,7 @@ import {
   type LocalWeather,
   type WeatherForecastDay,
 } from "./weather-briefing.ts";
-import { formatMarketPrice, type MarketQuote } from "./market-quote.ts";
+import { formatMarketPrice, sortWatchlistByMagnitude, type MarketQuote } from "./market-quote.ts";
 import type { EntityPulseSummary } from "./entity-pulse.ts";
 import { topicMatchesText } from "./api/news/topic-matching.ts";
 
@@ -28,6 +28,7 @@ export type DailyBriefingParams = {
   alerts?: ClientWeatherAlert[];
   conditions?: ClientWeatherConditions | null;
   marketQuote?: MarketQuote | null;
+  marketWatchlist?: readonly MarketQuote[];
   pulse?: EntityPulseSummary | null;
   articles?: DailyBriefingStory[];
   priorityTopics?: readonly string[];
@@ -80,6 +81,7 @@ export type DailyBriefingData = {
   edition: "morning" | "afternoon" | "evening";
   weatherGlance?: DailyBriefingGlanceWeather;
   marketGlance?: DailyBriefingGlanceMarket;
+  marketWatchlistGlance?: DailyBriefingGlanceMarket[];
   pulseGlance?: DailyBriefingGlancePulse;
   leadStories: DailyBriefingStory[];
   unreadCount: number;
@@ -445,6 +447,7 @@ export function buildDailyBriefing(params: DailyBriefingParams = {}): DailyBrief
     alerts = [],
     conditions,
     marketQuote,
+    marketWatchlist = [],
     pulse,
     articles = [],
     priorityTopics: rawPriorityTopics = [],
@@ -521,33 +524,51 @@ export function buildDailyBriefing(params: DailyBriefingParams = {}): DailyBrief
     spokenSections.push(weatherLine);
   }
 
-  // 3. Market Movers Glance & Narration
+  // 3. Market Movers Glance & Narration (Single Quote + Multi-Ticker Watchlist)
   let marketGlance: DailyBriefingGlanceMarket | undefined;
-  if (marketQuote) {
-    const formattedPrice = formatMarketPrice(marketQuote.price, marketQuote.currency);
-    const isPositive = marketQuote.percentChange >= 0;
+  let marketWatchlistGlance: DailyBriefingGlanceMarket[] | undefined;
 
-    marketGlance = {
-      topic: marketQuote.topic,
-      symbol: marketQuote.symbol,
-      name: marketQuote.name || marketQuote.symbol,
-      price: marketQuote.price,
-      currency: marketQuote.currency,
-      formattedPrice,
-      change: marketQuote.change,
-      percentChange: marketQuote.percentChange,
-      isPositive,
-    };
+  const combinedMarketQuotes = sortWatchlistByMagnitude([
+    ...marketWatchlist,
+    ...(marketQuote ? [marketQuote] : []),
+  ]).slice(0, 5);
 
+  if (combinedMarketQuotes.length > 0) {
+    marketWatchlistGlance = combinedMarketQuotes.map((quote) => ({
+      topic: quote.topic,
+      symbol: quote.symbol,
+      name: quote.name || quote.symbol,
+      price: quote.price,
+      currency: quote.currency,
+      formattedPrice: formatMarketPrice(quote.price, quote.currency),
+      change: quote.change,
+      percentChange: quote.percentChange,
+      isPositive: quote.percentChange >= 0,
+    }));
+
+    marketGlance = marketWatchlistGlance[0];
+    const leadQuote = combinedMarketQuotes[0];
     const direction =
-      marketQuote.percentChange > 0 ? "up" : marketQuote.percentChange < 0 ? "down" : "unchanged at";
-    const absPercent = Math.abs(marketQuote.percentChange).toFixed(2);
-    const marketName = marketQuote.name || marketQuote.symbol;
-    const marketCurrency = marketQuote.currency ? ` ${marketQuote.currency}` : "";
+      leadQuote.percentChange > 0 ? "up" : leadQuote.percentChange < 0 ? "down" : "unchanged at";
+    const absPercent = Math.abs(leadQuote.percentChange).toFixed(2);
+    const marketName = leadQuote.name || leadQuote.symbol;
+    const marketCurrency = leadQuote.currency ? ` ${leadQuote.currency}` : "";
 
-    spokenSections.push(
-      `In financial markets, ${marketName} is trading at ${marketQuote.price.toFixed(2)}${marketCurrency}, ${direction} ${absPercent} percent.`
-    );
+    if (marketWatchlistGlance.length === 1) {
+      spokenSections.push(
+        `In financial markets, ${marketName} is trading at ${leadQuote.price.toFixed(2)}${marketCurrency}, ${direction} ${absPercent} percent.`,
+      );
+    } else {
+      let marketLine = `In financial markets, top mover ${marketName} is trading at ${leadQuote.price.toFixed(2)}${marketCurrency}, ${direction} ${absPercent} percent.`;
+      const secondaryMovers = marketWatchlistGlance.slice(1, 3).map((item) => {
+        const dir = item.percentChange > 0 ? "up" : item.percentChange < 0 ? "down" : "unchanged at";
+        return `${item.symbol} is ${dir} ${Math.abs(item.percentChange).toFixed(2)} percent`;
+      });
+      if (secondaryMovers.length > 0) {
+        marketLine += ` Elsewhere on your watchlist, ${secondaryMovers.join(", and ")}.`;
+      }
+      spokenSections.push(marketLine);
+    }
   }
 
   // 4. Entity Pulse Momentum Glance & Narration
@@ -660,6 +681,7 @@ export function buildDailyBriefing(params: DailyBriefingParams = {}): DailyBrief
     edition,
     weatherGlance,
     marketGlance,
+    marketWatchlistGlance,
     pulseGlance,
     leadStories,
     unreadCount,

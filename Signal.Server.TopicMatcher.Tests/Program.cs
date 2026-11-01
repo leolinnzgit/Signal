@@ -45,6 +45,8 @@ await VoiceSearchChecks.RunAsync();
 Console.WriteLine("Azure Speech STT voice search checks passed: WAV validation, language sanitization, JSON parsing, disabled state and controller validation.");
 await StoryClusterChecks.RunAsync();
 Console.WriteLine("Multi-source story cluster synthesis checks passed: input validation, publisher dossier attribution, 4-sentence Azure Language synthesis, caching and disabled state.");
+await DailyBriefingBackendChecks.RunAsync();
+Console.WriteLine("Daily Briefing backend checks passed: Market Watchlist batching/ranking, Multilingual Neural Speech voice selection, and Briefing Q&A cited answers/translation.");
 if (args.Contains("--content-safety-only")) return;
 await SharedCommentChecks.RunAsync();
 if (args.Contains("--shared-comments-browser")) { await SharedCommentChecks.RunBrowserAsync(); return; }

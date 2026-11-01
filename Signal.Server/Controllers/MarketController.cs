@@ -12,6 +12,9 @@ public sealed class MarketController(
     MarketDataService marketData,
     ILogger<MarketController> logger) : ControllerBase
 {
+    public sealed record MarketWatchlistRequest(MarketWatchlistTopicInput[]? Items, int MaxQuotes = 5);
+    public sealed record MarketWatchlistResponse(bool Configured, MarketQuote[] Quotes);
+
     [HttpGet]
     public async Task<IActionResult> Get(
         [FromQuery] string topic,
@@ -52,6 +55,36 @@ public sealed class MarketController(
             return StatusCode(
                 StatusCodes.Status502BadGateway,
                 new { error = "Market pricing is temporarily unavailable." });
+        }
+    }
+
+    [HttpPost("watchlist")]
+    [RequestSizeLimit(16_384)]
+    public async Task<IActionResult> Watchlist(
+        [FromBody] MarketWatchlistRequest? request,
+        CancellationToken cancellationToken)
+    {
+        if (!marketData.IsConfigured)
+        {
+            return Ok(new MarketWatchlistResponse(false, []));
+        }
+
+        try
+        {
+            var quotes = await marketData.GetWatchlistAsync(
+                request?.Items,
+                request?.MaxQuotes ?? 5,
+                cancellationToken);
+            return Ok(new MarketWatchlistResponse(true, quotes));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return StatusCode(499);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Market watchlist lookup failed.");
+            return Ok(new MarketWatchlistResponse(true, []));
         }
     }
 }
