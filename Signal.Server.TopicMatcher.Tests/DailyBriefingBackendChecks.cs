@@ -25,6 +25,7 @@ internal static class DailyBriefingBackendChecks
         await RunMarketPortfolioAndAlertChecksAsync();
         await RunMultilingualSpeechVoiceChecksAsync();
         await RunBriefingQaChecksAsync();
+        await RunBriefingDeepDiveChecksAsync();
         await RunExecutiveBriefingDeliveryChecksAsync();
     }
 
@@ -253,6 +254,66 @@ internal static class DailyBriefingBackendChecks
             && summaryHandler.LastSentenceCount == 3
             && translatorHandler.Calls == 1,
             "AI + Multilingual Briefing Q&A did not synthesize 3-sentence answer and translate to Spanish.");
+    }
+
+    private static async Task RunBriefingDeepDiveChecksAsync()
+    {
+        using var cache = new MemoryCache(new MemoryCacheOptions());
+        using var readerHttp = new HttpClient(new NotFoundHandler());
+        var reader = new ArticleReaderService(readerHttp, cache, NullLogger<ArticleReaderService>.Instance);
+        var summaryHandler = new QaSummaryHandler("fake-qa-language-key-1234567890");
+        using var summaryHttp = new HttpClient(summaryHandler);
+        var translatorHandler = new QaTranslatorHandler("fake-qa-translator-key-1234567890");
+        using var translatorHttp = new HttpClient(translatorHandler);
+
+        var summaries = new AzureLanguageSummaryService(
+            Options.Create(new AzureLanguageOptions()),
+            new NamedClientFactory(summaryHttp, translatorHttp),
+            cache);
+        var translator = new AzureTranslatorService(
+            Options.Create(new AzureTranslatorOptions()),
+            new NamedClientFactory(summaryHttp, translatorHttp),
+            cache);
+
+        var controller = new BriefingDeepDiveController(
+            translator,
+            NullLogger<BriefingDeepDiveController>.Instance);
+
+        // 1. Empty topic and no articles returns 400 BadRequest
+        var badRes = await controller.Generate(
+            new BriefingDeepDiveController.DeepDiveRequest("", [], null),
+            CancellationToken.None);
+        Assert(badRes is BadRequestObjectResult, "Empty topic and articles must return 400 BadRequest.");
+
+        // 2. Multi-article deep dive generation produces alternating dialogue turns and chapters
+        var sampleArticles = new BriefingDeepDiveController.DeepDiveArticleInput[]
+        {
+            new(
+                "https://example.com/rnz-economy",
+                "RBNZ signals rate cut trajectory",
+                "RNZ",
+                "Central bank indicates further easing as inflationary pressures subside."),
+            new(
+                "https://example.com/bloomberg-kiwi",
+                "Kiwi dollar edges lower amid policy divergence",
+                "Bloomberg",
+                "Foreign exchange markets reacted to monetary divergence with the US Federal Reserve.")
+        };
+
+        var okRes = await controller.Generate(
+            new BriefingDeepDiveController.DeepDiveRequest(
+                "Monetary Policy Divergence",
+                sampleArticles,
+                "S&P/NZX 50 is flat at 12,450"),
+            CancellationToken.None) as OkObjectResult;
+
+        var episode = okRes?.Value as BriefingDeepDiveController.DeepDiveResponse;
+        Assert(episode is not null && episode.Available, "Deep dive generation must produce Available=true response.");
+        Assert(episode.Turns.Length >= 8, "Deep dive episode must produce at least 8 alternating dialogue turns.");
+        Assert(episode.Turns[0].Speaker == "Anchor" && episode.Turns[1].Speaker == "Analyst", "Turns must alternate between Anchor and Analyst.");
+        Assert(episode.Turns[1].CitedSource == "RNZ" && episode.Turns[1].CitedUrl == "https://example.com/rnz-economy", "Turn 1 must cite primary publisher RNZ.");
+        Assert(episode.Chapters.Length >= 4, "Episode must contain at least 4 structured chapters.");
+        Assert(episode.EstimatedDurationSeconds >= 45, "Estimated duration must be positive and realistic.");
     }
 
     private static async Task RunMarketSparklineChecksAsync()

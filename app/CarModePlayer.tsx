@@ -2,6 +2,8 @@
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import type { DailyBriefingData, DailyBriefingChapter } from "./daily-briefing";
+import { detectCoHostQuestionIntent, type CoHostState } from "./daily-briefing-cohost";
+import { buildSuggestedBriefingQuestions } from "./daily-briefing-qa";
 
 export interface CarModePlayerProps {
   briefing: DailyBriefingData;
@@ -15,6 +17,9 @@ export interface CarModePlayerProps {
   onClose: () => void;
   onQueueStories?: () => void;
   onSnooze?: (minutes: number) => void;
+  coHostState?: CoHostState | null;
+  onAskCoHost?: (question: string) => Promise<void> | void;
+  onDismissCoHost?: () => void;
 }
 
 export default function CarModePlayer({
@@ -29,10 +34,14 @@ export default function CarModePlayer({
   onClose,
   onQueueStories,
   onSnooze,
+  coHostState,
+  onAskCoHost,
+  onDismissCoHost,
 }: CarModePlayerProps) {
   const [voiceActive, setVoiceActive] = useState(false);
   const [voiceFeedback, setVoiceFeedback] = useState<string | null>(null);
   const [queuedNotification, setQueuedNotification] = useState(false);
+  const [showQuestionPicker, setShowQuestionPicker] = useState(false);
   const wakeLockRef = useRef<any>(null);
   const recognitionRef = useRef<any>(null);
 
@@ -43,6 +52,7 @@ export default function CarModePlayer({
   );
   const currentChapter = chapters[currentIndex];
   const totalChapters = chapters.length;
+  const suggestedQuestions = buildSuggestedBriefingQuestions(briefing);
 
   // Request screen wake lock so the display stays awake on car mounts
   useEffect(() => {
@@ -73,6 +83,15 @@ export default function CarModePlayer({
       setVoiceFeedback(`Heard: "${lower}"`);
       window.setTimeout(() => setVoiceFeedback(null), 3000);
 
+      // Check for voice co-host questions first
+      const coHostIntent = detectCoHostQuestionIntent(text);
+      if (coHostIntent && onAskCoHost) {
+        setVoiceFeedback(`Co-Host: "${coHostIntent.questionText}"`);
+        window.setTimeout(() => setVoiceFeedback(null), 4000);
+        onAskCoHost(coHostIntent.questionText);
+        return;
+      }
+
       if (lower.includes("pause") || lower.includes("wait") || lower.includes("hold")) {
         if (isSpeaking) onPlayPause();
       } else if (lower.includes("play") || lower.includes("resume") || lower.includes("start")) {
@@ -91,7 +110,7 @@ export default function CarModePlayer({
         onClose();
       }
     },
-    [isSpeaking, isPaused, onPlayPause, onNextChapter, onPreviousChapter, onSnooze, onQueueStories, onClose],
+    [isSpeaking, isPaused, onPlayPause, onNextChapter, onPreviousChapter, onSnooze, onQueueStories, onClose, onAskCoHost],
   );
 
   const toggleVoiceControl = useCallback(() => {
@@ -232,6 +251,78 @@ export default function CarModePlayer({
           </div>
         )}
 
+        {/* Co-Host Interaction & Answer Display */}
+        {coHostState && (coHostState.asking || coHostState.answer || coHostState.error) && (
+          <div className="car-mode-cohost-overlay" role="region" aria-label="Executive Co-Host Answer">
+            <div className="car-mode-cohost-header">
+              <span className="car-mode-cohost-badge">
+                <span className="car-mode-mic-pulse" aria-hidden="true">🎙️</span> Executive Co-Host
+              </span>
+              {onDismissCoHost && (
+                <button
+                  type="button"
+                  className="car-mode-cohost-dismiss"
+                  onClick={onDismissCoHost}
+                  aria-label="Dismiss Co-Host Answer and Resume Briefing"
+                >
+                  ✕ Resume
+                </button>
+              )}
+            </div>
+            {coHostState.question && (
+              <p className="car-mode-cohost-question">
+                <strong>Q:</strong> {coHostState.question}
+              </p>
+            )}
+            {coHostState.asking && (
+              <p className="car-mode-cohost-asking">
+                Consulting executive briefing signals &amp; live market data...
+              </p>
+            )}
+            {coHostState.answer && (
+              <p className="car-mode-cohost-answer">
+                {coHostState.answer}
+              </p>
+            )}
+            {coHostState.error && (
+              <p className="car-mode-cohost-error">
+                {coHostState.error}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Quick Automotive Question Chips */}
+        {showQuestionPicker && (
+          <div className="car-mode-quick-questions" role="menu" aria-label="Suggested Co-Host Questions">
+            <div className="car-mode-questions-header">
+              <span>Tap a question or speak:</span>
+              <button
+                type="button"
+                className="car-mode-cohost-dismiss"
+                onClick={() => setShowQuestionPicker(false)}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="car-mode-question-chips">
+              {suggestedQuestions.map((q) => (
+                <button
+                  key={q}
+                  type="button"
+                  className="car-mode-question-chip"
+                  onClick={() => {
+                    setShowQuestionPicker(false);
+                    onAskCoHost?.(q);
+                  }}
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Huge Automotive Driving Touch Controls */}
         <div className="car-mode-controls-primary">
           <button
@@ -297,6 +388,26 @@ export default function CarModePlayer({
           >
             <span aria-hidden="true">{voiceActive ? "🔴 Mic Active" : "🎙️ Voice Control"}</span>
           </button>
+
+          {onAskCoHost && (
+            <button
+              type="button"
+              className={`car-mode-secondary-btn car-mode-cohost-btn ${coHostState?.asking ? "is-active" : ""}`}
+              onClick={() => {
+                if (!voiceActive) {
+                  toggleVoiceControl();
+                  setVoiceFeedback("Say your question aloud or tap suggestions");
+                  window.setTimeout(() => setVoiceFeedback(null), 4000);
+                  setShowQuestionPicker(true);
+                } else {
+                  setShowQuestionPicker((prev) => !prev);
+                }
+              }}
+              aria-label="Talk to Your Briefing Executive Co-Host"
+            >
+              <span aria-hidden="true">{coHostState?.asking ? "⏳ Consulting..." : "🎙️ Ask Co-Host"}</span>
+            </button>
+          )}
 
           {onQueueStories && (
             <button

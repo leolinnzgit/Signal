@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -185,6 +186,212 @@ public sealed class PreferencesController(
                 StatusCodes.Status502BadGateway,
                 new { error = "That publisher feed could not be reached right now." });
         }
+    }
+
+    public sealed record OpmlImportRequest(string? OpmlXml);
+    public sealed record OpmlImportResponse(
+        int Imported,
+        int Duplicates,
+        int TotalFeeds,
+        string[] Feeds,
+        string[] Skipped);
+
+    public sealed record SourceDiagnosticsRequest(string[]? Feeds);
+    public sealed record SourceDiagnosticsResponse(NewsService.FeedDiagnosticResult[] Results);
+
+    [HttpPost("opml/import")]
+    [RequestSizeLimit(524_288)]
+    public async Task<IActionResult> ImportOpml(
+        [FromBody] OpmlImportRequest? request,
+        CancellationToken cancellationToken)
+    {
+        var userId = userManager.GetUserId(User);
+        if (userId is null) return Unauthorized();
+
+        var xml = request?.OpmlXml;
+        if (string.IsNullOrWhiteSpace(xml))
+        {
+            return BadRequest(new { error = "OPML content is empty or missing." });
+        }
+
+        XDocument doc;
+        try
+        {
+            doc = XDocument.Parse(xml, LoadOptions.None);
+        }
+        catch
+        {
+            return BadRequest(new { error = "Invalid OPML XML format." });
+        }
+
+        var outlines = doc.Descendants().Where(e => e.Name.LocalName == "outline");
+        var extractedUrls = new List<string>();
+        foreach (var outline in outlines)
+        {
+            var rawUrl = outline.Attribute("xmlUrl")?.Value
+                ?? outline.Attribute("xmlurl")?.Value
+                ?? outline.Attribute("url")?.Value;
+
+            if (!string.IsNullOrWhiteSpace(rawUrl))
+            {
+                var normalized = FeedUrlCanonicalizer.NormalizeForStorage(rawUrl.Trim());
+                if (normalized is not null)
+                {
+                    extractedUrls.Add(normalized);
+                }
+            }
+        }
+
+        if (extractedUrls.Count == 0)
+        {
+            return BadRequest(new { error = "No RSS feeds found in the uploaded OPML file." });
+        }
+
+        var preferences = await database.UserNewsPreferences
+            .SingleOrDefaultAsync(item => item.UserId == userId, cancellationToken);
+        if (preferences is null)
+        {
+            preferences = new UserNewsPreferences { UserId = userId };
+            database.UserNewsPreferences.Add(preferences);
+        }
+
+        var existingFeeds = DeserializeList(preferences.RssFeedsJson);
+        var existingKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var currentFeedList = new List<string>(existingFeeds.Length);
+
+        foreach (var f in existingFeeds)
+        {
+            var key = FeedUrlCanonicalizer.GetComparisonKey(f);
+            if (key is not null && existingKeys.Add(key))
+            {
+                currentFeedList.Add(f);
+            }
+        }
+
+        var importedCount = 0;
+        var duplicateCount = 0;
+        var skipped = new List<string>();
+
+        foreach (var candidate in extractedUrls)
+        {
+            var key = FeedUrlCanonicalizer.GetComparisonKey(candidate);
+            if (key is null)
+            {
+                skipped.Add(candidate);
+                continue;
+            }
+
+            if (existingKeys.Contains(key))
+            {
+                duplicateCount++;
+                continue;
+            }
+
+            if (currentFeedList.Count >= 30)
+            {
+                skipped.Add(candidate);
+                continue;
+            }
+
+            existingKeys.Add(key);
+            currentFeedList.Add(candidate);
+            importedCount++;
+        }
+
+        preferences.RssFeedsJson = JsonSerializer.Serialize(currentFeedList);
+        await database.SaveChangesAsync(cancellationToken);
+
+        return Ok(new OpmlImportResponse(
+            importedCount,
+            duplicateCount,
+            currentFeedList.Count,
+            currentFeedList.ToArray(),
+            skipped.ToArray()));
+    }
+
+    [HttpGet("opml/export")]
+    public async Task<IActionResult> ExportOpml(CancellationToken cancellationToken)
+    {
+        var userId = userManager.GetUserId(User);
+        if (userId is null) return Unauthorized();
+
+        var preferences = await database.UserNewsPreferences
+            .AsNoTracking()
+            .SingleOrDefaultAsync(item => item.UserId == userId, cancellationToken);
+
+        var feeds = preferences is null ? [] : DeserializeList(preferences.RssFeedsJson);
+
+        var outlines = feeds.Select(feed =>
+        {
+            var title = ExtractHostName(feed);
+            return new XElement("outline",
+                new XAttribute("type", "rss"),
+                new XAttribute("text", title),
+                new XAttribute("title", title),
+                new XAttribute("xmlUrl", feed),
+                new XAttribute("htmlUrl", feed));
+        });
+
+        var doc = new XDocument(
+            new XDeclaration("1.0", "utf-8", null),
+            new XElement("opml",
+                new XAttribute("version", "2.0"),
+                new XElement("head",
+                    new XElement("title", "Signal RSS Subscriptions"),
+                    new XElement("dateCreated", DateTime.UtcNow.ToString("R")),
+                    new XElement("docs", "http://opml.org/spec2.opml")),
+                new XElement("body",
+                    new XElement("outline",
+                        new XAttribute("text", "Signal Subscriptions"),
+                        new XAttribute("title", "Signal Subscriptions"),
+                        outlines))));
+
+        var bytes = System.Text.Encoding.UTF8.GetBytes(doc.ToString());
+        return File(bytes, "application/xml; charset=utf-8", "signal-subscriptions.opml");
+    }
+
+    [HttpPost("sources/diagnostics")]
+    public async Task<IActionResult> RunDiagnostics(
+        [FromBody] SourceDiagnosticsRequest? request,
+        CancellationToken cancellationToken)
+    {
+        var userId = userManager.GetUserId(User);
+        if (userId is null) return Unauthorized();
+
+        string[] feedUrls;
+        if (request?.Feeds is not null && request.Feeds.Length > 0)
+        {
+            feedUrls = request.Feeds.Take(30).ToArray();
+        }
+        else
+        {
+            var preferences = await database.UserNewsPreferences
+                .AsNoTracking()
+                .SingleOrDefaultAsync(item => item.UserId == userId, cancellationToken);
+            feedUrls = preferences is null ? [] : DeserializeList(preferences.RssFeedsJson);
+        }
+
+        var results = new List<NewsService.FeedDiagnosticResult>();
+        foreach (var url in feedUrls)
+        {
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(6));
+            var diag = await newsService.DiagnosePublisherFeedAsync(url, timeoutCts.Token);
+            results.Add(diag);
+        }
+
+        return Ok(new SourceDiagnosticsResponse(results.ToArray()));
+    }
+
+    private static string ExtractHostName(string url)
+    {
+        if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            var host = uri.Host;
+            if (host.StartsWith("www.", StringComparison.OrdinalIgnoreCase)) host = host[4..];
+            return host;
+        }
+        return "Publisher Feed";
     }
 
     private static string[] NormalizeTopics(IEnumerable<string> values) => values

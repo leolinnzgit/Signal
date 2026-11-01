@@ -120,6 +120,148 @@ public sealed class NewsService(HttpClient httpClient)
             ?? throw new ArgumentException("Publisher feeds must use a public HTTPS domain.");
     }
 
+    public sealed record FeedDiagnosticResult(
+        string Url,
+        string Status,
+        int StatusCode,
+        long LatencyMs,
+        string? FeedTitle,
+        string? RedirectedUrl,
+        bool IsPermanentRedirect,
+        string Message);
+
+    public async Task<FeedDiagnosticResult> DiagnosePublisherFeedAsync(
+        string feedUrl,
+        CancellationToken cancellationToken)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            var initialUri = await ValidateFeedUrlAsync(feedUrl, cancellationToken);
+            using var request = new HttpRequestMessage(HttpMethod.Get, initialUri);
+            request.Headers.Accept.ParseAdd("application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9");
+            request.Headers.UserAgent.ParseAdd("SignalReader/2.0");
+
+            using var response = await httpClient.SendAsync(
+                request,
+                HttpCompletionOption.ResponseHeadersRead,
+                cancellationToken);
+            sw.Stop();
+
+            var statusCode = (int)response.StatusCode;
+            var isRedirect = statusCode is >= 300 and < 400;
+            var isPermanent = statusCode is 301 or 308;
+            string? redirectTarget = null;
+
+            if (isRedirect && response.Headers.Location is not null)
+            {
+                var resolved = new Uri(initialUri, response.Headers.Location);
+                redirectTarget = FeedUrlCanonicalizer.NormalizeForStorage(resolved.AbsoluteUri);
+            }
+
+            if (!response.IsSuccessStatusCode && !isRedirect)
+            {
+                return new FeedDiagnosticResult(
+                    feedUrl,
+                    "Unreachable",
+                    statusCode,
+                    sw.ElapsedMilliseconds,
+                    null,
+                    null,
+                    false,
+                    $"Feed returned HTTP {statusCode}.");
+            }
+
+            if (isRedirect)
+            {
+                return new FeedDiagnosticResult(
+                    feedUrl,
+                    "Redirected",
+                    statusCode,
+                    sw.ElapsedMilliseconds,
+                    null,
+                    redirectTarget,
+                    isPermanent,
+                    isPermanent ? "Permanent redirect to new feed URL." : "Temporary redirect.");
+            }
+
+            var text = await ReadLimitedTextAsync(response.Content, cancellationToken);
+            string? feedTitle = null;
+            try
+            {
+                var doc = XDocument.Parse(text, LoadOptions.None);
+                var rootName = doc.Root?.Name.LocalName;
+                if (rootName is not ("rss" or "feed" or "RDF"))
+                {
+                    return new FeedDiagnosticResult(
+                        feedUrl,
+                        "Degraded",
+                        statusCode,
+                        sw.ElapsedMilliseconds,
+                        null,
+                        null,
+                        false,
+                        "Response did not return valid RSS or Atom XML.");
+                }
+
+                feedTitle = doc.Descendants().FirstOrDefault(e => e.Name.LocalName == "title")?.Value?.Trim();
+            }
+            catch
+            {
+                return new FeedDiagnosticResult(
+                    feedUrl,
+                    "Degraded",
+                    statusCode,
+                    sw.ElapsedMilliseconds,
+                    null,
+                    null,
+                    false,
+                    "Feed XML failed to parse.");
+            }
+
+            var status = sw.ElapsedMilliseconds > 3000 ? "Degraded" : "Healthy";
+            var msg = sw.ElapsedMilliseconds > 3000
+                ? "Slow feed response (>3s)."
+                : "Feed responsive and valid XML.";
+
+            return new FeedDiagnosticResult(
+                feedUrl,
+                status,
+                statusCode,
+                sw.ElapsedMilliseconds,
+                feedTitle,
+                null,
+                false,
+                msg);
+        }
+        catch (OperationCanceledException)
+        {
+            sw.Stop();
+            return new FeedDiagnosticResult(
+                feedUrl,
+                "Unreachable",
+                0,
+                sw.ElapsedMilliseconds,
+                null,
+                null,
+                false,
+                "Connection timed out.");
+        }
+        catch (Exception ex)
+        {
+            sw.Stop();
+            return new FeedDiagnosticResult(
+                feedUrl,
+                "Unreachable",
+                0,
+                sw.ElapsedMilliseconds,
+                null,
+                null,
+                false,
+                ex.Message);
+        }
+    }
+
     private async Task<(string Xml, Uri FinalUrl)> FetchPublisherFeedAsync(
         string feedUrl,
         CancellationToken cancellationToken)

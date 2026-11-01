@@ -1011,6 +1011,24 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [rssResolvingFeed, setRssResolvingFeed] = useState<string | null>(null);
   const [rssMessage, setRssMessage] = useState("");
   const [copiedRssFeed, setCopiedRssFeed] = useState<string | null>(null);
+  const [opmlBusy, setOpmlBusy] = useState(false);
+  const [opmlFeedback, setOpmlFeedback] = useState<string | null>(null);
+  const [diagnosticsRunning, setDiagnosticsRunning] = useState(false);
+  const [feedDiagnostics, setFeedDiagnostics] = useState<
+    Record<
+      string,
+      {
+        status: string;
+        statusCode: number;
+        latencyMs: number;
+        feedTitle?: string | null;
+        redirectedUrl?: string | null;
+        isPermanentRedirect?: boolean;
+        message?: string;
+      }
+    >
+  >({});
+  const opmlFileInputRef = useRef<HTMLInputElement>(null);
   const [storageStatus, setStorageStatus] = useState<"loading" | "saving" | "saved" | "error" | "local">(
     preferencesStore ? "loading" : "local",
   );
@@ -2833,6 +2851,115 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     }));
   }
 
+  async function handleImportOpmlFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setOpmlBusy(true);
+    setOpmlFeedback("Importing feeds from OPML...");
+    try {
+      const text = await file.text();
+      let csrfToken = "";
+      try {
+        const csrfRes = await fetch("/api/auth/csrf", { credentials: "same-origin" });
+        if (csrfRes.ok) {
+          const csrfData = await csrfRes.json();
+          csrfToken = csrfData?.token || "";
+        }
+      } catch {}
+
+      const res = await fetch("/api/preferences/opml/import", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+          ...(csrfToken ? { "X-XSRF-TOKEN": csrfToken } : {}),
+        },
+        body: JSON.stringify({ opmlXml: text }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setOpmlFeedback(err?.error || "Failed to import OPML.");
+        return;
+      }
+
+      const data = await res.json();
+      if (Array.isArray(data.feeds)) {
+        setPreferences((current) => ({
+          ...current,
+          sources: { ...current.sources, rssFeeds: data.feeds },
+        }));
+      }
+      setOpmlFeedback(
+        `Imported ${data.imported} feeds (${data.duplicates} duplicates skipped, ${data.totalFeeds}/30 total).`,
+      );
+    } catch {
+      setOpmlFeedback("Could not read or upload OPML file.");
+    } finally {
+      setOpmlBusy(false);
+      if (opmlFileInputRef.current) opmlFileInputRef.current.value = "";
+      window.setTimeout(() => setOpmlFeedback(null), 5000);
+    }
+  }
+
+  function handleExportOpml() {
+    window.open("/api/preferences/opml/export", "_blank");
+  }
+
+  async function handleRunFeedDiagnostics() {
+    if (preferences.sources.rssFeeds.length === 0) return;
+    setDiagnosticsRunning(true);
+    try {
+      let csrfToken = "";
+      try {
+        const csrfRes = await fetch("/api/auth/csrf", { credentials: "same-origin" });
+        if (csrfRes.ok) {
+          const csrfData = await csrfRes.json();
+          csrfToken = csrfData?.token || "";
+        }
+      } catch {}
+
+      const res = await fetch("/api/news/sources/diagnostics", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+          ...(csrfToken ? { "X-XSRF-TOKEN": csrfToken } : {}),
+        },
+        body: JSON.stringify({ feeds: preferences.sources.rssFeeds }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.results)) {
+          const map: Record<string, any> = {};
+          for (const item of data.results) {
+            map[item.url] = item;
+          }
+          setFeedDiagnostics(map);
+        }
+      }
+    } catch {
+    } finally {
+      setDiagnosticsRunning(false);
+    }
+  }
+
+  function handleUpdateToCanonicalFeed(oldUrl: string, newUrl: string) {
+    setPreferences((current) => {
+      const updatedFeeds = current.sources.rssFeeds.map((f) => (f === oldUrl ? newUrl : f));
+      return {
+        ...current,
+        sources: { ...current.sources, rssFeeds: updatedFeeds },
+      };
+    });
+    setFeedDiagnostics((prev) => {
+      const next = { ...prev };
+      delete next[oldUrl];
+      return next;
+    });
+  }
+
   function toggleControls() {
     if (controlsExpanded) setFollowingTopicsExpanded(false);
     setControlsExpanded((current) => {
@@ -4486,21 +4613,94 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                  <button type="submit" disabled={rssResolving}>{rssResolving ? "Checking..." : "Add feed"}</button>
               </div>
             </form>
+
+            {/* OPML Import / Export & Feed Health Toolbar */}
+            <div className="rss-opml-toolbar">
+              <input
+                type="file"
+                ref={opmlFileInputRef}
+                accept=".opml,.xml"
+                style={{ display: "none" }}
+                onChange={(e) => void handleImportOpmlFile(e)}
+              />
+              <button
+                type="button"
+                className="rss-opml-btn"
+                onClick={() => opmlFileInputRef.current?.click()}
+                disabled={opmlBusy}
+                title="Import RSS feeds from an OPML subscription file (Feedly, Inoreader, etc.)"
+              >
+                📥 {opmlBusy ? "Importing..." : "Import OPML"}
+              </button>
+              <button
+                type="button"
+                className="rss-opml-btn"
+                onClick={handleExportOpml}
+                title="Export your Signal RSS feeds to an OPML 2.0 file"
+              >
+                📤 Export OPML
+              </button>
+              {preferences.sources.rssFeeds.length > 0 && (
+                <button
+                  type="button"
+                  className="rss-opml-btn"
+                  onClick={() => void handleRunFeedDiagnostics()}
+                  disabled={diagnosticsRunning}
+                  title="Check reachability, latency, status and canonical redirects for all feeds"
+                >
+                  🩺 {diagnosticsRunning ? "Checking Health..." : "Check Feed Health"}
+                </button>
+              )}
+            </div>
+            {opmlFeedback && (
+              <p className="rss-feedback opml-feedback" role="status">
+                {opmlFeedback}
+              </p>
+            )}
+
             {preferences.sources.rssFeeds.length > 0 && (
               <ul className="rss-feeds">
-                {preferences.sources.rssFeeds.map((feed) => (
-                  <li key={feed}>
-                    <div className="rss-feed-details">
-                      <strong>{feedName(feed)}</strong>
-                      <a href={feed} target="_blank" rel="noopener noreferrer">{feed}</a>
-                    </div>
-                    <button type="button" className="rss-feed-copy" onClick={() => void copyRssFeedLink(feed)}
-                      aria-label={`Copy RSS feed link: ${feed}`}>
-                      {copiedRssFeed === feed ? "Copied" : "Copy link"}
-                    </button>
-                    <button type="button" onClick={() => removeRssFeed(feed)} aria-label={`Remove RSS feed: ${feed}`}>&#215;</button>
-                  </li>
-                ))}
+                {preferences.sources.rssFeeds.map((feed) => {
+                  const diag = feedDiagnostics[feed];
+                  return (
+                    <li key={feed}>
+                      <div className="rss-feed-details">
+                        <div className="rss-feed-header-line">
+                          <strong>{feedName(feed)}</strong>
+                          {diag && (
+                            <span
+                              className={`feed-health-badge health-${diag.status.toLowerCase()}`}
+                              title={diag.message || diag.status}
+                            >
+                              {diag.status === "Healthy" && `🟢 Healthy (${diag.latencyMs}ms)`}
+                              {diag.status === "Redirected" && `🟡 Redirected`}
+                              {diag.status === "Degraded" && `🟠 Degraded (${diag.latencyMs}ms)`}
+                              {diag.status === "Unreachable" && `🔴 Unreachable`}
+                            </span>
+                          )}
+                        </div>
+                        <a href={feed} target="_blank" rel="noopener noreferrer">{feed}</a>
+                        {diag?.status === "Redirected" && diag.redirectedUrl && (
+                          <div className="feed-redirect-notice">
+                            <span>Redirects to: {diag.redirectedUrl}</span>
+                            <button
+                              type="button"
+                              className="feed-update-canonical-btn"
+                              onClick={() => handleUpdateToCanonicalFeed(feed, diag.redirectedUrl!)}
+                            >
+                              Update to Canonical URL
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      <button type="button" className="rss-feed-copy" onClick={() => void copyRssFeedLink(feed)}
+                        aria-label={`Copy RSS feed link: ${feed}`}>
+                        {copiedRssFeed === feed ? "Copied" : "Copy link"}
+                      </button>
+                      <button type="button" onClick={() => removeRssFeed(feed)} aria-label={`Remove RSS feed: ${feed}`}>&#215;</button>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>

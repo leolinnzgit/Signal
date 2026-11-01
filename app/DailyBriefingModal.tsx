@@ -53,6 +53,7 @@ import {
   buildSuggestedBriefingQuestions,
   type BriefingQaResult,
 } from "./daily-briefing-qa";
+import { type CoHostState } from "./daily-briefing-cohost";
 import { getCachedOfflineArticle } from "./offline-prewarm";
 import type {
   LocalWeather,
@@ -64,6 +65,8 @@ import type { MarketQuote, MarketPortfolioQuoteItem } from "./market-quote";
 import type { EntityPulseSummary } from "./entity-pulse";
 import { useSpokenBriefing } from "./useSpokenBriefing";
 import CarModePlayer from "./CarModePlayer";
+import DeepDivePodcastPlayer from "./DeepDivePodcastPlayer";
+import { fetchBriefingDeepDive, type DeepDiveEpisode } from "./daily-briefing-deep-dive";
 import "./daily-briefing.css";
 
 function getWeatherIcon(code: number): string {
@@ -234,9 +237,14 @@ export default function DailyBriefingModal({
   const [qaResult, setQaResult] = useState<BriefingQaResult | null>(null);
   const [qaError, setQaError] = useState<string>("");
   const qaAbortRef = useRef<AbortController | null>(null);
+  const [coHostState, setCoHostState] = useState<CoHostState | null>(null);
+  const briefingWasPausedForCoHostRef = useRef<boolean>(false);
 
   const [schedulePanelOpen, setSchedulePanelOpen] = useState(false);
   const [carModeOpen, setCarModeOpen] = useState(Boolean(initialCarMode));
+  const [deepDiveEpisode, setDeepDiveEpisode] = useState<DeepDiveEpisode | null>(null);
+  const [deepDiveLoading, setDeepDiveLoading] = useState(false);
+  const [deepDiveOpen, setDeepDiveOpen] = useState(false);
   const [isOnline, setIsOnline] = useState<boolean>(() =>
     typeof navigator !== "undefined" ? navigator.onLine : true,
   );
@@ -634,6 +642,91 @@ export default function DailyBriefingModal({
       qaSpeech.speak(qaResult.answer, speechLocale);
     }
   };
+
+  const handleAskCoHost = useCallback(
+    async (rawQuestion: string) => {
+      const cleanQ = rawQuestion.replace(/\s+/g, " ").trim();
+      if (!cleanQ) return;
+
+      if (speech.isSpeaking && !speech.isPaused) {
+        briefingWasPausedForCoHostRef.current = true;
+        speech.pause();
+      }
+
+      setCoHostState({
+        asking: true,
+        question: cleanQ,
+      });
+
+      try {
+        const res = await askDailyBriefing({
+          question: cleanQ,
+          briefing,
+          articles,
+          language: briefingLanguage,
+          isOnline,
+        });
+
+        setCoHostState({
+          asking: false,
+          question: cleanQ,
+          answer: res.answer,
+          mode: res.mode,
+          citations: res.citations,
+        });
+
+        // Narrate answer aloud and resume briefing playback when speech finishes
+        qaSpeech.stop();
+        qaSpeech.speak(res.answer, speechLocale, null, () => {
+          if (briefingWasPausedForCoHostRef.current) {
+            briefingWasPausedForCoHostRef.current = false;
+            speech.resume();
+          }
+        });
+      } catch (err) {
+        setCoHostState({
+          asking: false,
+          question: cleanQ,
+          error: err instanceof Error ? err.message : "Could not reach briefing co-host.",
+        });
+        if (briefingWasPausedForCoHostRef.current) {
+          briefingWasPausedForCoHostRef.current = false;
+          speech.resume();
+        }
+      }
+    },
+    [speech, qaSpeech, briefing, articles, briefingLanguage, isOnline, speechLocale],
+  );
+
+  const handleDismissCoHost = useCallback(() => {
+    qaSpeech.stop();
+    setCoHostState(null);
+    if (briefingWasPausedForCoHostRef.current) {
+      briefingWasPausedForCoHostRef.current = false;
+      speech.resume();
+    }
+  }, [qaSpeech, speech]);
+
+  const handleLaunchDeepDive = useCallback(async () => {
+    if (speech.isSpeaking && !speech.isPaused) {
+      speech.pause();
+    }
+    setDeepDiveLoading(true);
+    setDeepDiveOpen(true);
+    try {
+      const episode = await fetchBriefingDeepDive({
+        briefing,
+        articles,
+        language: briefingLanguage,
+        isOnline,
+      });
+      setDeepDiveEpisode(episode);
+    } catch {
+      // Handled via local fallback in fetchBriefingDeepDive
+    } finally {
+      setDeepDiveLoading(false);
+    }
+  }, [speech, briefing, articles, briefingLanguage, isOnline]);
 
   const handleTogglePriorityTopic = (topic: string) => {
     const next = savePriorityTopics(togglePriorityTopic(priorityTopics, topic));
@@ -1040,9 +1133,37 @@ export default function DailyBriefingModal({
               type="button"
               className="briefing-toolbar-btn car-mode-trigger-btn"
               onClick={() => setCarModeOpen(true)}
-              title="Switch to Commute & Smart Car Mode (large touch targets, driving voice controls)"
+              title="Switch to Commute &amp; Smart Car Mode (large touch targets, driving voice controls)"
             >
               🚗 Car Mode
+            </button>
+
+            <button
+              type="button"
+              className="briefing-toolbar-btn cohost-trigger-btn"
+              onClick={() => {
+                const qaSection = document.getElementById("briefing-qa-section");
+                if (qaSection) {
+                  qaSection.scrollIntoView({ behavior: "smooth" });
+                  const input = document.getElementById("briefing-qa-input");
+                  input?.focus();
+                } else {
+                  void handleAskCoHost(suggestedQuestions[0] || "What are today's top takeaways?");
+                }
+              }}
+              title="Talk to Your Briefing Executive Co-Host"
+            >
+              🎙️ Ask Co-Host
+            </button>
+
+            <button
+              type="button"
+              className="briefing-toolbar-btn deep-dive-trigger-btn"
+              onClick={() => void handleLaunchDeepDive()}
+              disabled={deepDiveLoading}
+              title="Generate and listen to an investigative 2-host podcast deep dive on today's top story cluster"
+            >
+              {deepDiveLoading ? "⏳ Loading Podcast..." : "🎙️ Deep Dive Podcast"}
             </button>
           </div>
 
@@ -1818,6 +1939,9 @@ export default function DailyBriefingModal({
             onSeekRelative={(s) => speech.seekRelative(s)}
             onClose={() => setCarModeOpen(false)}
             onQueueStories={() => void handleQueueStoriesClick()}
+            coHostState={coHostState}
+            onAskCoHost={handleAskCoHost}
+            onDismissCoHost={handleDismissCoHost}
             onSnooze={(mins) => {
               speech.pause();
               if (typeof Notification !== "undefined" && Notification.permission === "granted") {
@@ -1831,6 +1955,14 @@ export default function DailyBriefingModal({
                 }, mins * 60 * 1000);
               }
             }}
+          />
+        )}
+
+        {deepDiveOpen && deepDiveEpisode && (
+          <DeepDivePodcastPlayer
+            episode={deepDiveEpisode}
+            onClose={() => setDeepDiveOpen(false)}
+            targetLanguage={briefingLanguage}
           />
         )}
       </div>

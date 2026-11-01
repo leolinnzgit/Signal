@@ -55,4 +55,22 @@ public sealed class NewsController(NewsService newsService, ILogger<NewsControll
             return StatusCode(StatusCodes.Status502BadGateway, new { error = message });
         }
     }
+
+    [HttpPost("sources/diagnostics")]
+    public async Task<IActionResult> RunDiagnostics(
+        [FromBody] PreferencesController.SourceDiagnosticsRequest? request,
+        CancellationToken cancellationToken)
+    {
+        var feedUrls = request?.Feeds ?? [];
+        var results = new List<NewsService.FeedDiagnosticResult>();
+        foreach (var url in feedUrls.Take(30))
+        {
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(6));
+            var diag = await newsService.DiagnosePublisherFeedAsync(url, timeoutCts.Token);
+            results.Add(diag);
+        }
+
+        return Ok(new PreferencesController.SourceDiagnosticsResponse(results.ToArray()));
+    }
 }
