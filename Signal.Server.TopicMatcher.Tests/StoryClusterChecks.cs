@@ -54,6 +54,18 @@ internal static class StoryClusterChecks
             "Disabled synthesis should return Available=false with distinct SourceCount=2.");
         Assert(summaryHandler.Posts == 0, "Disabled synthesis must not issue Azure HTTP calls.");
 
+        // 3. Timeline extraction returns past, present, and forward milestones
+        var timelineRes = disabledController.Timeline(new StoryClusterController.ClusterTimelineRequest(
+            "Monetary Policy Easing",
+            [
+                new("https://example.com/rnz-ocr", "Reserve Bank cuts OCR to 4.25%", "RNZ", "The central bank delivered a 50 basis point reduction."),
+                new("https://example.com/stuff-ocr", "Mortgage rates adjust", "Stuff", "Banks trim floating rates.")
+            ])) as OkObjectResult;
+        var timelineData = timelineRes?.Value as StoryClusterController.ClusterTimelineResponse;
+        Assert(timelineData is { Available: true, Milestones.Length: >= 3 }, "Timeline extraction must produce at least 3 milestones.");
+        Assert(timelineData!.Milestones[0].Phase == "Past Context", "First milestone must be Past Context.");
+        Assert(timelineData.Milestones[1].Phase == "Today's Catalyst", "Second milestone must be Today's Catalyst.");
+
         // 2. Enabled Azure Language synthesizes multi-publisher dossiers with sentenceCount = 4
         var enabledOptions = new AzureLanguageOptions
         {

@@ -42,6 +42,15 @@ import ArticleKeyPhrases from "./ArticleKeyPhrases";
 import RelatedStoriesModal from "./RelatedStoriesModal";
 import EntityPulseModal from "./EntityPulseModal";
 import CompareCoverageModal from "./CompareCoverageModal";
+import ArticleInterrogationModal from "./ArticleInterrogationModal";
+import {
+  fetchKeywordRules,
+  isArticleMuted,
+  isArticleWatchMatch,
+  loadLocalKeywordRules,
+  syncKeywordRulesToServer,
+  type KeywordRules,
+} from "./noise-cancellation";
 import DailyBriefingModal, { type OfflinePackDownloadStatus } from "./DailyBriefingModal";
 import {
   buildDailyBriefing,
@@ -901,6 +910,14 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [bookmarkingUrls, setBookmarkingUrls] = useState<Set<string>>(() => new Set());
   const [sharingUrls, setSharingUrls] = useState<Set<string>>(() => new Set());
   const [friendShareArticle, setFriendShareArticle] = useState<FollowedArticle | null>(null);
+  const [keywordRules, setKeywordRules] = useState<KeywordRules>(() => loadLocalKeywordRules());
+  const [interrogateArticle, setInterrogateArticle] = useState<(FollowedArticle & { paragraphs?: string[] }) | null>(null);
+
+  useEffect(() => {
+    void fetchKeywordRules().then((rules) => {
+      setKeywordRules(rules);
+    });
+  }, []);
   const [friendShareUrl, setFriendShareUrl] = useState("");
   const [friendShareFriends, setFriendShareFriends] = useState<SignalFriend[]>([]);
   const [friendShareLoading, setFriendShareLoading] = useState(false);
@@ -2262,9 +2279,14 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     [topicFilteredArticles, selectedProvider],
   );
 
+  const noiseFilteredArticles = useMemo(
+    () => filteredArticles.filter((article) => !isArticleMuted(article, keywordRules)),
+    [filteredArticles, keywordRules],
+  );
+
   const clusteredFeedItems = useMemo(
-    () => clusterArticles(filteredArticles),
-    [filteredArticles],
+    () => clusterArticles(noiseFilteredArticles),
+    [noiseFilteredArticles],
   );
 
   const topicCounts = useMemo(
@@ -3978,6 +4000,57 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
               </span>
             </label>
           )}
+          <div className="noise-cancellation-settings">
+            <h4>Executive Noise Cancellation &amp; Keywords</h4>
+            <div className="settings-row">
+              <div className="field compact-field">
+                <label htmlFor="noise-level">Noise Cancellation</label>
+                <select
+                  id="noise-level"
+                  value={keywordRules.noiseCancellationLevel}
+                  onChange={(e) => {
+                    const next = { ...keywordRules, noiseCancellationLevel: e.target.value as "off" | "moderate" | "strict" };
+                    setKeywordRules(next);
+                    void syncKeywordRulesToServer(next);
+                  }}
+                >
+                  <option value="off">Off (Show all)</option>
+                  <option value="moderate">Moderate (Mute gossip &amp; rumors)</option>
+                  <option value="strict">Strict (High-signal executive filter)</option>
+                </select>
+              </div>
+            </div>
+            <div className="field">
+              <label htmlFor="watch-keywords">Watch Keywords (Highlighted with ⭐)</label>
+              <input
+                id="watch-keywords"
+                type="text"
+                placeholder="e.g. AI, RBNZ, Inflation, Quantum"
+                value={keywordRules.watchKeywords.join(", ")}
+                onChange={(e) => {
+                  const parts = e.target.value.split(",").map((s) => s.trim()).filter(Boolean);
+                  const next = { ...keywordRules, watchKeywords: parts };
+                  setKeywordRules(next);
+                  void syncKeywordRulesToServer(next);
+                }}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="muted-keywords">Muted Keywords (Filtered out)</label>
+              <input
+                id="muted-keywords"
+                type="text"
+                placeholder="e.g. celebrity, scandal, royal, gossip"
+                value={keywordRules.mutedKeywords.join(", ")}
+                onChange={(e) => {
+                  const parts = e.target.value.split(",").map((s) => s.trim()).filter(Boolean);
+                  const next = { ...keywordRules, mutedKeywords: parts };
+                  setKeywordRules(next);
+                  void syncKeywordRulesToServer(next);
+                }}
+              />
+            </div>
+          </div>
             </>}
             display={<>
           <div className="title-size-setting">
@@ -5249,6 +5322,11 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                       <span className="story-provider">{article.providers.join(" + ")}</span>
                       <span>{article.source}</span>
                       <span>{formatAge(article.publishedAt)}</span>
+                      {isArticleWatchMatch(article, keywordRules) && (
+                        <span className="story-watchlist-match-badge" title="Watchlist keyword match">
+                          ⭐ Watchlist
+                        </span>
+                      )}
                       {cluster && cluster.articles.length > 1 && (
                         <button
                           type="button"
@@ -5296,6 +5374,15 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                     title="Listen to this news"
                   >
                     <SpeakerIcon />
+                  </button>
+                  <button
+                    type="button"
+                    className="interrogate-story-button"
+                    onClick={() => setInterrogateArticle(article)}
+                    aria-label={`Interrogate story: ${article.title}`}
+                    title="Socratic Fact-Check & Interrogation"
+                  >
+                    ⚖️
                   </button>
                   {onOpenDiscussion && (
                     <button
@@ -5703,6 +5790,19 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                   <button type="button" className="article-reader-follow" aria-pressed={followReading}
                     onClick={() => setFollowReading((current) => !current)} title="Keep the spoken section in view">
                     Follow reading
+                  </button>
+                  <button
+                    type="button"
+                    className="article-reader-share"
+                    onClick={() => {
+                      setInterrogateArticle({
+                        ...readerArticle,
+                        paragraphs: readerContent.status === "ready" ? readerContent.article.paragraphs : undefined,
+                      });
+                    }}
+                    title="Socratic Fact-Check & Interrogation"
+                  >
+                    ⚖️ Interrogate
                   </button>
                   <a href={readerOriginalUrl} target="_blank" rel="noreferrer">
                     Open original <span aria-hidden="true">&#8599;</span>
@@ -6206,6 +6306,17 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         onListenArticle={(art) => openArticleReader(art, readerCloseButton.current ?? document.body, true)}
         userTime={currentTime ?? undefined}
       />
+      {interrogateArticle && (
+        <ArticleInterrogationModal
+          article={{
+            url: interrogateArticle.url,
+            title: interrogateArticle.title,
+            source: interrogateArticle.source || interrogateArticle.providers?.[0] || "Publisher",
+            paragraphs: interrogateArticle.paragraphs || (interrogateArticle.summary ? [interrogateArticle.summary] : undefined),
+          }}
+          onClose={() => setInterrogateArticle(null)}
+        />
+      )}
       <footer><p><span className="footer-dot" /> SIGNAL gathers public reporting and sends you to the original publisher.</p></footer>
     </main>
   );

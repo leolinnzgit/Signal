@@ -29,11 +29,90 @@ public sealed class StoryClusterController(
         string[] Paragraphs,
         int SourceCount);
 
+    public sealed record TimelineMilestone(
+        string Phase,
+        string DateOrEra,
+        string Headline,
+        string Summary,
+        string? Source,
+        string? SourceUrl);
+
+    public sealed record ClusterTimelineRequest(
+        string? Topic,
+        ClusterArticleInput[]? Articles,
+        string? Language = "en");
+
+    public sealed record ClusterTimelineResponse(
+        bool Available,
+        string Topic,
+        TimelineMilestone[] Milestones);
+
     private sealed record NormalizedClusterArticle(
         string Url,
         string Title,
         string Source,
         string Summary);
+
+    [HttpPost("timeline")]
+    [RequestSizeLimit(32_768)]
+    public IActionResult Timeline(
+        [FromBody] ClusterTimelineRequest? request)
+    {
+        var topic = (request?.Topic ?? "").Trim();
+        var articles = NormalizeArticles(request?.Articles);
+        if (articles.Length == 0 && string.IsNullOrWhiteSpace(topic))
+        {
+            return BadRequest(new { error = "A story cluster or topic is required to build an evolution timeline." });
+        }
+
+        var leadTitle = articles.Length > 0 ? articles[0].Title : topic;
+        var leadSource = articles.Length > 0 ? articles[0].Source : "Signal Intelligence";
+        var leadUrl = articles.Length > 0 ? articles[0].Url : null;
+        var leadSummary = articles.Length > 0 ? articles[0].Summary : "Underlying structural factors establishing market momentum.";
+
+        var milestones = new List<TimelineMilestone>
+        {
+            new TimelineMilestone(
+                "Past Context",
+                "Preceding Cycle",
+                $"Foundational Backdrop: {(!string.IsNullOrWhiteSpace(topic) ? topic : leadTitle)}",
+                $"Historical buildup and regulatory precedents leading up to current market positioning.",
+                leadSource,
+                leadUrl),
+
+            new TimelineMilestone(
+                "Today's Catalyst",
+                "Breaking Development",
+                leadTitle,
+                leadSummary,
+                leadSource,
+                leadUrl)
+        };
+
+        if (articles.Length > 1)
+        {
+            milestones.Add(new TimelineMilestone(
+                "Today's Catalyst",
+                "Contrasting Analysis",
+                articles[1].Title,
+                articles[1].Summary,
+                articles[1].Source,
+                articles[1].Url));
+        }
+
+        milestones.Add(new TimelineMilestone(
+            "Forward Milestone",
+            "Next 30-90 Days",
+            "Projected Governance & Market Catalysts",
+            "Key milestones to track: formal regulatory filings, cross-sector peer earnings calls, and secondary policy implementations.",
+            "Signal Intelligence",
+            null));
+
+        return Ok(new ClusterTimelineResponse(
+            true,
+            !string.IsNullOrWhiteSpace(topic) ? topic : leadTitle,
+            milestones.ToArray()));
+    }
 
     [HttpPost("synthesize")]
     [RequestSizeLimit(32_768)]

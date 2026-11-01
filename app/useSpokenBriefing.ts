@@ -16,6 +16,7 @@ export type SpokenBriefingStatus = "idle" | "starting" | "playing" | "paused" | 
 export interface SpeakChaptersOptions {
   startIndex?: number;
   targetLanguage?: string;
+  voiceName?: string;
   offlineAudioBlob?: Blob | null;
   title?: string;
   chapterTitles?: readonly string[];
@@ -367,11 +368,12 @@ export function useSpokenBriefing() {
           return;
         }
 
-        const readingVoice = preferences.voices.en || "en-NZ-MollyNeural";
+        const readingVoice = options.voiceName || preferences.voices.en || "en-NZ-MollyNeural";
+        const zhVoice = options.voiceName || preferences.voices.zh || "zh-CN-XiaoxiaoNeural";
         openArticleAudioStream(
           [clean],
           language,
-          { en: readingVoice, zh: "zh-CN-XiaoxiaoNeural" },
+          { en: readingVoice, zh: zhVoice },
           abort.signal,
           (streamStatus) => {
             if (run !== sequenceRef.current || abort.signal.aborted) return;
@@ -469,10 +471,12 @@ export function useSpokenBriefing() {
       targetLanguage?: string,
       offlineAudioBlob?: Blob | null,
       onComplete?: () => void,
+      voiceName?: string,
     ) => {
       speakChapters([{ text: rawText }], {
         startIndex: 0,
         targetLanguage,
+        voiceName,
         offlineAudioBlob,
         onComplete,
       });

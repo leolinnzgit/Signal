@@ -1,8 +1,10 @@
 using System.Net;
 using System.Text.Json;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Logging;
+using Signal.Server.Controllers;
 using Signal.Server.Services;
 
 internal static class ArticleReaderChecks
@@ -136,6 +138,19 @@ internal static class ArticleReaderChecks
         var freshReader = new ArticleReaderService(client, freshCache, NullLogger<ArticleReaderService>.Instance);
         Require(await freshReader.ResolveUrlAsync(googleUrl, CancellationToken.None) == ArticleUri.AbsoluteUri, "Original-link resolution must work before opening the reader.");
         Require((await freshReader.ReadAsync(googleUrl, CancellationToken.None)).Available && handler.ResolutionRequests == 2, "Reader extraction must reuse the original-link resolution cache.");
+
+        var interrogateController = new ArticleReaderController(reader, NullLogger<ArticleReaderController>.Instance);
+        var badInterrogate = interrogateController.Interrogate(new ArticleReaderController.InterrogateArticleRequest("https://example.com", "Title", "RNZ", [], "hi"));
+        Require(badInterrogate is BadRequestObjectResult, "Interrogate with short question must return 400 BadRequest.");
+
+        var okInterrogate = interrogateController.Interrogate(new ArticleReaderController.InterrogateArticleRequest(
+            "https://example.com/ai",
+            "NVIDIA Unveils New Chips",
+            "Reuters",
+            ["Shipments grew by 24% exceeding Wall Street targets.", "Analysts warn of potential supply constraints in 2027."],
+            "What evidence supports the growth claims?")) as OkObjectResult;
+        var interrogateData = okInterrogate?.Value as ArticleReaderController.InterrogateArticleResponse;
+        Require(interrogateData is { Available: true } && interrogateData.SupportingEvidence.Length > 0, "Interrogate must extract supporting evidence.");
 
         foreach (var missingMetadata in new[] { false, true })
         {

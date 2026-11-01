@@ -67,6 +67,9 @@ import { useSpokenBriefing } from "./useSpokenBriefing";
 import CarModePlayer from "./CarModePlayer";
 import DeepDivePodcastPlayer from "./DeepDivePodcastPlayer";
 import { fetchBriefingDeepDive, type DeepDiveEpisode } from "./daily-briefing-deep-dive";
+import { useReadingVoices } from "./ReadingVoiceSelector";
+import StoryTimelineScrubber from "./StoryTimelineScrubber";
+import { fetchStoryTimeline, type TimelineMilestone } from "./daily-briefing-timeline";
 import "./daily-briefing.css";
 
 function getWeatherIcon(code: number): string {
@@ -245,6 +248,26 @@ export default function DailyBriefingModal({
   const [deepDiveEpisode, setDeepDiveEpisode] = useState<DeepDiveEpisode | null>(null);
   const [deepDiveLoading, setDeepDiveLoading] = useState(false);
   const [deepDiveOpen, setDeepDiveOpen] = useState(false);
+
+  // Azure Neural Voice selector state
+  const { voices: installedVoices, preferences: readingVoicePrefs, selectVoice } = useReadingVoices(true);
+  const [selectedVoice, setSelectedVoice] = useState<string>(() => {
+    try {
+      return localStorage.getItem("signal_briefing_voice_pref") || "";
+    } catch {
+      return "";
+    }
+  });
+  const activeAzureVoice = selectedVoice || readingVoicePrefs.en || "en-NZ-MollyNeural";
+
+  // Morning Memo Email & PDF 1-Pager state
+  const [memoEmailSending, setMemoEmailSending] = useState(false);
+  const [memoEmailFeedback, setMemoEmailFeedback] = useState<string | null>(null);
+
+  // Story Evolution Timeline state
+  const [timelineMilestones, setTimelineMilestones] = useState<TimelineMilestone[] | null>(null);
+  const [timelineLoading, setTimelineLoading] = useState(false);
+  const [timelineVisible, setTimelineVisible] = useState(false);
   const [isOnline, setIsOnline] = useState<boolean>(() =>
     typeof navigator !== "undefined" ? navigator.onLine : true,
   );
@@ -387,7 +410,7 @@ export default function DailyBriefingModal({
   }, [articles, briefing.leadStories, onClose, onListenArticle, queueClient, schedule.autoContinueStories, setMinimized]);
 
   const playBriefingFromChapter = useCallback(
-    async (startIndex = 0) => {
+    async (startIndex = 0, overrideVoice?: string) => {
       stopQaSpeech();
       let cachedBlob: Blob | null = null;
       if (startIndex === 0 && offlineMeta?.hasNeuralAudio) {
@@ -407,6 +430,7 @@ export default function DailyBriefingModal({
       speech.speakChapters(chaptersToSpeak, {
         startIndex,
         targetLanguage: speechLocale,
+        voiceName: overrideVoice || activeAzureVoice,
         offlineAudioBlob: cachedBlob,
         onComplete: () => {
           void handleRadioAutoContinue();
@@ -421,6 +445,7 @@ export default function DailyBriefingModal({
       offlineMeta,
       speech,
       speechLocale,
+      activeAzureVoice,
       stopQaSpeech,
     ],
   );
@@ -802,6 +827,67 @@ export default function DailyBriefingModal({
     }
   };
 
+  const handleVoiceChange = (voice: string) => {
+    setSelectedVoice(voice);
+    try {
+      localStorage.setItem("signal_briefing_voice_pref", voice);
+    } catch {}
+    selectVoice("en", voice);
+    if (isAudioActive) {
+      void playBriefingFromChapter(speech.activeChapterIndex ?? 0, voice);
+    }
+  };
+
+  const handleExportOnePagerPdf = () => {
+    window.print();
+  };
+
+  const handleSendMorningMemoEmail = async () => {
+    if (memoEmailSending || !isOnline) return;
+    setMemoEmailSending(true);
+    setMemoEmailFeedback(null);
+    try {
+      const res = await sendServerBriefingNow({
+        sendPush: false,
+        sendEmail: true,
+      });
+      if (res.ok) {
+        setMemoEmailFeedback("Morning memo dispatched to your email!");
+      } else {
+        setMemoEmailFeedback(res.error || "Could not dispatch morning memo email.");
+      }
+    } catch {
+      setMemoEmailFeedback("Failed to send morning memo email.");
+    } finally {
+      setMemoEmailSending(false);
+      setTimeout(() => setMemoEmailFeedback(null), 5000);
+    }
+  };
+
+  const handleToggleStoryTimeline = async (topic?: string) => {
+    if (timelineVisible) {
+      setTimelineVisible(false);
+      return;
+    }
+    setTimelineLoading(true);
+    setTimelineVisible(true);
+    try {
+      const topTopic = topic || briefing.leadStories[0]?.priorityTopic || briefing.leadStories[0]?.title || "Lead Stories";
+      const articlesForTimeline = briefing.leadStories.map((s) => ({
+        url: s.url,
+        title: s.title,
+        source: s.source,
+        summary: s.summary,
+      }));
+      const res = await fetchStoryTimeline(topTopic, articlesForTimeline);
+      setTimelineMilestones(res.milestones);
+    } catch {
+      // Handled
+    } finally {
+      setTimelineLoading(false);
+    }
+  };
+
   // Combine followed topics + any already-pinned priority topics for chip display
   const availableTopicChips = Array.from(
     new Map(
@@ -861,6 +947,11 @@ export default function DailyBriefingModal({
                   ☁️ Synced
                 </span>
               )}
+              {isAudioActive && (
+                <span className="daily-briefing-status-pill ready active-azure-voice-pill" title={`Narrating with Azure Neural Voice (${activeAzureVoice})`}>
+                  ⚡ Azure Voice: {activeAzureVoice.replace(/Neural$/, "")}
+                </span>
+              )}
             </div>
             <h2 id="daily-briefing-title" className="daily-briefing-title">
               Executive Daily Briefing
@@ -870,6 +961,35 @@ export default function DailyBriefingModal({
             </p>
           </div>
           <div className="daily-briefing-header-actions">
+            <label className="briefing-voice-picker" title="Select Azure Neural Voice for daily briefing narration">
+              <span className="sr-only">Azure Voice</span>
+              <span aria-hidden="true">⚡</span>
+              <select
+                className="briefing-voice-select"
+                aria-label="Azure Voice"
+                value={activeAzureVoice}
+                onChange={(e) => handleVoiceChange(e.target.value)}
+              >
+                {installedVoices.length > 0 ? (
+                  installedVoices.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.name} ({v.language})
+                    </option>
+                  ))
+                ) : (
+                  <>
+                    <option value="en-NZ-MollyNeural">Molly (en-NZ)</option>
+                    <option value="en-NZ-MitchellNeural">Mitchell (en-NZ)</option>
+                    <option value="en-US-AndrewMultilingualNeural">Andrew (en-US)</option>
+                    <option value="en-US-AvaMultilingualNeural">Ava (en-US)</option>
+                    <option value="en-GB-SoniaNeural">Sonia (en-GB)</option>
+                    <option value="en-US-JennyNeural">Jenny (en-US)</option>
+                    <option value="en-US-GuyNeural">Guy (en-US)</option>
+                  </>
+                )}
+              </select>
+            </label>
+
             <label className="briefing-language-picker" title="Translate briefing text & switch native neural voice">
               <span className="sr-only">Briefing language</span>
               <span aria-hidden="true">🌐</span>
@@ -1165,11 +1285,40 @@ export default function DailyBriefingModal({
             >
               {deepDiveLoading ? "⏳ Loading Podcast..." : "🎙️ Deep Dive Podcast"}
             </button>
+
+            <button
+              type="button"
+              className="briefing-toolbar-btn one-pager-btn"
+              onClick={handleExportOnePagerPdf}
+              title="Print or save Executive Briefing 1-Pager PDF dossier"
+            >
+              📄 1-Pager PDF
+            </button>
+
+            <button
+              type="button"
+              className="briefing-toolbar-btn memo-email-btn"
+              disabled={!isOnline || memoEmailSending}
+              onClick={() => void handleSendMorningMemoEmail()}
+              title="Send executive morning memo summary directly to your registered email"
+            >
+              {memoEmailSending ? "⏳ Dispatching…" : "📧 Email Memo"}
+            </button>
+
+            <button
+              type="button"
+              className={`briefing-toolbar-btn timeline-trigger-btn ${timelineVisible ? "active" : ""}`}
+              onClick={() => void handleToggleStoryTimeline()}
+              title="View evolution timeline & forward catalyst tracker for top stories"
+            >
+              {timelineLoading ? "⏳ Timeline..." : "⏱️ Story Timeline"}
+            </button>
           </div>
 
-          {(shareFeedback || hostedShareUrl) && (
+          {(shareFeedback || hostedShareUrl || memoEmailFeedback) && (
             <div className="briefing-share-status-row" role="status" aria-live="polite">
               {shareFeedback && <span className="briefing-share-feedback">{shareFeedback}</span>}
+              {memoEmailFeedback && <span className="briefing-memo-feedback">{memoEmailFeedback}</span>}
               {hostedShareUrl && (
                 <a
                   href={hostedShareUrl}
@@ -1824,6 +1973,23 @@ export default function DailyBriefingModal({
               </span>
             )}
           </div>
+
+          {/* Story Evolution Timeline & Forward Catalyst Tracker */}
+          {timelineVisible && (
+            <div className="briefing-timeline-wrapper">
+              {timelineLoading ? (
+                <div className="briefing-timeline-loading">⏳ Constructing story evolution timeline...</div>
+              ) : timelineMilestones && timelineMilestones.length > 0 ? (
+                <StoryTimelineScrubber
+                  topic={briefing.leadStories[0]?.priorityTopic || briefing.leadStories[0]?.title || "Lead Stories"}
+                  milestones={timelineMilestones}
+                  onClose={() => setTimelineVisible(false)}
+                />
+              ) : (
+                <div className="briefing-timeline-empty">No historical timeline milestones found for this topic.</div>
+              )}
+            </div>
+          )}
 
           {briefing.leadStories.length === 0 ? (
             <div className="daily-briefing-empty-stories">

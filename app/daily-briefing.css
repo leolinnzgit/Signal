@@ -2499,4 +2499,540 @@ a.situation-radar-item:hover {
   font-size: 0.85rem;
 }
 
+/* Azure Voice Selector & Active Badge */
+.briefing-voice-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.65rem;
+  background: var(--surface, #1e293b);
+  border: 1px solid var(--line, #334155);
+  border-radius: 9999px;
+  font-size: 0.8rem;
+  color: var(--page-text, #f1f5f9);
+  cursor: pointer;
+}
+
+.briefing-voice-select {
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  max-width: 140px;
+}
+
+.active-azure-voice-pill {
+  background: rgba(16, 185, 129, 0.2) !important;
+  color: #34d399 !important;
+  border: 1px solid rgba(52, 211, 153, 0.4) !important;
+  font-weight: 600;
+}
+
+.briefing-memo-feedback {
+  font-size: 0.82rem;
+  color: #38bdf8;
+  font-weight: 600;
+}
+
+/* Story Evolution Timeline Scrubber */
+.briefing-timeline-wrapper {
+  margin: 1rem 0;
+}
+
+.briefing-timeline-loading,
+.briefing-timeline-empty {
+  padding: 1rem;
+  background: rgba(30, 41, 59, 0.5);
+  border-radius: 8px;
+  text-align: center;
+  font-size: 0.85rem;
+  color: #94a3b8;
+}
+
+.story-timeline-card {
+  background: #0d1522;
+  border: 1px solid #1e3a5f;
+  border-radius: 12px;
+  padding: 1.25rem;
+  margin: 0.75rem 0;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.timeline-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+}
+
+.timeline-badge {
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: #38bdf8;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.timeline-topic-title {
+  margin: 0.25rem 0 0;
+  font-size: 1.15rem;
+  color: #f8fafc;
+}
+
+.timeline-close-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 0.2rem 0.5rem;
+}
+
+.timeline-close-btn:hover {
+  color: #f1f5f9;
+}
+
+.timeline-stepper {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid #1e293b;
+  margin-bottom: 1rem;
+}
+
+.timeline-step-btn {
+  background: #131d2e;
+  border: 1px solid #1e2d42;
+  border-radius: 8px;
+  padding: 0.5rem 0.85rem;
+  color: #94a3b8;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  min-width: 140px;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+  text-align: left;
+}
+
+.timeline-step-btn:hover {
+  background: #1a273b;
+  border-color: #334e68;
+}
+
+.timeline-step-btn.is-active {
+  background: #1e3a5f;
+  border-color: #38bdf8;
+  color: #f8fafc;
+}
+
+.timeline-step-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #64748b;
+  margin-bottom: 0.2rem;
+}
+
+.timeline-step-btn.is-active .timeline-step-dot {
+  background: #38bdf8;
+  box-shadow: 0 0 8px #38bdf8;
+}
+
+.timeline-step-phase {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.timeline-step-date {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #cbd5e1;
+}
+
+.timeline-milestone-body {
+  padding: 0.5rem 0;
+}
+
+.milestone-pill-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.milestone-phase-pill {
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 0.15rem 0.5rem;
+  border-radius: 9999px;
+  text-transform: uppercase;
+  background: #0284c7;
+  color: #fff;
+}
+
+.milestone-phase-pill.past-context,
+.milestone-phase-pill.historical-roots {
+  background: #475569;
+}
+
+.milestone-phase-pill.catalyst,
+.milestone-phase-pill.today-catalyst {
+  background: #d97706;
+}
+
+.milestone-phase-pill.forward-milestone,
+.milestone-phase-pill.future-catalyst {
+  background: #059669;
+}
+
+.milestone-date-label,
+.milestone-source-label {
+  font-size: 0.78rem;
+  color: #94a3b8;
+}
+
+.milestone-headline {
+  margin: 0 0 0.5rem;
+  font-size: 1.05rem;
+  color: #f1f5f9;
+}
+
+.milestone-summary {
+  margin: 0 0 0.75rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: #cbd5e1;
+}
+
+.milestone-link {
+  font-size: 0.82rem;
+  color: #38bdf8;
+  text-decoration: underline;
+  font-weight: 600;
+}
+
+/* Socratic Article Interrogation Modal */
+.interrogate-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 15, 26, 0.85);
+  backdrop-filter: blur(8px);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.interrogate-modal-card {
+  background: #0d1522;
+  border: 1px solid #1e3a5f;
+  border-radius: 16px;
+  width: 100%;
+  max-width: 760px;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 1.5rem;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.7);
+  color: #f1f5f9;
+}
+
+.interrogate-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1.25rem;
+  border-bottom: 1px solid #1e293b;
+  padding-bottom: 1rem;
+}
+
+.interrogate-badge {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #38bdf8;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.interrogate-title {
+  margin: 0.35rem 0 0.2rem;
+  font-size: 1.25rem;
+  color: #f8fafc;
+}
+
+.interrogate-source {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+.interrogate-close-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 1.25rem;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+}
+
+.interrogate-close-btn:hover {
+  color: #fff;
+}
+
+.interrogate-chips-row {
+  margin-bottom: 1rem;
+}
+
+.chips-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #94a3b8;
+  display: block;
+  margin-bottom: 0.4rem;
+}
+
+.chips-scroller {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.interrogate-chip {
+  background: #172437;
+  border: 1px solid #233750;
+  color: #cbd5e1;
+  padding: 0.35rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.interrogate-chip:hover {
+  background: #233750;
+  color: #fff;
+}
+
+.interrogate-form {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.interrogate-input {
+  flex: 1;
+  background: #080d14;
+  border: 1px solid #1e2d42;
+  border-radius: 8px;
+  padding: 0.6rem 0.85rem;
+  color: #f1f5f9;
+  font-size: 0.9rem;
+}
+
+.interrogate-submit-btn {
+  background: #0284c7;
+  border: none;
+  border-radius: 8px;
+  color: #fff;
+  font-weight: 700;
+  padding: 0.6rem 1.2rem;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.interrogate-submit-btn:hover {
+  background: #0369a1;
+}
+
+.interrogate-error {
+  color: #f87171;
+  background: rgba(239, 68, 68, 0.1);
+  padding: 0.5rem 0.85rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
+.interrogate-results-area {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.interrogate-answer-box {
+  background: #111c2e;
+  border: 1px solid #1e3a5f;
+  border-radius: 10px;
+  padding: 1rem;
+}
+
+.answer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.readout-btn {
+  background: #1e293b;
+  border: 1px solid #334155;
+  color: #38bdf8;
+  border-radius: 6px;
+  padding: 0.3rem 0.65rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.readout-btn:hover {
+  background: #334155;
+}
+
+.answer-text {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: #e2e8f0;
+}
+
+.interrogate-section {
+  background: #090f19;
+  border: 1px solid #172437;
+  border-radius: 8px;
+  padding: 0.85rem 1rem;
+}
+
+.section-title {
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: #94a3b8;
+  display: block;
+  margin-bottom: 0.4rem;
+}
+
+.evidence-list,
+.omitted-list {
+  margin: 0;
+  padding-left: 1.25rem;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: #cbd5e1;
+}
+
+.impact-text {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: #cbd5e1;
+}
+
+/* Print 1-Pager Executive Memo Styling */
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #111827 !important;
+  }
+
+  .daily-briefing-dialog {
+    position: static !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: none !important;
+    box-shadow: none !important;
+    border: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .daily-briefing-card {
+    background: #ffffff !important;
+    color: #111827 !important;
+    border: none !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  .daily-briefing-header {
+    border-bottom: 2px solid #111827 !important;
+    background: transparent !important;
+    padding: 0.5rem 0 1rem !important;
+  }
+
+  .daily-briefing-title {
+    color: #111827 !important;
+    font-size: 1.75rem !important;
+  }
+
+  .daily-briefing-subtitle {
+    color: #4b5563 !important;
+  }
+
+  .daily-briefing-header-actions,
+  .daily-briefing-chapters-bar,
+  .daily-briefing-toolbar,
+  .daily-briefing-qa-card,
+  .daily-briefing-priority-bar,
+  .briefing-story-actions,
+  .daily-briefing-transcript-section {
+    display: none !important;
+  }
+
+  .daily-briefing-glance-grid {
+    display: grid !important;
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 0.75rem !important;
+    margin: 1rem 0 !important;
+  }
+
+  .glance-card {
+    background: #f9fafb !important;
+    border: 1px solid #e5e7eb !important;
+    color: #111827 !important;
+    padding: 0.75rem !important;
+  }
+
+  .glance-card-content strong {
+    color: #111827 !important;
+  }
+
+  .glance-subtext {
+    color: #6b7280 !important;
+  }
+
+  .daily-briefing-story-list {
+    display: block !important;
+  }
+
+  .briefing-story-item {
+    border-bottom: 1px solid #e5e7eb !important;
+    padding: 0.75rem 0 !important;
+    page-break-inside: avoid !important;
+  }
+
+  .briefing-story-title,
+  .briefing-story-title-link {
+    color: #111827 !important;
+    font-weight: 700 !important;
+  }
+
+  .briefing-story-summary {
+    color: #374151 !important;
+    font-size: 0.9rem !important;
+  }
+
+  .briefing-story-source {
+    color: #6b7280 !important;
+  }
+}
+
+
 

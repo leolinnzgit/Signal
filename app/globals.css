@@ -3033,7 +3033,8 @@ button.local-weather {
 .listen-story-button,
 .bookmark-button,
 .share-button,
-.comment-button {
+.comment-button,
+.interrogate-story-button {
   display: grid;
   width: 2.25rem;
   height: 2.25rem;
@@ -3045,6 +3046,39 @@ button.local-weather {
   cursor: pointer;
   font-size: 1.15rem;
   line-height: 1;
+}
+
+.interrogate-story-button:hover {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: #38bdf8;
+  color: #38bdf8;
+}
+
+.story-watchlist-match-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 4px;
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  color: #fbbf24;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.noise-cancellation-settings {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.noise-cancellation-settings h4 {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--page-text);
 }
 
 .listen-story-button svg,

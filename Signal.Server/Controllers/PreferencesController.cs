@@ -383,6 +383,103 @@ public sealed class PreferencesController(
         return Ok(new SourceDiagnosticsResponse(results.ToArray()));
     }
 
+    public sealed record KeywordRulesDto(
+        string[] WatchKeywords,
+        string[] MutedKeywords,
+        string NoiseCancellationLevel);
+
+    [HttpGet("keyword-rules")]
+    public async Task<IActionResult> GetKeywordRules(CancellationToken cancellationToken)
+    {
+        var userId = userManager.GetUserId(User);
+        if (userId is null) return Unauthorized();
+
+        var preferences = await database.UserNewsPreferences
+            .AsNoTracking()
+            .SingleOrDefaultAsync(item => item.UserId == userId, cancellationToken);
+
+        if (preferences is null || string.IsNullOrWhiteSpace(preferences.BriefingPreferencesJson))
+        {
+            return Ok(new KeywordRulesDto([], ["gossip", "celebrity", "rumor", "tabloid"], "moderate"));
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(preferences.BriefingPreferencesJson);
+            var root = doc.RootElement;
+            var watch = root.TryGetProperty("watchKeywords", out var wEl) && wEl.ValueKind == JsonValueKind.Array
+                ? wEl.EnumerateArray().Select(x => x.GetString() ?? "").Where(s => !string.IsNullOrWhiteSpace(s)).ToArray()
+                : [];
+            var muted = root.TryGetProperty("mutedKeywords", out var mEl) && mEl.ValueKind == JsonValueKind.Array
+                ? mEl.EnumerateArray().Select(x => x.GetString() ?? "").Where(s => !string.IsNullOrWhiteSpace(s)).ToArray()
+                : ["gossip", "celebrity", "rumor", "tabloid"];
+            var level = root.TryGetProperty("noiseCancellationLevel", out var lEl) && lEl.ValueKind == JsonValueKind.String
+                ? lEl.GetString() ?? "moderate"
+                : "moderate";
+
+            return Ok(new KeywordRulesDto(watch, muted, level));
+        }
+        catch
+        {
+            return Ok(new KeywordRulesDto([], ["gossip", "celebrity", "rumor", "tabloid"], "moderate"));
+        }
+    }
+
+    [HttpPost("keyword-rules")]
+    public async Task<IActionResult> SaveKeywordRules(
+        [FromBody] KeywordRulesDto? request,
+        CancellationToken cancellationToken)
+    {
+        var userId = userManager.GetUserId(User);
+        if (userId is null) return Unauthorized();
+
+        var preferences = await database.UserNewsPreferences
+            .SingleOrDefaultAsync(item => item.UserId == userId, cancellationToken);
+
+        if (preferences is null)
+        {
+            preferences = new UserNewsPreferences { UserId = userId };
+            database.UserNewsPreferences.Add(preferences);
+        }
+
+        var watch = (request?.WatchKeywords ?? [])
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Select(s => s.Trim().ToLowerInvariant())
+            .Distinct()
+            .Take(50)
+            .ToArray();
+
+        var muted = (request?.MutedKeywords ?? [])
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Select(s => s.Trim().ToLowerInvariant())
+            .Distinct()
+            .Take(50)
+            .ToArray();
+
+        var level = request?.NoiseCancellationLevel?.ToLowerInvariant() is "off" or "strict"
+            ? request.NoiseCancellationLevel.ToLowerInvariant()
+            : "moderate";
+
+        Dictionary<string, object> dict;
+        try
+        {
+            dict = JsonSerializer.Deserialize<Dictionary<string, object>>(preferences.BriefingPreferencesJson) ?? [];
+        }
+        catch
+        {
+            dict = [];
+        }
+
+        dict["watchKeywords"] = watch;
+        dict["mutedKeywords"] = muted;
+        dict["noiseCancellationLevel"] = level;
+
+        preferences.BriefingPreferencesJson = JsonSerializer.Serialize(dict);
+        await database.SaveChangesAsync(cancellationToken);
+
+        return Ok(new KeywordRulesDto(watch, muted, level));
+    }
+
     private static string ExtractHostName(string url)
     {
         if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
