@@ -24,6 +24,14 @@ export type ArticleImageCaptionResponse = {
   smartCrops?: SmartCropRegion[];
 };
 
+export type ArticleImageOcrResponse = {
+  available: boolean;
+  reason: string;
+  text: string;
+  lines: string[];
+  lineCount: number;
+};
+
 export const FOCAL_POINT_STORAGE_KEY = "signal:image-focal-points";
 const MAX_STORED_FOCAL_POINTS = 300;
 const LAZY_COOLDOWN_MS = 10 * 60 * 1000;
@@ -31,6 +39,8 @@ const MAX_LAZY_CONCURRENCY = 2;
 
 const captionCache = new Map<string, ArticleImageCaptionResponse>();
 const inFlightCache = new Map<string, Promise<ArticleImageCaptionResponse>>();
+const ocrCache = new Map<string, ArticleImageOcrResponse>();
+const ocrInFlightCache = new Map<string, Promise<ArticleImageOcrResponse>>();
 
 type LazyTask = {
   imageUrl: string;
@@ -142,6 +152,8 @@ export function getCachedImageCaption(imageUrl: string): ArticleImageCaptionResp
 export function clearCaptionCache(storage?: Storage): void {
   captionCache.clear();
   inFlightCache.clear();
+  ocrCache.clear();
+  ocrInFlightCache.clear();
   lazyQueue.length = 0;
   activeLazyCount = 0;
   lazyDisabledUntil = 0;
@@ -338,4 +350,96 @@ export function enqueueLazyImageFocalAnalysis(
       }
     }
   };
+}
+
+function unavailableOcrResponse(reason: string): ArticleImageOcrResponse {
+  return {
+    available: false,
+    reason,
+    text: "",
+    lines: [],
+    lineCount: 0,
+  };
+}
+
+/**
+ * Extracts embedded text from news graphics, charts, and screenshots on demand using Azure AI Vision Read OCR.
+ * Deduplicates concurrent requests and caches results in memory.
+ */
+export async function loadArticleImageOcr(
+  imageUrl: string,
+  fetcher: typeof fetch = fetch,
+  signal?: AbortSignal,
+): Promise<ArticleImageOcrResponse> {
+  const cleanUrl = imageUrl.trim();
+  if (!cleanUrl) {
+    return unavailableOcrResponse("No image URL provided.");
+  }
+
+  if (signal?.aborted) {
+    return unavailableOcrResponse("Request aborted.");
+  }
+
+  const cached = ocrCache.get(cleanUrl);
+  if (cached) return cached;
+
+  let sharedPromise = ocrInFlightCache.get(cleanUrl);
+  if (!sharedPromise) {
+    sharedPromise = (async (): Promise<ArticleImageOcrResponse> => {
+      try {
+        const csrf = await fetcher("/api/auth/csrf", { credentials: "same-origin", cache: "no-store" });
+        if (!csrf.ok) throw new Error("Could not acquire security token.");
+        const { token } = (await csrf.json()) as { token?: string };
+        if (!token) throw new Error("Security token missing.");
+
+        const response = await fetcher("/api/article-image-caption/ocr", {
+          method: "POST",
+          credentials: "same-origin",
+          cache: "no-store",
+          headers: { "Content-Type": "application/json", "X-XSRF-TOKEN": token },
+          body: JSON.stringify({ imageUrl: cleanUrl }),
+        });
+
+        if (!response.ok) {
+          throw new Error("Image text extraction is currently unavailable.");
+        }
+
+        const raw = (await response.json()) as ArticleImageOcrResponse;
+        const lines = Array.isArray(raw.lines) ? raw.lines : [];
+        const data: ArticleImageOcrResponse = {
+          available: Boolean(raw.available && raw.text),
+          reason: raw.reason || "",
+          text: raw.text || "",
+          lines,
+          lineCount: typeof raw.lineCount === "number" ? raw.lineCount : lines.length,
+        };
+
+        // Cache both extracted text and confirmed "no text in image" responses to conserve Vision quota
+        if (data.available || data.reason.toLowerCase().includes("no readable text")) {
+          ocrCache.set(cleanUrl, data);
+        }
+        return data;
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "Failed to extract text from image.";
+        return unavailableOcrResponse(message);
+      } finally {
+        ocrInFlightCache.delete(cleanUrl);
+      }
+    })();
+
+    ocrInFlightCache.set(cleanUrl, sharedPromise);
+  }
+
+  if (!signal) {
+    return sharedPromise;
+  }
+
+  return new Promise<ArticleImageOcrResponse>((resolve) => {
+    const onAbort = () => resolve(unavailableOcrResponse("Request aborted."));
+    signal.addEventListener("abort", onAbort, { once: true });
+    sharedPromise!.then((res) => {
+      signal.removeEventListener("abort", onAbort);
+      if (!signal.aborted) resolve(res);
+    });
+  });
 }

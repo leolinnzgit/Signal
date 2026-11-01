@@ -36,6 +36,18 @@ public sealed record ArticleImageCaptionResult(
         new(false, reason, "", 0.0, [], 0, 0, 0.5, 0.5, []);
 }
 
+public sealed record ArticleImageOcrResult(
+    bool Available,
+    string Reason,
+    string Text,
+    string[] Lines,
+    int LineCount
+)
+{
+    public static ArticleImageOcrResult Unavailable(string reason) =>
+        new(false, reason, "", [], 0);
+}
+
 public sealed class AzureVisionService(
     IOptions<AzureVisionOptions> visionOptions,
     IOptions<AzureLanguageOptions> languageOptions,
@@ -50,6 +62,9 @@ public sealed class AzureVisionService(
 
     private const string SmartCropsOnlyPath =
         "computervision/imageanalysis:analyze?api-version=2023-10-01&features=smartCrops&smartcrops-aspect-ratios=1.0,1.6";
+
+    private const string ReadOcrPath =
+        "computervision/imageanalysis:analyze?api-version=2023-10-01&features=read";
 
     public bool Enabled => visionOptions.Value.Enabled || languageOptions.Value.Enabled;
 
@@ -324,5 +339,110 @@ public sealed class AzureVisionService(
         }
 
         return (Math.Round(focalX, 3), Math.Round(focalY, 3));
+    }
+
+    public async Task<ArticleImageOcrResult> ExtractTextAsync(string imageUrl, CancellationToken token)
+    {
+        var cleanUrl = (imageUrl ?? "").Trim();
+        if (cleanUrl.Length == 0)
+            return ArticleImageOcrResult.Unavailable("No image URL provided.");
+
+        if (!Uri.TryCreate(cleanUrl, UriKind.Absolute, out var uri) || uri.Scheme != "https"
+            || uri.IsLoopback || uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+            || !string.IsNullOrEmpty(uri.UserInfo))
+        {
+            return ArticleImageOcrResult.Unavailable("Invalid image URL. Must be a public HTTPS link.");
+        }
+
+        if (!Enabled)
+        {
+            return ArticleImageOcrResult.Unavailable("Azure AI Vision has not been configured yet.");
+        }
+
+        var cacheKey = "azure-vision-ocr-v1:" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(cleanUrl)));
+        if (cache.TryGetValue(cacheKey, out ArticleImageOcrResult? ready) && ready is not null)
+            return ready;
+
+        try
+        {
+            var (endpoint, key) = ResolveCredentials();
+            var client = clients.CreateClient(HttpClientName);
+
+            using var response = await SendAnalyzeRequestAsync(client, new Uri(endpoint, ReadOcrPath), key, cleanUrl, token);
+            if (!response.IsSuccessStatusCode)
+            {
+                logger.LogWarning("Azure AI Vision OCR returned status {StatusCode}.", (int)response.StatusCode);
+                return ArticleImageOcrResult.Unavailable($"Azure AI Vision returned status {(int)response.StatusCode}.");
+            }
+
+            using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(token));
+            var result = ParseOcr(json.RootElement);
+
+            // Cache positive text extraction for 30 days and empty-photo results for 24 hours to conserve quota
+            cache.Set(cacheKey, result, result.Available ? TimeSpan.FromDays(30) : TimeSpan.FromHours(24));
+            return result;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException)
+        {
+            logger.LogWarning(ex, "Azure AI Vision OCR request failed.");
+            return ArticleImageOcrResult.Unavailable("Azure image text extraction is temporarily unavailable.");
+        }
+    }
+
+    public static ArticleImageOcrResult ParseOcr(JsonElement root)
+    {
+        try
+        {
+            var allLines = new List<string>();
+            var blockTexts = new List<string>();
+
+            if (root.TryGetProperty("readResult", out var readResult)
+                && readResult.TryGetProperty("blocks", out var blocks)
+                && blocks.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var block in blocks.EnumerateArray())
+                {
+                    if (!block.TryGetProperty("lines", out var lines) || lines.ValueKind != JsonValueKind.Array)
+                        continue;
+
+                    var blockLines = new List<string>();
+                    foreach (var line in lines.EnumerateArray())
+                    {
+                        if (line.TryGetProperty("text", out var lt) && lt.ValueKind == JsonValueKind.String)
+                        {
+                            var text = (lt.GetString() ?? "").Trim();
+                            if (text.Length > 0)
+                            {
+                                blockLines.Add(text);
+                                allLines.Add(text);
+                            }
+                        }
+                    }
+
+                    if (blockLines.Count > 0)
+                    {
+                        blockTexts.Add(string.Join("\n", blockLines));
+                    }
+                }
+            }
+
+            if (allLines.Count == 0)
+            {
+                return ArticleImageOcrResult.Unavailable("No readable text detected in this image.");
+            }
+
+            var combinedText = string.Join("\n\n", blockTexts);
+            return new ArticleImageOcrResult(
+                true,
+                "",
+                combinedText,
+                allLines.ToArray(),
+                allLines.Count
+            );
+        }
+        catch
+        {
+            return ArticleImageOcrResult.Unavailable("Failed to parse Vision OCR response.");
+        }
     }
 }

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   loadArticleImageCaption,
+  loadArticleImageOcr,
   clearCaptionCache,
   formatFocalObjectPosition,
   getCachedImageFocalPoint,
@@ -178,4 +179,76 @@ test("enqueueLazyImageFocalAnalysis pauses subsequent lazy thumbnail requests wh
 
   assert.equal(apiCalls, 1);
   assert.equal(secondCallbackCalled, false);
+});
+
+test("loadArticleImageOcr handles blank URLs, deduplicates concurrent OCR requests, and caches results", async () => {
+  clearCaptionCache();
+
+  const blank = await loadArticleImageOcr("   ");
+  assert.equal(blank.available, false);
+  assert.equal(blank.lineCount, 0);
+
+  let ocrCalls = 0;
+  const mockFetcher = async (url, init) => {
+    if (url.includes("/api/auth/csrf")) {
+      return { ok: true, json: async () => ({ token: "ocr-csrf-token" }) };
+    }
+    if (url.includes("/api/article-image-caption/ocr")) {
+      ocrCalls++;
+      assert.equal(init.method, "POST");
+      await new Promise((resolve) => setTimeout(resolve, 15));
+      return {
+        ok: true,
+        json: async () => ({
+          available: true,
+          reason: "",
+          text: "OFFICIAL CASH RATE\n4.25% (-50 bps)",
+          lines: ["OFFICIAL CASH RATE", "4.25% (-50 bps)"],
+          lineCount: 2,
+        }),
+      };
+    }
+    throw new Error(`Unexpected url: ${url}`);
+  };
+
+  const [first, second] = await Promise.all([
+    loadArticleImageOcr("https://example.com/rbnz-chart.png", mockFetcher),
+    loadArticleImageOcr("https://example.com/rbnz-chart.png", mockFetcher),
+  ]);
+  const cached = await loadArticleImageOcr("https://example.com/rbnz-chart.png", mockFetcher);
+
+  assert.equal(ocrCalls, 1);
+  assert.equal(first.available, true);
+  assert.equal(first.lineCount, 2);
+  assert.deepEqual(second.lines, ["OFFICIAL CASH RATE", "4.25% (-50 bps)"]);
+  assert.equal(cached.text, "OFFICIAL CASH RATE\n4.25% (-50 bps)");
+});
+
+test("loadArticleImageOcr caches confirmed empty-text responses to avoid duplicate Vision Read calls", async () => {
+  clearCaptionCache();
+  let ocrCalls = 0;
+
+  const emptyOcrFetcher = async (url) => {
+    if (url.includes("/api/auth/csrf")) {
+      return { ok: true, json: async () => ({ token: "ocr-csrf-token" }) };
+    }
+    ocrCalls++;
+    return {
+      ok: true,
+      json: async () => ({
+        available: false,
+        reason: "No readable text was detected in this image.",
+        text: "",
+        lines: [],
+        lineCount: 0,
+      }),
+    };
+  };
+
+  const first = await loadArticleImageOcr("https://example.com/scenic-photo.jpg", emptyOcrFetcher);
+  const second = await loadArticleImageOcr("https://example.com/scenic-photo.jpg", emptyOcrFetcher);
+
+  assert.equal(first.available, false);
+  assert.equal(second.available, false);
+  assert.equal(ocrCalls, 1);
 });

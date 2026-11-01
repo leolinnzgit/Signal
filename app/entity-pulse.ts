@@ -367,3 +367,72 @@ export function sortPulseItems(items: EntityPulseItem[], sortBy: EntityPulseSort
       return copy;
   }
 }
+
+/**
+ * Generates an executive spoken audio briefing summarizing 7-day entity momentum,
+ * surging topics, sentiment tone shifts, and lead headlines for neural TTS narration.
+ */
+export function buildEntityPulseBriefing(pulse: EntityPulseSummary, maxTopics = 4): string {
+  if (!pulse || pulse.totalTracked === 0) {
+    return "You are not following any topics yet. Add topics to hear your Signal Entity Pulse briefing.";
+  }
+
+  const topicWord = pulse.totalTracked === 1 ? "topic" : "topics";
+  const activeItems = pulse.items.filter((item) => item.stats.totalMentions > 0);
+
+  if (pulse.totalMentionsThisWeek === 0 || activeItems.length === 0) {
+    return `Here is your Signal Entity Pulse. You are tracking ${pulse.totalTracked} ${topicWord}, with no matching stories in your current 7-day feed.`;
+  }
+
+  const mentionWord = pulse.totalMentionsThisWeek === 1 ? "mention" : "mentions";
+  const sentences: string[] = [
+    `Here is your Signal Entity Pulse across ${pulse.totalTracked} followed ${topicWord}, with ${pulse.totalMentionsThisWeek} ${mentionWord} over the past 7 days.`,
+  ];
+
+  if (pulse.surgingCount > 0) {
+    const surgingWord = pulse.surgingCount === 1 ? "topic is" : "topics are";
+    sentences.push(`${pulse.surgingCount} ${surgingWord} surging right now.`);
+  }
+
+  if (
+    pulse.overallSentiment.analyzedCount > 0 &&
+    pulse.overallSentiment.dominantTone !== "none"
+  ) {
+    sentences.push(
+      `Overall weekly coverage shows ${pulse.overallSentiment.toneLabel.toLowerCase()}.`,
+    );
+  }
+
+  const limit = Math.max(1, maxTopics);
+  for (const item of activeItems.slice(0, limit)) {
+    const countWord = item.stats.totalMentions === 1 ? "story" : "stories";
+    let line =
+      item.stats.trend === "surging"
+        ? `${item.topic} is surging with ${item.stats.totalMentions} ${countWord}`
+        : item.stats.trend === "rising"
+          ? `${item.topic} is rising with ${item.stats.totalMentions} ${countWord}`
+          : `${item.topic} has ${item.stats.totalMentions} ${countWord}`;
+
+    if (item.sentiment.analyzedCount > 0 && item.sentiment.dominantTone !== "none") {
+      line += `, ${item.sentiment.toneLabel.toLowerCase()}`;
+      if (item.sentiment.momentum === "improving") {
+        line += " and improving tone";
+      } else if (item.sentiment.momentum === "cooling") {
+        line += " and turning more critical";
+      }
+    }
+    line += ".";
+
+    if (item.latestArticle?.title) {
+      const cleanTitle = item.latestArticle.title.trim().replace(/[.?!]+$/, "");
+      const sourcePart = item.latestArticle.source ? ` from ${item.latestArticle.source}` : "";
+      if (cleanTitle) {
+        line += ` Lead story${sourcePart}: ${cleanTitle}.`;
+      }
+    }
+
+    sentences.push(line);
+  }
+
+  return sentences.join(" ");
+}

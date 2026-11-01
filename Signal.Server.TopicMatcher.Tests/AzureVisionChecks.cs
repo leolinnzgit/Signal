@@ -132,13 +132,56 @@ internal static class AzureVisionChecks
             Require(portrait.FocalY == 0.1, $"Portrait vertical focal point should shift to upper face region (0.1), got {portrait.FocalY}.");
         }
 
-        // 5. Controller validation
+        // 5. Image OCR (readResult) JSON Parsing & disabled checks
+        var disabledOcr = await service.ExtractTextAsync("https://example.com/chart.png", CancellationToken.None);
+        Require(!disabledOcr.Available, "Unconfigured OCR should return unavailable.");
+        Require(disabledOcr.LineCount == 0, "Unconfigured OCR should have 0 lines.");
+
+        const string ocrJson = """
+        {
+            "readResult": {
+                "blocks": [
+                    {
+                        "lines": [
+                            { "text": "Q3 Inflation Summary" },
+                            { "text": "Annual CPI: 2.2%" }
+                        ]
+                    },
+                    {
+                        "lines": [
+                            { "text": "Source: Stats NZ" }
+                        ]
+                    }
+                ]
+            }
+        }
+        """;
+
+        using (var ocrDoc = JsonDocument.Parse(ocrJson))
+        {
+            var ocrParsed = AzureVisionService.ParseOcr(ocrDoc.RootElement);
+            Require(ocrParsed.Available, "Valid OCR JSON should parse successfully.");
+            Require(ocrParsed.LineCount == 3, $"Expected 3 OCR lines, got {ocrParsed.LineCount}.");
+            Require(ocrParsed.Text == "Q3 Inflation Summary\nAnnual CPI: 2.2%\n\nSource: Stats NZ", "OCR blocks should be separated by paragraph breaks.");
+        }
+
+        using (var emptyOcrDoc = JsonDocument.Parse("""{ "readResult": { "blocks": [] } }"""))
+        {
+            var emptyOcr = AzureVisionService.ParseOcr(emptyOcrDoc.RootElement);
+            Require(!emptyOcr.Available, "Image without detected text should return Available=false.");
+            Require(emptyOcr.Reason.Contains("No readable text"), "Empty OCR should explain no text was detected.");
+        }
+
+        // 6. Controller validation
         var controller = new ArticleImageCaptionController(service);
         var badReq = await controller.Caption(new(""), CancellationToken.None);
         Require(badReq is BadRequestObjectResult, "Empty URL to controller should return BadRequest.");
 
         var badHost = await controller.Caption(new("https://localhost/bad.jpg"), CancellationToken.None);
         Require(badHost is BadRequestObjectResult, "Localhost to controller should return BadRequest.");
+
+        var badOcrHost = await controller.ExtractText(new("http://example.com/insecure.png"), CancellationToken.None);
+        Require(badOcrHost is BadRequestObjectResult, "Insecure HTTP URL to OCR endpoint should return BadRequest.");
     }
 
     private sealed class TestHttpClientFactory : IHttpClientFactory

@@ -45,6 +45,7 @@ import {
 import { suggestNewsSources } from "./source-suggestions";
 import ArticleImageCaption from "./ArticleImageCaption";
 import SmartFocalImage from "./SmartFocalImage";
+import VoiceMicButton from "./VoiceMicButton";
 import {
   getCachedOfflineArticle,
   saveOfflineArticleContent,
@@ -3684,6 +3685,20 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
               <label htmlFor="topic">Topic</label>
               <div className="topic-input-wrap">
                 <input id="topic" maxLength={80} value={topicInput} onChange={(event) => setTopicInput(event.target.value)} placeholder="e.g. renewable energy" autoComplete="off" />
+                <VoiceMicButton
+                  label="Speak a topic to follow"
+                  onVoiceCommand={(cmd) => {
+                    const next = cmd.query.slice(0, 80);
+                    if (!next) return;
+                    if (cmd.intent === "follow") {
+                      addTopic(next);
+                      setTopicInput("");
+                    } else {
+                      setTopicInput(next);
+                    }
+                  }}
+                  onError={setNotice}
+                />
                 <button type="submit" aria-label="Add topic">Add <span aria-hidden="true">&#43;</span></button>
               </div>
             </div>
@@ -4129,6 +4144,17 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                 maxLength={100}
               />
               {historySearch && <button type="button" className="history-search-clear" onClick={clearHistorySearch}>Clear</button>}
+              <VoiceMicButton
+                label={`Voice search ${feedView === "bookmarks" ? "bookmarks" : "history"}`}
+                disabled={historyLoading}
+                onVoiceCommand={(cmd) => {
+                  const q = cmd.query.slice(0, 100);
+                  setHistorySearchInput(q);
+                  setHistorySearch(q);
+                  void loadHistoryPage(feedView, q, 0, selectedTopic, selectedProvider);
+                }}
+                onError={setNotice}
+              />
               <button type="submit" disabled={historyLoading}>Search</button>
             </div>
           </form>
@@ -4255,13 +4281,36 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                   <div><strong>Choose a topic</strong><span>{preferences.topics.length} followed</span></div>
                   <button type="button" onClick={() => setTopicPickerOpen(false)} aria-label="Close topic picker">&#215;</button>
                 </div>
-                <input
-                  type="search"
-                  value={topicPickerQuery}
-                  onChange={(event) => setTopicPickerQuery(event.target.value)}
-                  placeholder="Find a followed topic"
-                  aria-label="Find a followed topic"
-                />
+                <div className="voice-input-row">
+                  <input
+                    type="search"
+                    value={topicPickerQuery}
+                    onChange={(event) => setTopicPickerQuery(event.target.value)}
+                    placeholder="Find a followed topic"
+                    aria-label="Find a followed topic"
+                  />
+                  <VoiceMicButton
+                    label="Speak a followed topic"
+                    onVoiceCommand={(cmd) => {
+                      if (cmd.intent === "all-topics") {
+                        selectTopicFilter(ALL_TOPICS);
+                        return;
+                      }
+                      if (cmd.intent === "follow" && cmd.query) {
+                        addTopic(cmd.query);
+                        setTopicPickerOpen(false);
+                        return;
+                      }
+                      const exact = preferences.topics.find((t) => t.toLowerCase() === cmd.query.toLowerCase());
+                      if (exact) {
+                        selectTopicFilter(exact);
+                      } else {
+                        setTopicPickerQuery(cmd.query);
+                      }
+                    }}
+                    onError={setNotice}
+                  />
+                </div>
                 <div className="topic-filter-picker-grid">
                   {pickerTopics.map((topic) => (
                     <button
@@ -4988,27 +5037,69 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           {quickSearchMode === "text" && articleStore ? (
             <form className="quick-text-search" role="search" onSubmit={submitQuickTextSearch}>
               <label htmlFor="quick-text-query">Search {feedView === "bookmarks" ? "bookmarks" : "all saved stories"}</label>
-              <input ref={quickTopicSearchInput} id="quick-text-query" type="search" value={quickTextQuery} maxLength={100}
-                onChange={(event) => setQuickTextQuery(event.target.value)}
-                placeholder="Enter words to find in stories" aria-describedby="quick-text-help" />
+              <div className="voice-input-row">
+                <input ref={quickTopicSearchInput} id="quick-text-query" type="search" value={quickTextQuery} maxLength={100}
+                  onChange={(event) => setQuickTextQuery(event.target.value)}
+                  placeholder="Enter words to find in stories" aria-describedby="quick-text-help" />
+                <VoiceMicButton
+                  label="Speak words to search in stories"
+                  onVoiceCommand={(cmd) => {
+                    const q = cmd.query.slice(0, 100);
+                    setQuickTextQuery(q);
+                    if (q) {
+                      closeQuickTopicSearch();
+                      changeFeedView(feedView === "bookmarks" ? "bookmarks" : "history", q);
+                    }
+                  }}
+                  onError={setNotice}
+                />
+              </div>
               <p id="quick-text-help">Search titles, summaries, publishers, topics and article text captured by Signal Reader. Results include all your {feedView === "bookmarks" ? "bookmarks" : "saved stories"}, across topics and sources.</p>
               <button type="submit" disabled={!quickTextQuery.trim()}>Search stories</button>
             </form>
           ) : <>
-          <input
-            ref={quickTopicSearchInput}
-            type="search"
-            value={topicPickerQuery}
-            onChange={(event) => setTopicPickerQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.nativeEvent.isComposing && pickerTopics.length === 1) {
-                event.preventDefault();
-                selectQuickTopic(pickerTopics[0]);
-              }
-            }}
-            placeholder="Find a followed topic"
-            aria-label="Find a followed topic"
-          />
+          <div className="voice-input-row">
+            <input
+              ref={quickTopicSearchInput}
+              type="search"
+              value={topicPickerQuery}
+              onChange={(event) => setTopicPickerQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.nativeEvent.isComposing && pickerTopics.length === 1) {
+                  event.preventDefault();
+                  selectQuickTopic(pickerTopics[0]);
+                }
+              }}
+              placeholder="Find a followed topic"
+              aria-label="Find a followed topic"
+            />
+            <VoiceMicButton
+              label="Speak a topic name"
+              onVoiceCommand={(cmd) => {
+                if (cmd.intent === "all-topics") {
+                  selectQuickTopic(ALL_TOPICS);
+                  return;
+                }
+                if (cmd.intent === "follow" && cmd.query) {
+                  addTopic(cmd.query);
+                  closeQuickTopicSearch();
+                  return;
+                }
+                if (cmd.intent === "search" && cmd.query && articleStore) {
+                  closeQuickTopicSearch();
+                  changeFeedView(feedView === "bookmarks" ? "bookmarks" : "history", cmd.query.slice(0, 100));
+                  return;
+                }
+                const exact = preferences.topics.find((t) => t.toLowerCase() === cmd.query.toLowerCase());
+                if (exact) {
+                  selectQuickTopic(exact);
+                } else {
+                  setTopicPickerQuery(cmd.query);
+                }
+              }}
+              onError={setNotice}
+            />
+          </div>
           <div className="topic-filter-picker-grid">
             {!topicPickerQuery.trim() && (
               <button type="button" className={selectedTopic === ALL_TOPICS ? "active" : ""}

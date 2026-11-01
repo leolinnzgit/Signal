@@ -1,0 +1,163 @@
+.voice-mic-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.15rem;
+  height: 2.15rem;
+  min-width: 2.15rem;
+  padding: 0;
+  border-radius: 7px;
+  border: 1px solid var(--line, #334155);
+  background: var(--paper, rgba(255, 255, 255, 0.05));
+  color: var(--page-text, #e2e8f0);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.voice-mic-btn svg {
+  width: 1.05rem;
+  height: 1.05rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.voice-mic-btn:hover:not(:disabled) {
+  border-color: var(--accent-color, #38bdf8);
+  color: var(--accent-color, #38bdf8);
+  background: color-mix(in srgb, var(--accent-color, #38bdf8) 14%, transparent);
+}
+
+.voice-mic-btn.is-listening {
+  border-color: #ef4444;
+  background: rgba(239, 68, 68, 0.16);
+  color: #f87171;
+  animation: voice-mic-pulse 1.3s ease-in-out infinite;
+}
+
+.voice-mic-btn.is-transcribing {
+  border-color: var(--accent-color, #38bdf8);
+  color: var(--accent-color, #38bdf8);
+  opacity: 0.85;
+  cursor: wait;
+}
+
+@keyframes voice-mic-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(239, 68, 68, 0);
+  }
+}
+
+.voice-input-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+}
+
+.voice-input-row > input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Editorial container adaptations inside NewsDashboard */
+.topic-input-wrap:has(.voice-mic-btn) {
+  grid-template-columns: 1fr auto auto;
+  gap: 0.35rem;
+}
+
+.topic-input-wrap button.voice-mic-btn {
+  padding: 0;
+  width: 2rem;
+  height: 2rem;
+  min-width: 2rem;
+  border: 1px solid rgba(244, 240, 231, 0.24);
+  background: rgba(244, 240, 231, 0.05);
+  color: rgba(244, 240, 231, 0.85);
+}
+
+.topic-input-wrap button.voice-mic-btn:hover:not(:disabled) {
+  border-color: #f08b76;
+  color: #f08b76;
+  background: rgba(240, 139, 118, 0.12);
+}
+
+.topic-input-wrap button.voice-mic-btn.is-listening {
+  border-color: #ef4444;
+  background: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+}
+
+.history-search > div:has(.voice-mic-btn) {
+  display: flex;
+  align-items: stretch;
+}
+
+.history-search > div:has(.voice-mic-btn) > input {
+  flex: 1;
+}
+
+.history-search button.voice-mic-btn {
+  width: 2.65rem;
+  min-width: 2.65rem;
+  height: auto;
+  min-height: 2.4rem;
+  padding: 0;
+  border-radius: 0;
+  border: 1px solid var(--line);
+  border-right: 0;
+  background: var(--page-background);
+  color: var(--text-strong-muted);
+}
+
+.history-search button.voice-mic-btn:hover:not(:disabled) {
+  background: var(--red);
+  border-color: var(--red);
+  color: #ffffff;
+}
+
+.history-search button.voice-mic-btn.is-listening {
+  background: rgba(239, 68, 68, 0.16);
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+.topic-filter-picker > .voice-input-row > input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  outline: 0;
+  background: var(--content-background);
+  color: var(--page-text);
+  padding: 0.72rem 0.8rem;
+  font: inherit;
+  font-size: 0.72rem;
+}
+
+.topic-filter-picker > .voice-input-row > input:focus {
+  border-color: var(--red);
+}
+
+.topic-filter-picker > .voice-input-row > .voice-mic-btn {
+  width: 2.5rem;
+  height: 2.5rem;
+  min-width: 2.5rem;
+  border-radius: 0;
+}
+
+.quick-topic-search > .voice-input-row > input {
+  font-size: 1rem;
+}
+
+.quick-text-search button.voice-mic-btn {
+  padding: 0;
+  width: 2.7rem;
+  height: 2.7rem;
+  min-width: 2.7rem;
+}

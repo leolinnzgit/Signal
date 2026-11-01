@@ -155,6 +155,9 @@ builder.Services.Configure<AzureSpeechOptions>(builder.Configuration.GetSection(
 builder.Services.AddHttpClient(nameof(AzureSpeechAudioRenderer), client => client.Timeout = TimeSpan.FromSeconds(20))
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
 builder.Services.AddSingleton<AzureSpeechSynthesizer>();
+builder.Services.AddSingleton<AzureSpeechTranscriber>();
+builder.Services.AddHttpClient(AzureSpeechTranscriber.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(20))
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
 builder.Services.AddSingleton<IAzureSpeechSynthesizer>(service => service.GetRequiredService<AzureSpeechSynthesizer>());
 builder.Services.AddSingleton<IAzureSpeechStreamer>(service => service.GetRequiredService<AzureSpeechSynthesizer>());
 builder.Services.AddSingleton(service => new AzureSpeechAudioRenderer(

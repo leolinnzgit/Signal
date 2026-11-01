@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildEntityPulse, sortPulseItems } from "../app/entity-pulse.ts";
+import {
+  buildEntityPulse,
+  buildEntityPulseBriefing,
+  sortPulseItems,
+} from "../app/entity-pulse.ts";
 import { clearSentimentCache, recordArticleSentiment } from "../app/article-sentiment.ts";
 
 function createMemoryStorage() {
@@ -221,4 +225,59 @@ test("sortPulseItems correctly orders by momentum, mentions, and alpha", () => {
   assert.equal(byAlpha[0].topic, "Auckland");
   assert.equal(byAlpha[1].topic, "OpenAI");
   assert.equal(byAlpha[2].topic, "Wellington");
+});
+
+test("buildEntityPulseBriefing narrates empty, quiet, and active surging entity pulse summaries", () => {
+  clearSentimentCache();
+
+  // 1. Empty topics
+  const emptyPulse = buildEntityPulse([], []);
+  assert.match(buildEntityPulseBriefing(emptyPulse), /not following any topics yet/i);
+
+  // 2. Tracked topics with 0 mentions in feed
+  const quietPulse = buildEntityPulse(["Geothermal", "SpaceX"], []);
+  const quietText = buildEntityPulseBriefing(quietPulse);
+  assert.match(quietText, /tracking 2 topics/i);
+  assert.match(quietText, /no matching stories/i);
+
+  // 3. Active surging feed with sentiment momentum and lead headline attribution
+  const ref = new Date("2026-10-31T12:00:00Z");
+  const activePulse = buildEntityPulse(
+    ["Rocket Lab", "Wellington"],
+    [
+      {
+        url: "https://example.com/rl-1",
+        title: "Rocket Lab celebrates historic launch victory!",
+        source: "RNZ",
+        publishedAt: "2026-10-31T09:00:00Z",
+      },
+      {
+        url: "https://example.com/rl-2",
+        title: "Rocket Lab signs record satellite partnership",
+        source: "Stuff",
+        publishedAt: "2026-10-31T07:00:00Z",
+      },
+      {
+        url: "https://example.com/rl-3",
+        title: "Rocket Lab faces weather delay and warning",
+        source: "NZ Herald",
+        publishedAt: "2026-10-27T08:00:00Z",
+      },
+    ],
+    [],
+    7,
+    ref,
+  );
+
+  const briefing = buildEntityPulseBriefing(activePulse);
+  assert.match(briefing, /across 2 followed topics, with 3 mentions/i);
+  assert.match(briefing, /1 topic is surging right now/i);
+  assert.match(briefing, /Rocket Lab is surging with 3 stories/i);
+  assert.match(briefing, /improving tone/i);
+  assert.match(
+    briefing,
+    /Lead story from RNZ: Rocket Lab celebrates historic launch victory\./,
+  );
+  // Topics with 0 stories ("Wellington") are omitted from individual story highlights
+  assert.doesNotMatch(briefing, /Wellington has 0/);
 });

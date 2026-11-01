@@ -40,7 +40,9 @@ await ContentSafetyChecks.RunAsync();
 await PrivacyShieldChecks.RunAsync();
 Console.WriteLine("Azure Language PII and Privacy Shield checks passed: local fallback, JSON parsing, controller validation and comment redaction.");
 await AzureVisionChecks.RunAsync();
-Console.WriteLine("Azure Vision image captioning and smart focal cropping checks passed: parsing, capitalization, focal coordinates, dimensions, disabled state and controller validation.");
+Console.WriteLine("Azure Vision image captioning, OCR text extraction, and smart focal cropping checks passed: parsing, capitalization, focal coordinates, OCR blocks, disabled state and controller validation.");
+await VoiceSearchChecks.RunAsync();
+Console.WriteLine("Azure Speech STT voice search checks passed: WAV validation, language sanitization, JSON parsing, disabled state and controller validation.");
 if (args.Contains("--content-safety-only")) return;
 await SharedCommentChecks.RunAsync();
 if (args.Contains("--shared-comments-browser")) { await SharedCommentChecks.RunBrowserAsync(); return; }

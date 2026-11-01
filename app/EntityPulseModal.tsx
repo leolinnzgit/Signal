@@ -5,9 +5,16 @@ import type { FollowedArticle } from "./NewsDashboard";
 import type { SignalArticleLink } from "./article-link";
 import { getEntityIcon } from "./article-entities";
 import { getSentimentIcon } from "./article-sentiment";
-import { buildEntityPulse, sortPulseItems, type EntityPulseSort } from "./entity-pulse";
+import {
+  buildEntityPulse,
+  buildEntityPulseBriefing,
+  sortPulseItems,
+  type EntityPulseSort,
+} from "./entity-pulse";
 import { loadStoredEntityHistory, type SuggestedTopic } from "./suggested-topics";
 import EntityTimelineSparkline from "./EntityTimelineSparkline";
+import { useSpokenBriefing } from "./useSpokenBriefing";
+import VoiceMicButton from "./VoiceMicButton";
 import "./entity-pulse.css";
 
 export default function EntityPulseModal({
@@ -37,6 +44,8 @@ export default function EntityPulseModal({
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<EntityPulseSort>("momentum");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const pulseAudio = useSpokenBriefing();
+  const stopPulseAudio = pulseAudio.stop;
 
   const storedHistory = useMemo(() => {
     if (typeof window === "undefined") return [];
@@ -75,17 +84,34 @@ export default function EntityPulseModal({
   }, [pulse.items, categoryFilter, searchQuery, sortBy]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      stopPulseAudio();
+      return;
+    }
     const dialog = dialogRef.current;
     if (dialog && !dialog.open) {
       dialog.showModal();
     }
     return () => {
+      stopPulseAudio();
       if (dialog && dialog.open) dialog.close();
     };
-  }, [isOpen]);
+  }, [isOpen, stopPulseAudio]);
 
   if (!isOpen) return null;
+
+  function handleClose() {
+    stopPulseAudio();
+    onClose();
+  }
+
+  function togglePulseBriefing() {
+    if (pulseAudio.isActive) {
+      pulseAudio.stop();
+    } else {
+      pulseAudio.speak(buildEntityPulseBriefing(pulse));
+    }
+  }
 
   const categories = ["all", "surging", "positive", "critical", "person", "organization", "location"];
   const overall = pulse.overallSentiment;
@@ -109,10 +135,10 @@ export default function EntityPulseModal({
       className="entity-pulse-dialog"
       onCancel={(e) => {
         e.preventDefault();
-        onClose();
+        handleClose();
       }}
       onClick={(e) => {
-        if (e.target === dialogRef.current) onClose();
+        if (e.target === dialogRef.current) handleClose();
       }}
     >
       <div className="entity-pulse-modal-card">
@@ -122,14 +148,34 @@ export default function EntityPulseModal({
             <h2>Tracked Topics &amp; Entity Pulse</h2>
             <p>7-day momentum, sentiment tone distribution, and latest coverage across your followed topics.</p>
           </div>
-          <button
-            type="button"
-            className="entity-pulse-close-btn"
-            onClick={onClose}
-            aria-label="Close entity pulse"
-          >
-            &#215;
-          </button>
+          <div className="entity-pulse-header-actions">
+            <button
+              type="button"
+              className={`entity-pulse-listen-btn${pulseAudio.isActive ? " active" : ""}`}
+              onClick={togglePulseBriefing}
+              disabled={pulse.totalTracked === 0}
+              aria-pressed={pulseAudio.isActive}
+              title={
+                pulseAudio.isActive
+                  ? "Stop News Pulse audio briefing"
+                  : "Listen to a spoken summary of your 7-day Entity Pulse"
+              }
+            >
+              {pulseAudio.status === "starting"
+                ? "⏳ Preparing…"
+                : pulseAudio.status === "playing"
+                  ? "⏹ Stop Briefing"
+                  : "🔊 Listen to Pulse"}
+            </button>
+            <button
+              type="button"
+              className="entity-pulse-close-btn"
+              onClick={handleClose}
+              aria-label="Close entity pulse"
+            >
+              &#215;
+            </button>
+          </div>
         </div>
 
         {/* KPI Banner */}
@@ -171,14 +217,29 @@ export default function EntityPulseModal({
         {/* Toolbar & Filters */}
         <div className="entity-pulse-toolbar">
           <div className="entity-pulse-search-wrap">
-            <input
-              type="search"
-              className="entity-pulse-search"
-              placeholder="Filter followed topics…"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              aria-label="Search followed topics"
-            />
+            <div className="voice-input-row">
+              <input
+                type="search"
+                className="entity-pulse-search"
+                placeholder="Filter followed topics…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                aria-label="Search followed topics"
+              />
+              <VoiceMicButton
+                label="Filter topics by voice"
+                onVoiceCommand={(cmd) => {
+                  if (cmd.intent === "all-topics") {
+                    setSearchQuery("");
+                    setCategoryFilter("all");
+                  } else if (cmd.intent === "follow" && cmd.query) {
+                    onFollowTopic(cmd.query);
+                  } else {
+                    setSearchQuery(cmd.query);
+                  }
+                }}
+              />
+            </div>
           </div>
 
           <div className="entity-pulse-sort-wrap">
@@ -329,7 +390,7 @@ export default function EntityPulseModal({
                               title: item.latestArticle!.title,
                               source: item.latestArticle!.source,
                             });
-                            onClose();
+                            handleClose();
                           }}
                         >
                           {item.latestArticle.title}
@@ -352,7 +413,7 @@ export default function EntityPulseModal({
                         className="pulse-action-btn primary"
                         onClick={() => {
                           onSelectTopic(item.topic);
-                          onClose();
+                          handleClose();
                         }}
                         title={`Filter feed to ${item.topic}`}
                       >
@@ -363,7 +424,7 @@ export default function EntityPulseModal({
                         className="pulse-action-btn"
                         onClick={() => {
                           onFindRelatedStories(item.topic);
-                          onClose();
+                          handleClose();
                         }}
                         title={`Find all stories for ${item.topic}`}
                       >
