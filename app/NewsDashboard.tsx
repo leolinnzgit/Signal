@@ -50,6 +50,10 @@ import ExecutiveDossierModal from "./ExecutiveDossierModal";
 import CommutePlaylistModal from "./CommutePlaylistModal";
 import ExecutiveRadarModal from "./ExecutiveRadarModal";
 import CSuiteReportModal from "./CSuiteReportModal";
+import MeetingPrepModal from "./MeetingPrepModal";
+import ScenarioSimulatorModal from "./ScenarioSimulatorModal";
+import QuoteExtractorModal from "./QuoteExtractorModal";
+import QuietHoursModal from "./QuietHoursModal";
 import {
   fetchKeywordRules,
   isArticleMuted,
@@ -927,6 +931,10 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [commuteOpen, setCommuteOpen] = useState(false);
   const [radarOpen, setRadarOpen] = useState(false);
   const [csuiteReportOpen, setCSuiteReportOpen] = useState(false);
+  const [meetingPrepOpen, setMeetingPrepOpen] = useState(false);
+  const [scenarioSimOpen, setScenarioSimOpen] = useState(false);
+  const [quoteExtractorOpen, setQuoteExtractorOpen] = useState(false);
+  const [quietHoursOpen, setQuietHoursOpen] = useState(false);
 
   useEffect(() => {
     void fetchKeywordRules().then((rules) => {
@@ -3980,6 +3988,42 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           >
             📑
           </button>
+          <button
+            type="button"
+            className="meeting-prep-header-trigger"
+            onClick={() => setMeetingPrepOpen(true)}
+            title="1-Minute Executive Meeting Prep Brief"
+            aria-label="Open Meeting Prep Brief"
+          >
+            🎯
+          </button>
+          <button
+            type="button"
+            className="scenario-sim-header-trigger"
+            onClick={() => setScenarioSimOpen(true)}
+            title="Boardroom Scenario Simulator"
+            aria-label="Open Scenario Simulator"
+          >
+            🎲
+          </button>
+          <button
+            type="button"
+            className="quote-extractor-header-trigger"
+            onClick={() => setQuoteExtractorOpen(true)}
+            title="Verbatim Soundbites & Leadership Stance Tracker"
+            aria-label="Open Soundbites Tracker"
+          >
+            🎙️
+          </button>
+          <button
+            type="button"
+            className="quiet-hours-header-trigger"
+            onClick={() => setQuietHoursOpen(true)}
+            title="Quiet Hours & VIP Crisis Threshold"
+            aria-label="Open Quiet Hours"
+          >
+            🌙
+          </button>
           <div className="live-status"><span className="pulse" aria-hidden="true" />Live web briefing</div>
           {!appInstalled && (
             <button
@@ -6594,6 +6638,47 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
               sector: "Global Markets",
             })),
           }}
+        />
+      )}
+
+      {meetingPrepOpen && (
+        <MeetingPrepModal
+          isOpen={meetingPrepOpen}
+          onClose={() => setMeetingPrepOpen(false)}
+          initialEntity={articles[0]?.topics?.[0] || "Fonterra"}
+          articles={articles}
+        />
+      )}
+
+      {scenarioSimOpen && (
+        <ScenarioSimulatorModal
+          isOpen={scenarioSimOpen}
+          onClose={() => setScenarioSimOpen(false)}
+          baselineAssets={marketWatchlist}
+        />
+      )}
+
+      {quoteExtractorOpen && (
+        <QuoteExtractorModal
+          isOpen={quoteExtractorOpen}
+          onClose={() => setQuoteExtractorOpen(false)}
+          articles={articles}
+          onOpenAudiogram={(q) => {
+            setQuoteExtractorOpen(false);
+            setAudiogramTarget({
+              title: `${q.speaker} (${q.organization})`,
+              excerpt: q.quoteText,
+              source: q.publisher,
+              url: q.sourceArticleUrl,
+            });
+          }}
+        />
+      )}
+
+      {quietHoursOpen && (
+        <QuietHoursModal
+          isOpen={quietHoursOpen}
+          onClose={() => setQuietHoursOpen(false)}
         />
       )}
       <footer><p><span className="footer-dot" /> SIGNAL gathers public reporting and sends you to the original publisher.</p></footer>

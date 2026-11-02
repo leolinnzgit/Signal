@@ -165,6 +165,90 @@ internal static class StoryClusterChecks
         var latestRadar = (radarController.GetLatest() as OkObjectResult)?.Value as ExecutiveRadarController.RadarScanResponse;
         Assert(latestRadar is { Active: true }, "Radar latest endpoint must retrieve cached scan response.");
 
+        // 9. Meeting Prep flash briefing generation
+        var meetingController = new MeetingPrepController(cache, NullLogger<MeetingPrepController>.Instance);
+        var badMeeting = meetingController.Generate(new MeetingPrepController.MeetingPrepRequest(""));
+        Assert(badMeeting is BadRequestObjectResult, "Empty meeting prep request must return 400 BadRequest.");
+
+        var meetingRes = (meetingController.Generate(new MeetingPrepController.MeetingPrepRequest(
+            "Fonterra Co-operative Group",
+            [
+                new("Fonterra raises farmgate milk price forecast on strong global demand", "RNZ News", "https://example.com/fonterra-1", DateTimeOffset.UtcNow, "Dairy giant increases payout forecast following record export volumes to Southeast Asia.")
+            ],
+            30
+        )) as OkObjectResult)?.Value as MeetingPrepController.MeetingPrepResponse;
+
+        Assert(meetingRes is { Available: true, Entity: "Fonterra Co-operative Group" }, "Meeting prep response must match requested entity.");
+        Assert(meetingRes!.StrategicPoints.Length >= 1, "Meeting prep must compile strategic intelligence points.");
+        Assert(meetingRes.LeadershipQuotes.Length >= 1, "Meeting prep must extract or synthesize leadership quotes.");
+        Assert(meetingRes.TalkingPoints.Length == 3, "Meeting prep must provide 3 tactical talking points.");
+        Assert(meetingRes.RapidFireAudioScript.Contains("Fonterra"), "Rapid-fire audio script must reference target entity.");
+
+        // 10. Scenario Simulator multi-order stress testing
+        var scenarioController = new ScenarioSimulatorController(cache, NullLogger<ScenarioSimulatorController>.Instance);
+        var badScenario = scenarioController.Simulate(new ScenarioSimulatorController.ScenarioSimulationRequest(""));
+        Assert(badScenario is BadRequestObjectResult, "Empty scenario prompt must return 400 BadRequest.");
+
+        var scenarioRes = (scenarioController.Simulate(new ScenarioSimulatorController.ScenarioSimulationRequest(
+            "RBNZ accelerates cash rate cuts by 50bps amid cooling service inflation",
+            [new("NZ50", "NZX 50 Gross Index", 12450m, 1.2m)],
+            "Financial Services"
+        )) as OkObjectResult)?.Value as ScenarioSimulatorController.ScenarioSimulationResponse;
+
+        Assert(scenarioRes is { Available: true }, "Scenario simulation must succeed.");
+        Assert(scenarioRes!.Impacts.Length == 3, "Scenario simulation must project 1st, 2nd, and 3rd order impacts.");
+        Assert(scenarioRes.Impacts[0].OrderLevel == 1 && scenarioRes.Impacts[1].OrderLevel == 2 && scenarioRes.Impacts[2].OrderLevel == 3,
+            "Impacts must be strictly ordered by transmission cascade.");
+        Assert(scenarioRes.MitigationPlan.Length == 3, "Mitigation plan must contain 3 executive actions.");
+        Assert(scenarioRes.ResilienceScore is >= 25 and <= 95, "Resilience score must be within valid bounds.");
+
+        // 11. Quote Extractor verbatim soundbite parsing
+        var quoteController = new QuoteExtractorController(cache, NullLogger<QuoteExtractorController>.Instance);
+        var quoteRes = (quoteController.Extract(new QuoteExtractorController.QuoteExtractionRequest([
+            new(
+                "Reserve Bank Governor Delivers Monetary Policy Speech",
+                "RNZ News",
+                "https://example.com/rbnz-speech",
+                "Central bank maintains restrictive policy horizon.",
+                ["In his address, Governor Adrian Orr stated: \"We will remain committed to bringing inflation sustainably within target.\""])
+        ])) as OkObjectResult)?.Value as QuoteExtractorController.QuoteExtractionResponse;
+
+        Assert(quoteRes is { Available: true, TotalExtracted: >= 1 }, "Quote extractor must parse quoted speech.");
+        Assert(quoteRes!.Quotes.Any(q => q.QuoteText.Contains("committed to bringing inflation")), "Quote extractor must capture verbatim text.");
+        Assert(quoteRes.Quotes.Any(q => q.Stance == "Assertive"), "Assertive stance should be identified.");
+
+        // 12. Quiet Hours Smart Triage & VIP Crisis Threshold
+        var quietController = new QuietHoursController(cache, NullLogger<QuietHoursController>.Instance);
+        var quietConfig = (quietController.GetConfig() as OkObjectResult)?.Value as QuietHoursController.QuietHoursConfig;
+        Assert(quietConfig is { Enabled: true, StartTime: "22:00", EndTime: "06:30" }, "Quiet hours default config must be enabled for night window.");
+
+        // Standard article during quiet hours gets suppressed
+        var overnightConfig = quietConfig with { StartTime = "00:00", EndTime = "23:59" }; // Force active
+        var suppressedRes = (quietController.Evaluate(new QuietHoursController.QuietHoursEvaluateRequest(
+            "Routine quarterly trade balance report published",
+            "Stats NZ",
+            "Monthly merchandise trade deficit narrows slightly.",
+            0.1m,
+            "NZ50",
+            overnightConfig
+        )) as OkObjectResult)?.Value as QuietHoursController.QuietHoursEvaluateResponse;
+
+        Assert(suppressedRes is { IsQuietHoursActive: true, TriageAction: "suppress_to_morning_briefing", BreakthroughAllowed: false },
+            "Non-urgent article must be suppressed to morning briefing during quiet hours.");
+
+        // Crisis market shock breaks through
+        var shockRes = (quietController.Evaluate(new QuietHoursController.QuietHoursEvaluateRequest(
+            "Global equity shock triggers currency selloff",
+            "Bloomberg",
+            "Emergency liquidity measures activated.",
+            -3.4m,
+            "NZ50",
+            overnightConfig
+        )) as OkObjectResult)?.Value as QuietHoursController.QuietHoursEvaluateResponse;
+
+        Assert(shockRes is { IsQuietHoursActive: true, TriageAction: "break_through_crisis_alert", BreakthroughAllowed: true, CrisisSeverity: "Crisis" },
+            "Market shock exceeding threshold must break through quiet hours.");
+
         // 2. Enabled Azure Language synthesizes multi-publisher dossiers with sentenceCount = 4
         var enabledOptions = new AzureLanguageOptions
         {

@@ -1,0 +1,227 @@
+/* Quiet Hours & VIP Crisis Threshold Styles */
+.quiet-hours-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 15, 29, 0.8);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 1rem;
+}
+
+.quiet-hours-modal {
+  background: #09101f;
+  color: #f8fafc;
+  border: 1px solid #1e293b;
+  border-radius: 1rem;
+  width: 100%;
+  max-width: 720px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+  overflow: hidden;
+}
+
+.quiet-hours-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 1.5rem;
+  background: #111c35;
+  border-bottom: 1px solid #1e293b;
+}
+
+.quiet-hours-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #60a5fa;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+}
+
+.quiet-hours-close-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0.25rem;
+  line-height: 1;
+}
+
+.quiet-hours-close-btn:hover {
+  color: #f8fafc;
+}
+
+.quiet-hours-body {
+  padding: 1.5rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.quiet-hours-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #111c35;
+  border: 1px solid #1e293b;
+  border-radius: 0.75rem;
+  padding: 1rem 1.25rem;
+}
+
+.quiet-hours-toggle-title {
+  font-weight: 700;
+  font-size: 1rem;
+  color: #f8fafc;
+  margin: 0 0 0.25rem 0;
+}
+
+.quiet-hours-toggle-sub {
+  font-size: 0.85rem;
+  color: #94a3b8;
+  margin: 0;
+}
+
+.quiet-hours-time-row {
+  display: flex;
+  gap: 1rem;
+}
+
+.quiet-hours-time-field {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.quiet-hours-time-label {
+  font-size: 0.85rem;
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.quiet-hours-time-input {
+  background: #111c35;
+  border: 1px solid #334155;
+  color: #f8fafc;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  font-size: 1rem;
+}
+
+.quiet-hours-slider-row {
+  background: #111c35;
+  border: 1px solid #1e293b;
+  border-radius: 0.75rem;
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.quiet-hours-slider-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.quiet-hours-slider-val {
+  font-weight: 800;
+  color: #60a5fa;
+  font-size: 1.1rem;
+}
+
+.quiet-hours-vip-box {
+  background: #111c35;
+  border: 1px solid #1e293b;
+  border-radius: 0.75rem;
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.quiet-hours-vip-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.quiet-hours-vip-tag {
+  background: rgba(96, 165, 250, 0.15);
+  border: 1px solid rgba(96, 165, 250, 0.4);
+  color: #93c5fd;
+  padding: 0.25rem 0.6rem;
+  border-radius: 9999px;
+  font-size: 0.8rem;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.quiet-hours-vip-remove-btn {
+  background: transparent;
+  border: none;
+  color: #93c5fd;
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 0;
+}
+
+.quiet-hours-vip-input-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.quiet-hours-vip-input {
+  flex: 1;
+  background: #09101f;
+  border: 1px solid #334155;
+  color: #f8fafc;
+  padding: 0.4rem 0.75rem;
+  border-radius: 0.375rem;
+  font-size: 0.85rem;
+}
+
+.quiet-hours-vip-add-btn {
+  background: #2563eb;
+  color: #ffffff;
+  border: none;
+  padding: 0.4rem 0.85rem;
+  border-radius: 0.375rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.quiet-hours-footer {
+  padding: 1rem 1.5rem;
+  background: #111c35;
+  border-top: 1px solid #1e293b;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.quiet-hours-save-btn {
+  background: #2563eb;
+  color: #ffffff;
+  border: none;
+  padding: 0.5rem 1.25rem;
+  border-radius: 0.375rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.quiet-hours-save-btn:hover {
+  background: #1d4ed8;
+}

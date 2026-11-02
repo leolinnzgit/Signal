@@ -77,6 +77,10 @@ import ExecutiveDossierModal from "./ExecutiveDossierModal";
 import CommutePlaylistModal from "./CommutePlaylistModal";
 import ExecutiveRadarModal from "./ExecutiveRadarModal";
 import CSuiteReportModal from "./CSuiteReportModal";
+import MeetingPrepModal from "./MeetingPrepModal";
+import ScenarioSimulatorModal from "./ScenarioSimulatorModal";
+import QuoteExtractorModal from "./QuoteExtractorModal";
+import QuietHoursModal from "./QuietHoursModal";
 import "./daily-briefing.css";
 
 function getWeatherIcon(code: number): string {
@@ -284,6 +288,10 @@ export default function DailyBriefingModal({
   const [commuteOpen, setCommuteOpen] = useState(false);
   const [radarOpen, setRadarOpen] = useState(false);
   const [csuiteReportOpen, setCSuiteReportOpen] = useState(false);
+  const [meetingPrepOpen, setMeetingPrepOpen] = useState(false);
+  const [scenarioSimOpen, setScenarioSimOpen] = useState(false);
+  const [quoteExtractorOpen, setQuoteExtractorOpen] = useState(false);
+  const [quietHoursOpen, setQuietHoursOpen] = useState(false);
   const [isOnline, setIsOnline] = useState<boolean>(() =>
     typeof navigator !== "undefined" ? navigator.onLine : true,
   );
@@ -1383,6 +1391,42 @@ export default function DailyBriefingModal({
             >
               📑 C-Suite Report
             </button>
+
+            <button
+              type="button"
+              className="briefing-toolbar-btn meeting-prep-trigger-btn"
+              onClick={() => setMeetingPrepOpen(true)}
+              title="Open 1-minute executive meeting prep brief"
+            >
+              🎯 Meeting Prep
+            </button>
+
+            <button
+              type="button"
+              className="briefing-toolbar-btn scenario-sim-trigger-btn"
+              onClick={() => setScenarioSimOpen(true)}
+              title="Boardroom scenario simulator & what-if macro stress-tester"
+            >
+              🎲 Scenario Sim
+            </button>
+
+            <button
+              type="button"
+              className="briefing-toolbar-btn quote-extractor-trigger-btn"
+              onClick={() => setQuoteExtractorOpen(true)}
+              title="Track verbatim executive quotes and leadership stances"
+            >
+              🎙️ Soundbites
+            </button>
+
+            <button
+              type="button"
+              className="briefing-toolbar-btn quiet-hours-trigger-btn"
+              onClick={() => setQuietHoursOpen(true)}
+              title="Configure quiet hours triage & VIP crisis breakthrough threshold"
+            >
+              🌙 Quiet Hours
+            </button>
           </div>
 
           {(shareFeedback || hostedShareUrl || memoEmailFeedback) && (
@@ -2319,6 +2363,48 @@ export default function DailyBriefingModal({
                 sector: "Global Markets",
               })),
             }}
+          />
+        )}
+
+        {meetingPrepOpen && (
+          <MeetingPrepModal
+            isOpen={meetingPrepOpen}
+            onClose={() => setMeetingPrepOpen(false)}
+            initialEntity={briefing.leadStories[0]?.priorityTopic || "Fonterra"}
+            articles={briefing.leadStories}
+            preferredVoice={activeAzureVoice}
+          />
+        )}
+
+        {scenarioSimOpen && (
+          <ScenarioSimulatorModal
+            isOpen={scenarioSimOpen}
+            onClose={() => setScenarioSimOpen(false)}
+            baselineAssets={marketWatchlist}
+          />
+        )}
+
+        {quoteExtractorOpen && (
+          <QuoteExtractorModal
+            isOpen={quoteExtractorOpen}
+            onClose={() => setQuoteExtractorOpen(false)}
+            articles={briefing.leadStories}
+            onOpenAudiogram={(q) => {
+              setQuoteExtractorOpen(false);
+              setAudiogramTarget({
+                title: `${q.speaker} (${q.organization})`,
+                excerpt: q.quoteText,
+                source: q.publisher,
+                url: q.sourceArticleUrl,
+              });
+            }}
+          />
+        )}
+
+        {quietHoursOpen && (
+          <QuietHoursModal
+            isOpen={quietHoursOpen}
+            onClose={() => setQuietHoursOpen(false)}
           />
         )}
       </div>

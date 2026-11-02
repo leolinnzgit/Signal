@@ -1,0 +1,281 @@
+/* Boardroom Scenario Simulator Styles */
+.scenario-sim-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 15, 29, 0.8);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 1rem;
+}
+
+.scenario-sim-modal {
+  background: #0b132b;
+  color: #f8fafc;
+  border: 1px solid #1e293b;
+  border-radius: 1rem;
+  width: 100%;
+  max-width: 800px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+  overflow: hidden;
+}
+
+.scenario-sim-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 1.5rem;
+  background: #1c2541;
+  border-bottom: 1px solid #334155;
+}
+
+.scenario-sim-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #f59e0b;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+}
+
+.scenario-sim-close-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0.25rem;
+  line-height: 1;
+}
+
+.scenario-sim-close-btn:hover {
+  color: #f8fafc;
+}
+
+.scenario-sim-body {
+  padding: 1.5rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.scenario-sim-presets-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.scenario-sim-preset-btn {
+  background: #1e293b;
+  border: 1px solid #334155;
+  color: #94a3b8;
+  padding: 0.35rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.scenario-sim-preset-btn:hover,
+.scenario-sim-preset-btn.active {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: #f59e0b;
+  color: #f59e0b;
+}
+
+.scenario-sim-input-row {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.scenario-sim-input {
+  flex: 1;
+  background: #1e293b;
+  border: 1px solid #475569;
+  color: #f8fafc;
+  padding: 0.625rem 1rem;
+  border-radius: 0.5rem;
+  font-size: 0.95rem;
+}
+
+.scenario-sim-input:focus {
+  outline: none;
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
+}
+
+.scenario-sim-run-btn {
+  background: #d97706;
+  color: #ffffff;
+  border: none;
+  padding: 0.625rem 1.25rem;
+  border-radius: 0.5rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.scenario-sim-run-btn:hover {
+  background: #b45309;
+}
+
+.scenario-sim-score-banner {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 0.75rem;
+  padding: 1rem 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.scenario-sim-score-val {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: #f59e0b;
+}
+
+.scenario-sim-score-label {
+  font-size: 0.85rem;
+  color: #94a3b8;
+}
+
+.scenario-sim-risk-badge {
+  padding: 0.3rem 0.75rem;
+  border-radius: 0.375rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  background: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+}
+
+.scenario-sim-risk-badge.critical {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+.scenario-sim-order-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  position: relative;
+}
+
+.scenario-sim-order-card {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  position: relative;
+}
+
+.scenario-sim-order-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.scenario-sim-order-pill {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.2rem 0.5rem;
+  border-radius: 0.25rem;
+  text-transform: uppercase;
+}
+
+.scenario-sim-order-pill.order-1 {
+  background: #0284c7;
+  color: #f0f9ff;
+}
+
+.scenario-sim-order-pill.order-2 {
+  background: #d97706;
+  color: #fffbeb;
+}
+
+.scenario-sim-order-pill.order-3 {
+  background: #7c3aed;
+  color: #faf5ff;
+}
+
+.scenario-sim-order-domain {
+  font-weight: 700;
+  color: #f1f5f9;
+  font-size: 0.95rem;
+}
+
+.scenario-sim-order-summary {
+  font-size: 0.9rem;
+  color: #cbd5e1;
+  margin: 0 0 0.5rem 0;
+  line-height: 1.4;
+}
+
+.scenario-sim-order-channel {
+  font-size: 0.8rem;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.scenario-sim-mitigation-card {
+  background: #1e293b;
+  border-left: 3px solid #10b981;
+  padding: 0.75rem 1rem;
+  border-radius: 0 0.5rem 0.5rem 0;
+  margin-bottom: 0.5rem;
+}
+
+.scenario-sim-mitigation-priority {
+  font-size: 0.75rem;
+  color: #34d399;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.scenario-sim-mitigation-action {
+  font-size: 0.9rem;
+  color: #e2e8f0;
+  margin: 0.25rem 0;
+}
+
+.scenario-sim-mitigation-owner {
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+.scenario-sim-footer {
+  padding: 1rem 1.5rem;
+  background: #1c2541;
+  border-top: 1px solid #334155;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.scenario-sim-export-btn {
+  background: #d97706;
+  color: #ffffff;
+  border: none;
+  padding: 0.5rem 1.25rem;
+  border-radius: 0.375rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.scenario-sim-export-btn:hover {
+  background: #b45309;
+}
