@@ -217,3 +217,75 @@
   background: rgba(239, 68, 68, 0.35);
   color: #fff;
 }
+
+@media (max-width: 640px) {
+  .crisis-war-room-backdrop {
+    padding: 0.5rem;
+  }
+
+  .crisis-war-room-modal {
+    max-height: 94vh;
+    border-radius: 0.75rem;
+  }
+
+  .crisis-war-room-header {
+    padding: 0.85rem 1rem;
+  }
+
+  .crisis-war-room-title {
+    font-size: 1.05rem;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    word-break: break-word;
+  }
+
+  .crisis-war-room-body {
+    padding: 0.85rem 1rem;
+    gap: 1rem;
+  }
+
+  .crisis-war-room-banner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.65rem 0.85rem;
+  }
+
+  .crisis-war-room-audio-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.65rem;
+    padding: 0.75rem 0.85rem;
+  }
+
+  .crisis-war-room-audio-btn {
+    width: 100%;
+    text-align: center;
+  }
+
+  .crisis-timeline-item {
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .crisis-timeline-time {
+    min-width: auto;
+  }
+
+  .crisis-stakeholder-grid {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+
+  .crisis-war-room-footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+    padding: 0.85rem 1rem;
+  }
+
+  .crisis-war-room-copy-btn {
+    width: 100%;
+    text-align: center;
+  }
+}

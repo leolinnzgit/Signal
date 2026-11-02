@@ -279,3 +279,63 @@
 .scenario-sim-export-btn:hover {
   background: #b45309;
 }
+
+@media (max-width: 640px) {
+  .scenario-sim-backdrop {
+    padding: 0.5rem;
+  }
+
+  .scenario-sim-modal {
+    max-height: 94vh;
+    border-radius: 0.75rem;
+  }
+
+  .scenario-sim-header {
+    padding: 0.85rem 1rem;
+  }
+
+  .scenario-sim-title {
+    font-size: 1.05rem;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+
+  .scenario-sim-body {
+    padding: 0.85rem 1rem;
+    gap: 1rem;
+  }
+
+  .scenario-sim-input-row {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .scenario-sim-run-btn {
+    width: 100%;
+    text-align: center;
+  }
+
+  .scenario-sim-score-banner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .scenario-sim-order-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+  }
+
+  .scenario-sim-footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+    padding: 0.85rem 1rem;
+  }
+
+  .scenario-sim-export-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}

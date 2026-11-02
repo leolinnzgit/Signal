@@ -123,3 +123,32 @@
   color: #38bdf8;
   font-weight: 600;
 }
+
+@media (max-width: 640px) {
+  .audiogram-modal-overlay {
+    padding: 0.5rem;
+  }
+
+  .audiogram-modal-card {
+    padding: 1rem;
+    border-radius: 12px;
+    max-height: 94vh;
+  }
+
+  .audiogram-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.35rem;
+  }
+
+  .audiogram-controls {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  .audiogram-btn {
+    width: 100%;
+    text-align: center;
+  }
+}

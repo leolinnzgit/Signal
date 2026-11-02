@@ -225,3 +225,53 @@
 .radar-action-btn:hover {
   background: #0369a1;
 }
+
+@media (max-width: 640px) {
+  .radar-overlay {
+    padding: 0.5rem;
+  }
+
+  .radar-card {
+    padding: 1rem;
+    border-radius: 14px;
+    max-height: 94vh;
+  }
+
+  .radar-header {
+    padding-bottom: 0.75rem;
+    margin-bottom: 1rem;
+  }
+
+  .radar-title {
+    font-size: 1.15rem;
+  }
+
+  .radar-hud-bar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .radar-anomaly-card {
+    padding: 0.85rem 1rem;
+  }
+
+  .radar-card-top {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.35rem;
+  }
+
+  .radar-card-footer {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .radar-action-btn {
+    width: 100%;
+    text-align: center;
+  }
+}

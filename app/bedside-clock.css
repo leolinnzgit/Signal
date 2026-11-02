@@ -297,3 +297,35 @@
 .clock-tertiary-btn:hover {
   opacity: 1;
 }
+
+@media (max-width: 640px) {
+  .bedside-clock-container {
+    padding: 1.25rem 0.75rem;
+  }
+
+  .bedside-clock-header {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .clock-actions-top {
+    margin-left: auto;
+  }
+
+  .clock-digital-time {
+    font-size: clamp(3.2rem, 16vw, 7rem);
+  }
+
+  .bedside-clock-footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.65rem;
+  }
+
+  .clock-primary-btn,
+  .clock-secondary-btn,
+  .clock-tertiary-btn {
+    width: 100%;
+    text-align: center;
+  }
+}

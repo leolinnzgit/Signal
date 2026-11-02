@@ -1057,7 +1057,7 @@ test("Live Situation Radar & 'Since Your Last Visit' Catch-Up Delta enrich brief
       }),
     };
   };
-  const elevatedRadar = await loadSituationRadarFeed(-41.28, 174.77, undefined, radarFetcher);
+  const elevatedRadar = await loadSituationRadarFeed(-41.28, 174.77, undefined, radarFetcher, now);
   assert.equal(elevatedRadar.level, "elevated");
   assert.equal(elevatedRadar.items.length, 2);
   assert.match(elevatedRadar.spokenAlert ?? "", /magnitude 5\.1 earthquake was recorded 18 kilometers away/);

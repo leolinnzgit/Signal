@@ -513,6 +513,62 @@
   margin: 0;
 }
 
+@media (max-width: 640px) {
+  .executive-dossier-overlay {
+    padding: 0.5rem;
+  }
+
+  .executive-dossier-card {
+    padding: 1rem;
+    border-radius: 12px;
+    max-height: 94vh;
+  }
+
+  .dossier-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+  }
+
+  .dossier-title {
+    font-size: 1.15rem;
+  }
+
+  .dossier-actions-top {
+    width: 100%;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+
+  .dossier-btn {
+    flex: 1 1 auto;
+    text-align: center;
+  }
+
+  .dossier-digest-options {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .dossier-digest-input-row {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .dossier-digest-submit-btn {
+    width: 100%;
+    text-align: center;
+  }
+
+  .dossier-tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: nowrap;
+    padding-bottom: 0.35rem;
+  }
+}
+
 /* Print 1-Pager Dossier Styling */
 @media print {
   body {

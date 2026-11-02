@@ -220,7 +220,7 @@ export default function ClaimsArbiterModal({
                 ))}
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+              <div className="claims-facts-rumors-grid">
                 <div>
                   <div className="claims-arbiter-section-title" style={{ color: "#4ade80" }}>✓ Established Facts</div>
                   <div style={{ background: "rgba(15, 23, 42, 0.5)", border: "1px solid rgba(74, 222, 128, 0.2)", borderRadius: "0.5rem", padding: "0.75rem" }}>

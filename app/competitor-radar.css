@@ -298,3 +298,75 @@
   color: #4ade80;
   font-weight: 600;
 }
+
+@media (max-width: 640px) {
+  .competitor-radar-backdrop {
+    padding: 0.5rem;
+  }
+
+  .competitor-radar-modal {
+    max-height: 94vh;
+    border-radius: 0.75rem;
+  }
+
+  .competitor-radar-header {
+    padding: 0.85rem 1rem;
+  }
+
+  .competitor-radar-title {
+    font-size: 1.05rem;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+
+  .competitor-radar-body {
+    padding: 0.85rem 1rem;
+    gap: 1rem;
+  }
+
+  .competitor-radar-hhi-bar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.35rem;
+    padding: 0.65rem 0.85rem;
+  }
+
+  .competitor-radar-audio-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.65rem;
+    padding: 0.75rem 0.85rem;
+  }
+
+  .competitor-radar-audio-btn {
+    width: 100%;
+    text-align: center;
+  }
+
+  .competitor-radar-deal-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+  }
+
+  .competitor-radar-deals-grid {
+    gap: 0.5rem;
+  }
+
+  .competitor-radar-movements-grid {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+
+  .competitor-radar-footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+    padding: 0.85rem 1rem;
+  }
+
+  .competitor-radar-copy-btn {
+    width: 100%;
+    text-align: center;
+  }
+}

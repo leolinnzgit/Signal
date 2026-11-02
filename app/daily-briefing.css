@@ -2935,6 +2935,57 @@ a.situation-radar-item:hover {
   color: #cbd5e1;
 }
 
+@media (max-width: 640px) {
+  .interrogate-modal-overlay {
+    padding: 0.5rem;
+  }
+
+  .interrogate-modal-card {
+    padding: 1rem;
+    border-radius: 12px;
+    max-height: 94vh;
+  }
+
+  .interrogate-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.35rem;
+  }
+
+  .interrogate-form {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  .interrogate-submit-btn {
+    width: 100%;
+    text-align: center;
+  }
+
+  .answer-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.35rem;
+  }
+
+  .readout-btn {
+    width: 100%;
+    text-align: center;
+  }
+
+  .story-timeline-card {
+    padding: 0.85rem;
+    border-radius: 10px;
+  }
+
+  .timeline-card-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.35rem;
+  }
+}
+
 /* Print 1-Pager Executive Memo Styling */
 @media print {
   body {

@@ -354,6 +354,61 @@
   justify-content: space-between;
 }
 
+@media (max-width: 640px) {
+  .csuite-report-overlay {
+    padding: 0.5rem;
+  }
+
+  .csuite-report-modal {
+    border-radius: 12px;
+    max-height: 94vh;
+  }
+
+  .csuite-toolbar-top {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.65rem;
+    padding: 0.75rem 1rem;
+  }
+
+  .csuite-toolbar-actions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 0.4rem;
+  }
+
+  .csuite-btn {
+    flex: 1 1 auto;
+    text-align: center;
+  }
+
+  .csuite-paper {
+    padding: 1.25rem 1rem;
+    margin: 0.5rem auto;
+  }
+
+  .csuite-doc-title {
+    font-size: 1.5rem;
+  }
+
+  .csuite-paper-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+    margin-bottom: 1.25rem;
+  }
+
+  .csuite-story-row {
+    margin-bottom: 1rem;
+  }
+
+  .csuite-doc-footer {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+  }
+}
+
 /* Print Optimization */
 @media print {
   body {

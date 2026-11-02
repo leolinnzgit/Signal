@@ -225,3 +225,71 @@
 .quiet-hours-save-btn:hover {
   background: #1d4ed8;
 }
+
+@media (max-width: 640px) {
+  .quiet-hours-backdrop {
+    padding: 0.5rem;
+  }
+
+  .quiet-hours-modal {
+    max-height: 94vh;
+    border-radius: 0.75rem;
+  }
+
+  .quiet-hours-header {
+    padding: 0.85rem 1rem;
+  }
+
+  .quiet-hours-title {
+    font-size: 1.05rem;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+
+  .quiet-hours-body {
+    padding: 0.85rem 1rem;
+    gap: 1rem;
+  }
+
+  .quiet-hours-toggle-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.85rem 1rem;
+  }
+
+  .quiet-hours-time-row {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .quiet-hours-slider-row {
+    padding: 0.85rem 1rem;
+  }
+
+  .quiet-hours-vip-box {
+    padding: 0.85rem 1rem;
+  }
+
+  .quiet-hours-vip-input-row {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .quiet-hours-vip-add-btn {
+    width: 100%;
+    text-align: center;
+  }
+
+  .quiet-hours-footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+    padding: 0.85rem 1rem;
+  }
+
+  .quiet-hours-save-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}

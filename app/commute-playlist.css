@@ -241,3 +241,55 @@
   color: #64748b;
   font-weight: 600;
 }
+
+@media (max-width: 640px) {
+  .commute-playlist-overlay {
+    padding: 0.5rem;
+  }
+
+  .commute-playlist-card {
+    padding: 1rem;
+    border-radius: 14px;
+    max-height: 94vh;
+  }
+
+  .commute-header {
+    padding-bottom: 0.75rem;
+    margin-bottom: 1rem;
+  }
+
+  .commute-title {
+    font-size: 1.15rem;
+  }
+
+  .commute-active-focus {
+    padding: 1rem;
+    margin-bottom: 1rem;
+    border-radius: 12px;
+  }
+
+  .commute-chapter-title {
+    font-size: 1.1rem;
+  }
+
+  .commute-controls-row {
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+  }
+
+  .commute-ctrl-btn {
+    width: 44px;
+    height: 44px;
+    font-size: 1.1rem;
+  }
+
+  .commute-ctrl-btn.play-btn {
+    width: 58px;
+    height: 58px;
+    font-size: 1.35rem;
+  }
+
+  .commute-chapter-item {
+    padding: 0.65rem 0.85rem;
+  }
+}

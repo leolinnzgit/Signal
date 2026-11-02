@@ -215,6 +215,7 @@ export async function loadSituationRadarFeed(
   longitude?: number | null,
   signal?: AbortSignal,
   fetcher: typeof fetch = fetch,
+  now?: Date,
 ): Promise<SituationRadarSummary> {
   try {
     const hasCoords =
@@ -244,6 +245,7 @@ export async function loadSituationRadarFeed(
       disasters: payload?.disasters,
       hasUserLocation: hasCoords || Boolean(payload?.userLocation),
       source: payload?.source,
+      now,
     });
   } catch {
     return { level: "calm", items: [], spokenAlert: null };

@@ -371,3 +371,30 @@
 .story-read-btn:hover {
   text-decoration: underline;
 }
+
+@media (max-width: 640px) {
+  .market-heatmap-overlay {
+    padding: 0.5rem;
+  }
+
+  .market-heatmap-card {
+    padding: 0.85rem 1rem;
+    border-radius: 12px;
+    max-height: 94vh;
+  }
+
+  .heatmap-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .heatmap-tiles-grid {
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 0.5rem;
+  }
+
+  .heatmap-tile {
+    padding: 0.65rem;
+  }
+}
