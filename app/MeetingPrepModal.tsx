@@ -6,6 +6,7 @@ import {
   formatMeetingPrepClipboard,
   type MeetingPrepResponse,
 } from "./meeting-prep";
+import { openArticleAudioStream } from "./article-audio-stream";
 import "./meeting-prep.css";
 
 export interface MeetingPrepModalProps {
@@ -21,7 +22,7 @@ export default function MeetingPrepModal({
   onClose,
   initialEntity = "Fonterra",
   articles = [],
-  preferredVoice,
+  preferredVoice = "en-NZ-MollyNeural",
 }: MeetingPrepModalProps) {
   const [entityInput, setEntityInput] = useState(initialEntity);
   const [data, setData] = useState<MeetingPrepResponse | null>(null);
@@ -29,19 +30,35 @@ export default function MeetingPrepModal({
   const [copyFeedback, setCopyFeedback] = useState("");
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const stopAudio = () => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+    setIsPlayingAudio(false);
+  };
 
   useEffect(() => {
     if (!isOpen) {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-      setIsPlayingAudio(false);
+      stopAudio();
       return;
     }
 
     setEntityInput(initialEntity || "Fonterra");
     void loadPrep(initialEntity || "Fonterra");
+
+    return () => {
+      stopAudio();
+    };
   }, [initialEntity, isOpen]);
 
   const loadPrep = async (targetEntity: string) => {
@@ -73,28 +90,64 @@ export default function MeetingPrepModal({
     } catch {}
   };
 
-  const handleToggleAudio = () => {
-    if (isPlayingAudio) {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-      setIsPlayingAudio(false);
-      return;
-    }
-
-    if (!data?.rapidFireAudioScript) return;
-
-    // Use speech synthesis as immediate fast preview
+  const fallbackSpeech = (script: string) => {
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(data.rapidFireAudioScript);
+      const utterance = new SpeechSynthesisUtterance(script);
       utterance.rate = 1.15;
       utterance.onend = () => setIsPlayingAudio(false);
       utterance.onerror = () => setIsPlayingAudio(false);
       setIsPlayingAudio(true);
       window.speechSynthesis.speak(utterance);
+    } else {
+      setIsPlayingAudio(false);
     }
+  };
+
+  const handleToggleAudio = async () => {
+    if (isPlayingAudio) {
+      stopAudio();
+      return;
+    }
+
+    if (!data?.rapidFireAudioScript) return;
+
+    stopAudio();
+
+    // Default to high-fidelity Azure Neural Voice stream
+    try {
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      const streamUrl = await openArticleAudioStream(
+        [data.rapidFireAudioScript],
+        "en-NZ",
+        { en: preferredVoice || "en-NZ-MollyNeural", zh: "zh-CN-XiaoxiaoNeural" },
+        controller.signal,
+        () => {},
+      );
+
+      if (controller.signal.aborted) return;
+
+      if (streamUrl) {
+        const audio = new Audio(streamUrl);
+        audioRef.current = audio;
+        audio.onended = () => {
+          setIsPlayingAudio(false);
+          audioRef.current = null;
+        };
+        audio.onerror = () => {
+          fallbackSpeech(data.rapidFireAudioScript);
+        };
+        await audio.play();
+        setIsPlayingAudio(true);
+        return;
+      }
+    } catch {
+      // Fallback to browser speech if offline or Azure stream is unreachable
+    }
+
+    fallbackSpeech(data.rapidFireAudioScript);
   };
 
   if (!isOpen) return null;

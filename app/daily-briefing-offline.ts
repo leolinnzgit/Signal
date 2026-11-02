@@ -280,6 +280,10 @@ export async function saveOfflineBriefingPack(
       resolvedVoices = normalizeReadingVoices(null);
     }
   }
+  resolvedVoices = {
+    en: resolvedVoices?.en || "en-NZ-MollyNeural",
+    zh: resolvedVoices?.zh || "zh-TW-HsiaoChenNeural",
+  };
 
   const packId = computeBriefingPackId(briefing, resolvedLanguage);
   const store = resolveAudioStore(audioStore);

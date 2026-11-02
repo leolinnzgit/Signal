@@ -25,8 +25,18 @@ async function saveServerVoicePreferences(preferences: ReadingVoicePreferences) 
 
 export function useReadingVoices(enabled = true) {
   const [preferences, setPreferences] = useState<ReadingVoicePreferences>(() => {
-    try { return normalizeReadingVoices(JSON.parse(localStorage.getItem(storageKey) ?? "null")); }
-    catch { return normalizeReadingVoices(null); }
+    try {
+      const parsed = normalizeReadingVoices(JSON.parse(localStorage.getItem(storageKey) ?? "null"));
+      return {
+        en: parsed.en || "en-NZ-MollyNeural",
+        zh: parsed.zh || "zh-TW-HsiaoChenNeural",
+      };
+    } catch {
+      return {
+        en: "en-NZ-MollyNeural",
+        zh: "zh-TW-HsiaoChenNeural",
+      };
+    }
   });
   const [voices, setVoices] = useState<ReadingVoice[]>([]);
   const [loading, setLoading] = useState(true);
@@ -49,11 +59,18 @@ export function useReadingVoices(enabled = true) {
         setVoices(data);
         setStreaming(response.headers.get("X-Signal-Article-Streaming") === "true");
         setPreferences((saved) => {
-          const candidateEn = serverEn || saved.en;
-          const candidateZh = serverZh || saved.zh;
+          const defaultEn = data.find((voice) => voice.id === "en-NZ-MollyNeural")?.id
+            || data.find((voice) => voice.id.includes("Neural") && voice.language.startsWith("en"))?.id
+            || data.find((voice) => voice.language.startsWith("en"))?.id || "en-NZ-MollyNeural";
+          const defaultZh = data.find((voice) => voice.id === "zh-TW-HsiaoChenNeural")?.id
+            || data.find((voice) => voice.id.includes("Neural") && voice.language.startsWith("zh"))?.id
+            || data.find((voice) => voice.language.startsWith("zh"))?.id || "zh-TW-HsiaoChenNeural";
+
+          const candidateEn = serverEn || saved.en || defaultEn;
+          const candidateZh = serverZh || saved.zh || defaultZh;
           const next = {
-            en: data.some((voice) => voice.id === candidateEn && voice.language.startsWith("en")) ? candidateEn : "",
-            zh: data.some((voice) => voice.id === candidateZh && voice.language.startsWith("zh")) ? candidateZh : "",
+            en: data.some((voice) => voice.id === candidateEn && voice.language.startsWith("en")) ? candidateEn : defaultEn,
+            zh: data.some((voice) => voice.id === candidateZh && voice.language.startsWith("zh")) ? candidateZh : defaultZh,
           };
           if ((next.en && !serverEn) || (next.zh && !serverZh)) {
             void saveServerVoicePreferences(next);

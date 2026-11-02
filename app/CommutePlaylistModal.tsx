@@ -7,11 +7,13 @@ import {
   setupMediaSession,
   type CommutePlaylist,
 } from "./commute-playlist";
+import { openArticleAudioStream } from "./article-audio-stream";
 import "./commute-playlist.css";
 
 export interface CommutePlaylistModalProps {
   isOpen: boolean;
   onClose: () => void;
+  preferredVoice?: string;
   briefing?: {
     edition?: string;
     formattedDate?: string;
@@ -29,6 +31,7 @@ export interface CommutePlaylistModalProps {
 export default function CommutePlaylistModal({
   isOpen,
   onClose,
+  preferredVoice = "en-NZ-MollyNeural",
   briefing,
   marketSentiment,
   stagedArticles = [],
@@ -39,36 +42,76 @@ export default function CommutePlaylistModal({
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [playbackRate, setPlaybackRate] = useState<1 | 1.25 | 1.5>(1.25);
   const timerRef = useRef<number | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const speechRef = useRef<SpeechSynthesisUtterance | null>(null);
+
+  const stopAllAudio = useCallback(() => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.onended = null;
+      audioRef.current.onerror = null;
+      audioRef.current.ontimeupdate = null;
+      audioRef.current = null;
+    }
+    if (timerRef.current) {
+      window.clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+      speechRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      stopAllAudio();
+      return;
+    }
     const pl = buildCommutePlaylist(briefing, marketSentiment, stagedArticles);
     setPlaylist(pl);
     setCurrentChapterIndex(0);
     setElapsedSeconds(0);
     setIsPlaying(true);
-  }, [briefing, isOpen, marketSentiment, stagedArticles]);
+
+    return () => {
+      stopAllAudio();
+    };
+  }, [briefing, isOpen, marketSentiment, stagedArticles, stopAllAudio]);
 
   const activeChapter = playlist?.chapters[currentChapterIndex] || null;
 
   const handleNext = useCallback(() => {
     if (!playlist) return;
     if (currentChapterIndex < playlist.chapters.length - 1) {
+      stopAllAudio();
       setCurrentChapterIndex((prev) => prev + 1);
       setElapsedSeconds(0);
+      setIsPlaying(true);
     } else {
+      stopAllAudio();
       setIsPlaying(false);
     }
-  }, [currentChapterIndex, playlist]);
+  }, [currentChapterIndex, playlist, stopAllAudio]);
 
   const handlePrev = useCallback(() => {
     if (elapsedSeconds > 5) {
+      if (audioRef.current) {
+        audioRef.current.currentTime = 0;
+      }
       setElapsedSeconds(0);
     } else if (currentChapterIndex > 0) {
+      stopAllAudio();
       setCurrentChapterIndex((prev) => prev - 1);
       setElapsedSeconds(0);
+      setIsPlaying(true);
     }
-  }, [currentChapterIndex, elapsedSeconds]);
+  }, [currentChapterIndex, elapsedSeconds, stopAllAudio]);
 
   // MediaSession integration
   useEffect(() => {
@@ -78,13 +121,46 @@ export default function CommutePlaylistModal({
       onPause: () => setIsPlaying(false),
       onNext: handleNext,
       onPrevious: handlePrev,
-      onSeekTo: (time) => setElapsedSeconds(time),
+      onSeekTo: (time) => {
+        setElapsedSeconds(time);
+        if (audioRef.current) {
+          audioRef.current.currentTime = time;
+        }
+      },
     });
   }, [currentChapterIndex, handleNext, handlePrev, playlist]);
 
-  // Simulated continuous audio playback progress
+  // Play chapter audio via Azure Neural Voice stream
   useEffect(() => {
-    if (isPlaying && activeChapter) {
+    if (!isOpen || !activeChapter) return;
+
+    if (!isPlaying) {
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      if (timerRef.current) {
+        window.clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.pause();
+      }
+      return;
+    }
+
+    // If audio is already loaded and paused, resume it
+    if (audioRef.current) {
+      audioRef.current.playbackRate = playbackRate;
+      void audioRef.current.play().catch(() => {});
+      return;
+    }
+
+    let isSubscribed = true;
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    const startTimerFallback = () => {
+      if (timerRef.current) window.clearInterval(timerRef.current);
       timerRef.current = window.setInterval(() => {
         setElapsedSeconds((prev) => {
           if (prev >= activeChapter.durationSeconds) {
@@ -94,25 +170,95 @@ export default function CommutePlaylistModal({
           return prev + 1;
         });
       }, 1000 / playbackRate);
-    } else if (timerRef.current) {
-      window.clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
+    };
+
+    const startFallbackSpeech = () => {
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+        const ut = new SpeechSynthesisUtterance(activeChapter.narrationText);
+        ut.rate = playbackRate;
+        ut.onend = () => handleNext();
+        ut.onerror = () => handleNext();
+        speechRef.current = ut;
+        window.speechSynthesis.speak(ut);
+      }
+      startTimerFallback();
+    };
+
+    void (async () => {
+      try {
+        const streamUrl = await openArticleAudioStream(
+          [activeChapter.narrationText],
+          "en-NZ",
+          { en: preferredVoice || "en-NZ-MollyNeural", zh: "zh-CN-XiaoxiaoNeural" },
+          controller.signal,
+          () => {},
+        );
+
+        if (!isSubscribed || controller.signal.aborted) return;
+
+        if (streamUrl) {
+          const audio = new Audio(streamUrl);
+          audio.playbackRate = playbackRate;
+          audioRef.current = audio;
+
+          audio.ontimeupdate = () => {
+            if (isSubscribed) {
+              setElapsedSeconds(Math.floor(audio.currentTime));
+            }
+          };
+
+          audio.onended = () => {
+            if (isSubscribed) {
+              handleNext();
+            }
+          };
+
+          audio.onerror = () => {
+            if (isSubscribed) {
+              startFallbackSpeech();
+            }
+          };
+
+          await audio.play();
+          return;
+        }
+      } catch {
+        // Stream failed or offline
+      }
+
+      if (isSubscribed) {
+        startFallbackSpeech();
+      }
+    })();
 
     return () => {
+      isSubscribed = false;
+      controller.abort();
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.onended = null;
+        audioRef.current.onerror = null;
+        audioRef.current.ontimeupdate = null;
+        audioRef.current = null;
+      }
       if (timerRef.current) {
         window.clearInterval(timerRef.current);
         timerRef.current = null;
       }
     };
-  }, [activeChapter, handleNext, isPlaying, playbackRate]);
+  }, [activeChapter, handleNext, isOpen, isPlaying, playbackRate, preferredVoice]);
 
   if (!isOpen || !playlist || !activeChapter) return null;
 
   const progressPercent = Math.min(100, (elapsedSeconds / activeChapter.durationSeconds) * 100);
 
   const toggleRate = () => {
-    setPlaybackRate((prev) => (prev === 1 ? 1.25 : prev === 1.25 ? 1.5 : 1));
+    const nextRate: 1 | 1.25 | 1.5 = playbackRate === 1 ? 1.25 : playbackRate === 1.25 ? 1.5 : 1;
+    setPlaybackRate(nextRate);
+    if (audioRef.current) {
+      audioRef.current.playbackRate = nextRate;
+    }
   };
 
   return (

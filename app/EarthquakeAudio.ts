@@ -85,7 +85,11 @@ export function useEarthquakeAudio() {
     catch { /* Use the server's configured Azure voice. */ }
     setAudioStatus("Preparing Azure voice…");
     startDeadline(run);
-    void openArticleAudioStream(articleNarrationParts("", [text], 900), "en-NZ", voices, abort.signal,
+    const effectiveVoices = {
+      en: voices.en || "en-NZ-MollyNeural",
+      zh: voices.zh || "zh-TW-HsiaoChenNeural",
+    };
+    void openArticleAudioStream(articleNarrationParts("", [text], 900), "en-NZ", effectiveVoices, abort.signal,
       status => { if (status.error) fail(run); })
       .then(url => {
         if (run !== sequence.current || abort.signal.aborted) return;

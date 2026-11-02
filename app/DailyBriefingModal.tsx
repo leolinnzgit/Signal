@@ -688,7 +688,7 @@ export default function DailyBriefingModal({
       qaSpeech.stop();
     } else {
       speech.stop();
-      qaSpeech.speak(qaResult.answer, speechLocale);
+      qaSpeech.speak(qaResult.answer, speechLocale, null, undefined, activeAzureVoice);
     }
   };
 
@@ -724,14 +724,14 @@ export default function DailyBriefingModal({
           citations: res.citations,
         });
 
-        // Narrate answer aloud and resume briefing playback when speech finishes
+        // Narrate answer aloud with Azure Neural Voice and resume briefing playback when speech finishes
         qaSpeech.stop();
         qaSpeech.speak(res.answer, speechLocale, null, () => {
           if (briefingWasPausedForCoHostRef.current) {
             briefingWasPausedForCoHostRef.current = false;
             speech.resume();
           }
-        });
+        }, activeAzureVoice);
       } catch (err) {
         setCoHostState({
           asking: false,
@@ -2319,6 +2319,7 @@ export default function DailyBriefingModal({
           <CommutePlaylistModal
             isOpen={commuteOpen}
             onClose={() => setCommuteOpen(false)}
+            preferredVoice={activeAzureVoice}
             briefing={briefing}
             marketSentiment={{
               macroHeadline: briefing.marketGlance

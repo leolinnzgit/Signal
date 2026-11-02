@@ -130,8 +130,12 @@ export function useWeatherAudio(text: string, suspended = false) {
     let voices = normalizeReadingVoices(null);
     try { voices = normalizeReadingVoices(JSON.parse(localStorage.getItem(READING_VOICES_STORAGE_KEY) ?? "null")); }
     catch { /* Use the server's configured Azure voice. */ }
+    const effectiveVoices = {
+      en: voices.en || "en-NZ-MollyNeural",
+      zh: voices.zh || "zh-TW-HsiaoChenNeural",
+    };
     const language = navigator.language.startsWith("en") ? navigator.language : "en-NZ";
-    void openArticleAudioStream(articleNarrationParts("", [text], 900), language, voices, abort.signal,
+    void openArticleAudioStream(articleNarrationParts("", [text], 900), language, effectiveVoices, abort.signal,
       (status) => { if (status.error) failed(); })
       .then((url) => {
         if (run !== sequence.current || abort.signal.aborted) return;
