@@ -3034,7 +3034,9 @@ button.local-weather {
 .bookmark-button,
 .share-button,
 .comment-button,
-.interrogate-story-button {
+.interrogate-story-button,
+.audiogram-story-button,
+.dossier-stage-button {
   display: grid;
   width: 2.25rem;
   height: 2.25rem;
@@ -3048,10 +3050,118 @@ button.local-weather {
   line-height: 1;
 }
 
-.interrogate-story-button:hover {
+.interrogate-story-button:hover,
+.audiogram-story-button:hover,
+.dossier-stage-button:hover {
   background: rgba(56, 189, 248, 0.15);
   border-color: #38bdf8;
   color: #38bdf8;
+}
+
+.dossier-stage-button.is-staged {
+  background: rgba(56, 189, 248, 0.25);
+  border-color: #38bdf8;
+  color: #38bdf8;
+}
+
+.clock-radio-header-trigger,
+.market-heatmap-header-trigger {
+  background: var(--surface-subtle, rgba(255, 255, 255, 0.05));
+  border: 1px solid var(--line, #334155);
+  border-radius: 9999px;
+  width: 2.2rem;
+  height: 2.2rem;
+  display: inline-grid;
+  place-items: center;
+  font-size: 1.1rem;
+  cursor: pointer;
+  color: var(--page-text);
+  transition: all 0.15s ease;
+}
+
+.clock-radio-header-trigger:hover,
+.market-heatmap-header-trigger:hover {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: #38bdf8;
+}
+
+/* Floating Dossier Dock */
+.dossier-floating-dock {
+  position: fixed;
+  bottom: 1.75rem;
+  right: 1.75rem;
+  z-index: 9999;
+  background: #0d1522;
+  border: 1px solid #1e3a5f;
+  border-radius: 12px;
+  padding: 0.85rem 1.25rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  color: #f1f5f9;
+  animation: slide-up 0.25s ease-out;
+}
+
+@keyframes slide-up {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.dock-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.dock-count {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #38bdf8;
+}
+
+.dock-hint {
+  font-size: 0.72rem;
+  color: #94a3b8;
+}
+
+.dock-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dock-build-btn {
+  background: #0284c7;
+  border: none;
+  border-radius: 9999px;
+  color: #fff;
+  font-weight: 700;
+  padding: 0.45rem 0.95rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.dock-build-btn:hover {
+  background: #0369a1;
+}
+
+.dock-clear-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+}
+
+.dock-clear-btn:hover {
+  color: #fff;
 }
 
 .story-watchlist-match-badge {

@@ -66,6 +66,19 @@ internal static class StoryClusterChecks
         Assert(timelineData!.Milestones[0].Phase == "Past Context", "First milestone must be Past Context.");
         Assert(timelineData.Milestones[1].Phase == "Today's Catalyst", "Second milestone must be Today's Catalyst.");
 
+        // 4. Dossier compilation produces structured binder with perspectives, risks, and milestones
+        var dossierRes = disabledController.Dossier(new StoryClusterController.ClusterDossierRequest(
+            "Monetary Policy Easing",
+            [
+                new("https://example.com/rnz-ocr", "Reserve Bank cuts OCR to 4.25%", "RNZ", "The central bank delivered a 50 basis point reduction."),
+                new("https://example.com/stuff-ocr", "Mortgage rates adjust", "Stuff", "Banks trim floating rates.")
+            ])) as OkObjectResult;
+        var dossierData = dossierRes?.Value as StoryClusterController.ClusterDossierResponse;
+        Assert(dossierData is { Available: true, Perspectives.Length: 2, Risks.Length: >= 3, Milestones.Length: >= 3 },
+            "Dossier compilation must produce executive binder sections.");
+        Assert(dossierData!.ExecutiveSummary.Contains("RNZ"), "Executive summary should cite contributing publishers.");
+        Assert(dossierData.Perspectives[0].Publisher == "RNZ", "First perspective should be RNZ.");
+
         // 2. Enabled Azure Language synthesizes multi-publisher dossiers with sentenceCount = 4
         var enabledOptions = new AzureLanguageOptions
         {

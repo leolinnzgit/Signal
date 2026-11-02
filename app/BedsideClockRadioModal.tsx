@@ -1,0 +1,212 @@
+"use client";
+
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { describeWeather } from "./weather-briefing";
+import {
+  playHarmonicChime,
+  formatClockDisplay,
+  shouldAlarmTrigger,
+} from "./bedside-clock";
+import "./bedside-clock.css";
+
+export { playHarmonicChime } from "./bedside-clock";
+
+export interface BedsideClockWeather {
+  temperature: number;
+  condition?: string;
+  location?: string;
+  locationName?: string;
+  weatherCode?: number;
+}
+
+export interface BedsideClockRadioModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  weather?: BedsideClockWeather | null;
+  alarmTime?: string;
+  onTriggerBriefing: () => void;
+  briefingTitle?: string;
+}
+
+export default function BedsideClockRadioModal({
+  isOpen,
+  onClose,
+  weather,
+  alarmTime = "07:00",
+  onTriggerBriefing,
+  briefingTitle = "Signal Executive Briefing",
+}: BedsideClockRadioModalProps) {
+  const [currentTime, setCurrentTime] = useState<Date>(new Date());
+  const [nightMode, setNightMode] = useState<boolean>(false);
+  const [isRinging, setIsRinging] = useState<boolean>(false);
+  const [showSeconds, setShowSeconds] = useState<boolean>(false);
+  const chimeIntervalRef = useRef<number | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const timer = window.setInterval(() => {
+      const now = new Date();
+      setCurrentTime(now);
+
+      // Check alarm trigger matching HH:MM
+      const display = formatClockDisplay(now);
+
+      if (shouldAlarmTrigger(display.timeString24, now.getSeconds(), alarmTime, isRinging)) {
+        setIsRinging(true);
+        playHarmonicChime(audioCtxRef.current);
+      }
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [alarmTime, isOpen, isRinging]);
+
+  // Repeated gentle chimes every 8s if ringing
+  useEffect(() => {
+    if (isRinging) {
+      chimeIntervalRef.current = window.setInterval(() => {
+        playHarmonicChime(audioCtxRef.current);
+      }, 8000);
+    } else if (chimeIntervalRef.current) {
+      window.clearInterval(chimeIntervalRef.current);
+      chimeIntervalRef.current = null;
+    }
+    return () => {
+      if (chimeIntervalRef.current) {
+        window.clearInterval(chimeIntervalRef.current);
+        chimeIntervalRef.current = null;
+      }
+    };
+  }, [isRinging]);
+
+  const handleWakeWithBriefing = useCallback(() => {
+    setIsRinging(false);
+    onClose();
+    onTriggerBriefing();
+  }, [onClose, onTriggerBriefing]);
+
+  const handleSnooze = useCallback(() => {
+    setIsRinging(false);
+    if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+      try {
+        window.setTimeout(() => {
+          new Notification("⏰ Wake-Up Snooze Complete", {
+            body: "Your 10-minute briefing snooze has elapsed. Tap to listen to your morning briefing.",
+            icon: "/icons/signal-medallion-192.png",
+          });
+        }, 10 * 60 * 1000);
+      } catch {}
+    }
+  }, []);
+
+  if (!isOpen) return null;
+
+  const display = formatClockDisplay(currentTime);
+  const { hours24, minutes, seconds, hour12, ampm, dateFormatted } = display;
+
+  return (
+    <div
+      className={`bedside-clock-overlay ${nightMode ? "night-mode" : ""} ${isRinging ? "is-ringing" : ""}`}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Bedside Clock Radio"
+    >
+      <div className="bedside-clock-container">
+        {/* Top Status Bar */}
+        <header className="bedside-clock-header">
+          <div className="clock-alarm-pill">
+            <span className="alarm-icon" aria-hidden="true">⏰</span>
+            <span>Alarm: {alarmTime}</span>
+          </div>
+
+          <div className="clock-actions-top">
+            <button
+              type="button"
+              className="clock-toggle-btn"
+              onClick={() => setNightMode((prev) => !prev)}
+              title="Toggle OLED Night / Amber Mode"
+            >
+              {nightMode ? "☀️ Standard Glow" : "🌙 OLED Amber Mode"}
+            </button>
+            <button
+              type="button"
+              className="clock-close-btn"
+              onClick={onClose}
+              aria-label="Close Clock Radio"
+            >
+              ✕
+            </button>
+          </div>
+        </header>
+
+        {/* Central Ambient Time Display */}
+        <main className="bedside-clock-center">
+          {isRinging && (
+            <div className="clock-ringing-banner" role="alert">
+              🔔 Time to Wake Up! Executive Briefing is Ready
+            </div>
+          )}
+
+          <div
+            className="clock-digital-time"
+            onClick={() => setShowSeconds((prev) => !prev)}
+            title="Click to toggle seconds"
+          >
+            <span className="digits-hour">{String(hour12).padStart(2, "0")}</span>
+            <span className="digits-colon">:</span>
+            <span className="digits-minute">{minutes}</span>
+            {showSeconds && (
+              <span className="digits-seconds">:{seconds}</span>
+            )}
+            <span className="digits-ampm">{ampm}</span>
+          </div>
+
+          <p className="clock-date-line">{dateFormatted}</p>
+
+          {/* Weather Glance */}
+          {weather && (
+            <div className="clock-weather-glance">
+              <span className="weather-temp">{weather.temperature}&deg;C</span>
+              {(weather.condition || (weather.weatherCode !== undefined ? describeWeather(weather.weatherCode) : null)) && (
+                <span className="weather-desc">&bull; {weather.condition || describeWeather(weather.weatherCode!)}</span>
+              )}
+              {(weather.location || weather.locationName) && (
+                <span className="weather-loc">&bull; {weather.location || weather.locationName}</span>
+              )}
+            </div>
+          )}
+        </main>
+
+        {/* Bottom Radio & Briefing Controls */}
+        <footer className="bedside-clock-footer">
+          <button
+            type="button"
+            className="clock-primary-btn briefing-play-btn"
+            onClick={handleWakeWithBriefing}
+            title="Start your executive voice briefing"
+          >
+            🔊 Wake &amp; Play Briefing
+          </button>
+
+          <button
+            type="button"
+            className="clock-secondary-btn snooze-btn"
+            onClick={handleSnooze}
+            title="Snooze alarm for 10 minutes"
+          >
+            💤 Snooze 10m
+          </button>
+
+          <button
+            type="button"
+            className="clock-tertiary-btn test-chime-btn"
+            onClick={() => playHarmonicChime(audioCtxRef.current)}
+            title="Preview the gentle harmonic chime sound"
+          >
+            🔔 Preview Chime
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+}

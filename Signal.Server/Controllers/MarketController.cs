@@ -206,4 +206,123 @@ public sealed class MarketController(
         await database.SaveChangesAsync(cancellationToken);
         return await GetPortfolio(cancellationToken);
     }
+
+    public sealed record MacroCorrelationStory(
+        string Title,
+        string Url,
+        string Source,
+        string ImpactType);
+
+    public sealed record MarketSentimentAsset(
+        string Symbol,
+        string Name,
+        string Sector,
+        decimal Price,
+        decimal ChangePercent,
+        string SentimentTone,
+        MacroCorrelationStory[] Attributions);
+
+    public sealed record MarketSentimentMatrixRequest(
+        MarketWatchlistTopicInput[]? Items,
+        string[]? Headlines,
+        string? SectorFilter = null);
+
+    public sealed record MarketSentimentMatrixResponse(
+        bool Configured,
+        MarketSentimentAsset[] Assets,
+        string MacroHeadline);
+
+    [HttpPost("matrix")]
+    [RequestSizeLimit(32_768)]
+    public async Task<IActionResult> GetSentimentMatrix(
+        [FromBody] MarketSentimentMatrixRequest? request,
+        CancellationToken cancellationToken)
+    {
+        var headlines = request?.Headlines ?? [];
+
+        // Benchmark cross-asset watchlist
+        var benchmarkItems = new[]
+        {
+            new MarketWatchlistTopicInput("NZX 50 Index", "NZ50"),
+            new MarketWatchlistTopicInput("Auckland Airport", "AIA"),
+            new MarketWatchlistTopicInput("Meridian Energy", "MEL"),
+            new MarketWatchlistTopicInput("Spark New Zealand", "SPK"),
+            new MarketWatchlistTopicInput("Apple Inc.", "AAPL"),
+            new MarketWatchlistTopicInput("Microsoft Corp.", "MSFT"),
+            new MarketWatchlistTopicInput("NVIDIA Corp.", "NVDA"),
+            new MarketWatchlistTopicInput("NZD / USD", "NZDUSD"),
+            new MarketWatchlistTopicInput("Brent Crude Oil", "BRENT")
+        };
+
+        var queryItems = (request?.Items is { Length: > 0 } userItems ? userItems : benchmarkItems).Take(12).ToArray();
+
+        var quotes = marketData.IsConfigured
+            ? await marketData.GetWatchlistAsync(queryItems, queryItems.Length, cancellationToken, includeSparklines: false)
+            : [];
+
+        var quoteMap = quotes.ToDictionary(
+            q => q.Symbol,
+            q => q,
+            StringComparer.OrdinalIgnoreCase);
+
+        var assets = new List<MarketSentimentAsset>();
+        foreach (var item in queryItems)
+        {
+            var symbol = item.Symbol?.Trim().ToUpperInvariant() ?? item.Topic.Trim().ToUpperInvariant();
+            quoteMap.TryGetValue(symbol, out var q);
+
+            var price = q?.Price ?? 100.0m;
+            var change = q?.PercentChange ?? 0.0m;
+
+            var sector = symbol switch
+            {
+                "NZ50" or "AIA" or "MEL" or "SPK" or "FPH" => "NZ Equities",
+                "AAPL" or "MSFT" or "NVDA" or "GOOG" or "AMZN" => "Global Tech",
+                "BRENT" or "XAU" or "WTI" => "Commodities",
+                "NZDUSD" or "AUDUSD" or "EURUSD" => "FX & Rates",
+                _ => "Core Equities"
+            };
+
+            var attributions = new List<MacroCorrelationStory>();
+            foreach (var h in headlines.Take(10))
+            {
+                if (string.IsNullOrWhiteSpace(h)) continue;
+                var lower = h.ToLowerInvariant();
+                var isMatch = lower.Contains(item.Topic.ToLowerInvariant()) ||
+                              lower.Contains(symbol.ToLowerInvariant()) ||
+                              (sector == "NZ Equities" && (lower.Contains("nzx") || lower.Contains("rbnz") || lower.Contains("economy"))) ||
+                              (sector == "Global Tech" && (lower.Contains("tech") || lower.Contains("ai") || lower.Contains("cloud"))) ||
+                              (sector == "Commodities" && (lower.Contains("oil") || lower.Contains("energy") || lower.Contains("gold"))) ||
+                              (sector == "FX & Rates" && (lower.Contains("dollar") || lower.Contains("rates") || lower.Contains("inflation")));
+
+                if (isMatch)
+                {
+                    var impact = change > 0 ? "bullish" : (change < 0 ? "headwind" : "neutral");
+                    attributions.Add(new MacroCorrelationStory(h, "", "Signal Wire", impact));
+                    if (attributions.Count >= 2) break;
+                }
+            }
+
+            var tone = change > 0.5m ? "bullish" : (change < -0.5m ? "bearish" : "neutral");
+            assets.Add(new MarketSentimentAsset(
+                symbol,
+                item.Topic,
+                sector,
+                price,
+                change,
+                tone,
+                attributions.ToArray()));
+        }
+
+        var upCount = assets.Count(a => a.ChangePercent > 0);
+        var downCount = assets.Count(a => a.ChangePercent < 0);
+        var macroHeadline = upCount > downCount
+            ? "Risk-on sentiment led by strength across benchmark growth and equities."
+            : (downCount > upCount ? "Defensive rotation with cautious positioning across risk assets." : "Mixed cross-asset consolidation with balanced sector flows.");
+
+        return Ok(new MarketSentimentMatrixResponse(
+            marketData.IsConfigured,
+            assets.ToArray(),
+            macroHeadline));
+    }
 }

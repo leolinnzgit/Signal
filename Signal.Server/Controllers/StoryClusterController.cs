@@ -47,11 +47,106 @@ public sealed class StoryClusterController(
         string Topic,
         TimelineMilestone[] Milestones);
 
+    public sealed record DossierPerspective(
+        string Publisher,
+        string PrimaryFocus,
+        string FramingTone);
+
+    public sealed record DossierRiskItem(
+        string Category,
+        string Description,
+        string Severity);
+
+    public sealed record ClusterDossierRequest(
+        string? Topic,
+        ClusterArticleInput[]? Articles,
+        string? Language = "en");
+
+    public sealed record ClusterDossierResponse(
+        bool Available,
+        string Topic,
+        string ExecutiveSummary,
+        DossierPerspective[] Perspectives,
+        DossierRiskItem[] Risks,
+        TimelineMilestone[] Milestones,
+        string[] CitedSources);
+
     private sealed record NormalizedClusterArticle(
         string Url,
         string Title,
         string Source,
         string Summary);
+
+    [HttpPost("dossier")]
+    [RequestSizeLimit(65_536)]
+    public IActionResult Dossier(
+        [FromBody] ClusterDossierRequest? request)
+    {
+        var topic = (request?.Topic ?? "").Trim();
+        var articles = NormalizeArticles(request?.Articles);
+        if (articles.Length == 0 && string.IsNullOrWhiteSpace(topic))
+        {
+            return BadRequest(new { error = "At least one article or topic is required to build a dossier." });
+        }
+
+        var displayTopic = string.IsNullOrWhiteSpace(topic)
+            ? (articles.Length > 0 ? articles[0].Title : "Executive Intelligence Dossier")
+            : topic;
+
+        var leadSource = articles.Length > 0 ? articles[0].Source : "Signal Research Desk";
+        var leadTitle = articles.Length > 0 ? articles[0].Title : displayTopic;
+
+        // 1. Executive Summary Synthesis
+        var execSummary = articles.Length switch
+        {
+            0 => $"Cross-sector intelligence assessment examining current developments, regulatory impacts, and strategic positioning surrounding {displayTopic}.",
+            1 => $"Single-publisher intelligence analysis based on reporting by {leadSource}. {articles[0].Summary}",
+            _ => $"Unified multi-publisher intelligence dossier synthesizing reports across {articles.Length} independent news organizations ({string.Join(", ", articles.Select(a => a.Source).Distinct())}). " +
+                 $"The core catalyst centers on {leadTitle}, with secondary focus on operational execution, market ramifications, and compliance benchmarks."
+        };
+
+        // 2. Multi-Publisher Perspectives
+        var perspectives = articles.Select((art, idx) =>
+        {
+            var tone = idx == 0 ? "Direct Catalyst Reporting" : (idx % 2 == 1 ? "Impact & Scrutiny" : "Industry & Market Reaction");
+            var focus = string.IsNullOrWhiteSpace(art.Summary) ? art.Title : art.Summary;
+            if (focus.Length > 160) focus = focus[..157] + "...";
+            return new DossierPerspective(art.Source, focus, tone);
+        }).ToArray();
+
+        // 3. Strategic & Downstream Risk Matrix
+        var risks = new List<DossierRiskItem>
+        {
+            new("Regulatory & Compliance", $"Potential statutory reviews, disclosure mandates, or policy shifts stemming from {displayTopic}.", "Elevated"),
+            new("Operational Execution", "Downstream integration bottlenecks, resource constraints, and timeline slippage.", "Moderate"),
+            new("Market & Sentiment", "Volatility in valuation multiples, peer repositioning, and customer response.", "Medium")
+        };
+
+        // 4. Timeline Milestones
+        var milestones = new List<TimelineMilestone>
+        {
+            new("Past Context", "Preceding Cycle", $"Historical Precedent: {displayTopic}",
+                "Foundational events, regulatory reviews, and multi-year positioning that created today's conditions.",
+                leadSource, articles.Length > 0 ? articles[0].Url : null),
+            new("Today's Catalyst", "Breaking Nexus", leadTitle,
+                articles.Length > 0 && !string.IsNullOrWhiteSpace(articles[0].Summary) ? articles[0].Summary : "Verified reporting marking a major policy or market inflection point.",
+                leadSource, articles.Length > 0 ? articles[0].Url : null),
+            new("Forward Milestone", "Next 30-90 Days", "Projected Regulatory & Capital Horizon",
+                "Key watch items: formal compliance filings, cross-sector peer disclosures, and secondary implementation deadlines.",
+                "Signal Desk", null)
+        };
+
+        var citedSources = articles.Select(a => $"{a.Source}: \"{a.Title}\" ({a.Url})").ToArray();
+
+        return Ok(new ClusterDossierResponse(
+            true,
+            displayTopic,
+            execSummary,
+            perspectives,
+            risks.ToArray(),
+            milestones.ToArray(),
+            citedSources));
+    }
 
     [HttpPost("timeline")]
     [RequestSizeLimit(32_768)]

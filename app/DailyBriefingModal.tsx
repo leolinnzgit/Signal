@@ -70,6 +70,10 @@ import { fetchBriefingDeepDive, type DeepDiveEpisode } from "./daily-briefing-de
 import { useReadingVoices } from "./ReadingVoiceSelector";
 import StoryTimelineScrubber from "./StoryTimelineScrubber";
 import { fetchStoryTimeline, type TimelineMilestone } from "./daily-briefing-timeline";
+import BedsideClockRadioModal from "./BedsideClockRadioModal";
+import MarketSentimentHeatmap from "./MarketSentimentHeatmap";
+import AudiogramSnippetModal from "./AudiogramSnippetModal";
+import ExecutiveDossierModal from "./ExecutiveDossierModal";
 import "./daily-briefing.css";
 
 function getWeatherIcon(code: number): string {
@@ -268,6 +272,12 @@ export default function DailyBriefingModal({
   const [timelineMilestones, setTimelineMilestones] = useState<TimelineMilestone[] | null>(null);
   const [timelineLoading, setTimelineLoading] = useState(false);
   const [timelineVisible, setTimelineVisible] = useState(false);
+
+  // 4 New Features: Bedside Clock Radio, Market Heatmap, Audiogram Clipper, Executive Dossier
+  const [clockRadioOpen, setClockRadioOpen] = useState(false);
+  const [marketHeatmapOpen, setMarketHeatmapOpen] = useState(false);
+  const [audiogramTarget, setAudiogramTarget] = useState<{ title: string; excerpt?: string; source: string; url?: string } | null>(null);
+  const [dossierOpen, setDossierOpen] = useState(false);
   const [isOnline, setIsOnline] = useState<boolean>(() =>
     typeof navigator !== "undefined" ? navigator.onLine : true,
   );
@@ -1313,6 +1323,33 @@ export default function DailyBriefingModal({
             >
               {timelineLoading ? "⏳ Timeline..." : "⏱️ Story Timeline"}
             </button>
+
+            <button
+              type="button"
+              className="briefing-toolbar-btn clock-radio-trigger-btn"
+              onClick={() => setClockRadioOpen(true)}
+              title="Open ambient Bedside Clock Radio & Wake-Up alarm mode"
+            >
+              ⏰ Clock Radio
+            </button>
+
+            <button
+              type="button"
+              className="briefing-toolbar-btn heatmap-trigger-btn"
+              onClick={() => setMarketHeatmapOpen(true)}
+              title="Open interactive Market Sentiment & Macro Correlation Heatmap"
+            >
+              📊 Market Heatmap
+            </button>
+
+            <button
+              type="button"
+              className="briefing-toolbar-btn dossier-trigger-btn"
+              onClick={() => setDossierOpen(true)}
+              title="Compile multi-story executive intelligence dossier across today's lead stories"
+            >
+              📁 Lead Dossier
+            </button>
           </div>
 
           {(shareFeedback || hostedShareUrl || memoEmailFeedback) && (
@@ -2071,6 +2108,19 @@ export default function DailyBriefingModal({
                           🔊 Listen
                         </button>
                       )}
+                      <button
+                        type="button"
+                        className="briefing-story-action-btn secondary"
+                        onClick={() => setAudiogramTarget({
+                          title: story.title,
+                          excerpt: story.summary,
+                          source: story.source,
+                          url: story.url,
+                        })}
+                        title="Generate social soundbite audiogram & branded quote card"
+                      >
+                        🎙️ Soundbite
+                      </button>
                     </div>
                   </article>
                 );
@@ -2129,6 +2179,60 @@ export default function DailyBriefingModal({
             episode={deepDiveEpisode}
             onClose={() => setDeepDiveOpen(false)}
             targetLanguage={briefingLanguage}
+          />
+        )}
+
+        {clockRadioOpen && (
+          <BedsideClockRadioModal
+            isOpen={clockRadioOpen}
+            onClose={() => setClockRadioOpen(false)}
+            weather={briefing.weatherGlance}
+            alarmTime={schedule.time}
+            onTriggerBriefing={() => void playBriefingFromChapter(0)}
+            briefingTitle={`Signal ${briefing.edition} Briefing`}
+          />
+        )}
+
+        {marketHeatmapOpen && (
+          <MarketSentimentHeatmap
+            isOpen={marketHeatmapOpen}
+            onClose={() => setMarketHeatmapOpen(false)}
+            watchlistItems={marketWatchlist.map((w) => ({ topic: w.symbol, symbol: w.symbol }))}
+            headlines={briefing.leadStories.map((s) => s.title)}
+            onOpenArticleUrl={(url) => {
+              const matched = articles.find((a) => a.url === url);
+              if (matched && onOpenArticle) {
+                setMarketHeatmapOpen(false);
+                onClose();
+                onOpenArticle(matched);
+              }
+            }}
+          />
+        )}
+
+        {audiogramTarget && (
+          <AudiogramSnippetModal
+            isOpen={audiogramTarget !== null}
+            onClose={() => setAudiogramTarget(null)}
+            title={audiogramTarget.title}
+            excerpt={audiogramTarget.excerpt}
+            source={audiogramTarget.source}
+            url={audiogramTarget.url}
+            preferredVoice={activeAzureVoice}
+          />
+        )}
+
+        {dossierOpen && (
+          <ExecutiveDossierModal
+            isOpen={dossierOpen}
+            onClose={() => setDossierOpen(false)}
+            topic={briefing.leadStories[0]?.priorityTopic || "Lead Story Intelligence"}
+            articles={briefing.leadStories.map((s) => ({
+              url: s.url,
+              title: s.title,
+              source: s.source,
+              summary: s.summary,
+            }))}
           />
         )}
       </div>

@@ -79,6 +79,18 @@ internal static class DailyBriefingBackendChecks
             "Second highest magnitude mover (AVGO -2.80%) must rank second.");
         Assert(payload.Quotes[2].Symbol == "SPY" && payload.Quotes[3].Symbol == "AAPL",
             "Remaining quotes must stay ordered by |PercentChange| descending.");
+
+        // 3. Matrix synthesis resolves sector grouping and macro sentiment
+        var matrixOk = await configuredController.GetSentimentMatrix(
+            new MarketController.MarketSentimentMatrixRequest(
+                [new("Apple", "AAPL"), new("NVIDIA", "NVDA")],
+                ["Apple launches new M5 chip with advanced AI features", "Tech sector rallies on earnings beat"]),
+            CancellationToken.None) as OkObjectResult;
+        var matrixData = matrixOk?.Value as MarketController.MarketSentimentMatrixResponse;
+        Assert(matrixData is { Configured: true, Assets.Length: 2 },
+            "Sentiment matrix should return populated assets.");
+        Assert(matrixData!.Assets.Any(a => a.Sector == "Global Tech"),
+            "Assets should be classified by sector.");
     }
 
     private static async Task RunMultilingualSpeechVoiceChecksAsync()

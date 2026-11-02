@@ -43,6 +43,10 @@ import RelatedStoriesModal from "./RelatedStoriesModal";
 import EntityPulseModal from "./EntityPulseModal";
 import CompareCoverageModal from "./CompareCoverageModal";
 import ArticleInterrogationModal from "./ArticleInterrogationModal";
+import BedsideClockRadioModal from "./BedsideClockRadioModal";
+import MarketSentimentHeatmap from "./MarketSentimentHeatmap";
+import AudiogramSnippetModal from "./AudiogramSnippetModal";
+import ExecutiveDossierModal from "./ExecutiveDossierModal";
 import {
   fetchKeywordRules,
   isArticleMuted,
@@ -912,6 +916,11 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [friendShareArticle, setFriendShareArticle] = useState<FollowedArticle | null>(null);
   const [keywordRules, setKeywordRules] = useState<KeywordRules>(() => loadLocalKeywordRules());
   const [interrogateArticle, setInterrogateArticle] = useState<(FollowedArticle & { paragraphs?: string[] }) | null>(null);
+  const [clockRadioOpen, setClockRadioOpen] = useState(false);
+  const [marketHeatmapOpen, setMarketHeatmapOpen] = useState(false);
+  const [audiogramTarget, setAudiogramTarget] = useState<{ title: string; excerpt?: string; source: string; url?: string } | null>(null);
+  const [stagedDossierArticles, setStagedDossierArticles] = useState<FollowedArticle[]>([]);
+  const [dossierOpen, setDossierOpen] = useState(false);
 
   useEffect(() => {
     void fetchKeywordRules().then((rules) => {
@@ -3893,6 +3902,24 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
             {wakeUpBannerReady && <span className="daily-briefing-ready-dot" aria-hidden="true" />}
             🗞️ Daily Briefing
           </button>
+          <button
+            type="button"
+            className="clock-radio-header-trigger"
+            onClick={() => setClockRadioOpen(true)}
+            title="Open Bedside Clock Radio & Wake-up Alarm"
+            aria-label="Open Bedside Clock Radio"
+          >
+            ⏰
+          </button>
+          <button
+            type="button"
+            className="market-heatmap-header-trigger"
+            onClick={() => setMarketHeatmapOpen(true)}
+            title="Open Market Sentiment & Macro Correlation Heatmap"
+            aria-label="Open Market Sentiment Heatmap"
+          >
+            📊
+          </button>
           <div className="live-status"><span className="pulse" aria-hidden="true" />Live web briefing</div>
           {!appInstalled && (
             <button
@@ -5384,6 +5411,34 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                   >
                     ⚖️
                   </button>
+                  <button
+                    type="button"
+                    className="audiogram-story-button"
+                    onClick={() => setAudiogramTarget({
+                      title: article.title,
+                      excerpt: article.summary,
+                      source: article.source,
+                      url: article.url,
+                    })}
+                    aria-label={`Clip soundbite audiogram for ${article.title}`}
+                    title="Clip Social Soundbite & Audiogram"
+                  >
+                    🎙️
+                  </button>
+                  <button
+                    type="button"
+                    className={`dossier-stage-button ${stagedDossierArticles.some((a) => a.url === article.url) ? "is-staged" : ""}`}
+                    onClick={() => {
+                      setStagedDossierArticles((prev) => {
+                        const exists = prev.some((a) => a.url === article.url);
+                        return exists ? prev.filter((a) => a.url !== article.url) : [...prev, article];
+                      });
+                    }}
+                    aria-label={`Toggle staging ${article.title} for executive dossier`}
+                    title={stagedDossierArticles.some((a) => a.url === article.url) ? "Remove from Executive Dossier" : "Add to Executive Dossier Binder"}
+                  >
+                    📁
+                  </button>
                   {onOpenDiscussion && (
                     <button
                       type="button"
@@ -5803,6 +5858,19 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                     title="Socratic Fact-Check & Interrogation"
                   >
                     ⚖️ Interrogate
+                  </button>
+                  <button
+                    type="button"
+                    className="article-reader-share"
+                    onClick={() => setAudiogramTarget({
+                      title: readerArticle.title,
+                      excerpt: readerArticle.summary,
+                      source: readerArticle.source,
+                      url: readerArticle.url,
+                    })}
+                    title="Clip Social Soundbite & Audiogram"
+                  >
+                    🎙️ Soundbite
                   </button>
                   <a href={readerOriginalUrl} target="_blank" rel="noreferrer">
                     Open original <span aria-hidden="true">&#8599;</span>
@@ -6315,6 +6383,88 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
             paragraphs: interrogateArticle.paragraphs || (interrogateArticle.summary ? [interrogateArticle.summary] : undefined),
           }}
           onClose={() => setInterrogateArticle(null)}
+        />
+      )}
+
+      {stagedDossierArticles.length > 0 && (
+        <aside className="dossier-floating-dock" role="region" aria-label="Staged Dossier Articles">
+          <div className="dock-info">
+            <span className="dock-count">📁 {stagedDossierArticles.length} {stagedDossierArticles.length === 1 ? "Story" : "Stories"} Staged</span>
+            <span className="dock-hint">Ready to build intelligence binder</span>
+          </div>
+          <div className="dock-actions">
+            <button
+              type="button"
+              className="dock-build-btn"
+              onClick={() => setDossierOpen(true)}
+            >
+              Compile Dossier &rarr;
+            </button>
+            <button
+              type="button"
+              className="dock-clear-btn"
+              onClick={() => setStagedDossierArticles([])}
+              title="Clear staged articles"
+              aria-label="Clear staged articles"
+            >
+              ✕
+            </button>
+          </div>
+        </aside>
+      )}
+
+      {clockRadioOpen && (
+        <BedsideClockRadioModal
+          isOpen={clockRadioOpen}
+          onClose={() => setClockRadioOpen(false)}
+          weather={weatherStatus === "ready" ? localWeather : null}
+          alarmTime={briefingSchedule.time}
+          onTriggerBriefing={() => {
+            setDailyBriefingMinimized(false);
+            setDailyBriefingOpen(true);
+            setDailyBriefingAutoPlay(true);
+          }}
+        />
+      )}
+
+      {marketHeatmapOpen && (
+        <MarketSentimentHeatmap
+          isOpen={marketHeatmapOpen}
+          onClose={() => setMarketHeatmapOpen(false)}
+          watchlistItems={marketWatchlist.map((w) => ({ topic: w.symbol, symbol: w.symbol }))}
+          headlines={articles.slice(0, 10).map((a) => a.title)}
+          onOpenArticleUrl={(url) => {
+            const matched = articles.find((a) => a.url === url);
+            if (matched) {
+              setMarketHeatmapOpen(false);
+              openArticleReader(matched, document.body);
+            }
+          }}
+        />
+      )}
+
+      {audiogramTarget && (
+        <AudiogramSnippetModal
+          isOpen={audiogramTarget !== null}
+          onClose={() => setAudiogramTarget(null)}
+          title={audiogramTarget.title}
+          excerpt={audiogramTarget.excerpt}
+          source={audiogramTarget.source}
+          url={audiogramTarget.url}
+        />
+      )}
+
+      {dossierOpen && stagedDossierArticles.length > 0 && (
+        <ExecutiveDossierModal
+          isOpen={dossierOpen}
+          onClose={() => setDossierOpen(false)}
+          topic={stagedDossierArticles[0]?.topics?.[0] || "Executive Intelligence Dossier"}
+          articles={stagedDossierArticles.map((a) => ({
+            url: a.url,
+            title: a.title,
+            source: a.source,
+            summary: a.summary,
+          }))}
         />
       )}
       <footer><p><span className="footer-dot" /> SIGNAL gathers public reporting and sends you to the original publisher.</p></footer>
