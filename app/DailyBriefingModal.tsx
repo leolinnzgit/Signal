@@ -81,6 +81,10 @@ import MeetingPrepModal from "./MeetingPrepModal";
 import ScenarioSimulatorModal from "./ScenarioSimulatorModal";
 import QuoteExtractorModal from "./QuoteExtractorModal";
 import QuietHoursModal from "./QuietHoursModal";
+import CompetitorRadarModal from "./CompetitorRadarModal";
+import CrisisWarRoomModal from "./CrisisWarRoomModal";
+import RegulatoryRadarModal from "./RegulatoryRadarModal";
+import ClaimsArbiterModal from "./ClaimsArbiterModal";
 import "./daily-briefing.css";
 
 function getWeatherIcon(code: number): string {
@@ -292,6 +296,10 @@ export default function DailyBriefingModal({
   const [scenarioSimOpen, setScenarioSimOpen] = useState(false);
   const [quoteExtractorOpen, setQuoteExtractorOpen] = useState(false);
   const [quietHoursOpen, setQuietHoursOpen] = useState(false);
+  const [competitorRadarOpen, setCompetitorRadarOpen] = useState(false);
+  const [crisisWarRoomOpen, setCrisisWarRoomOpen] = useState(false);
+  const [regulatoryRadarOpen, setRegulatoryRadarOpen] = useState(false);
+  const [claimsArbiterOpen, setClaimsArbiterOpen] = useState(false);
   const [isOnline, setIsOnline] = useState<boolean>(() =>
     typeof navigator !== "undefined" ? navigator.onLine : true,
   );
@@ -1427,6 +1435,42 @@ export default function DailyBriefingModal({
             >
               🌙 Quiet Hours
             </button>
+
+            <button
+              type="button"
+              className="briefing-toolbar-btn competitor-radar-trigger-btn"
+              onClick={() => setCompetitorRadarOpen(true)}
+              title="Open competitive intelligence radar & M&A deal tracker"
+            >
+              🎯 Competitor Radar
+            </button>
+
+            <button
+              type="button"
+              className="briefing-toolbar-btn crisis-war-room-trigger-btn"
+              onClick={() => setCrisisWarRoomOpen(true)}
+              title="Activate crisis war room & incident command HUD"
+            >
+              🚨 Crisis War Room
+            </button>
+
+            <button
+              type="button"
+              className="briefing-toolbar-btn regulatory-radar-trigger-btn"
+              onClick={() => setRegulatoryRadarOpen(true)}
+              title="Scan regulatory horizon & legislative compliance radar"
+            >
+              📜 Regulatory Radar
+            </button>
+
+            <button
+              type="button"
+              className="briefing-toolbar-btn claims-arbiter-trigger-btn"
+              onClick={() => setClaimsArbiterOpen(true)}
+              title="Open contradiction arbiter & multi-source fact verifier"
+            >
+              ⚖️ Claims Arbiter
+            </button>
           </div>
 
           {(shareFeedback || hostedShareUrl || memoEmailFeedback) && (
@@ -2406,6 +2450,47 @@ export default function DailyBriefingModal({
           <QuietHoursModal
             isOpen={quietHoursOpen}
             onClose={() => setQuietHoursOpen(false)}
+          />
+        )}
+
+        {competitorRadarOpen && (
+          <CompetitorRadarModal
+            isOpen={competitorRadarOpen}
+            onClose={() => setCompetitorRadarOpen(false)}
+            initialPeerGroup="Dairy & Agri-Export"
+            articles={briefing.leadStories}
+            preferredVoice={activeAzureVoice}
+          />
+        )}
+
+        {crisisWarRoomOpen && (
+          <CrisisWarRoomModal
+            isOpen={crisisWarRoomOpen}
+            onClose={() => setCrisisWarRoomOpen(false)}
+            initialIncidentTitle="Critical Supply Chain & Operational Disruption"
+            affectedEntity={briefing.leadStories[0]?.priorityTopic || "Primary Regional Operations"}
+            articles={briefing.leadStories}
+            preferredVoice={activeAzureVoice}
+          />
+        )}
+
+        {regulatoryRadarOpen && (
+          <RegulatoryRadarModal
+            isOpen={regulatoryRadarOpen}
+            onClose={() => setRegulatoryRadarOpen(false)}
+            initialSector="All NZ/APAC Sectors"
+            articles={briefing.leadStories}
+            preferredVoice={activeAzureVoice}
+          />
+        )}
+
+        {claimsArbiterOpen && (
+          <ClaimsArbiterModal
+            isOpen={claimsArbiterOpen}
+            onClose={() => setClaimsArbiterOpen(false)}
+            initialTopic={briefing.leadStories[0]?.title || "Reserve Bank Monetary Policy & Dairy Payout Forecasts"}
+            articles={briefing.leadStories}
+            preferredVoice={activeAzureVoice}
           />
         )}
       </div>

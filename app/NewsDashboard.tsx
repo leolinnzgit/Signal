@@ -54,6 +54,10 @@ import MeetingPrepModal from "./MeetingPrepModal";
 import ScenarioSimulatorModal from "./ScenarioSimulatorModal";
 import QuoteExtractorModal from "./QuoteExtractorModal";
 import QuietHoursModal from "./QuietHoursModal";
+import CompetitorRadarModal from "./CompetitorRadarModal";
+import CrisisWarRoomModal from "./CrisisWarRoomModal";
+import RegulatoryRadarModal from "./RegulatoryRadarModal";
+import ClaimsArbiterModal from "./ClaimsArbiterModal";
 import {
   fetchKeywordRules,
   isArticleMuted,
@@ -935,6 +939,10 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [scenarioSimOpen, setScenarioSimOpen] = useState(false);
   const [quoteExtractorOpen, setQuoteExtractorOpen] = useState(false);
   const [quietHoursOpen, setQuietHoursOpen] = useState(false);
+  const [competitorRadarOpen, setCompetitorRadarOpen] = useState(false);
+  const [crisisWarRoomOpen, setCrisisWarRoomOpen] = useState(false);
+  const [regulatoryRadarOpen, setRegulatoryRadarOpen] = useState(false);
+  const [claimsArbiterOpen, setClaimsArbiterOpen] = useState(false);
 
   useEffect(() => {
     void fetchKeywordRules().then((rules) => {
@@ -4024,6 +4032,42 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           >
             🌙
           </button>
+          <button
+            type="button"
+            className="competitor-radar-header-trigger"
+            onClick={() => setCompetitorRadarOpen(true)}
+            title="Competitive Intelligence Radar & M&A Tracker"
+            aria-label="Open Competitor Radar"
+          >
+            🎯
+          </button>
+          <button
+            type="button"
+            className="crisis-war-room-header-trigger"
+            onClick={() => setCrisisWarRoomOpen(true)}
+            title="Crisis War Room & Incident Command HUD"
+            aria-label="Open Crisis War Room"
+          >
+            🚨
+          </button>
+          <button
+            type="button"
+            className="regulatory-radar-header-trigger"
+            onClick={() => setRegulatoryRadarOpen(true)}
+            title="Regulatory Horizon & Policy Compliance Radar"
+            aria-label="Open Regulatory Radar"
+          >
+            📜
+          </button>
+          <button
+            type="button"
+            className="claims-arbiter-header-trigger"
+            onClick={() => setClaimsArbiterOpen(true)}
+            title="Contradiction Arbiter & Multi-Source Fact Verifier"
+            aria-label="Open Claims Arbiter"
+          >
+            ⚖️
+          </button>
           <div className="live-status"><span className="pulse" aria-hidden="true" />Live web briefing</div>
           {!appInstalled && (
             <button
@@ -6679,6 +6723,43 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         <QuietHoursModal
           isOpen={quietHoursOpen}
           onClose={() => setQuietHoursOpen(false)}
+        />
+      )}
+
+      {competitorRadarOpen && (
+        <CompetitorRadarModal
+          isOpen={competitorRadarOpen}
+          onClose={() => setCompetitorRadarOpen(false)}
+          initialPeerGroup="Dairy & Agri-Export"
+          articles={articles}
+        />
+      )}
+
+      {crisisWarRoomOpen && (
+        <CrisisWarRoomModal
+          isOpen={crisisWarRoomOpen}
+          onClose={() => setCrisisWarRoomOpen(false)}
+          initialIncidentTitle="Critical Supply Chain & Operational Disruption"
+          affectedEntity={articles[0]?.topics?.[0] || "Primary Regional Operations"}
+          articles={articles}
+        />
+      )}
+
+      {regulatoryRadarOpen && (
+        <RegulatoryRadarModal
+          isOpen={regulatoryRadarOpen}
+          onClose={() => setRegulatoryRadarOpen(false)}
+          initialSector="All NZ/APAC Sectors"
+          articles={articles}
+        />
+      )}
+
+      {claimsArbiterOpen && (
+        <ClaimsArbiterModal
+          isOpen={claimsArbiterOpen}
+          onClose={() => setClaimsArbiterOpen(false)}
+          initialTopic={articles[0]?.title || "Reserve Bank Monetary Policy & Dairy Payout Forecasts"}
+          articles={articles}
         />
       )}
       <footer><p><span className="footer-dot" /> SIGNAL gathers public reporting and sends you to the original publisher.</p></footer>

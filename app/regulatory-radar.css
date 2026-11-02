@@ -1,0 +1,205 @@
+.regulatory-radar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 15, 25, 0.78);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 1rem;
+}
+
+.regulatory-radar-modal {
+  background: #0d1527;
+  color: #f8fafc;
+  border: 1px solid rgba(168, 85, 247, 0.25);
+  border-radius: 1rem;
+  max-width: 840px;
+  width: 100%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+  overflow: hidden;
+}
+
+.regulatory-radar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(30, 41, 59, 0.6);
+}
+
+.regulatory-radar-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin: 0;
+  color: #c084fc;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.regulatory-radar-close-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 1.5rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.375rem;
+}
+
+.regulatory-radar-close-btn:hover {
+  color: #f8fafc;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.regulatory-radar-body {
+  padding: 1.5rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.regulatory-radar-audio-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.15), rgba(30, 41, 59, 0.6));
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  padding: 0.85rem 1.25rem;
+  border-radius: 0.75rem;
+  gap: 1rem;
+}
+
+.regulatory-radar-audio-info {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #e9d5ff;
+}
+
+.regulatory-radar-audio-btn {
+  background: #9333ea;
+  color: #fff;
+  border: none;
+  border-radius: 0.5rem;
+  padding: 0.5rem 1.1rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  white-space: nowrap;
+}
+
+.regulatory-radar-audio-btn:hover {
+  background: #7e22ce;
+}
+
+.regulatory-radar-section-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #c084fc;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.regulatory-bill-card {
+  background: rgba(30, 41, 59, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.regulatory-bill-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.regulatory-bill-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.regulatory-bill-stage {
+  background: rgba(168, 85, 247, 0.2);
+  color: #d8b4fe;
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  padding: 0.2rem 0.5rem;
+  border-radius: 0.375rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.regulatory-checklist-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.regulatory-priority-badge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.2rem 0.5rem;
+  border-radius: 0.25rem;
+}
+
+.regulatory-priority-badge.urgent {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+.regulatory-priority-badge.medium {
+  background: rgba(234, 179, 8, 0.2);
+  color: #fde047;
+}
+
+.regulatory-priority-badge.monitoring {
+  background: rgba(56, 189, 248, 0.2);
+  color: #38bdf8;
+}
+
+.regulatory-radar-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(30, 41, 59, 0.6);
+}
+
+.regulatory-radar-copy-btn {
+  background: rgba(168, 85, 247, 0.2);
+  color: #e9d5ff;
+  border: 1px solid rgba(168, 85, 247, 0.4);
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.regulatory-radar-copy-btn:hover {
+  background: rgba(168, 85, 247, 0.35);
+  color: #fff;
+}
