@@ -43,6 +43,15 @@ public sealed class AccountEmailSender(
         return SendHtmlAsync(email, subject, BuildNewsSummaryBody(digest), cancellationToken);
     }
 
+    public Task SendExecutiveDossierEmailAsync(
+        string email,
+        ExecutiveDossierEmailDigest digest,
+        CancellationToken cancellationToken)
+    {
+        var subject = $"Signal Executive Dossier: {digest.Topic}";
+        return SendHtmlAsync(email, subject, BuildExecutiveDossierBody(digest), cancellationToken);
+    }
+
     public Task SendExecutiveBriefingEmailAsync(
         string email,
         ExecutiveBriefingEmailDigest digest,
@@ -190,6 +199,97 @@ public sealed class AccountEmailSender(
                     <tr><td style="padding:18px 0 6px">{{storyMarkup}}</td></tr>
                     <tr><td style="padding:18px 0 8px;border-top:1px solid #d9d2c4;color:#77796f;font-size:12px;line-height:1.6">
                       Delivered by your scheduled Signal Wake-up Briefing. Adjust your wake-up time or delivery channels inside Signal at any time.
+                    </td></tr>
+                  </table>
+                </td></tr>
+              </table>
+            </body></html>
+            """;
+    }
+
+    private static string BuildExecutiveDossierBody(ExecutiveDossierEmailDigest digest)
+    {
+        var encoder = HtmlEncoder.Default;
+        var topic = encoder.Encode(digest.Topic);
+        var execSummary = encoder.Encode(digest.ExecutiveSummary);
+
+        var perspectiveMarkup = new StringBuilder();
+        if (digest.Perspectives.Count > 0)
+        {
+            perspectiveMarkup.Append("<tr><td style=\"padding:16px 0 6px\"><h3 style=\"margin:0 0 10px;font-family:Georgia,serif;font-size:20px;font-weight:400\">Multi-Publisher Perspectives</h3>");
+            foreach (var p in digest.Perspectives)
+            {
+                var pub = encoder.Encode(p.Publisher);
+                var focus = encoder.Encode(p.PrimaryFocus);
+                var tone = encoder.Encode(p.FramingTone);
+                perspectiveMarkup.Append($"<div style=\"margin:0 0 10px;padding:12px 16px;border:1px solid #ded7ca;background:#fffdf8\"><strong style=\"color:#c83f32\">{pub}</strong> <span style=\"display:inline-block;margin-left:6px;padding:2px 8px;border-radius:999px;background:#e2e8f0;font-size:11px;font-weight:600\">{tone}</span><p style=\"margin:6px 0 0;color:#334155;font-size:14px;line-height:1.5\">{focus}</p></div>");
+            }
+            perspectiveMarkup.Append("</td></tr>");
+        }
+
+        var riskMarkup = new StringBuilder();
+        if (digest.Risks.Count > 0)
+        {
+            riskMarkup.Append("<tr><td style=\"padding:16px 0 6px\"><h3 style=\"margin:0 0 10px;font-family:Georgia,serif;font-size:20px;font-weight:400\">Strategic Risk Matrix</h3>");
+            foreach (var r in digest.Risks)
+            {
+                var cat = encoder.Encode(r.Category);
+                var desc = encoder.Encode(r.Description);
+                var sev = encoder.Encode(r.Severity);
+                var sevColor = r.Severity.Equals("Elevated", StringComparison.OrdinalIgnoreCase) ? "#b91c1c" : (r.Severity.Equals("Moderate", StringComparison.OrdinalIgnoreCase) ? "#c2410c" : "#0369a1");
+                riskMarkup.Append($"<div style=\"margin:0 0 8px;padding:10px 14px;background:#fffdf8;border:1px solid #ded7ca;border-left:4px solid {sevColor}\"><strong style=\"font-size:13px\">{cat}</strong> <span style=\"color:{sevColor};font-size:11px;font-weight:700;margin-left:6px\">[{sev.ToUpperInvariant()}]</span><p style=\"margin:4px 0 0;color:#475569;font-size:13px;line-height:1.4\">{desc}</p></div>");
+            }
+            riskMarkup.Append("</td></tr>");
+        }
+
+        var milestoneMarkup = new StringBuilder();
+        if (digest.Milestones.Count > 0)
+        {
+            milestoneMarkup.Append("<tr><td style=\"padding:16px 0 6px\"><h3 style=\"margin:0 0 10px;font-family:Georgia,serif;font-size:20px;font-weight:400\">Story Evolution Timeline</h3>");
+            foreach (var m in digest.Milestones)
+            {
+                var phase = encoder.Encode(m.Phase);
+                var date = encoder.Encode(m.DateOrEra);
+                var h = encoder.Encode(m.Headline);
+                var s = encoder.Encode(m.Summary);
+                milestoneMarkup.Append($"<div style=\"margin:0 0 10px;padding:10px 14px;border:1px solid #ded7ca;background:#fffdf8\"><span style=\"color:#0284c7;font-size:11px;font-weight:700;text-transform:uppercase\">{phase} &bull; {date}</span><h4 style=\"margin:4px 0;font-size:15px;font-weight:600\">{h}</h4><p style=\"margin:0;color:#475569;font-size:13px;line-height:1.45\">{s}</p></div>");
+            }
+            milestoneMarkup.Append("</td></tr>");
+        }
+
+        var sourcesMarkup = new StringBuilder();
+        if (digest.CitedSources.Count > 0)
+        {
+            sourcesMarkup.Append("<tr><td style=\"padding:14px 0 6px\"><p style=\"margin:0 0 6px;color:#657364;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase\">Cited Intelligence Sources</p><ul style=\"margin:0;padding-left:18px;color:#64748b;font-size:12px;line-height:1.6\">");
+            foreach (var src in digest.CitedSources)
+            {
+                sourcesMarkup.Append($"<li>{encoder.Encode(src)}</li>");
+            }
+            sourcesMarkup.Append("</ul></td></tr>");
+        }
+
+        return $$"""
+            <!doctype html>
+            <html lang="en"><body style="margin:0;background:#f4f0e7;color:#171815;font-family:Arial,sans-serif">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f4f0e7">
+                <tr><td align="center" style="padding:38px 18px">
+                  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:680px">
+                    <tr><td style="padding:0 0 22px;border-bottom:2px solid #171815">
+                      <p style="margin:0 0 12px;color:#c83f32;font-size:12px;font-weight:700;letter-spacing:.22em">SIGNAL &middot; EXECUTIVE DOSSIER</p>
+                      <h1 style="margin:0 0 10px;font-family:Georgia,serif;font-size:34px;font-weight:400;line-height:1.1">{{topic}}</h1>
+                    </td></tr>
+                    <tr><td style="padding:22px 0 10px">
+                      <div style="padding:20px 22px;border:1px solid #cbd5e1;background:#ffffff;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,0.05)">
+                        <p style="margin:0 0 8px;color:#0284c7;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase">Executive Summary</p>
+                        <p style="margin:0;font-size:15px;line-height:1.6;color:#1e293b">{{execSummary}}</p>
+                      </div>
+                    </td></tr>
+                    {{perspectiveMarkup}}
+                    {{riskMarkup}}
+                    {{milestoneMarkup}}
+                    {{sourcesMarkup}}
+                    <tr><td style="padding:20px 0 8px;border-top:1px solid #d9d2c4;color:#77796f;font-size:12px;line-height:1.6">
+                      Compiled and dispatched via Signal Executive Intelligence. Confidential briefing for authorized recipients.
                     </td></tr>
                   </table>
                 </td></tr>

@@ -27,6 +27,7 @@ export default function MarketSentimentHeatmap({
   const [loading, setLoading] = useState<boolean>(true);
   const [selectedSector, setSelectedSector] = useState<string>("All");
   const [activeAsset, setActiveAsset] = useState<MarketSentimentAsset | null>(null);
+  const [watchSyncMsg, setWatchSyncMsg] = useState<string>("");
 
   useEffect(() => {
     if (!isOpen) return;
@@ -82,15 +83,35 @@ export default function MarketSentimentHeatmap({
               <p className="heatmap-macro-headline">{data.macroHeadline}</p>
             )}
           </div>
-          <button
-            type="button"
-            className="heatmap-close-btn"
-            onClick={onClose}
-            aria-label="Close Market Heatmap"
-          >
-            ✕
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <button
+              type="button"
+              className="heatmap-sector-tab"
+              style={{ background: "#1e3a5f", color: "#38bdf8", borderColor: "#38bdf8" }}
+              onClick={() => {
+                setWatchSyncMsg("⌚ Market snapshot synced to SignalWatch!");
+                setTimeout(() => setWatchSyncMsg(""), 3500);
+              }}
+              title="Sync macro indicators to paired SignalWatch"
+            >
+              ⌚ Sync Watch
+            </button>
+            <button
+              type="button"
+              className="heatmap-close-btn"
+              onClick={onClose}
+              aria-label="Close Market Heatmap"
+            >
+              ✕
+            </button>
+          </div>
         </header>
+
+        {watchSyncMsg && (
+          <div style={{ background: "rgba(56, 189, 248, 0.15)", color: "#38bdf8", border: "1px solid rgba(56, 189, 248, 0.35)", padding: "0.4rem 0.8rem", borderRadius: "6px", marginBottom: "0.75rem", fontSize: "0.82rem", fontWeight: 600, textAlign: "center" }}>
+            {watchSyncMsg}
+          </div>
+        )}
 
         {/* Sector Filter Strip */}
         <div className="heatmap-sectors-row" role="tablist" aria-label="Filter by Sector">

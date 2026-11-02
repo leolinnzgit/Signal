@@ -6,6 +6,8 @@ import {
   calculateSnoozeAlarmTime,
   CHIME_FREQUENCIES,
   playHarmonicChime,
+  checkBedsideBriefingAudioCache,
+  prewarmBedsideBriefingAudio,
 } from "../app/bedside-clock.ts";
 
 test("formatClockDisplay formats 24h and 12h times and pads zeros", () => {
@@ -93,4 +95,48 @@ test("playHarmonicChime constructs oscillators and gains for C-major arpeggio", 
   assert.equal(createdOscillators[3].freqSet.freq, 1046.5);
   assert.equal(createdOscillators[0].connectedTo, createdGains[0]);
   assert.equal(createdGains[0].connectedTo, mockCtx.destination);
+});
+
+test("checkBedsideBriefingAudioCache detects cached audio blob in store", async () => {
+  const fakeBlob = new Blob([new Uint8Array(1024)], { type: "audio/wav" });
+  const store = {
+    async get(id) {
+      return fakeBlob;
+    },
+    async put() {},
+    async clear() {},
+  };
+
+  const mockBriefing = {
+    edition: "Morning",
+    formattedDate: "Monday, 2 November 2026",
+    spokenScript: "Executive morning briefing audio.",
+    leadStories: [{ url: "https://example.com/story-1", title: "Story 1", source: "RNZ" }],
+  };
+
+  const res = await checkBedsideBriefingAudioCache(mockBriefing, "en-NZ", store);
+  assert.equal(res.ready, true);
+  assert.equal(res.status, "cached");
+  assert.equal(res.audioBytes, 1024);
+  assert.ok(res.message.includes("Offline audio ready"));
+});
+
+test("checkBedsideBriefingAudioCache reports unready when store is empty", async () => {
+  const emptyStore = {
+    async get() { return null; },
+    async put() {},
+    async clear() {},
+  };
+
+  const mockBriefing = {
+    edition: "Morning",
+    formattedDate: "Monday, 2 November 2026",
+    spokenScript: "Executive morning briefing audio.",
+    leadStories: [],
+  };
+
+  const res = await checkBedsideBriefingAudioCache(mockBriefing, "en-NZ", emptyStore);
+  assert.equal(res.ready, false);
+  assert.equal(res.status, "idle");
+  assert.equal(res.audioBytes, 0);
 });

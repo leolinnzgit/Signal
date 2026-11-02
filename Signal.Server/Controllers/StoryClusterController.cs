@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -13,7 +14,9 @@ namespace Signal.Server.Controllers;
 public sealed class StoryClusterController(
     ArticleReaderService reader,
     AzureLanguageSummaryService summaries,
-    ILogger<StoryClusterController> logger) : ControllerBase
+    ILogger<StoryClusterController> logger,
+    IAccountEmailSender? emailSender = null,
+    IHttpClientFactory? httpClientFactory = null) : ControllerBase
 {
     public sealed record ClusterArticleInput(
         string? Url,
@@ -70,6 +73,18 @@ public sealed class StoryClusterController(
         DossierRiskItem[] Risks,
         TimelineMilestone[] Milestones,
         string[] CitedSources);
+
+    public sealed record ClusterDossierDigestRequest(
+        ClusterDossierResponse? Dossier,
+        string? Destination = "email",
+        string? RecipientEmail = null,
+        string? WebhookUrl = null);
+
+    public sealed record ClusterDossierDigestResponse(
+        bool Success,
+        bool EmailSent,
+        bool WebhookSent,
+        string Message);
 
     private sealed record NormalizedClusterArticle(
         string Url,
@@ -146,6 +161,99 @@ public sealed class StoryClusterController(
             risks.ToArray(),
             milestones.ToArray(),
             citedSources));
+    }
+
+    [HttpPost("dossier/digest")]
+    [RequestSizeLimit(65_536)]
+    public async Task<IActionResult> DispatchDigest(
+        [FromBody] ClusterDossierDigestRequest? request,
+        CancellationToken cancellationToken)
+    {
+        if (request?.Dossier is null || string.IsNullOrWhiteSpace(request.Dossier.Topic))
+        {
+            return BadRequest(new { error = "A compiled executive dossier is required to dispatch a digest." });
+        }
+
+        var destination = (request.Destination ?? "email").Trim().ToLowerInvariant();
+        var emailSent = false;
+        var webhookSent = false;
+        var dossier = request.Dossier;
+
+        if (destination is "email" or "both")
+        {
+            var recipientEmail = request.RecipientEmail?.Trim();
+            if (string.IsNullOrWhiteSpace(recipientEmail))
+            {
+                try { recipientEmail = User?.FindFirstValue(ClaimTypes.Email) ?? User?.Identity?.Name; }
+                catch { recipientEmail = null; }
+            }
+
+            if (!string.IsNullOrWhiteSpace(recipientEmail) && recipientEmail.Contains('@') && emailSender is not null)
+            {
+                var digest = new ExecutiveDossierEmailDigest(
+                    dossier.Topic,
+                    dossier.ExecutiveSummary,
+                    dossier.Perspectives?.Select(p => new DossierPerspectiveDigest(p.Publisher, p.PrimaryFocus, p.FramingTone)).ToArray() ?? [],
+                    dossier.Risks?.Select(r => new DossierRiskDigest(r.Category, r.Description, r.Severity)).ToArray() ?? [],
+                    dossier.Milestones?.Select(m => new DossierMilestoneDigest(m.Phase, m.DateOrEra, m.Headline, m.Summary)).ToArray() ?? [],
+                    dossier.CitedSources ?? []);
+
+                try
+                {
+                    await emailSender.SendExecutiveDossierEmailAsync(recipientEmail, digest, cancellationToken);
+                    emailSent = true;
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Failed delivering executive dossier email to {RecipientEmail}", recipientEmail);
+                }
+            }
+        }
+
+        if (destination is "webhook" or "both")
+        {
+            var webhookUrl = request.WebhookUrl?.Trim();
+            if (!string.IsNullOrWhiteSpace(webhookUrl)
+                && Uri.TryCreate(webhookUrl, UriKind.Absolute, out var uri)
+                && uri.Scheme == Uri.UriSchemeHttps
+                && !uri.IsLoopback
+                && httpClientFactory is not null)
+            {
+                try
+                {
+                    using var client = httpClientFactory.CreateClient("dossier-webhook");
+                    client.Timeout = TimeSpan.FromSeconds(10);
+                    var payload = new
+                    {
+                        source = "Signal Executive Intelligence",
+                        type = "executive.dossier.digest",
+                        topic = dossier.Topic,
+                        executiveSummary = dossier.ExecutiveSummary,
+                        perspectives = dossier.Perspectives,
+                        risks = dossier.Risks,
+                        milestones = dossier.Milestones,
+                        citedSources = dossier.CitedSources,
+                        dispatchedAt = DateTimeOffset.UtcNow
+                    };
+                    using var resp = await client.PostAsJsonAsync(webhookUrl, payload, cancellationToken);
+                    webhookSent = resp.IsSuccessStatusCode;
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Failed dispatching executive dossier webhook to {WebhookUrl}", webhookUrl);
+                }
+            }
+        }
+
+        var message = (emailSent, webhookSent) switch
+        {
+            (true, true) => "Executive dossier delivered via email and secure webhook.",
+            (true, false) => "Executive dossier email briefing dispatched successfully.",
+            (false, true) => "Executive dossier webhook dispatched successfully.",
+            _ => "Executive dossier digest processed (no external dispatch configured or delivered)."
+        };
+
+        return Ok(new ClusterDossierDigestResponse(true, emailSent, webhookSent, message));
     }
 
     [HttpPost("timeline")]

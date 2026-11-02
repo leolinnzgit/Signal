@@ -4,6 +4,8 @@ import React, { useState, useEffect } from "react";
 import {
   compileExecutiveDossier,
   formatDossierMarkdown,
+  syncDossierToWatch,
+  dispatchDossierDigest,
   type ClusterDossierResponse,
   type DossierArticleInput,
 } from "./executive-dossier";
@@ -26,6 +28,12 @@ export default function ExecutiveDossierModal({
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"summary" | "perspectives" | "risks" | "timeline" | "sources">("summary");
   const [copyFeedback, setCopyFeedback] = useState<string>("");
+  const [syncingWatch, setSyncingWatch] = useState(false);
+  const [digestDrawerOpen, setDigestDrawerOpen] = useState(false);
+  const [digestEmail, setDigestEmail] = useState("");
+  const [digestWebhook, setDigestWebhook] = useState("");
+  const [digestDestination, setDigestDestination] = useState<"email" | "webhook" | "both">("email");
+  const [dispatchingDigest, setDispatchingDigest] = useState(false);
 
   useEffect(() => {
     if (!isOpen || articles.length === 0) return;
@@ -60,6 +68,35 @@ export default function ExecutiveDossierModal({
     }
   };
 
+  const handleSyncToWatch = async () => {
+    if (!dossier) return;
+    setSyncingWatch(true);
+    const res = await syncDossierToWatch(dossier);
+    setSyncingWatch(false);
+    if (res.success) {
+      setCopyFeedback(`⌚ Synced "${res.topic}" directly to paired SignalWatch companion!`);
+    } else {
+      setCopyFeedback(res.error || "Failed to sync dossier to watch.");
+    }
+    setTimeout(() => setCopyFeedback(""), 4500);
+  };
+
+  const handleDispatchDigest = async () => {
+    if (!dossier) return;
+    setDispatchingDigest(true);
+    const res = await dispatchDossierDigest(dossier, {
+      destination: digestDestination,
+      recipientEmail: digestEmail.trim() || undefined,
+      webhookUrl: digestWebhook.trim() || undefined,
+    });
+    setDispatchingDigest(false);
+    setCopyFeedback(res.message);
+    if (res.success) {
+      setDigestDrawerOpen(false);
+    }
+    setTimeout(() => setCopyFeedback(""), 5000);
+  };
+
   return (
     <div
       className="executive-dossier-overlay"
@@ -78,6 +115,23 @@ export default function ExecutiveDossierModal({
             <h2 id="dossier-title" className="dossier-title">{dossier?.topic || topic}</h2>
           </div>
           <div className="dossier-actions-top">
+            <button
+              type="button"
+              className="dossier-btn secondary"
+              onClick={() => void handleSyncToWatch()}
+              disabled={syncingWatch || !dossier}
+              title="Sync dossier summary and risks directly to paired SignalWatch"
+            >
+              {syncingWatch ? "⌚ Syncing..." : "⌚ Sync Watch"}
+            </button>
+            <button
+              type="button"
+              className="dossier-btn secondary"
+              onClick={() => setDigestDrawerOpen((prev) => !prev)}
+              title="Dispatch automated HTML email or webhook digest"
+            >
+              📧 Dispatch Digest
+            </button>
             <button
               type="button"
               className="dossier-btn secondary"
@@ -104,6 +158,85 @@ export default function ExecutiveDossierModal({
             </button>
           </div>
         </header>
+
+        {digestDrawerOpen && (
+          <div className="dossier-digest-drawer" role="region" aria-label="Dispatch Executive Digest">
+            <h4 className="dossier-digest-title">Automated Executive Digest Dispatch</h4>
+            <p className="dossier-digest-desc">
+              Transmit this compiled intelligence binder directly to your executive inbox or enterprise webhook channel (Slack / Teams).
+            </p>
+            <div className="dossier-digest-options">
+              <label className="dossier-digest-radio">
+                <input
+                  type="radio"
+                  name="destination"
+                  value="email"
+                  checked={digestDestination === "email"}
+                  onChange={() => setDigestDestination("email")}
+                />
+                <span>Email Briefing</span>
+              </label>
+              <label className="dossier-digest-radio">
+                <input
+                  type="radio"
+                  name="destination"
+                  value="webhook"
+                  checked={digestDestination === "webhook"}
+                  onChange={() => setDigestDestination("webhook")}
+                />
+                <span>Secure Webhook</span>
+              </label>
+              <label className="dossier-digest-radio">
+                <input
+                  type="radio"
+                  name="destination"
+                  value="both"
+                  checked={digestDestination === "both"}
+                  onChange={() => setDigestDestination("both")}
+                />
+                <span>Both Channels</span>
+              </label>
+            </div>
+            <div className="dossier-digest-inputs">
+              {(digestDestination === "email" || digestDestination === "both") && (
+                <input
+                  type="email"
+                  className="dossier-input-field"
+                  placeholder="Recipient Email (leave blank to send to your verified account email)"
+                  value={digestEmail}
+                  onChange={(e) => setDigestEmail(e.target.value)}
+                />
+              )}
+              {(digestDestination === "webhook" || digestDestination === "both") && (
+                <input
+                  type="url"
+                  className="dossier-input-field"
+                  placeholder="https://hooks.slack.com/services/... or Teams webhook URL"
+                  value={digestWebhook}
+                  onChange={(e) => setDigestWebhook(e.target.value)}
+                />
+              )}
+            </div>
+            <div className="dossier-digest-footer">
+              <button
+                type="button"
+                className="dossier-btn secondary"
+                onClick={() => setDigestDrawerOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="dossier-btn secondary"
+                style={{ background: "#0284c7", borderColor: "#38bdf8", color: "#ffffff" }}
+                onClick={() => void handleDispatchDigest()}
+                disabled={dispatchingDigest}
+              >
+                {dispatchingDigest ? "Dispatching..." : "🚀 Send Digest Now"}
+              </button>
+            </div>
+          </div>
+        )}
 
         {copyFeedback && (
           <div className="dossier-feedback" role="status" aria-live="polite">

@@ -13,6 +13,10 @@ public interface IAccountEmailSender
         string email,
         ExecutiveBriefingEmailDigest digest,
         CancellationToken cancellationToken) => Task.CompletedTask;
+    Task SendExecutiveDossierEmailAsync(
+        string email,
+        ExecutiveDossierEmailDigest digest,
+        CancellationToken cancellationToken) => Task.CompletedTask;
 }
 
 public sealed record SharedArticleEmail(
@@ -58,3 +62,27 @@ public sealed record ExecutiveBriefingEmailDigest(
     IReadOnlyList<string> PriorityTopics,
     IReadOnlyList<ExecutiveBriefingEmailMarket> Markets,
     IReadOnlyList<ExecutiveBriefingEmailStory> LeadStories);
+
+public sealed record ExecutiveDossierEmailDigest(
+    string Topic,
+    string ExecutiveSummary,
+    IReadOnlyList<DossierPerspectiveDigest> Perspectives,
+    IReadOnlyList<DossierRiskDigest> Risks,
+    IReadOnlyList<DossierMilestoneDigest> Milestones,
+    IReadOnlyList<string> CitedSources);
+
+public sealed record DossierPerspectiveDigest(
+    string Publisher,
+    string PrimaryFocus,
+    string FramingTone);
+
+public sealed record DossierRiskDigest(
+    string Category,
+    string Description,
+    string Severity);
+
+public sealed record DossierMilestoneDigest(
+    string Phase,
+    string DateOrEra,
+    string Headline,
+    string Summary);

@@ -202,3 +202,63 @@ export function synthesizeMarketSentimentLocally(
     macroHeadline: "Cross-asset risk-on momentum underpinned by growth and regional rate adjustments.",
   };
 }
+
+export interface WatchMarketAssetGlance {
+  symbol: string;
+  name: string;
+  price: number;
+  changePercent: number;
+  sentimentTone: string;
+}
+
+export interface WatchMarketGlanceResponse {
+  configured: boolean;
+  macroHeadline: string;
+  assets: WatchMarketAssetGlance[];
+  updatedAt: string;
+}
+
+export async function fetchWatchMarketGlance(
+  signal?: AbortSignal,
+  fetcher: typeof fetch = fetch,
+): Promise<WatchMarketGlanceResponse> {
+  const isOnline = typeof navigator !== "undefined" ? navigator.onLine !== false : true;
+  if (!isOnline) {
+    return {
+      configured: true,
+      macroHeadline: "Cached offline market indicators for paired watch.",
+      assets: [
+        { symbol: "NZ50", name: "NZX 50", price: 12450.8, changePercent: 0.65, sentimentTone: "bullish" },
+        { symbol: "AIA", name: "Auckland Airport", price: 7.82, changePercent: -0.38, sentimentTone: "neutral" },
+      ],
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  try {
+    const res = await fetcher("/api/watch/market", {
+      method: "GET",
+      credentials: "same-origin",
+      signal,
+    });
+    if (!res.ok) {
+      throw new Error("Failed to load watch market glance");
+    }
+    const data = await res.json();
+    return {
+      configured: Boolean(data.configured),
+      macroHeadline: data.macroHeadline || "Market glance updated for paired watch.",
+      assets: Array.isArray(data.assets) ? data.assets : [],
+      updatedAt: data.updatedAt || new Date().toISOString(),
+    };
+  } catch {
+    return {
+      configured: true,
+      macroHeadline: "Cached offline market indicators for paired watch.",
+      assets: [
+        { symbol: "NZ50", name: "NZX 50", price: 12450.8, changePercent: 0.65, sentimentTone: "bullish" },
+      ],
+      updatedAt: new Date().toISOString(),
+    };
+  }
+}

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   fetchMarketSentimentMatrix,
   synthesizeMarketSentimentLocally,
+  fetchWatchMarketGlance,
 } from "../app/market-sentiment.ts";
 
 test("synthesizeMarketSentimentLocally returns categorized benchmark assets and headlines", () => {
@@ -110,4 +111,27 @@ test("fetchMarketSentimentMatrix falls back to synthesized assets if endpoint fa
   assert.equal(res.configured, true);
   assert.ok(res.assets.length > 0);
   assert.equal(res.assets[0].attributions[0].title, "Fallback headline test");
+});
+
+test("fetchWatchMarketGlance fetches watch market snapshot from endpoint", async () => {
+  const mockFetcher = async (url) => {
+    assert.equal(url, "/api/watch/market");
+    return {
+      ok: true,
+      json: async () => ({
+        configured: true,
+        macroHeadline: "Risk-on sentiment lifts NZX and global indices.",
+        assets: [
+          { symbol: "NZ50", name: "NZX 50", price: 12500, changePercent: 1.1, sentimentTone: "bullish" },
+        ],
+        updatedAt: "2026-11-02T12:00:00Z",
+      }),
+    };
+  };
+
+  const res = await fetchWatchMarketGlance(undefined, mockFetcher);
+  assert.equal(res.configured, true);
+  assert.equal(res.macroHeadline, "Risk-on sentiment lifts NZX and global indices.");
+  assert.equal(res.assets.length, 1);
+  assert.equal(res.assets[0].symbol, "NZ50");
 });

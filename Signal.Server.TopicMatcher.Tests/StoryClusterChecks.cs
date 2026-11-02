@@ -79,6 +79,55 @@ internal static class StoryClusterChecks
         Assert(dossierData!.ExecutiveSummary.Contains("RNZ"), "Executive summary should cite contributing publishers.");
         Assert(dossierData.Perspectives[0].Publisher == "RNZ", "First perspective should be RNZ.");
 
+        // 5. Dossier digest dispatch and watch glance verification
+        var fakeEmailSender = new FakeDossierEmailSender();
+        var digestController = new StoryClusterController(
+            reader,
+            disabledSummaries,
+            NullLogger<StoryClusterController>.Instance,
+            fakeEmailSender,
+            null);
+
+        var badDigest = await digestController.DispatchDigest(null, CancellationToken.None);
+        Assert(badDigest is BadRequestObjectResult, "Null dossier digest request must return 400 BadRequest.");
+
+        var digestRes = await digestController.DispatchDigest(new StoryClusterController.ClusterDossierDigestRequest(
+            dossierData,
+            "email",
+            "executive@example.com",
+            null), CancellationToken.None) as OkObjectResult;
+
+        var digestPayload = digestRes?.Value as StoryClusterController.ClusterDossierDigestResponse;
+        Assert(digestPayload is { Success: true, EmailSent: true }, "Dossier email digest dispatch should report success and EmailSent=true.");
+        Assert(fakeEmailSender.SentEmails.Count == 1, "FakeEmailSender must receive exactly 1 email.");
+        Assert(fakeEmailSender.SentEmails[0].Email == "executive@example.com", "Recipient email must match request.");
+        Assert(fakeEmailSender.SentEmails[0].Digest.Topic == "Monetary Policy Easing", "Digest topic must match compiled dossier.");
+
+        // 6. Watch glance controller verification
+        var watchController = new WatchGlanceController(cache, null, NullLogger<WatchGlanceController>.Instance);
+        var initialWatchDossier = (watchController.GetDossier() as OkObjectResult)?.Value as WatchGlanceController.WatchDossierGlanceResponse;
+        Assert(initialWatchDossier is { Available: true }, "Initial watch dossier must return default glance snapshot.");
+
+        var syncRes = (watchController.SyncDossier(new WatchGlanceController.WatchDossierSyncRequest(
+            "Hydrogen Supergrid Expansion",
+            "Consortium commits $1.2B to regional green hydrogen and pipeline infrastructure.",
+            "Energy Ministry issues priority grid integration consents.",
+            [new("Execution", "Elevated", "Electrolyzer delivery delays.")],
+            2,
+            ["RNZ", "Newsroom"])) as OkObjectResult)?.Value as WatchGlanceController.WatchDossierSyncResponse;
+
+        Assert(syncRes is { Success: true, Topic: "Hydrogen Supergrid Expansion" }, "Watch sync must return success.");
+
+        var syncedWatchDossier = (watchController.GetDossier() as OkObjectResult)?.Value as WatchGlanceController.WatchDossierGlanceResponse;
+        Assert(syncedWatchDossier is { Available: true, Topic: "Hydrogen Supergrid Expansion" },
+            "Subsequent watch dossier lookup must retrieve the newly synced dossier.");
+        Assert(syncedWatchDossier!.Risks.Length == 1 && syncedWatchDossier.Risks[0].Category == "Execution",
+            "Synced risks must be preserved for watch display.");
+
+        var marketGlance = (await watchController.GetMarketGlance(CancellationToken.None) as OkObjectResult)?.Value as WatchGlanceController.WatchMarketGlanceResponse;
+        Assert(marketGlance is { Configured: true, Assets.Length: >= 4 }, "Watch market glance must return benchmark assets.");
+        Assert(marketGlance!.Assets.Any(a => a.Symbol == "NZ50"), "NZ50 must be included in watch market glance.");
+
         // 2. Enabled Azure Language synthesizes multi-publisher dossiers with sentenceCount = 4
         var enabledOptions = new AzureLanguageOptions
         {
@@ -202,6 +251,23 @@ internal static class StoryClusterChecks
             {
                 Content = new StringContent(succeededJson, Encoding.UTF8, "application/json")
             };
+        }
+    }
+
+    private sealed class FakeDossierEmailSender : IAccountEmailSender
+    {
+        public List<(string Email, ExecutiveDossierEmailDigest Digest)> SentEmails { get; } = [];
+
+        public Task SendConfirmationAsync(string email, string confirmationUrl, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task SendPasswordResetAsync(string email, string resetUrl, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task SendNewsSummaryAsync(string email, NewsSummaryDigest digest, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task SendSharedArticleAsync(string email, SharedArticleEmail sharedArticle, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task SendExecutiveBriefingEmailAsync(string email, ExecutiveBriefingEmailDigest digest, CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public Task SendExecutiveDossierEmailAsync(string email, ExecutiveDossierEmailDigest digest, CancellationToken cancellationToken)
+        {
+            SentEmails.Add((email, digest));
+            return Task.CompletedTask;
         }
     }
 }

@@ -2190,6 +2190,8 @@ export default function DailyBriefingModal({
             alarmTime={schedule.time}
             onTriggerBriefing={() => void playBriefingFromChapter(0)}
             briefingTitle={`Signal ${briefing.edition} Briefing`}
+            briefingData={briefing}
+            briefingLanguage={briefingLanguage}
           />
         )}
 

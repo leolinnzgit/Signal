@@ -2,10 +2,14 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { describeWeather } from "./weather-briefing";
+import type { DailyBriefingData } from "./daily-briefing";
 import {
   playHarmonicChime,
   formatClockDisplay,
   shouldAlarmTrigger,
+  checkBedsideBriefingAudioCache,
+  prewarmBedsideBriefingAudio,
+  type BedsideBriefingCacheState,
 } from "./bedside-clock";
 import "./bedside-clock.css";
 
@@ -26,6 +30,8 @@ export interface BedsideClockRadioModalProps {
   alarmTime?: string;
   onTriggerBriefing: () => void;
   briefingTitle?: string;
+  briefingData?: DailyBriefingData | null;
+  briefingLanguage?: string;
 }
 
 export default function BedsideClockRadioModal({
@@ -35,13 +41,39 @@ export default function BedsideClockRadioModal({
   alarmTime = "07:00",
   onTriggerBriefing,
   briefingTitle = "Signal Executive Briefing",
+  briefingData,
+  briefingLanguage = "en-NZ",
 }: BedsideClockRadioModalProps) {
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
   const [nightMode, setNightMode] = useState<boolean>(false);
   const [isRinging, setIsRinging] = useState<boolean>(false);
   const [showSeconds, setShowSeconds] = useState<boolean>(false);
+  const [cacheState, setCacheState] = useState<BedsideBriefingCacheState>({
+    ready: false,
+    status: "idle",
+    audioBytes: 0,
+  });
   const chimeIntervalRef = useRef<number | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
+
+  useEffect(() => {
+    if (!isOpen || !briefingData) return;
+    const abort = new AbortController();
+
+    void checkBedsideBriefingAudioCache(briefingData, briefingLanguage).then((res) => {
+      setCacheState(res);
+      if (!res.ready && !abort.signal.aborted) {
+        setCacheState((prev) => ({ ...prev, status: "caching" }));
+        void prewarmBedsideBriefingAudio(briefingData, briefingLanguage, { signal: abort.signal }).then((pRes) => {
+          if (!abort.signal.aborted) {
+            setCacheState(pRes);
+          }
+        });
+      }
+    });
+
+    return () => abort.abort();
+  }, [briefingData, briefingLanguage, isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -118,6 +150,18 @@ export default function BedsideClockRadioModal({
             <span className="alarm-icon" aria-hidden="true">⏰</span>
             <span>Alarm: {alarmTime}</span>
           </div>
+
+          {cacheState.ready && (
+            <div className="clock-cache-badge ready" title={cacheState.message}>
+              ⚡ Briefing Cached (Offline)
+            </div>
+          )}
+
+          {cacheState.status === "caching" && (
+            <div className="clock-cache-badge caching" title="Pre-caching morning neural briefing audio...">
+              ⏳ Caching Audio...
+            </div>
+          )}
 
           <div className="clock-actions-top">
             <button

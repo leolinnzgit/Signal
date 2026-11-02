@@ -199,3 +199,149 @@ export function formatDossierMarkdown(dossier: ClusterDossierResponse): string {
 
   return md;
 }
+
+export interface WatchDossierSyncResult {
+  success: boolean;
+  topic: string;
+  syncedAt?: string;
+  error?: string;
+}
+
+export async function syncDossierToWatch(
+  dossier: ClusterDossierResponse,
+  signal?: AbortSignal,
+  fetcher: typeof fetch = fetch,
+): Promise<WatchDossierSyncResult> {
+  const isOnline = typeof navigator !== "undefined" ? navigator.onLine !== false : true;
+  if (!isOnline) {
+    return { success: false, topic: dossier.topic, error: "Network offline. Connect to sync with paired watch." };
+  }
+
+  try {
+    let token = "";
+    try {
+      const csrf = await fetcher("/api/auth/csrf", { credentials: "same-origin", signal });
+      if (csrf.ok) {
+        const json = await csrf.json();
+        token = json?.token || "";
+      }
+    } catch {}
+
+    const leadMilestone = dossier.milestones.find((m) => m.phase === "Today's Catalyst") || dossier.milestones[0];
+    const res = await fetcher("/api/watch/dossier/sync", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { "X-XSRF-TOKEN": token } : {}),
+      },
+      body: JSON.stringify({
+        topic: dossier.topic,
+        executiveSummary: dossier.executiveSummary,
+        catalyst: leadMilestone ? leadMilestone.headline : undefined,
+        risks: dossier.risks.map((r) => ({ category: r.category, severity: r.severity, description: r.description })),
+        publisherCount: dossier.perspectives.length,
+        citedSources: dossier.citedSources,
+      }),
+      signal,
+    });
+
+    if (!res.ok) {
+      return { success: false, topic: dossier.topic, error: "Watch sync failed. Try again shortly." };
+    }
+
+    const data = await res.json();
+    return {
+      success: Boolean(data.success),
+      topic: data.topic || dossier.topic,
+      syncedAt: data.syncedAt || new Date().toISOString(),
+    };
+  } catch (err) {
+    return {
+      success: false,
+      topic: dossier.topic,
+      error: err instanceof Error ? err.message : "Failed syncing to watch.",
+    };
+  }
+}
+
+export interface DossierDigestDispatchOptions {
+  destination?: "email" | "webhook" | "both";
+  recipientEmail?: string;
+  webhookUrl?: string;
+}
+
+export interface DossierDigestDispatchResult {
+  success: boolean;
+  emailSent: boolean;
+  webhookSent: boolean;
+  message: string;
+}
+
+export async function dispatchDossierDigest(
+  dossier: ClusterDossierResponse,
+  options: DossierDigestDispatchOptions = {},
+  signal?: AbortSignal,
+  fetcher: typeof fetch = fetch,
+): Promise<DossierDigestDispatchResult> {
+  const isOnline = typeof navigator !== "undefined" ? navigator.onLine !== false : true;
+  if (!isOnline) {
+    return {
+      success: false,
+      emailSent: false,
+      webhookSent: false,
+      message: "Network offline. Connect to dispatch executive dossier.",
+    };
+  }
+
+  try {
+    let token = "";
+    try {
+      const csrf = await fetcher("/api/auth/csrf", { credentials: "same-origin", signal });
+      if (csrf.ok) {
+        const json = await csrf.json();
+        token = json?.token || "";
+      }
+    } catch {}
+
+    const res = await fetcher("/api/story-cluster/dossier/digest", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { "X-XSRF-TOKEN": token } : {}),
+      },
+      body: JSON.stringify({
+        dossier,
+        destination: options.destination || "email",
+        recipientEmail: options.recipientEmail,
+        webhookUrl: options.webhookUrl,
+      }),
+      signal,
+    });
+
+    if (!res.ok) {
+      return {
+        success: false,
+        emailSent: false,
+        webhookSent: false,
+        message: "Failed to dispatch executive dossier digest.",
+      };
+    }
+
+    const data = await res.json();
+    return {
+      success: Boolean(data.success),
+      emailSent: Boolean(data.emailSent),
+      webhookSent: Boolean(data.webhookSent),
+      message: data.message || "Executive dossier digest dispatched.",
+    };
+  } catch (err) {
+    return {
+      success: false,
+      emailSent: false,
+      webhookSent: false,
+      message: err instanceof Error ? err.message : "Error dispatching digest.",
+    };
+  }
+}

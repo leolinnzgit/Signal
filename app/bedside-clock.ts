@@ -1,3 +1,12 @@
+import type { DailyBriefingData } from "./daily-briefing.ts";
+import {
+  computeBriefingPackId,
+  BrowserCacheStorageAudioStore,
+  MemoryBriefingAudioStore,
+  saveOfflineBriefingPack,
+  type BriefingAudioCacheStore,
+} from "./daily-briefing-offline.ts";
+
 export const CHIME_FREQUENCIES = [523.25, 659.25, 783.99, 1046.5]; // C5, E5, G5, C6 arpeggio
 
 export interface ClockDisplay {
@@ -82,5 +91,99 @@ export function playHarmonicChime(audioContext?: AudioContext | null): void {
     });
   } catch {
     // AudioContext blocked or unsupported in test / headless environment
+  }
+}
+
+export interface BedsideBriefingCacheState {
+  ready: boolean;
+  status: "idle" | "checking" | "cached" | "caching" | "failed";
+  packId?: string;
+  audioBytes: number;
+  message?: string;
+}
+
+export async function checkBedsideBriefingAudioCache(
+  briefing?: DailyBriefingData,
+  language = "en-NZ",
+  store?: BriefingAudioCacheStore,
+): Promise<BedsideBriefingCacheState> {
+  if (!briefing) {
+    return { ready: false, status: "idle", audioBytes: 0, message: "No active briefing loaded." };
+  }
+
+  const packId = computeBriefingPackId(briefing, language);
+  const audioStore = store || (typeof caches !== "undefined" ? new BrowserCacheStorageAudioStore(caches) : new MemoryBriefingAudioStore());
+
+  try {
+    const blob = await audioStore.get(packId);
+    if (blob && blob.size > 44) {
+      return {
+        ready: true,
+        status: "cached",
+        packId,
+        audioBytes: blob.size,
+        message: `Offline audio ready (${(blob.size / 1024).toFixed(0)} KB).`,
+      };
+    }
+  } catch {}
+
+  return { ready: false, status: "idle", packId, audioBytes: 0, message: "Audio not yet cached locally." };
+}
+
+export async function prewarmBedsideBriefingAudio(
+  briefing?: DailyBriefingData,
+  language = "en-NZ",
+  options?: {
+    store?: BriefingAudioCacheStore;
+    signal?: AbortSignal;
+  },
+): Promise<BedsideBriefingCacheState> {
+  if (!briefing) {
+    return { ready: false, status: "failed", audioBytes: 0, message: "No briefing available to cache." };
+  }
+
+  const packId = computeBriefingPackId(briefing, language);
+  const audioStore = options?.store || (typeof caches !== "undefined" ? new BrowserCacheStorageAudioStore(caches) : new MemoryBriefingAudioStore());
+
+  // Check if already ready
+  try {
+    const existing = await audioStore.get(packId);
+    if (existing && existing.size > 44) {
+      return {
+        ready: true,
+        status: "cached",
+        packId,
+        audioBytes: existing.size,
+        message: `Offline audio ready (${(existing.size / 1024).toFixed(0)} KB).`,
+      };
+    }
+  } catch {}
+
+  // Pack offline briefing
+  try {
+    const meta = await saveOfflineBriefingPack({
+      briefing,
+      language,
+      audioStore,
+      signal: options?.signal,
+    });
+
+    return {
+      ready: meta.hasNeuralAudio && meta.audioBytes > 44,
+      status: meta.hasNeuralAudio ? "cached" : "failed",
+      packId,
+      audioBytes: meta.audioBytes,
+      message: meta.hasNeuralAudio
+        ? `Offline briefing audio ready (${(meta.audioBytes / 1024).toFixed(0)} KB).`
+        : (meta.audioWarning || "Synthesized script cached without audio."),
+    };
+  } catch (err) {
+    return {
+      ready: false,
+      status: "failed",
+      packId,
+      audioBytes: 0,
+      message: err instanceof Error ? err.message : "Failed to prewarm bedside briefing audio.",
+    };
   }
 }
