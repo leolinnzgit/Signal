@@ -47,6 +47,9 @@ import BedsideClockRadioModal from "./BedsideClockRadioModal";
 import MarketSentimentHeatmap from "./MarketSentimentHeatmap";
 import AudiogramSnippetModal from "./AudiogramSnippetModal";
 import ExecutiveDossierModal from "./ExecutiveDossierModal";
+import CommutePlaylistModal from "./CommutePlaylistModal";
+import ExecutiveRadarModal from "./ExecutiveRadarModal";
+import CSuiteReportModal from "./CSuiteReportModal";
 import {
   fetchKeywordRules,
   isArticleMuted,
@@ -921,6 +924,9 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [audiogramTarget, setAudiogramTarget] = useState<{ title: string; excerpt?: string; source: string; url?: string } | null>(null);
   const [stagedDossierArticles, setStagedDossierArticles] = useState<FollowedArticle[]>([]);
   const [dossierOpen, setDossierOpen] = useState(false);
+  const [commuteOpen, setCommuteOpen] = useState(false);
+  const [radarOpen, setRadarOpen] = useState(false);
+  const [csuiteReportOpen, setCSuiteReportOpen] = useState(false);
 
   useEffect(() => {
     void fetchKeywordRules().then((rules) => {
@@ -1159,6 +1165,33 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         now: currentTime ?? undefined,
       }),
     [articles, currentTime, marketWatchlist, previousVisitCheckpoint, pulse],
+  );
+
+  const dashboardBriefing = useMemo(
+    () =>
+      buildDailyBriefing({
+        weather: weatherStatus === "ready" ? localWeather : null,
+        forecast: weatherForecast,
+        alerts: activeWeatherAlerts,
+        conditions: weatherConditions,
+        marketQuote,
+        marketWatchlist,
+        pulse,
+        articles,
+        priorityTopics: briefingPriorityTopics,
+      }),
+    [
+      activeWeatherAlerts,
+      articles,
+      briefingPriorityTopics,
+      localWeather,
+      marketQuote,
+      marketWatchlist,
+      pulse,
+      weatherConditions,
+      weatherForecast,
+      weatherStatus,
+    ],
   );
 
   useEffect(() => {
@@ -3920,6 +3953,33 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           >
             📊
           </button>
+          <button
+            type="button"
+            className="radar-header-trigger"
+            onClick={() => setRadarOpen(true)}
+            title="Scan Executive Radar: Breaking Story Velocity & Market Anomalies"
+            aria-label="Open Executive Radar"
+          >
+            📡
+          </button>
+          <button
+            type="button"
+            className="commute-header-trigger"
+            onClick={() => setCommuteOpen(true)}
+            title="Executive Commute Playlist & Chapters"
+            aria-label="Open Executive Commute Playlist"
+          >
+            🚗
+          </button>
+          <button
+            type="button"
+            className="csuite-report-header-trigger"
+            onClick={() => setCSuiteReportOpen(true)}
+            title="C-Suite Intelligence Report & PDF Export"
+            aria-label="Open C-Suite Intelligence Report"
+          >
+            📑
+          </button>
           <div className="live-status"><span className="pulse" aria-hidden="true" />Live web briefing</div>
           {!appInstalled && (
             <button
@@ -6465,6 +6525,75 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
             source: a.source,
             summary: a.summary,
           }))}
+        />
+      )}
+
+      {commuteOpen && (
+        <CommutePlaylistModal
+          isOpen={commuteOpen}
+          onClose={() => setCommuteOpen(false)}
+          briefing={dashboardBriefing}
+          marketSentiment={{
+            macroHeadline: dashboardBriefing?.marketGlance
+              ? `${dashboardBriefing.marketGlance.name} (${dashboardBriefing.marketGlance.symbol}) ${dashboardBriefing.marketGlance.percentChange >= 0 ? "+" : ""}${dashboardBriefing.marketGlance.percentChange}%`
+              : "Consolidation across primary regional market benchmarks",
+            assets: marketWatchlist.map((m) => ({
+              symbol: m.symbol,
+              name: m.name || m.symbol,
+              price: m.price,
+              percentChange: m.percentChange,
+              changePercent: m.percentChange,
+              sentimentTone: m.percentChange >= 0 ? "bullish" : "bearish",
+            })),
+          }}
+          stagedArticles={stagedDossierArticles}
+        />
+      )}
+
+      {radarOpen && (
+        <ExecutiveRadarModal
+          isOpen={radarOpen}
+          onClose={() => setRadarOpen(false)}
+          articles={articles}
+          markets={marketWatchlist}
+          onStageDossierArticle={(art) => {
+            setStagedDossierArticles((prev) => {
+              if (prev.some((p) => p.url === art.url)) return prev;
+              return [
+                ...prev,
+                {
+                  title: art.title,
+                  source: art.source,
+                  url: art.url,
+                  publishedAt: new Date().toISOString(),
+                  summary: "",
+                  topics: [],
+                  providers: [art.source],
+                },
+              ];
+            });
+          }}
+        />
+      )}
+
+      {csuiteReportOpen && (
+        <CSuiteReportModal
+          isOpen={csuiteReportOpen}
+          onClose={() => setCSuiteReportOpen(false)}
+          briefing={dashboardBriefing}
+          marketSentiment={{
+            macroHeadline: dashboardBriefing?.marketGlance
+              ? `${dashboardBriefing.marketGlance.name} (${dashboardBriefing.marketGlance.symbol}) ${dashboardBriefing.marketGlance.percentChange >= 0 ? "+" : ""}${dashboardBriefing.marketGlance.percentChange}%`
+              : "Consolidation across primary regional market benchmarks",
+            assets: marketWatchlist.map((m) => ({
+              symbol: m.symbol,
+              name: m.name || m.symbol,
+              price: m.price,
+              percentChange: m.percentChange,
+              changePercent: m.percentChange,
+              sector: "Global Markets",
+            })),
+          }}
         />
       )}
       <footer><p><span className="footer-dot" /> SIGNAL gathers public reporting and sends you to the original publisher.</p></footer>

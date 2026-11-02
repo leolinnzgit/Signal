@@ -9,6 +9,10 @@ import {
   type ClusterDossierResponse,
   type DossierArticleInput,
 } from "./executive-dossier";
+import {
+  fetchRedTeamAnalysis,
+  type ClusterRedTeamResponse,
+} from "./red-team";
 import "./executive-dossier.css";
 
 export interface ExecutiveDossierModalProps {
@@ -26,7 +30,7 @@ export default function ExecutiveDossierModal({
 }: ExecutiveDossierModalProps) {
   const [dossier, setDossier] = useState<ClusterDossierResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"summary" | "perspectives" | "risks" | "timeline" | "sources">("summary");
+  const [activeTab, setActiveTab] = useState<"summary" | "perspectives" | "risks" | "timeline" | "redteam" | "sources">("summary");
   const [copyFeedback, setCopyFeedback] = useState<string>("");
   const [syncingWatch, setSyncingWatch] = useState(false);
   const [digestDrawerOpen, setDigestDrawerOpen] = useState(false);
@@ -34,6 +38,8 @@ export default function ExecutiveDossierModal({
   const [digestWebhook, setDigestWebhook] = useState("");
   const [digestDestination, setDigestDestination] = useState<"email" | "webhook" | "both">("email");
   const [dispatchingDigest, setDispatchingDigest] = useState(false);
+  const [redTeamData, setRedTeamData] = useState<ClusterRedTeamResponse | null>(null);
+  const [loadingRedTeam, setLoadingRedTeam] = useState(false);
 
   useEffect(() => {
     if (!isOpen || articles.length === 0) return;
@@ -47,6 +53,18 @@ export default function ExecutiveDossierModal({
 
     return () => abort.abort();
   }, [articles, isOpen, topic]);
+
+  useEffect(() => {
+    if (activeTab === "redteam" && !redTeamData && dossier) {
+      setLoadingRedTeam(true);
+      const abort = new AbortController();
+      void fetchRedTeamAnalysis(dossier.topic, articles, dossier.executiveSummary, abort.signal).then((res) => {
+        setRedTeamData(res);
+        setLoadingRedTeam(false);
+      });
+      return () => abort.abort();
+    }
+  }, [activeTab, articles, dossier, redTeamData]);
 
   if (!isOpen) return null;
 
@@ -285,6 +303,15 @@ export default function ExecutiveDossierModal({
           <button
             type="button"
             role="tab"
+            aria-selected={activeTab === "redteam"}
+            className={`dossier-tab ${activeTab === "redteam" ? "active" : ""}`}
+            onClick={() => setActiveTab("redteam")}
+          >
+            ⚖️ Red Team (Contrarian)
+          </button>
+          <button
+            type="button"
+            role="tab"
             aria-selected={activeTab === "sources"}
             className={`dossier-tab ${activeTab === "sources" ? "active" : ""}`}
             onClick={() => setActiveTab("sources")}
@@ -363,6 +390,56 @@ export default function ExecutiveDossierModal({
                       </div>
                     ))}
                   </div>
+                </section>
+              )}
+
+              {activeTab === "redteam" && (
+                <section className="dossier-section" role="tabpanel" aria-label="Red Team Contrarian Critique">
+                  <h3 className="section-heading">⚖️ Red Team Contrarian Critique &amp; Stress Test</h3>
+                  {loadingRedTeam ? (
+                    <div style={{ textAlign: "center", padding: "3rem", color: "#94a3b8" }}>
+                      Stress-testing consensus narrative against contrarian indicators...
+                    </div>
+                  ) : redTeamData ? (
+                    <div className="dossier-redteam-container">
+                      <div className="redteam-thesis-comparison">
+                        <div className="redteam-thesis-card consensus">
+                          <h4 className="redteam-thesis-header">Prevailing Consensus Narrative</h4>
+                          <p className="redteam-thesis-body">{redTeamData.consensusThesis}</p>
+                        </div>
+                        <div className="redteam-thesis-card contrarian">
+                          <h4 className="redteam-thesis-header">Contrarian Counter-Thesis</h4>
+                          <p className="redteam-thesis-body">{redTeamData.contrarianCounterThesis}</p>
+                        </div>
+                      </div>
+
+                      <div>
+                        <h4 style={{ margin: "0 0 0.75rem", fontSize: "1.1rem", color: "#f8fafc" }}>
+                          Institutional Blind Spots &amp; Downside Risks ({redTeamData.downsideProbability})
+                        </h4>
+                        <div className="redteam-blindspots-list">
+                          {redTeamData.blindSpots.map((bs, idx) => (
+                            <div key={idx} className="redteam-blindspot-item">
+                              <div className="redteam-blindspot-top">
+                                <span className="redteam-blindspot-title">{bs.vulnerability}</span>
+                                <span className="redteam-blindspot-sev">{bs.severity}</span>
+                              </div>
+                              <p className="redteam-blindspot-critique">{bs.critique}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="redteam-action-box">
+                        <h4 className="redteam-action-title">Recommended Red Team Contingency Action</h4>
+                        <p className="redteam-action-body">{redTeamData.recommendedAction}</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ textAlign: "center", padding: "2rem", color: "#94a3b8" }}>
+                      No contrarian anomalies detected for this cluster.
+                    </div>
+                  )}
                 </section>
               )}
 

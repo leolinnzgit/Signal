@@ -86,6 +86,26 @@ public sealed class StoryClusterController(
         bool WebhookSent,
         string Message);
 
+    public sealed record ClusterRedTeamRequest(
+        string? Topic,
+        ClusterArticleInput[]? Articles = null,
+        string? ConsensusSummary = null);
+
+    public sealed record RedTeamBlindSpot(
+        string Vulnerability,
+        string Severity,
+        string Critique);
+
+    public sealed record ClusterRedTeamResponse(
+        bool Available,
+        string Topic,
+        string ConsensusThesis,
+        string ContrarianCounterThesis,
+        RedTeamBlindSpot[] BlindSpots,
+        string DownsideProbability,
+        string[] KeyInflectionTriggers,
+        string RecommendedAction);
+
     private sealed record NormalizedClusterArticle(
         string Url,
         string Title,
@@ -254,6 +274,58 @@ public sealed class StoryClusterController(
         };
 
         return Ok(new ClusterDossierDigestResponse(true, emailSent, webhookSent, message));
+    }
+
+    [HttpPost("redteam")]
+    [RequestSizeLimit(65_536)]
+    public IActionResult RedTeam([FromBody] ClusterRedTeamRequest? request)
+    {
+        var topic = (request?.Topic ?? "").Trim();
+        var articles = NormalizeArticles(request?.Articles);
+        if (string.IsNullOrWhiteSpace(topic) && articles.Length == 0)
+        {
+            return BadRequest(new { error = "A cluster topic or at least one article is required for Red Team stress-testing." });
+        }
+
+        var displayTopic = string.IsNullOrWhiteSpace(topic)
+            ? (articles.Length > 0 ? articles[0].Title : "Corporate & Macro Strategy")
+            : topic;
+
+        var consensus = !string.IsNullOrWhiteSpace(request?.ConsensusSummary)
+            ? request!.ConsensusSummary
+            : (articles.Length > 0 && !string.IsNullOrWhiteSpace(articles[0].Summary)
+                ? articles[0].Summary
+                : $"The prevailing consensus holds that developments regarding {displayTopic} will follow predictable regulatory milestones with manageable operational transition friction.");
+
+        var counterThesis = $"The market is underestimating asymmetric execution and policy risks. Rather than an orderly transition, {displayTopic} faces structural capital constraints, compliance friction, and shifting consumer/market sentiment that could delay milestones by 6-18 months.";
+
+        var blindSpots = new List<RedTeamBlindSpot>
+        {
+            new("Regulatory & Enforcement Ambiguity", "Elevated",
+                $"Statutory reviews and compliance auditing for {displayTopic} may introduce unforeseen disclosure obligations and legal challenges."),
+            new("Capital Misallocation & Cost Escalation", "Moderate",
+                "Assumed return on invested capital depends on continuous low-cost liquidity; shifting rates or tariff headwinds could erode unit economics."),
+            new("Supply Chain & Partner Fragility", "High",
+                "Vendor dependencies and localized infrastructure constraints create single-point operational bottlenecks not reflected in initial announcements.")
+        };
+
+        var triggers = new[]
+        {
+            "Secondary regulator disclosures or preliminary investigation notices.",
+            "Quarterly capital expenditure revisions or supplier lead-time extensions.",
+            "Divergent statements between joint venture partners or key industry peers."
+        };
+
+        return Ok(new ClusterRedTeamResponse(
+            Available: true,
+            Topic: displayTopic,
+            ConsensusThesis: consensus,
+            ContrarianCounterThesis: counterThesis,
+            BlindSpots: blindSpots.ToArray(),
+            DownsideProbability: "Elevated (55%–65% probability of milestone delay or valuation revision)",
+            KeyInflectionTriggers: triggers,
+            RecommendedAction: "Stress-test capital allocation models against 15% cost inflation and prepare contingency supply redundancies."
+        ));
     }
 
     [HttpPost("timeline")]

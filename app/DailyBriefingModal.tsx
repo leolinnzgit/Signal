@@ -74,6 +74,9 @@ import BedsideClockRadioModal from "./BedsideClockRadioModal";
 import MarketSentimentHeatmap from "./MarketSentimentHeatmap";
 import AudiogramSnippetModal from "./AudiogramSnippetModal";
 import ExecutiveDossierModal from "./ExecutiveDossierModal";
+import CommutePlaylistModal from "./CommutePlaylistModal";
+import ExecutiveRadarModal from "./ExecutiveRadarModal";
+import CSuiteReportModal from "./CSuiteReportModal";
 import "./daily-briefing.css";
 
 function getWeatherIcon(code: number): string {
@@ -278,6 +281,9 @@ export default function DailyBriefingModal({
   const [marketHeatmapOpen, setMarketHeatmapOpen] = useState(false);
   const [audiogramTarget, setAudiogramTarget] = useState<{ title: string; excerpt?: string; source: string; url?: string } | null>(null);
   const [dossierOpen, setDossierOpen] = useState(false);
+  const [commuteOpen, setCommuteOpen] = useState(false);
+  const [radarOpen, setRadarOpen] = useState(false);
+  const [csuiteReportOpen, setCSuiteReportOpen] = useState(false);
   const [isOnline, setIsOnline] = useState<boolean>(() =>
     typeof navigator !== "undefined" ? navigator.onLine : true,
   );
@@ -1350,6 +1356,33 @@ export default function DailyBriefingModal({
             >
               📁 Lead Dossier
             </button>
+
+            <button
+              type="button"
+              className="briefing-toolbar-btn commute-trigger-btn"
+              onClick={() => setCommuteOpen(true)}
+              title="Launch executive commute playlist with chapter navigation"
+            >
+              🚗 Commute Audio
+            </button>
+
+            <button
+              type="button"
+              className="briefing-toolbar-btn radar-trigger-btn"
+              onClick={() => setRadarOpen(true)}
+              title="Scan for breaking story publication velocity and market anomalies"
+            >
+              📡 Executive Radar
+            </button>
+
+            <button
+              type="button"
+              className="briefing-toolbar-btn csuite-trigger-btn"
+              onClick={() => setCSuiteReportOpen(true)}
+              title="Generate C-suite weekly/daily printable intelligence briefing PDF"
+            >
+              📑 C-Suite Report
+            </button>
           </div>
 
           {(shareFeedback || hostedShareUrl || memoEmailFeedback) && (
@@ -2235,6 +2268,57 @@ export default function DailyBriefingModal({
               source: s.source,
               summary: s.summary,
             }))}
+          />
+        )}
+
+        {commuteOpen && (
+          <CommutePlaylistModal
+            isOpen={commuteOpen}
+            onClose={() => setCommuteOpen(false)}
+            briefing={briefing}
+            marketSentiment={{
+              macroHeadline: briefing.marketGlance
+                ? `${briefing.marketGlance.name} (${briefing.marketGlance.symbol}) ${briefing.marketGlance.percentChange >= 0 ? "+" : ""}${briefing.marketGlance.percentChange}%`
+                : "Consolidation across primary regional market benchmarks",
+              assets: marketWatchlist.map((m) => ({
+                symbol: m.symbol,
+                name: m.name || m.symbol,
+                price: m.price,
+                percentChange: m.percentChange,
+                changePercent: m.percentChange,
+                sentimentTone: m.percentChange >= 0 ? "bullish" : "bearish",
+              })),
+            }}
+          />
+        )}
+
+        {radarOpen && (
+          <ExecutiveRadarModal
+            isOpen={radarOpen}
+            onClose={() => setRadarOpen(false)}
+            articles={briefing.leadStories}
+            markets={marketWatchlist}
+          />
+        )}
+
+        {csuiteReportOpen && (
+          <CSuiteReportModal
+            isOpen={csuiteReportOpen}
+            onClose={() => setCSuiteReportOpen(false)}
+            briefing={briefing}
+            marketSentiment={{
+              macroHeadline: briefing.marketGlance
+                ? `${briefing.marketGlance.name} (${briefing.marketGlance.symbol}) ${briefing.marketGlance.percentChange >= 0 ? "+" : ""}${briefing.marketGlance.percentChange}%`
+                : "Consolidation across primary regional market benchmarks",
+              assets: marketWatchlist.map((m) => ({
+                symbol: m.symbol,
+                name: m.name || m.symbol,
+                price: m.price,
+                percentChange: m.percentChange,
+                changePercent: m.percentChange,
+                sector: "Global Markets",
+              })),
+            }}
           />
         )}
       </div>
