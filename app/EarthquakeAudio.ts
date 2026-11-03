@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { openArticleAudioStream } from "./article-audio-stream";
-import { articleNarrationParts, normalizeReadingVoices, READING_VOICES_STORAGE_KEY } from "./headline-audio";
+import { articleNarrationParts, normalizeReadingVoices, resolveUserReadingVoice, READING_VOICES_STORAGE_KEY } from "./headline-audio";
 
 export function useEarthquakeAudio() {
   const [audioStatus, setAudioStatus] = useState("");
@@ -86,7 +86,7 @@ export function useEarthquakeAudio() {
     setAudioStatus("Preparing Azure voice…");
     startDeadline(run);
     const effectiveVoices = {
-      en: voices.en || "en-NZ-MollyNeural",
+      en: voices.en || resolveUserReadingVoice(),
       zh: voices.zh || "zh-TW-HsiaoChenNeural",
     };
     void openArticleAudioStream(articleNarrationParts("", [text], 900), "en-NZ", effectiveVoices, abort.signal,

@@ -27,8 +27,9 @@ export function useReadingVoices(enabled = true) {
   const [preferences, setPreferences] = useState<ReadingVoicePreferences>(() => {
     try {
       const parsed = normalizeReadingVoices(JSON.parse(localStorage.getItem(storageKey) ?? "null"));
+      const legacyPref = localStorage.getItem("signal_briefing_voice_pref");
       return {
-        en: parsed.en || "en-NZ-MollyNeural",
+        en: parsed.en || legacyPref || "en-NZ-MollyNeural",
         zh: parsed.zh || "zh-TW-HsiaoChenNeural",
       };
     } catch {
@@ -56,6 +57,9 @@ export function useReadingVoices(enabled = true) {
         configureRecordedAudio(response.headers.get("X-Signal-Audio-Engine"), response.headers.get("X-Signal-Audio-Batch-Characters"));
         const serverEn = (response.headers.get("X-Signal-Voice-En") ?? "").trim();
         const serverZh = (response.headers.get("X-Signal-Voice-Zh") ?? "").trim();
+        if (serverEn) {
+          try { localStorage.setItem("signal_briefing_voice_pref", serverEn); } catch {}
+        }
         setVoices(data);
         setStreaming(response.headers.get("X-Signal-Article-Streaming") === "true");
         setPreferences((saved) => {
@@ -69,12 +73,9 @@ export function useReadingVoices(enabled = true) {
           const candidateEn = serverEn || saved.en || defaultEn;
           const candidateZh = serverZh || saved.zh || defaultZh;
           const next = {
-            en: data.some((voice) => voice.id === candidateEn && voice.language.startsWith("en")) ? candidateEn : defaultEn,
-            zh: data.some((voice) => voice.id === candidateZh && voice.language.startsWith("zh")) ? candidateZh : defaultZh,
+            en: data.some((voice) => voice.id === candidateEn) ? candidateEn : (saved.en || defaultEn),
+            zh: data.some((voice) => voice.id === candidateZh) ? candidateZh : (saved.zh || defaultZh),
           };
-          if ((next.en && !serverEn) || (next.zh && !serverZh)) {
-            void saveServerVoicePreferences(next);
-          }
           return next;
         });
       })
@@ -87,6 +88,9 @@ export function useReadingVoices(enabled = true) {
     catch { /* Choices still work when device storage is unavailable. */ }
   }, [preferences]);
   function selectVoice(language: keyof ReadingVoicePreferences, id: string) {
+    if (language === "en") {
+      try { localStorage.setItem("signal_briefing_voice_pref", id); } catch {}
+    }
     setPreferences((saved) => {
       const next = { ...saved, [language]: id };
       void saveServerVoicePreferences(next);

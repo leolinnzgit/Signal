@@ -274,6 +274,13 @@ export default function DailyBriefingModal({
       return "";
     }
   });
+
+  useEffect(() => {
+    if (readingVoicePrefs.en && !selectedVoice) {
+      setSelectedVoice(readingVoicePrefs.en);
+    }
+  }, [readingVoicePrefs.en, selectedVoice]);
+
   const activeAzureVoice = selectedVoice || readingVoicePrefs.en || "en-NZ-MollyNeural";
 
   // Morning Memo Email & PDF 1-Pager state
@@ -1004,6 +1011,11 @@ export default function DailyBriefingModal({
                 value={activeAzureVoice}
                 onChange={(e) => handleVoiceChange(e.target.value)}
               >
+                {activeAzureVoice && !installedVoices.some((v) => v.id === activeAzureVoice) && (
+                  <option value={activeAzureVoice}>
+                    {activeAzureVoice.replace("Neural", "").replace(/-/g, " ")}
+                  </option>
+                )}
                 {installedVoices.length > 0 ? (
                   installedVoices.map((v) => (
                     <option key={v.id} value={v.id}>

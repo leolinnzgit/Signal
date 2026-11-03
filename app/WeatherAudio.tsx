@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { articleNarrationParts, normalizeReadingVoices, READING_VOICES_STORAGE_KEY } from "./headline-audio";
+import { articleNarrationParts, normalizeReadingVoices, resolveUserReadingVoice, READING_VOICES_STORAGE_KEY } from "./headline-audio";
 import { openArticleAudioStream } from "./article-audio-stream";
 import { browserSpeechRequiresTap, createHeadlinePlayback, HEADLINE_SPEECH_PREFERENCES_KEY, normalizeHeadlineSpeechPreferences } from "./headline-playback";
 
@@ -131,7 +131,7 @@ export function useWeatherAudio(text: string, suspended = false) {
     try { voices = normalizeReadingVoices(JSON.parse(localStorage.getItem(READING_VOICES_STORAGE_KEY) ?? "null")); }
     catch { /* Use the server's configured Azure voice. */ }
     const effectiveVoices = {
-      en: voices.en || "en-NZ-MollyNeural",
+      en: voices.en || resolveUserReadingVoice(),
       zh: voices.zh || "zh-TW-HsiaoChenNeural",
     };
     const language = navigator.language.startsWith("en") ? navigator.language : "en-NZ";

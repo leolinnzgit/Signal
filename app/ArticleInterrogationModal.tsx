@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { interrogateArticle, type InterrogateArticleResponse } from "./article-interrogation";
 import { openArticleAudioStream } from "./article-audio-stream";
+import { resolveUserReadingVoice } from "./headline-audio";
 import VoiceMicButton from "./VoiceMicButton";
 
 export interface ArticleInterrogationModalProps {
@@ -26,8 +27,9 @@ const SUGGESTED_QUESTIONS = [
 export default function ArticleInterrogationModal({
   article,
   onClose,
-  preferredVoice = "en-NZ-MollyNeural",
+  preferredVoice,
 }: ArticleInterrogationModalProps) {
+  const activeVoice = preferredVoice || resolveUserReadingVoice();
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<InterrogateArticleResponse | null>(null);
@@ -96,7 +98,7 @@ export default function ArticleInterrogationModal({
       const streamUrl = await openArticleAudioStream(
         [result.answer],
         "en-NZ",
-        { en: preferredVoice, zh: "zh-CN-XiaoxiaoNeural" },
+        { en: activeVoice, zh: "zh-CN-XiaoxiaoNeural" },
         controller.signal,
         () => {},
       );

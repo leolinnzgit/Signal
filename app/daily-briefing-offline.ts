@@ -3,6 +3,7 @@ import {
   articleNarrationParts,
   normalizeReadingVoices,
   prepareHeadlineAudio,
+  resolveUserReadingVoice,
   READING_VOICES_STORAGE_KEY,
   type PreparedHeadlineAudio,
   type ReadingVoicePreferences,
@@ -281,7 +282,7 @@ export async function saveOfflineBriefingPack(
     }
   }
   resolvedVoices = {
-    en: resolvedVoices?.en || "en-NZ-MollyNeural",
+    en: resolvedVoices?.en || resolveUserReadingVoice(),
     zh: resolvedVoices?.zh || "zh-TW-HsiaoChenNeural",
   };
 

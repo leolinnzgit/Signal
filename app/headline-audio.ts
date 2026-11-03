@@ -113,6 +113,37 @@ export function normalizeReadingVoices(value: unknown): ReadingVoicePreferences 
   return { en: voice("en"), zh: voice("zh") };
 }
 
+export function resolveUserReadingVoice(fallback = "en-NZ-MollyNeural"): string {
+  try {
+    if (typeof localStorage === "undefined") return fallback;
+    const briefingPref = localStorage.getItem("signal_briefing_voice_pref");
+    if (briefingPref && briefingPref.trim()) return briefingPref.trim();
+    const raw = localStorage.getItem(READING_VOICES_STORAGE_KEY);
+    if (raw) {
+      const parsed = normalizeReadingVoices(JSON.parse(raw));
+      if (parsed.en && parsed.en.trim()) return parsed.en.trim();
+    }
+  } catch {
+    // Device storage unavailable
+  }
+  return fallback;
+}
+
+export function getUserReadingVoicePreferences(): ReadingVoicePreferences {
+  try {
+    if (typeof localStorage === "undefined") return { en: "", zh: "" };
+    const briefingPref = localStorage.getItem("signal_briefing_voice_pref");
+    const raw = localStorage.getItem(READING_VOICES_STORAGE_KEY);
+    const parsed = raw ? normalizeReadingVoices(JSON.parse(raw)) : { en: "", zh: "" };
+    return {
+      en: briefingPref?.trim() || parsed.en || "",
+      zh: parsed.zh || "",
+    };
+  } catch {
+    return { en: "", zh: "" };
+  }
+}
+
 export function preferScreenOffAudio(userAgent: string, standalone: boolean) {
   return !/Android|iPhone|iPad|iPod|Mobile/i.test(userAgent) || (standalone && /Android/i.test(userAgent));
 }

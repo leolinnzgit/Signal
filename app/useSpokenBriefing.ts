@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { openArticleAudioStream } from "./article-audio-stream";
 import {
   articleNarrationParts,
+  resolveUserReadingVoice,
 } from "./headline-audio";
 import {
   createHeadlinePlayback,
@@ -368,7 +369,7 @@ export function useSpokenBriefing() {
           return;
         }
 
-        const readingVoice = options.voiceName || preferences.voices.en || "en-NZ-MollyNeural";
+        const readingVoice = options.voiceName || preferences.voices.en || resolveUserReadingVoice();
         const zhVoice = options.voiceName || preferences.voices.zh || "zh-CN-XiaoxiaoNeural";
         openArticleAudioStream(
           [clean],

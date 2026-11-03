@@ -7,6 +7,7 @@ import {
   type RegulatoryRadarResponse,
 } from "./regulatory-radar";
 import { openArticleAudioStream } from "./article-audio-stream";
+import { resolveUserReadingVoice } from "./headline-audio";
 import "./regulatory-radar.css";
 
 export interface RegulatoryRadarModalProps {
@@ -30,8 +31,9 @@ export default function RegulatoryRadarModal({
   onClose,
   initialSector = "All NZ/APAC Sectors",
   articles = [],
-  preferredVoice = "en-NZ-MollyNeural",
+  preferredVoice,
 }: RegulatoryRadarModalProps) {
+  const activeVoice = preferredVoice || resolveUserReadingVoice();
   const [sector, setSector] = useState(initialSector);
   const [data, setData] = useState<RegulatoryRadarResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -128,7 +130,7 @@ export default function RegulatoryRadarModal({
       const streamUrl = await openArticleAudioStream(
         [data.spokenComplianceScript],
         "en-NZ",
-        { en: preferredVoice || "en-NZ-MollyNeural", zh: "zh-CN-XiaoxiaoNeural" },
+        { en: activeVoice, zh: "zh-CN-XiaoxiaoNeural" },
         controller.signal,
         () => {},
       );

@@ -7,6 +7,7 @@ import {
   type ClaimsArbiterResponse,
 } from "./claims-arbiter";
 import { openArticleAudioStream } from "./article-audio-stream";
+import { resolveUserReadingVoice } from "./headline-audio";
 import "./claims-arbiter.css";
 
 export interface ClaimsArbiterModalProps {
@@ -22,8 +23,9 @@ export default function ClaimsArbiterModal({
   onClose,
   initialTopic = "Reserve Bank Monetary Policy & Dairy Payout Forecasts",
   articles = [],
-  preferredVoice = "en-NZ-MollyNeural",
+  preferredVoice,
 }: ClaimsArbiterModalProps) {
+  const activeVoice = preferredVoice || resolveUserReadingVoice();
   const [topic, setTopic] = useState(initialTopic);
   const [data, setData] = useState<ClaimsArbiterResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -115,7 +117,7 @@ export default function ClaimsArbiterModal({
       const streamUrl = await openArticleAudioStream(
         [data.spokenArbitrationScript],
         "en-NZ",
-        { en: preferredVoice || "en-NZ-MollyNeural", zh: "zh-CN-XiaoxiaoNeural" },
+        { en: activeVoice, zh: "zh-CN-XiaoxiaoNeural" },
         controller.signal,
         () => {},
       );

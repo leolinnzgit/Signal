@@ -7,6 +7,7 @@ import {
   type CompetitorRadarResponse,
 } from "./competitor-radar";
 import { openArticleAudioStream } from "./article-audio-stream";
+import { resolveUserReadingVoice } from "./headline-audio";
 import "./competitor-radar.css";
 
 export interface CompetitorRadarModalProps {
@@ -29,8 +30,9 @@ export default function CompetitorRadarModal({
   onClose,
   initialPeerGroup = "Dairy & Agri-Export",
   articles = [],
-  preferredVoice = "en-NZ-MollyNeural",
+  preferredVoice,
 }: CompetitorRadarModalProps) {
+  const activeVoice = preferredVoice || resolveUserReadingVoice();
   const [peerGroup, setPeerGroup] = useState(initialPeerGroup);
   const [data, setData] = useState<CompetitorRadarResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -127,7 +129,7 @@ export default function CompetitorRadarModal({
       const streamUrl = await openArticleAudioStream(
         [data.spokenAudioScript],
         "en-NZ",
-        { en: preferredVoice || "en-NZ-MollyNeural", zh: "zh-CN-XiaoxiaoNeural" },
+        { en: activeVoice, zh: "zh-CN-XiaoxiaoNeural" },
         controller.signal,
         () => {},
       );

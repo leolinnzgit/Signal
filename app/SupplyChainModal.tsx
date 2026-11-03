@@ -8,6 +8,7 @@ import {
   type Chokepoint,
 } from "./supply-chain";
 import { openArticleAudioStream } from "./article-audio-stream";
+import { resolveUserReadingVoice } from "./headline-audio";
 import "./supply-chain.css";
 
 export interface SupplyChainModalProps {
@@ -30,8 +31,9 @@ export default function SupplyChainModal({
   isOpen,
   onClose,
   articles = [],
-  preferredVoice = "en-NZ-MollyNeural",
+  preferredVoice,
 }: SupplyChainModalProps) {
+  const activeVoice = preferredVoice || resolveUserReadingVoice();
   const [data, setData] = useState<SupplyChainResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [selectedRegion, setSelectedRegion] = useState("All Corridors");
@@ -125,7 +127,7 @@ export default function SupplyChainModal({
       const streamUrl = await openArticleAudioStream(
         [data.spokenAudioScript],
         "en-NZ",
-        { en: preferredVoice || "en-NZ-MollyNeural", zh: "zh-CN-XiaoxiaoNeural" },
+        { en: activeVoice, zh: "zh-CN-XiaoxiaoNeural" },
         controller.signal,
         () => {},
       );

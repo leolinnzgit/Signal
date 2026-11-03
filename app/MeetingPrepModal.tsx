@@ -7,6 +7,7 @@ import {
   type MeetingPrepResponse,
 } from "./meeting-prep";
 import { openArticleAudioStream } from "./article-audio-stream";
+import { resolveUserReadingVoice } from "./headline-audio";
 import "./meeting-prep.css";
 
 export interface MeetingPrepModalProps {
@@ -22,8 +23,9 @@ export default function MeetingPrepModal({
   onClose,
   initialEntity = "Fonterra",
   articles = [],
-  preferredVoice = "en-NZ-MollyNeural",
+  preferredVoice,
 }: MeetingPrepModalProps) {
+  const activeVoice = preferredVoice || resolveUserReadingVoice();
   const [entityInput, setEntityInput] = useState(initialEntity);
   const [data, setData] = useState<MeetingPrepResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -122,7 +124,7 @@ export default function MeetingPrepModal({
       const streamUrl = await openArticleAudioStream(
         [data.rapidFireAudioScript],
         "en-NZ",
-        { en: preferredVoice || "en-NZ-MollyNeural", zh: "zh-CN-XiaoxiaoNeural" },
+        { en: activeVoice, zh: "zh-CN-XiaoxiaoNeural" },
         controller.signal,
         () => {},
       );

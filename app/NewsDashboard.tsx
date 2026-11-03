@@ -112,7 +112,7 @@ import { getEntityIcon } from "./article-entities";
 import { getSuggestedTopics, type SuggestedTopic } from "./suggested-topics";
 import ArticleReadingText from "./ArticleReadingText";
 import { scrollReadingSectionIntoView } from "./article-reading-follow";
-import { preferScreenOffAudio, type ArticleNarrationSection } from "./headline-audio";
+import { preferScreenOffAudio, resolveUserReadingVoice, type ArticleNarrationSection } from "./headline-audio";
 import {
   normalizeSecondaryTimeZone,
   type SecondaryTimeZonePreference,
@@ -6542,6 +6542,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
             paragraphs: interrogateArticle.paragraphs || (interrogateArticle.summary ? [interrogateArticle.summary] : undefined),
           }}
           onClose={() => setInterrogateArticle(null)}
+          preferredVoice={resolveUserReadingVoice()}
         />
       )}
 
@@ -6610,6 +6611,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           excerpt={audiogramTarget.excerpt}
           source={audiogramTarget.source}
           url={audiogramTarget.url}
+          preferredVoice={resolveUserReadingVoice()}
         />
       )}
 
@@ -6631,6 +6633,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         <CommutePlaylistModal
           isOpen={commuteOpen}
           onClose={() => setCommuteOpen(false)}
+          preferredVoice={resolveUserReadingVoice()}
           briefing={dashboardBriefing}
           marketSentiment={{
             macroHeadline: dashboardBriefing?.marketGlance
@@ -6702,6 +6705,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           onClose={() => setMeetingPrepOpen(false)}
           initialEntity={articles[0]?.topics?.[0] || "Fonterra"}
           articles={articles}
+          preferredVoice={resolveUserReadingVoice()}
         />
       )}
 
@@ -6743,6 +6747,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           onClose={() => setCompetitorRadarOpen(false)}
           initialPeerGroup="Dairy & Agri-Export"
           articles={articles}
+          preferredVoice={resolveUserReadingVoice()}
         />
       )}
 
@@ -6753,6 +6758,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           initialIncidentTitle="Critical Supply Chain & Operational Disruption"
           affectedEntity={articles[0]?.topics?.[0] || "Primary Regional Operations"}
           articles={articles}
+          preferredVoice={resolveUserReadingVoice()}
         />
       )}
 
@@ -6762,6 +6768,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           onClose={() => setRegulatoryRadarOpen(false)}
           initialSector="All NZ/APAC Sectors"
           articles={articles}
+          preferredVoice={resolveUserReadingVoice()}
         />
       )}
 
@@ -6771,6 +6778,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           onClose={() => setClaimsArbiterOpen(false)}
           initialTopic={articles[0]?.title || "Reserve Bank Monetary Policy & Dairy Payout Forecasts"}
           articles={articles}
+          preferredVoice={resolveUserReadingVoice()}
         />
       )}
 
@@ -6779,6 +6787,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           isOpen={supplyChainOpen}
           onClose={() => setSupplyChainOpen(false)}
           articles={articles}
+          preferredVoice={resolveUserReadingVoice()}
         />
       )}
       <footer><p><span className="footer-dot" /> SIGNAL gathers public reporting and sends you to the original publisher.</p></footer>

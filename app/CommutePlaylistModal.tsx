@@ -8,6 +8,7 @@ import {
   type CommutePlaylist,
 } from "./commute-playlist";
 import { openArticleAudioStream } from "./article-audio-stream";
+import { resolveUserReadingVoice } from "./headline-audio";
 import "./commute-playlist.css";
 
 export interface CommutePlaylistModalProps {
@@ -31,11 +32,12 @@ export interface CommutePlaylistModalProps {
 export default function CommutePlaylistModal({
   isOpen,
   onClose,
-  preferredVoice = "en-NZ-MollyNeural",
+  preferredVoice,
   briefing,
   marketSentiment,
   stagedArticles = [],
 }: CommutePlaylistModalProps) {
+  const activeVoice = preferredVoice || resolveUserReadingVoice();
   const [playlist, setPlaylist] = useState<CommutePlaylist | null>(null);
   const [currentChapterIndex, setCurrentChapterIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -190,7 +192,7 @@ export default function CommutePlaylistModal({
         const streamUrl = await openArticleAudioStream(
           [activeChapter.narrationText],
           "en-NZ",
-          { en: preferredVoice || "en-NZ-MollyNeural", zh: "zh-CN-XiaoxiaoNeural" },
+          { en: activeVoice, zh: "zh-CN-XiaoxiaoNeural" },
           controller.signal,
           () => {},
         );

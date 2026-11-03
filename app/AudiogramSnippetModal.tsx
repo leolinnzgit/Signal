@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { drawAudiogramCard, copyAudiogramText } from "./audiogram-generator";
 import { openArticleAudioStream } from "./article-audio-stream";
+import { resolveUserReadingVoice } from "./headline-audio";
 import "./audiogram.css";
 
 export interface AudiogramSnippetModalProps {
@@ -22,8 +23,9 @@ export default function AudiogramSnippetModal({
   excerpt = "",
   source,
   url,
-  preferredVoice = "en-NZ-MollyNeural",
+  preferredVoice,
 }: AudiogramSnippetModalProps) {
+  const activeVoice = preferredVoice || resolveUserReadingVoice();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
@@ -95,7 +97,7 @@ export default function AudiogramSnippetModal({
       const streamUrl = await openArticleAudioStream(
         [quoteText],
         "en-NZ",
-        { en: preferredVoice, zh: "zh-CN-XiaoxiaoNeural" },
+        { en: activeVoice, zh: "zh-CN-XiaoxiaoNeural" },
         controller.signal,
         () => {},
       );

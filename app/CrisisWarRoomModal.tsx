@@ -7,6 +7,7 @@ import {
   type CrisisWarRoomResponse,
 } from "./crisis-war-room";
 import { openArticleAudioStream } from "./article-audio-stream";
+import { resolveUserReadingVoice } from "./headline-audio";
 import "./crisis-war-room.css";
 
 export interface CrisisWarRoomModalProps {
@@ -24,8 +25,9 @@ export default function CrisisWarRoomModal({
   initialIncidentTitle = "Critical Infrastructure Supply Chain Disruption",
   affectedEntity = "Primary Regional Operations",
   articles = [],
-  preferredVoice = "en-NZ-MollyNeural",
+  preferredVoice,
 }: CrisisWarRoomModalProps) {
+  const activeVoice = preferredVoice || resolveUserReadingVoice();
   const [data, setData] = useState<CrisisWarRoomResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState("");
@@ -120,7 +122,7 @@ export default function CrisisWarRoomModal({
       const streamUrl = await openArticleAudioStream(
         [data.urgentSituationScript],
         "en-NZ",
-        { en: preferredVoice || "en-NZ-MollyNeural", zh: "zh-CN-XiaoxiaoNeural" },
+        { en: activeVoice, zh: "zh-CN-XiaoxiaoNeural" },
         controller.signal,
         () => {},
       );
