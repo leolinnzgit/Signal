@@ -1,0 +1,426 @@
+/* Executive Supply Chain & Geopolitical Trade Chokepoint Tracker */
+
+.supply-chain-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 16, 28, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 1rem;
+}
+
+.supply-chain-modal {
+  background: #0b1324;
+  color: #f8fafc;
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 1rem;
+  max-width: 900px;
+  width: 100%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+  overflow: hidden;
+}
+
+.supply-chain-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(30, 41, 59, 0.6);
+}
+
+.supply-chain-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin: 0;
+  color: #38bdf8;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.supply-chain-close-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 1.5rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.375rem;
+}
+
+.supply-chain-close-btn:hover {
+  color: #f8fafc;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.supply-chain-body {
+  padding: 1.5rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+/* Macro Exposure Banner */
+.supply-chain-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.12), rgba(30, 41, 59, 0.6));
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 0.75rem;
+  padding: 1rem 1.25rem;
+  gap: 1rem;
+}
+
+.supply-chain-score-cluster {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.supply-chain-score-dial {
+  font-size: 2.25rem;
+  font-weight: 800;
+  color: #38bdf8;
+  line-height: 1;
+}
+
+.supply-chain-score-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.supply-chain-score-label {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.supply-chain-score-sub {
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+/* Vulnerability Grid */
+.supply-vulnerability-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.75rem;
+}
+
+.supply-vuln-card {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  text-align: center;
+}
+
+.supply-vuln-val {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #f59e0b;
+}
+
+.supply-vuln-label {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  margin-top: 0.25rem;
+}
+
+/* Audio Strip */
+.supply-chain-audio-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(135deg, rgba(2, 132, 199, 0.15), rgba(30, 41, 59, 0.6));
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  padding: 0.85rem 1.25rem;
+  border-radius: 0.75rem;
+  gap: 1rem;
+}
+
+.supply-chain-audio-info {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #e0f2fe;
+}
+
+.supply-chain-audio-btn {
+  background: #0284c7;
+  color: #fff;
+  border: none;
+  border-radius: 0.5rem;
+  padding: 0.5rem 1.1rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  white-space: nowrap;
+}
+
+.supply-chain-audio-btn:hover {
+  background: #0369a1;
+}
+
+/* Corridor Cards */
+.supply-chain-section-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #38bdf8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.supply-chokepoint-card {
+  background: rgba(30, 41, 59, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  transition: border-color 0.2s ease;
+}
+
+.supply-chokepoint-card.disrupted {
+  border-left: 4px solid #ef4444;
+}
+
+.supply-chokepoint-card.restricted {
+  border-left: 4px solid #f59e0b;
+}
+
+.supply-chokepoint-card.watch {
+  border-left: 4px solid #eab308;
+}
+
+.supply-chokepoint-card.normal {
+  border-left: 4px solid #10b981;
+}
+
+.supply-chokepoint-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.supply-chokepoint-name {
+  font-weight: 700;
+  font-size: 1rem;
+  color: #f8fafc;
+}
+
+.supply-chokepoint-region {
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+.supply-status-badge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.2rem 0.55rem;
+  border-radius: 0.25rem;
+  text-transform: uppercase;
+}
+
+.supply-status-badge.disrupted {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.supply-status-badge.restricted {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.supply-status-badge.watch {
+  background: rgba(234, 179, 8, 0.2);
+  color: #fde047;
+  border: 1px solid rgba(234, 179, 8, 0.4);
+}
+
+.supply-status-badge.normal {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.supply-details-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  background: rgba(15, 23, 42, 0.4);
+  padding: 0.6rem 0.85rem;
+  border-radius: 0.5rem;
+  font-size: 0.82rem;
+}
+
+.supply-detail-item {
+  color: #cbd5e1;
+}
+
+.supply-detail-item strong {
+  color: #94a3b8;
+}
+
+/* Carrier Table */
+.supply-carrier-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.supply-carrier-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 0.5rem;
+  padding: 0.65rem 0.85rem;
+  font-size: 0.85rem;
+}
+
+.supply-carrier-name {
+  font-weight: 700;
+  color: #38bdf8;
+}
+
+.supply-carrier-action {
+  color: #e2e8f0;
+}
+
+.supply-carrier-surcharge {
+  color: #f59e0b;
+  font-weight: 600;
+}
+
+/* Footer */
+.supply-chain-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(30, 41, 59, 0.6);
+}
+
+.supply-chain-copy-btn {
+  background: rgba(56, 189, 248, 0.15);
+  color: #e0f2fe;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.supply-chain-copy-btn:hover {
+  background: rgba(56, 189, 248, 0.25);
+  color: #fff;
+}
+
+.supply-chain-copy-feedback {
+  font-size: 0.85rem;
+  color: #4ade80;
+  font-weight: 600;
+}
+
+/* Mobile Responsiveness */
+@media (max-width: 640px) {
+  .supply-chain-backdrop {
+    padding: 0.5rem;
+  }
+
+  .supply-chain-modal {
+    max-height: 94vh;
+    border-radius: 0.75rem;
+  }
+
+  .supply-chain-header {
+    padding: 0.85rem 1rem;
+  }
+
+  .supply-chain-title {
+    font-size: 1.05rem;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+
+  .supply-chain-body {
+    padding: 0.85rem 1rem;
+    gap: 1rem;
+  }
+
+  .supply-chain-banner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.65rem;
+    padding: 0.75rem 1rem;
+  }
+
+  .supply-vulnerability-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+  }
+
+  .supply-chain-audio-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.65rem;
+    padding: 0.75rem 0.85rem;
+  }
+
+  .supply-chain-audio-btn {
+    width: 100%;
+    text-align: center;
+  }
+
+  .supply-chokepoint-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+  }
+
+  .supply-details-grid {
+    grid-template-columns: 1fr;
+    gap: 0.4rem;
+  }
+
+  .supply-carrier-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+  }
+
+  .supply-chain-footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+    padding: 0.85rem 1rem;
+  }
+
+  .supply-chain-copy-btn {
+    width: 100%;
+    text-align: center;
+  }
+}

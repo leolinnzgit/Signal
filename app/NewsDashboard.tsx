@@ -58,6 +58,7 @@ import CompetitorRadarModal from "./CompetitorRadarModal";
 import CrisisWarRoomModal from "./CrisisWarRoomModal";
 import RegulatoryRadarModal from "./RegulatoryRadarModal";
 import ClaimsArbiterModal from "./ClaimsArbiterModal";
+import SupplyChainModal from "./SupplyChainModal";
 import {
   fetchKeywordRules,
   isArticleMuted,
@@ -943,6 +944,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [crisisWarRoomOpen, setCrisisWarRoomOpen] = useState(false);
   const [regulatoryRadarOpen, setRegulatoryRadarOpen] = useState(false);
   const [claimsArbiterOpen, setClaimsArbiterOpen] = useState(false);
+  const [supplyChainOpen, setSupplyChainOpen] = useState(false);
 
   useEffect(() => {
     void fetchKeywordRules().then((rules) => {
@@ -4068,6 +4070,15 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           >
             ⚖️
           </button>
+          <button
+            type="button"
+            className="supply-chain-header-trigger"
+            onClick={() => setSupplyChainOpen(true)}
+            title="Global Supply Chain & Geopolitical Trade Chokepoints"
+            aria-label="Open Supply Chain Tracker"
+          >
+            🚢
+          </button>
           <div className="live-status"><span className="pulse" aria-hidden="true" />Live web briefing</div>
           {!appInstalled && (
             <button
@@ -6759,6 +6770,14 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           isOpen={claimsArbiterOpen}
           onClose={() => setClaimsArbiterOpen(false)}
           initialTopic={articles[0]?.title || "Reserve Bank Monetary Policy & Dairy Payout Forecasts"}
+          articles={articles}
+        />
+      )}
+
+      {supplyChainOpen && (
+        <SupplyChainModal
+          isOpen={supplyChainOpen}
+          onClose={() => setSupplyChainOpen(false)}
           articles={articles}
         />
       )}

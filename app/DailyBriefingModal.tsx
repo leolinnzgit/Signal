@@ -85,6 +85,7 @@ import CompetitorRadarModal from "./CompetitorRadarModal";
 import CrisisWarRoomModal from "./CrisisWarRoomModal";
 import RegulatoryRadarModal from "./RegulatoryRadarModal";
 import ClaimsArbiterModal from "./ClaimsArbiterModal";
+import SupplyChainModal from "./SupplyChainModal";
 import "./daily-briefing.css";
 
 function getWeatherIcon(code: number): string {
@@ -300,6 +301,7 @@ export default function DailyBriefingModal({
   const [crisisWarRoomOpen, setCrisisWarRoomOpen] = useState(false);
   const [regulatoryRadarOpen, setRegulatoryRadarOpen] = useState(false);
   const [claimsArbiterOpen, setClaimsArbiterOpen] = useState(false);
+  const [supplyChainOpen, setSupplyChainOpen] = useState(false);
   const [isOnline, setIsOnline] = useState<boolean>(() =>
     typeof navigator !== "undefined" ? navigator.onLine : true,
   );
@@ -1471,6 +1473,15 @@ export default function DailyBriefingModal({
             >
               ⚖️ Claims Arbiter
             </button>
+
+            <button
+              type="button"
+              className="briefing-toolbar-btn supply-chain-trigger-btn"
+              onClick={() => setSupplyChainOpen(true)}
+              title="Track global maritime trade chokepoints & supply chain disruption"
+            >
+              🚢 Supply Chain
+            </button>
           </div>
 
           {(shareFeedback || hostedShareUrl || memoEmailFeedback) && (
@@ -2489,6 +2500,15 @@ export default function DailyBriefingModal({
             isOpen={claimsArbiterOpen}
             onClose={() => setClaimsArbiterOpen(false)}
             initialTopic={briefing.leadStories[0]?.title || "Reserve Bank Monetary Policy & Dairy Payout Forecasts"}
+            articles={briefing.leadStories}
+            preferredVoice={activeAzureVoice}
+          />
+        )}
+
+        {supplyChainOpen && (
+          <SupplyChainModal
+            isOpen={supplyChainOpen}
+            onClose={() => setSupplyChainOpen(false)}
             articles={briefing.leadStories}
             preferredVoice={activeAzureVoice}
           />
