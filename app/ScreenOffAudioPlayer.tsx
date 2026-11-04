@@ -251,6 +251,7 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
   }, [suspended]);
 
   return <>
+    <div className="headline-player-content">
     <header className="headline-player-header">
       <span className="headline-player-label"><span className="pulse" aria-hidden="true" /> Screen-off audio</span>
       <div className="headline-player-header-actions">
@@ -295,12 +296,7 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
           onError={() => { setError("The audio could not be played. Try again or prepare a recording instead."); setPaused(true); }} />
         {track.streaming && !streamComplete && !error && <p role="status">Streaming audio · {preparedCount} of {articles.length} headlines generated. Skip controls become available as audio arrives.</p>}
         {error && <><p role="alert">{error}</p><button type="button" onClick={() => setPreparationAttempt((attempt) => attempt + 1)}>Try again</button></>}
-        <div className="headline-player-transport">
-          <button type="button" disabled={index === 0 || !canSeek(starts[index - 1])} onClick={() => move(-1)} aria-label="Previous headline">&#8592;</button>
-          <button type="button" className="headline-player-toggle" onClick={toggle} aria-label={paused ? "Play audio briefing" : "Pause audio briefing"}>{paused ? "Play" : "Pause"}</button>
-          <button type="button" disabled={index >= articles.length - 1 || !canSeek(starts[index + 1])} onClick={() => move(1)} aria-label="Next headline">&#8594;</button>
-          <label>Speaking speed <select value={rate} onChange={(event) => onRateChange(Number(event.target.value))}>{Array.from(new Set([0.8, 0.95, 1, 1.1, 1.2, rate])).sort().map((value) => <option key={value} value={value}>{value}×</option>)}</select></label>
-        </div>
+        <label>Speaking speed <select value={rate} onChange={(event) => onRateChange(Number(event.target.value))}>{Array.from(new Set([0.8, 0.95, 1, 1.1, 1.2, rate])).sort().map((value) => <option key={value} value={value}>{value}×</option>)}</select></label>
       </>}
       {readingVoices.streaming && <button type="button" onClick={() => {
         pause();
@@ -315,5 +311,11 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
       </details>}
       <button type="button" onClick={onExit}>Use browser voice</button>
     </div>
+    </div>
+    {track && <div className="headline-player-transport" role="group" aria-label="Headline playback controls">
+      <button type="button" disabled={index === 0 || !canSeek(starts[index - 1])} onClick={() => move(-1)} aria-label="Previous headline" title="Previous">&#8592;</button>
+      <button type="button" className="headline-player-toggle" onClick={toggle} aria-label={paused ? "Play audio briefing" : "Pause audio briefing"}>{paused ? "Play" : "Pause"}</button>
+      <button type="button" disabled={index >= articles.length - 1 || !canSeek(starts[index + 1])} onClick={() => move(1)} aria-label="Next headline" title="Next">&#8594;</button>
+    </div>}
   </>;
 }

@@ -285,6 +285,7 @@ export default function HeadlinePlayer({ articles, marketTopic, tickerOverrides 
   return createPortal(
     <>{miniPlayer}<div className="headline-player-backdrop" aria-hidden="true" style={hiddenStyle} />
     <section ref={dialog} className={playerClass} style={hiddenStyle} role="dialog" aria-modal={!minimized} aria-label="Unread headline playback">
+      <div className="headline-player-content">
       <header className="headline-player-header">
         <span className="headline-player-label"><span className="pulse" aria-hidden="true" /> {randomized ? "Random headlines" : "Unread headlines"}</span>
         <div className="headline-player-header-actions">
@@ -346,11 +347,6 @@ export default function HeadlinePlayer({ articles, marketTopic, tickerOverrides 
                 <option value={15}>15 seconds</option>
               </select>
             </label>
-            <div className="headline-player-transport">
-              <button type="button" disabled={index === 0} onClick={() => setIndex((current) => current - 1)} aria-label="Previous headline" title="Previous (←)">&#8592;</button>
-              <button type="button" className="headline-player-toggle" onClick={() => setPaused((current) => !current)} aria-label={paused ? "Resume headline playback" : "Pause headline playback"}>{paused ? "Resume" : "Pause"}</button>
-              <button type="button" onClick={() => setIndex((current) => current + 1)} aria-label={index === articles.length - 1 ? "Finish headline playback" : "Next headline"} title="Next (→)">&#8594;</button>
-            </div>
             <div className="headline-player-audio">
               <button type="button" onClick={() => { pausePlayback(); setScreenOffAudio(true); }}>Screen-off audio</button>
               <button
@@ -399,6 +395,12 @@ export default function HeadlinePlayer({ articles, marketTopic, tickerOverrides 
           </details>
         </div>
       )}
+      </div>
+      {!completed && <div className="headline-player-transport" role="group" aria-label="Headline playback controls">
+        <button type="button" disabled={index === 0} onClick={() => setIndex((current) => current - 1)} aria-label="Previous headline" title="Previous (←)">&#8592;</button>
+        <button type="button" className="headline-player-toggle" onClick={() => setPaused((current) => !current)} aria-label={paused ? "Resume headline playback" : "Pause headline playback"}>{paused ? "Resume" : "Pause"}</button>
+        <button type="button" onClick={() => setIndex((current) => current + 1)} aria-label={index === articles.length - 1 ? "Finish headline playback" : "Next headline"} title="Next (→)">&#8594;</button>
+      </div>}
     </section></>,
     document.body,
   );
