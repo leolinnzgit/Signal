@@ -6472,15 +6472,16 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         onOpenArticle={(art) => openArticleReader(art, readerCloseButton.current ?? document.body)}
         onListenArticle={(art) => openArticleReader(art, readerCloseButton.current ?? document.body, true)}
       />
-      <ErrorBoundary
-        name="Executive Daily Briefing"
-        onReset={() => {
-          setDailyBriefingMinimized(false);
-          setDailyBriefingOpen(false);
-          setDailyBriefingCarMode(false);
-        }}
-      >
-        <DailyBriefingModal
+      {(dailyBriefingOpen || dailyBriefingMinimized) && (
+        <ErrorBoundary
+          name="Executive Daily Briefing"
+          onReset={() => {
+            setDailyBriefingMinimized(false);
+            setDailyBriefingOpen(false);
+            setDailyBriefingCarMode(false);
+          }}
+        >
+          <DailyBriefingModal
           isOpen={dailyBriefingOpen}
           onClose={() => {
             setDailyBriefingMinimized(false);
@@ -6544,6 +6545,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         userTime={currentTime ?? undefined}
       />
       </ErrorBoundary>
+      )}
       {interrogateArticle && (
         <ArticleInterrogationModal
           article={{

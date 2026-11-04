@@ -555,8 +555,6 @@ export default function DailyBriefingModal({
     void playBriefingFromChapter(0);
   }, [autoPlayOnOpen, isOpen, onAutoPlayConsumed, playBriefingFromChapter]);
 
-  if (!isOpen) return null;
-
   const isAudioActive = speech.status === "starting" || speech.status === "playing";
   const isQaAudioActive = qaSpeech.status === "starting" || qaSpeech.status === "playing";
   const chapters = briefing.chapters || [];
@@ -566,20 +564,6 @@ export default function DailyBriefingModal({
     chapters[speech.activeChapterIndex]
       ? chapters[speech.activeChapterIndex]
       : null;
-
-  if (isMinimized) {
-    const chapterSuffix = activeChapter ? ` · ${activeChapter.icon} ${activeChapter.label}` : "";
-    return (
-      <MinimizedAudioPlayer
-        title={`Executive Briefing (${briefing.edition})${chapterSuffix}`}
-        onRestore={() => setMinimized(false)}
-        onClose={() => {
-          setMinimized(false);
-          onClose();
-        }}
-      />
-    );
-  }
 
   const handleAudioToggle = () => {
     if (isAudioActive) {
@@ -962,6 +946,22 @@ export default function DailyBriefingModal({
     briefing.marketWatchlistGlance && briefing.marketWatchlistGlance.length > 1
       ? briefing.marketWatchlistGlance.slice(1, 5)
       : [];
+
+  if (!isOpen) return null;
+
+  if (isMinimized) {
+    const chapterSuffix = activeChapter ? ` · ${activeChapter.icon} ${activeChapter.label}` : "";
+    return (
+      <MinimizedAudioPlayer
+        title={`Executive Briefing (${briefing.edition})${chapterSuffix}`}
+        onRestore={() => setMinimized(false)}
+        onClose={() => {
+          setMinimized(false);
+          onClose();
+        }}
+      />
+    );
+  }
 
   return (
     <dialog
