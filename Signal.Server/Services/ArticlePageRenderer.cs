@@ -38,6 +38,7 @@ public sealed class ArticlePageRenderer(
             {
                 AcceptDownloads = false,
                 ServiceWorkers = ServiceWorkerPolicy.Block,
+                UserAgent = ArticleReaderService.BrowserUserAgent,
             });
             using var client = clients.CreateClient(HttpClientName);
             // Route every request through our HTTP client: Chromium never follows an

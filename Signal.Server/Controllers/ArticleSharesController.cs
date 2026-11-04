@@ -189,6 +189,66 @@ public sealed class ArticleSharesController(
         if (article is null)
             return new ContentResult { StatusCode = 404, ContentType = "text/html; charset=utf-8",
                 Content = SharedArticlePage.RenderMissing() };
+        if (article.SummaryOnly && !string.IsNullOrWhiteSpace(article.OriginalUrl))
+        {
+            try
+            {
+                var result = await reader.ReadAsync(article.OriginalUrl, token);
+                if (result.Available && result.Article is { } extracted && extracted.Paragraphs.Count > 0)
+                {
+                    var paragraphs = extracted.Paragraphs.ToArray();
+                    if (piiService is not null)
+                    {
+                        var sanitized = new List<string>(paragraphs.Length);
+                        var changed = false;
+                        foreach (var para in paragraphs)
+                        {
+                            var pii = await piiService.AnalyzeAndRedactAsync(para, token);
+                            if (pii.HasHighRiskPii)
+                            {
+                                sanitized.Add(pii.RedactedText);
+                                changed = true;
+                            }
+                            else
+                            {
+                                sanitized.Add(para);
+                            }
+                        }
+                        if (changed) paragraphs = sanitized.ToArray();
+                    }
+
+                    var paragraphsJson = JsonSerializer.Serialize(paragraphs);
+                    var byline = string.IsNullOrWhiteSpace(article.Byline) ? extracted.Byline : article.Byline;
+                    var updatedArticle = new SharedNewsArticle
+                    {
+                        OriginalUrl = article.OriginalUrl,
+                        DiscussionUrl = article.DiscussionUrl,
+                        Title = article.Title,
+                        Source = article.Source,
+                        Byline = byline,
+                        Language = article.Language,
+                        ParagraphsJson = paragraphsJson,
+                        SummaryOnly = false
+                    };
+                    var contentHash = ContentHash(updatedArticle);
+
+                    await database.SharedNewsArticles
+                        .Where(item => item.Id == id && item.SummaryOnly)
+                        .ExecuteUpdateAsync(update => update
+                            .SetProperty(item => item.Byline, byline)
+                            .SetProperty(item => item.ParagraphsJson, paragraphsJson)
+                            .SetProperty(item => item.ContentHash, contentHash)
+                            .SetProperty(item => item.SummaryOnly, false), token);
+
+                    article = await database.SharedNewsArticles.AsNoTracking().SingleOrDefaultAsync(item => item.Id == id, token) ?? updatedArticle;
+                }
+            }
+            catch (Exception exception)
+            {
+                logger.LogInformation("Automatic upgrade for summary-only share failed ({FailureType}).", exception.GetType().Name);
+            }
+        }
+
         return Content(SharedArticlePage.Render(article, $"{Request.PathBase}/"), "text/html; charset=utf-8");
     }
 }

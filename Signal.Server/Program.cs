@@ -253,7 +253,7 @@ builder.Services.AddHttpClient(AzureLanguageSummaryService.HttpClientName, clien
 builder.Services.AddHttpClient(ArticlePageRenderer.HttpClientName, client =>
 {
     client.Timeout = TimeSpan.FromSeconds(8);
-    client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (compatible; SignalReader/2.0)");
+    client.DefaultRequestHeaders.UserAgent.ParseAdd(ArticleReaderService.BrowserUserAgent);
 }).ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
 {
     AllowAutoRedirect = false,
@@ -264,8 +264,7 @@ builder.Services.AddHttpClient(ArticlePageRenderer.HttpClientName, client =>
 builder.Services.AddHttpClient<ArticleReaderService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(20);
-    client.DefaultRequestHeaders.UserAgent.ParseAdd(
-        "Mozilla/5.0 (compatible; SignalReader/2.0; +https://github.com/leolinnzgit/Signal)");
+    client.DefaultRequestHeaders.UserAgent.ParseAdd(ArticleReaderService.BrowserUserAgent);
 }).ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
 {
     AllowAutoRedirect = false,

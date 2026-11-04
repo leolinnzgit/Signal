@@ -30,6 +30,7 @@ public sealed class ArticleReaderService(
     internal const string GoogleNewsResolutionReason = "Google News did not provide the publisher link this time. Try again later, or open the original story.";
     internal const string PublisherBlockedReason = "This publisher blocked Signal Reader's request. Open the original article in your browser to read it.";
     internal const string BotProtectionReason = "This publisher's bot protection blocked Signal Reader. Open the original article in your browser to read it.";
+    internal const string BrowserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
     private const int MaximumArticleBytes = 2_000_000;
     private const int MaximumParagraphs = 80;
@@ -103,7 +104,13 @@ public sealed class ArticleReaderService(
         for (var redirectCount = 0; redirectCount <= MaximumRedirects; redirectCount++)
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, currentUri);
-            request.Headers.Accept.ParseAdd("text/html,application/xhtml+xml;q=0.9,*/*;q=0.8");
+            request.Headers.Accept.ParseAdd("text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8");
+            request.Headers.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
+            if (!request.Headers.UserAgent.Any())
+            {
+                request.Headers.UserAgent.ParseAdd(BrowserUserAgent);
+            }
+            request.Headers.TryAddWithoutValidation("Upgrade-Insecure-Requests", "1");
             using var response = await httpClient.SendAsync(
                 request,
                 HttpCompletionOption.ResponseHeadersRead,
@@ -150,7 +157,13 @@ public sealed class ArticleReaderService(
             using var request = new HttpRequestMessage(HttpMethod.Get, currentUri);
             // Some publishers return HTTP 406 without a general fallback, even
             // though they serve HTML. Keep HTML preferred and validate the response below.
-            request.Headers.Accept.ParseAdd("text/html,application/xhtml+xml;q=0.9,*/*;q=0.8");
+            request.Headers.Accept.ParseAdd("text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8");
+            request.Headers.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
+            if (!request.Headers.UserAgent.Any())
+            {
+                request.Headers.UserAgent.ParseAdd(BrowserUserAgent);
+            }
+            request.Headers.TryAddWithoutValidation("Upgrade-Insecure-Requests", "1");
             using var response = await httpClient.SendAsync(
                 request,
                 HttpCompletionOption.ResponseHeadersRead,
