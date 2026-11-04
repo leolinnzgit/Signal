@@ -4,6 +4,7 @@ import {
   formatClockDisplay,
   shouldAlarmTrigger,
   calculateSnoozeAlarmTime,
+  calculateTimeUntilAlarm,
   CHIME_FREQUENCIES,
   playHarmonicChime,
   checkBedsideBriefingAudioCache,
@@ -33,11 +34,48 @@ test("formatClockDisplay formats 24h and 12h times and pads zeros", () => {
   assert.equal(eveningDisplay.timeString24, "19:45");
 });
 
-test("shouldAlarmTrigger validates exact HH:MM match at 0th second", () => {
-  assert.equal(shouldAlarmTrigger("07:00", 0, "07:00", false), true);
-  assert.equal(shouldAlarmTrigger("07:00", 5, "07:00", false), false, "Must only trigger at second 0");
-  assert.equal(shouldAlarmTrigger("07:00", 0, "07:00", true), false, "Must not re-trigger if already ringing");
-  assert.equal(shouldAlarmTrigger("06:59", 0, "07:00", false), false, "Must not trigger when time does not match");
+test("shouldAlarmTrigger validates exact HH:MM match at 0th second and checks isEnabled", () => {
+  assert.equal(shouldAlarmTrigger("07:00", 0, "07:00", false, true), true);
+  assert.equal(shouldAlarmTrigger("07:00", 0, "07:00", false, false), false, "Must not trigger when alarm is disabled");
+  assert.equal(shouldAlarmTrigger("07:00", 5, "07:00", false, true), false, "Must only trigger at second 0");
+  assert.equal(shouldAlarmTrigger("07:00", 0, "07:00", true, true), false, "Must not re-trigger if already ringing");
+  assert.equal(shouldAlarmTrigger("06:59", 0, "07:00", false, true), false, "Must not trigger when time does not match");
+});
+
+test("calculateTimeUntilAlarm calculates remaining hours and minutes correctly", () => {
+  // Same day future alarm: 07:00 -> 08:30 (1h 30m)
+  const morning = new Date(2026, 10, 2, 7, 0, 0);
+  const res1 = calculateTimeUntilAlarm("08:30", morning);
+  assert.equal(res1.hours, 1);
+  assert.equal(res1.minutes, 30);
+  assert.equal(res1.formatted, "in 1h 30m");
+
+  // Overnight rollover alarm: 23:15 -> 07:00 (7h 45m)
+  const night = new Date(2026, 10, 2, 23, 15, 0);
+  const res2 = calculateTimeUntilAlarm("07:00", night);
+  assert.equal(res2.hours, 7);
+  assert.equal(res2.minutes, 45);
+  assert.equal(res2.formatted, "in 7h 45m");
+
+  // Less than 1 hour away: 06:40 -> 07:00 (20m)
+  const close = new Date(2026, 10, 2, 6, 40, 0);
+  const res3 = calculateTimeUntilAlarm("07:00", close);
+  assert.equal(res3.hours, 0);
+  assert.equal(res3.minutes, 20);
+  assert.equal(res3.formatted, "in 20m");
+
+  // Next day same time: 07:00 -> 07:00 (24h)
+  const rightNow = new Date(2026, 10, 2, 7, 0, 0);
+  const res4 = calculateTimeUntilAlarm("07:00", rightNow);
+  assert.equal(res4.hours, 24);
+  assert.equal(res4.formatted, "in 24h");
+
+  // 1 minute away: 06:59 -> 07:00 (1m)
+  const oneMin = new Date(2026, 10, 2, 6, 59, 0);
+  const res5 = calculateTimeUntilAlarm("07:00", oneMin);
+  assert.equal(res5.hours, 0);
+  assert.equal(res5.minutes, 1);
+  assert.equal(res5.formatted, "in 1m");
 });
 
 test("calculateSnoozeAlarmTime calculates rollover and pad zeros", () => {

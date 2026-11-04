@@ -68,6 +68,7 @@ import {
   type KeywordRules,
 } from "./noise-cancellation";
 import DailyBriefingModal, { type OfflinePackDownloadStatus } from "./DailyBriefingModal";
+import ErrorBoundary from "./ErrorBoundary";
 import {
   buildDailyBriefing,
   dispatchWakeUpBriefingNotification,
@@ -5089,7 +5090,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                   }`}
                 >
                   {item.percentChange > 0 ? "+" : ""}
-                  {item.percentChange.toFixed(2)}%
+                  {(item.percentChange ?? 0).toFixed(2)}%
                 </span>
               </button>
             ))}
@@ -5101,9 +5102,9 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                     <span
                       key={alert.symbol}
                       className={`portfolio-alert-badge ${alert.alertDirection ?? "up"}`}
-                      title={`${alert.displayName || alert.symbol} moved ${alert.quote?.percentChange.toFixed(2)}%, exceeding your threshold of ±${alert.alertThresholdPercent}%`}
+                      title={`${alert.displayName || alert.symbol} moved ${(alert.quote?.percentChange ?? 0).toFixed(2)}%, exceeding your threshold of ±${alert.alertThresholdPercent}%`}
                     >
-                      🚨 {alert.displayName || alert.symbol} {alert.quote ? `${alert.quote.percentChange >= 0 ? "+" : ""}${alert.quote.percentChange.toFixed(1)}%` : ""} (&plusmn;{alert.alertThresholdPercent}%)
+                      🚨 {alert.displayName || alert.symbol} {alert.quote ? `${(alert.quote.percentChange ?? 0) >= 0 ? "+" : ""}${(alert.quote.percentChange ?? 0).toFixed(1)}%` : ""} (&plusmn;{alert.alertThresholdPercent}%)
                     </span>
                   ))}
               </span>
@@ -6471,21 +6472,30 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         onOpenArticle={(art) => openArticleReader(art, readerCloseButton.current ?? document.body)}
         onListenArticle={(art) => openArticleReader(art, readerCloseButton.current ?? document.body, true)}
       />
-      <DailyBriefingModal
-        isOpen={dailyBriefingOpen}
-        onClose={() => {
+      <ErrorBoundary
+        name="Executive Daily Briefing"
+        onReset={() => {
           setDailyBriefingMinimized(false);
           setDailyBriefingOpen(false);
-          if (articles.length > 0) {
-            saveVisitCheckpoint(
-              createVisitCheckpoint({
-                articles,
-                pulse,
-                marketWatchlist,
-              }),
-            );
-          }
+          setDailyBriefingCarMode(false);
         }}
+      >
+        <DailyBriefingModal
+          isOpen={dailyBriefingOpen}
+          onClose={() => {
+            setDailyBriefingMinimized(false);
+            setDailyBriefingOpen(false);
+            setDailyBriefingCarMode(false);
+            if (articles.length > 0) {
+              saveVisitCheckpoint(
+                createVisitCheckpoint({
+                  articles,
+                  pulse,
+                  marketWatchlist,
+                }),
+              );
+            }
+          }}
         weather={weatherStatus === "ready" ? localWeather : null}
         forecast={weatherForecast}
         alerts={activeWeatherAlerts}
@@ -6533,6 +6543,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         onListenArticle={(art) => openArticleReader(art, readerCloseButton.current ?? document.body, true)}
         userTime={currentTime ?? undefined}
       />
+      </ErrorBoundary>
       {interrogateArticle && (
         <ArticleInterrogationModal
           article={{
@@ -6579,6 +6590,19 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           onClose={() => setClockRadioOpen(false)}
           weather={weatherStatus === "ready" ? localWeather : null}
           alarmTime={briefingSchedule.time}
+          alarmEnabled={briefingSchedule.enabled}
+          onChangeAlarmTime={(time) => {
+            const next = { ...briefingSchedule, time };
+            setBriefingSchedule(next);
+            syncBriefingPreferencesToServer({ schedule: next });
+          }}
+          onToggleAlarm={(enabled) => {
+            const next = { ...briefingSchedule, enabled };
+            setBriefingSchedule(next);
+            syncBriefingPreferencesToServer({ schedule: next });
+          }}
+          briefingData={dashboardBriefing}
+          briefingLanguage={briefingLanguage}
           onTriggerBriefing={() => {
             setDailyBriefingMinimized(false);
             setDailyBriefingOpen(true);

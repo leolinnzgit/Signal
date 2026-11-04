@@ -86,6 +86,7 @@ import CrisisWarRoomModal from "./CrisisWarRoomModal";
 import RegulatoryRadarModal from "./RegulatoryRadarModal";
 import ClaimsArbiterModal from "./ClaimsArbiterModal";
 import SupplyChainModal from "./SupplyChainModal";
+import ErrorBoundary from "./ErrorBoundary";
 import "./daily-briefing.css";
 
 function getWeatherIcon(code: number): string {
@@ -261,6 +262,10 @@ export default function DailyBriefingModal({
 
   const [schedulePanelOpen, setSchedulePanelOpen] = useState(false);
   const [carModeOpen, setCarModeOpen] = useState(Boolean(initialCarMode));
+
+  useEffect(() => {
+    setCarModeOpen(Boolean(initialCarMode));
+  }, [initialCarMode]);
   const [deepDiveEpisode, setDeepDiveEpisode] = useState<DeepDiveEpisode | null>(null);
   const [deepDiveLoading, setDeepDiveLoading] = useState(false);
   const [deepDiveOpen, setDeepDiveOpen] = useState(false);
@@ -511,18 +516,23 @@ export default function DailyBriefingModal({
     const dialog = dialogRef.current;
     if (!isOpen || isMinimized) {
       if (dialog && dialog.open) {
-        dialog.close();
+        try {
+          dialog.close();
+        } catch {}
       }
       return;
     }
 
     if (dialog && !dialog.open) {
-      dialog.showModal();
+      try {
+        dialog.showModal();
+      } catch {}
     }
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
+        setCarModeOpen(false);
         onClose();
       }
     };
@@ -530,6 +540,11 @@ export default function DailyBriefingModal({
     window.addEventListener("keydown", handleKeyDown);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
+      if (dialog && dialog.open) {
+        try {
+          dialog.close();
+        } catch {}
+      }
     };
   }, [isMinimized, isOpen, onClose]);
 
@@ -953,13 +968,25 @@ export default function DailyBriefingModal({
       ref={dialogRef}
       className="daily-briefing-dialog"
       aria-labelledby="daily-briefing-title"
+      open={isOpen && !isMinimized}
+      onCancel={(e) => {
+        e.preventDefault();
+        setCarModeOpen(false);
+        onClose();
+      }}
+      onClose={() => {
+        setCarModeOpen(false);
+        onClose();
+      }}
       onMouseDown={(e) => {
         if (e.target === dialogRef.current) {
+          setCarModeOpen(false);
           onClose();
         }
       }}
     >
-      <div className="daily-briefing-card">
+      <ErrorBoundary name="Executive Daily Briefing" onReset={onClose}>
+        <div className="daily-briefing-card">
         {/* Header */}
         <header className="daily-briefing-header">
           <div className="daily-briefing-title-group">
@@ -1689,7 +1716,7 @@ export default function DailyBriefingModal({
                 >
                   {swing.deltaPercent >= 0 ? "▲" : "▼"} {swing.symbol}{" "}
                   {swing.deltaPercent >= 0 ? "+" : ""}
-                  {swing.deltaPercent.toFixed(1)}%
+                  {(swing.deltaPercent ?? 0).toFixed(1)}%
                 </span>
               ))}
             </div>
@@ -1768,9 +1795,9 @@ export default function DailyBriefingModal({
                         <span
                           key={alert.symbol}
                           className={`portfolio-alert-badge ${alert.alertDirection ?? "up"}`}
-                          title={`${alert.displayName || alert.symbol} moved ${alert.quote?.percentChange.toFixed(2)}%, exceeding threshold of ${alert.alertThresholdPercent}%`}
+                          title={`${alert.displayName || alert.symbol} moved ${(alert.quote?.percentChange ?? 0).toFixed(2)}%, exceeding threshold of ${alert.alertThresholdPercent}%`}
                         >
-                          🚨 {alert.displayName || alert.symbol} {alert.quote ? `${alert.quote.percentChange >= 0 ? "+" : ""}${alert.quote.percentChange.toFixed(1)}%` : ""} (Threshold &plusmn;{alert.alertThresholdPercent}%)
+                          🚨 {alert.displayName || alert.symbol} {alert.quote ? `${(alert.quote.percentChange ?? 0) >= 0 ? "+" : ""}${(alert.quote.percentChange ?? 0).toFixed(1)}%` : ""} (Threshold &plusmn;{alert.alertThresholdPercent}%)
                         </span>
                       ))}
                   </div>
@@ -1808,7 +1835,7 @@ export default function DailyBriefingModal({
                       }`}
                     >
                       {briefing.marketGlance.change > 0 ? "+" : ""}
-                      {briefing.marketGlance.percentChange.toFixed(2)}%
+                      {(briefing.marketGlance.percentChange ?? 0).toFixed(2)}%
                     </span>
                   </div>
                   <MarketSparkline
@@ -1889,7 +1916,7 @@ export default function DailyBriefingModal({
                         />
                         <span>
                           {item.percentChange > 0 ? "+" : ""}
-                          {item.percentChange.toFixed(1)}%
+                          {(item.percentChange ?? 0).toFixed(1)}%
                         </span>
                       </span>
                     ))}
@@ -1904,9 +1931,9 @@ export default function DailyBriefingModal({
                         <span
                           key={alert.symbol}
                           className={`portfolio-alert-badge ${alert.alertDirection ?? "up"}`}
-                          title={`${alert.displayName || alert.symbol} moved ${alert.quote?.percentChange.toFixed(2)}%, exceeding threshold of ${alert.alertThresholdPercent}%`}
+                          title={`${alert.displayName || alert.symbol} moved ${(alert.quote?.percentChange ?? 0).toFixed(2)}%, exceeding threshold of ${alert.alertThresholdPercent}%`}
                         >
-                          🚨 {alert.displayName || alert.symbol} {alert.quote ? `${alert.quote.percentChange >= 0 ? "+" : ""}${alert.quote.percentChange.toFixed(1)}%` : ""} (Threshold &plusmn;{alert.alertThresholdPercent}%)
+                          🚨 {alert.displayName || alert.symbol} {alert.quote ? `${(alert.quote.percentChange ?? 0) >= 0 ? "+" : ""}${(alert.quote.percentChange ?? 0).toFixed(1)}%` : ""} (Threshold &plusmn;{alert.alertThresholdPercent}%)
                         </span>
                       ))}
                   </div>
@@ -2332,6 +2359,9 @@ export default function DailyBriefingModal({
             onClose={() => setClockRadioOpen(false)}
             weather={briefing.weatherGlance}
             alarmTime={schedule.time}
+            alarmEnabled={schedule.enabled}
+            onChangeAlarmTime={(time) => onChangeSchedule?.({ ...schedule, time })}
+            onToggleAlarm={(enabled) => onChangeSchedule?.({ ...schedule, enabled })}
             onTriggerBriefing={() => void playBriefingFromChapter(0)}
             briefingTitle={`Signal ${briefing.edition} Briefing`}
             briefingData={briefing}
@@ -2526,6 +2556,7 @@ export default function DailyBriefingModal({
           />
         )}
       </div>
-    </dialog>
+    </ErrorBoundary>
+  </dialog>
   );
 }

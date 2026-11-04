@@ -54,12 +54,136 @@
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.4rem 0.85rem;
-  background: rgba(30, 41, 59, 0.6);
-  border: 1px solid rgba(148, 163, 184, 0.2);
+  padding: 0.35rem 0.75rem;
+  background: rgba(30, 41, 59, 0.65);
+  border: 1px solid rgba(148, 163, 184, 0.25);
   border-radius: 9999px;
   font-size: 0.85rem;
   font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.clock-alarm-pill.alarm-on {
+  border-color: rgba(56, 189, 248, 0.45);
+  background: rgba(14, 165, 233, 0.12);
+}
+
+.clock-alarm-pill.alarm-off {
+  border-color: rgba(148, 163, 184, 0.2);
+  opacity: 0.75;
+}
+
+.clock-alarm-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0.15rem 0.3rem;
+  border-radius: 6px;
+  transition: background 0.2s ease;
+}
+
+.clock-alarm-toggle-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.clock-alarm-pill.alarm-on .alarm-status-label {
+  color: #38bdf8;
+}
+
+.clock-alarm-pill.alarm-off .alarm-status-label {
+  color: #94a3b8;
+}
+
+.clock-alarm-time-wrap {
+  display: inline-flex;
+  align-items: center;
+}
+
+.clock-alarm-time-input {
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  color: inherit;
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  border-radius: 6px;
+  padding: 0.15rem 0.4rem;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.clock-alarm-time-input:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+}
+
+.clock-alarm-countdown {
+  font-size: 0.75rem;
+  font-weight: 600;
+  opacity: 0.75;
+  padding-left: 0.2rem;
+  white-space: nowrap;
+}
+
+.night-mode .clock-alarm-pill.alarm-on {
+  background: rgba(234, 88, 12, 0.15);
+  border-color: rgba(234, 88, 12, 0.45);
+}
+
+.night-mode .clock-alarm-pill.alarm-on .alarm-status-label {
+  color: #ea580c;
+}
+
+.night-mode .clock-alarm-time-input {
+  background: rgba(20, 10, 0, 0.8);
+  border-color: rgba(234, 88, 12, 0.35);
+  color: #ea580c;
+}
+
+.night-mode .clock-alarm-time-input:focus {
+  border-color: #ea580c;
+  box-shadow: 0 0 0 2px rgba(234, 88, 12, 0.25);
+}
+
+.clock-purpose-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  opacity: 0.65;
+  margin-bottom: 0.75rem;
+}
+
+.clock-purpose-tag .dot-sep {
+  opacity: 0.4;
+}
+
+.clock-stop-alarm-btn {
+  background: #dc2626;
+  color: #ffffff;
+  border: none;
+  border-radius: 9999px;
+  padding: 0.85rem 1.6rem;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  animation: pulse-stop-btn 1s infinite alternate;
+  box-shadow: 0 4px 15px rgba(220, 38, 38, 0.5);
+}
+
+@keyframes pulse-stop-btn {
+  from { transform: scale(1); }
+  to { transform: scale(1.05); }
 }
 
 .clock-cache-badge {

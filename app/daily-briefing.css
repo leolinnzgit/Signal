@@ -1,5 +1,7 @@
 /* Daily Executive Briefing Dialog */
 .daily-briefing-dialog {
+  position: fixed;
+  inset: 0;
   border: none;
   background: transparent;
   padding: 0;
@@ -9,6 +11,7 @@
   margin: auto;
   border-radius: 16px;
   box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.6);
+  z-index: 10000;
 }
 
 .daily-briefing-dialog::backdrop {

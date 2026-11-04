@@ -51,9 +51,43 @@ export function shouldAlarmTrigger(
   currentSeconds: number,
   alarmTime: string,
   isAlreadyRinging: boolean,
+  isEnabled: boolean = true,
 ): boolean {
+  if (!isEnabled) return false;
   if (isAlreadyRinging) return false;
   return currentTimeStr === alarmTime && currentSeconds === 0;
+}
+
+export function calculateTimeUntilAlarm(
+  alarmTime: string,
+  currentTime: Date = new Date(),
+): { hours: number; minutes: number; formatted: string } {
+  const parts = (alarmTime || "07:00").split(":");
+  const targetH = Number(parts[0]) || 0;
+  const targetM = Number(parts[1]) || 0;
+  const nowH = currentTime.getHours();
+  const nowM = currentTime.getMinutes();
+
+  let diffMinutes = targetH * 60 + targetM - (nowH * 60 + nowM);
+  if (diffMinutes <= 0) {
+    diffMinutes += 24 * 60; // Next occurrence
+  }
+
+  const hours = Math.floor(diffMinutes / 60);
+  const minutes = diffMinutes % 60;
+
+  let formatted = "";
+  if (hours > 0 && minutes > 0) {
+    formatted = `in ${hours}h ${minutes}m`;
+  } else if (hours > 0) {
+    formatted = `in ${hours}h`;
+  } else if (minutes > 0) {
+    formatted = `in ${minutes}m`;
+  } else {
+    formatted = "in < 1m";
+  }
+
+  return { hours, minutes, formatted };
 }
 
 export function calculateSnoozeAlarmTime(currentTime: Date = new Date(), snoozeMinutes: number = 10): string {

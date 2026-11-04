@@ -5063,3 +5063,76 @@ html:has(.listening-library-dialog[open]) { overflow: hidden; }
   .listening-library-tabs { padding: 0 1rem 1rem; }
   .listening-library-body { padding: 1rem; max-height: calc(100dvh - 190px); }
 }
+
+/* Fallback Error Boundary Card */
+.error-boundary-card {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(10, 15, 26, 0.82);
+  backdrop-filter: blur(8px);
+}
+
+.error-boundary-content {
+  background: var(--card-background, #171923);
+  color: var(--page-text, #f1f5f9);
+  border: 1px solid var(--line, #334155);
+  border-radius: 16px;
+  padding: 2rem;
+  max-width: 480px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.5);
+}
+
+.error-boundary-icon {
+  font-size: 2.5rem;
+  margin-bottom: 0.75rem;
+  display: block;
+}
+
+.error-boundary-content h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+.error-boundary-msg {
+  color: var(--text-muted, #94a3b8);
+  font-size: 0.88rem;
+  margin: 0 0 1.5rem;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.error-boundary-actions {
+  display: flex;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+.error-boundary-btn {
+  padding: 0.5rem 1.25rem;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  border: 1px solid var(--line, #475569);
+  background: var(--surface-subtle, rgba(255, 255, 255, 0.05));
+  color: var(--page-text, #f1f5f9);
+}
+
+.error-boundary-btn.retry {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  color: #ffffff;
+}
+
+.error-boundary-btn:hover {
+  filter: brightness(1.1);
+}
+
