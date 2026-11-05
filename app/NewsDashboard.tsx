@@ -61,6 +61,8 @@ import ClaimsArbiterModal from "./ClaimsArbiterModal";
 import SupplyChainModal from "./SupplyChainModal";
 import CyberIncidentModal from "./CyberIncidentModal";
 import SanctionsRadarModal from "./SanctionsRadarModal";
+import KnowledgeGraphModal from "./KnowledgeGraphModal";
+import HorizonScannerModal from "./HorizonScannerModal";
 import {
   fetchKeywordRules,
   isArticleMuted,
@@ -950,6 +952,8 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [supplyChainOpen, setSupplyChainOpen] = useState(false);
   const [cyberIncidentOpen, setCyberIncidentOpen] = useState(false);
   const [sanctionsRadarOpen, setSanctionsRadarOpen] = useState(false);
+  const [knowledgeGraphOpen, setKnowledgeGraphOpen] = useState(false);
+  const [horizonScannerOpen, setHorizonScannerOpen] = useState(false);
 
   useEffect(() => {
     void fetchKeywordRules().then((rules) => {
@@ -4102,6 +4106,24 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           >
             🛡️
           </button>
+          <button
+            type="button"
+            className="kg-header-trigger"
+            onClick={() => setKnowledgeGraphOpen(true)}
+            title="Interactive Intelligence Knowledge Graph"
+            aria-label="Open Knowledge Graph"
+          >
+            🌐
+          </button>
+          <button
+            type="button"
+            className="horizon-scanner-header-trigger"
+            onClick={() => setHorizonScannerOpen(true)}
+            title="Autonomous Horizon Scanner & Living Strategic Dossiers"
+            aria-label="Open Horizon Scanner"
+          >
+            🔭
+          </button>
           <div className="live-status"><span className="pulse" aria-hidden="true" />Live web briefing</div>
           {!appInstalled && (
             <button
@@ -6852,6 +6874,24 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         <SanctionsRadarModal
           isOpen={sanctionsRadarOpen}
           onClose={() => setSanctionsRadarOpen(false)}
+          articles={articles}
+          preferredVoice={resolveUserReadingVoice()}
+        />
+      )}
+
+      {knowledgeGraphOpen && (
+        <KnowledgeGraphModal
+          isOpen={knowledgeGraphOpen}
+          onClose={() => setKnowledgeGraphOpen(false)}
+          articles={articles}
+          preferredVoice={resolveUserReadingVoice()}
+        />
+      )}
+
+      {horizonScannerOpen && (
+        <HorizonScannerModal
+          isOpen={horizonScannerOpen}
+          onClose={() => setHorizonScannerOpen(false)}
           articles={articles}
           preferredVoice={resolveUserReadingVoice()}
         />

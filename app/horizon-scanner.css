@@ -1,0 +1,443 @@
+/* Autonomous Horizon Scanner & Living Intelligence Dossiers */
+
+.horizon-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(3, 7, 18, 0.88);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 1rem;
+}
+
+.horizon-hud-container {
+  background: linear-gradient(180deg, #090e1c 0%, #040711 100%);
+  border: 1px solid rgba(6, 182, 212, 0.3);
+  border-radius: 14px;
+  width: 100%;
+  max-width: 1020px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.85), 0 0 35px rgba(6, 182, 212, 0.12);
+  color: #e2e8f0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  overflow: hidden;
+}
+
+/* Header */
+.horizon-hud-header {
+  padding: 1.1rem 1.4rem;
+  background: rgba(15, 23, 42, 0.8);
+  border-bottom: 1px solid rgba(6, 182, 212, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.horizon-hud-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.horizon-hud-icon {
+  font-size: 1.6rem;
+  line-height: 1;
+  filter: drop-shadow(0 0 8px rgba(6, 182, 212, 0.6));
+}
+
+.horizon-hud-title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.horizon-hud-subtitle {
+  font-size: 0.75rem;
+  color: #22d3ee;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+.horizon-hud-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.horizon-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.85rem;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+}
+
+.horizon-btn-audio {
+  background: rgba(6, 182, 212, 0.15);
+  border-color: rgba(6, 182, 212, 0.4);
+  color: #22d3ee;
+}
+
+.horizon-btn-audio:hover {
+  background: rgba(6, 182, 212, 0.28);
+  border-color: #22d3ee;
+  color: #ecfeff;
+  box-shadow: 0 0 12px rgba(6, 182, 212, 0.35);
+}
+
+.horizon-btn-audio.active {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #fca5a5;
+  animation: horizonPulseGlow 1.8s infinite;
+}
+
+.horizon-btn-copy {
+  background: rgba(30, 41, 59, 0.8);
+  border-color: rgba(148, 163, 184, 0.3);
+  color: #cbd5e1;
+}
+
+.horizon-btn-copy:hover {
+  background: rgba(51, 65, 85, 0.9);
+  color: #fff;
+}
+
+.horizon-btn-close {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 1.25rem;
+  cursor: pointer;
+  padding: 0.3rem 0.5rem;
+  border-radius: 6px;
+}
+
+.horizon-btn-close:hover {
+  color: #f8fafc;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Posture & Telemetry Banner */
+.horizon-posture-banner {
+  padding: 0.85rem 1.4rem;
+  background: rgba(15, 23, 42, 0.4);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.horizon-summary-text {
+  font-size: 0.85rem;
+  color: #cbd5e1;
+  line-height: 1.4;
+  flex: 1;
+}
+
+.horizon-telemetry-strip {
+  display: flex;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+
+.horizon-telemetry-box {
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 8px;
+  padding: 0.4rem 0.7rem;
+  text-align: center;
+  min-width: 64px;
+}
+
+.horizon-telemetry-val {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #22d3ee;
+  line-height: 1.1;
+}
+
+.horizon-telemetry-label {
+  font-size: 0.65rem;
+  color: #94a3b8;
+  text-transform: uppercase;
+  margin-top: 0.15rem;
+}
+
+/* Tabs Bar */
+.horizon-tabs-bar {
+  padding: 0.65rem 1.4rem;
+  background: rgba(15, 23, 42, 0.65);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+}
+
+.horizon-tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.4rem 0.85rem;
+  background: rgba(30, 41, 59, 0.5);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 20px;
+  color: #94a3b8;
+  font-size: 0.78rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.horizon-tab-btn:hover, .horizon-tab-btn.active {
+  background: rgba(6, 182, 212, 0.2);
+  border-color: #22d3ee;
+  color: #ecfeff;
+}
+
+/* Body Content */
+.horizon-hud-body {
+  padding: 1.2rem 1.4rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.3rem;
+  flex: 1;
+}
+
+/* Dossier Header Card */
+.horizon-dossier-card {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 10px;
+  padding: 1.1rem 1.3rem;
+}
+
+.horizon-dossier-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.6rem;
+}
+
+.horizon-dossier-title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #f8fafc;
+  line-height: 1.35;
+}
+
+.horizon-badges {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.horizon-badge {
+  display: inline-block;
+  padding: 0.2rem 0.55rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+.horizon-status-inflection {
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  color: #f87171;
+}
+
+.horizon-status-accelerating {
+  background: rgba(16, 185, 129, 0.2);
+  border: 1px solid rgba(16, 185, 129, 0.5);
+  color: #34d399;
+}
+
+.horizon-status-monitoring {
+  background: rgba(6, 182, 212, 0.2);
+  border: 1px solid rgba(6, 182, 212, 0.5);
+  color: #22d3ee;
+}
+
+.horizon-tag-pill {
+  background: rgba(255, 255, 255, 0.08);
+  color: #cbd5e1;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+.horizon-thesis {
+  font-size: 0.88rem;
+  color: #cbd5e1;
+  line-height: 1.5;
+  margin-top: 0.5rem;
+  padding: 0.75rem 0.9rem;
+  background: rgba(2, 6, 23, 0.5);
+  border-radius: 8px;
+  border-left: 3px solid #22d3ee;
+}
+
+/* Weekly Delta Panel */
+.horizon-delta-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0.75rem;
+}
+
+.horizon-delta-box {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 8px;
+  padding: 0.85rem;
+}
+
+.horizon-delta-header {
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  margin-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.horizon-delta-header.inflection { color: #38bdf8; }
+.horizon-delta-header.invalidated { color: #fbbf24; }
+.horizon-delta-header.catalyst { color: #34d399; }
+
+.horizon-delta-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.8rem;
+  color: #e2e8f0;
+  line-height: 1.4;
+}
+
+.horizon-delta-list li {
+  margin-bottom: 0.35rem;
+}
+
+/* Timeline Progression */
+.horizon-timeline-container {
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 10px;
+  padding: 1.1rem;
+}
+
+.horizon-section-heading {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #94a3b8;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  margin-bottom: 0.85rem;
+}
+
+.horizon-milestone-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.horizon-milestone-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+  padding: 0.55rem 0.75rem;
+  background: rgba(2, 6, 23, 0.5);
+  border-radius: 8px;
+  border-left: 3px solid #64748b;
+}
+
+.horizon-milestone-completed { border-left-color: #10b981; }
+.horizon-milestone-progress { border-left-color: #38bdf8; }
+.horizon-milestone-target { border-left-color: #a855f7; }
+.horizon-milestone-delayed { border-left-color: #ef4444; }
+
+.horizon-milestone-date {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: #22d3ee;
+  min-width: 65px;
+}
+
+.horizon-milestone-body {
+  flex: 1;
+}
+
+.horizon-milestone-title {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: #f1f5f9;
+  line-height: 1.35;
+}
+
+.horizon-milestone-source {
+  font-size: 0.7rem;
+  color: #64748b;
+  margin-top: 0.15rem;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Key Watch Entities */
+.horizon-entities-strip {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+
+.horizon-entity-pill {
+  font-size: 0.72rem;
+  background: rgba(30, 41, 59, 0.7);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  color: #cbd5e1;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+}
+
+/* Animations */
+@keyframes horizonPulseGlow {
+  0%, 100% { box-shadow: 0 0 10px rgba(239, 68, 68, 0.4); }
+  50% { box-shadow: 0 0 20px rgba(239, 68, 68, 0.7); }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .horizon-hud-container {
+    max-height: 96vh;
+    border-radius: 10px;
+  }
+  .horizon-posture-banner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

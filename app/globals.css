@@ -3079,7 +3079,9 @@ button.local-weather {
 .claims-arbiter-header-trigger,
 .supply-chain-header-trigger,
 .cyber-incident-header-trigger,
-.sanctions-radar-header-trigger {
+.sanctions-radar-header-trigger,
+.kg-header-trigger,
+.horizon-scanner-header-trigger {
   background: var(--surface-subtle, rgba(255, 255, 255, 0.05));
   border: 1px solid var(--line, #334155);
   border-radius: 9999px;
@@ -3108,7 +3110,9 @@ button.local-weather {
 .claims-arbiter-header-trigger:hover,
 .supply-chain-header-trigger:hover,
 .cyber-incident-header-trigger:hover,
-.sanctions-radar-header-trigger:hover {
+.sanctions-radar-header-trigger:hover,
+.kg-header-trigger:hover,
+.horizon-scanner-header-trigger:hover {
   background: rgba(56, 189, 248, 0.15);
   border-color: #38bdf8;
 }
