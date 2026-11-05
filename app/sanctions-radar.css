@@ -1,0 +1,583 @@
+/* Global Sanctions, Tariffs & Export Controls Radar */
+
+.sanctions-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(3, 7, 18, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 1rem;
+}
+
+.sanctions-hud-container {
+  background: linear-gradient(180deg, #090e1a 0%, #050811 100%);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 14px;
+  width: 100%;
+  max-width: 980px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.85), 0 0 35px rgba(245, 158, 11, 0.12);
+  color: #e2e8f0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  overflow: hidden;
+}
+
+/* Header */
+.sanctions-hud-header {
+  padding: 1.15rem 1.4rem;
+  background: rgba(17, 24, 39, 0.75);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.sanctions-hud-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.sanctions-hud-icon {
+  font-size: 1.6rem;
+  line-height: 1;
+  filter: drop-shadow(0 0 8px rgba(245, 158, 11, 0.6));
+}
+
+.sanctions-hud-title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: #f8fafc;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.sanctions-hud-subtitle {
+  font-size: 0.75rem;
+  color: #fbbf24;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.sanctions-hud-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.sanctions-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.85rem;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+}
+
+.sanctions-btn-audio {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.4);
+  color: #fbbf24;
+}
+
+.sanctions-btn-audio:hover {
+  background: rgba(245, 158, 11, 0.28);
+  border-color: #fbbf24;
+  color: #fffbeb;
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.35);
+}
+
+.sanctions-btn-audio.active {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #fca5a5;
+  animation: sanctionsPulseGlow 1.8s infinite;
+}
+
+.sanctions-btn-copy {
+  background: rgba(31, 41, 55, 0.8);
+  border-color: rgba(156, 163, 175, 0.3);
+  color: #d1d5db;
+}
+
+.sanctions-btn-copy:hover {
+  background: rgba(55, 65, 81, 0.9);
+  color: #fff;
+}
+
+.sanctions-btn-close {
+  background: transparent;
+  border: none;
+  color: #9ca3af;
+  font-size: 1.25rem;
+  cursor: pointer;
+  padding: 0.3rem 0.5rem;
+  border-radius: 6px;
+}
+
+.sanctions-btn-close:hover {
+  color: #f9fafb;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Posture & Telemetry Banner */
+.sanctions-posture-banner {
+  padding: 1rem 1.4rem;
+  background: rgba(17, 24, 39, 0.45);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 1.25rem;
+  align-items: center;
+}
+
+.sanctions-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.9rem;
+  border-radius: 20px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 0.83rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.5);
+  color: #fbbf24;
+}
+
+.sanctions-pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 8px currentColor;
+  animation: sanctionsPulseDot 1.4s ease-in-out infinite;
+}
+
+.sanctions-posture-summary {
+  font-size: 0.88rem;
+  color: #d1d5db;
+  line-height: 1.4;
+}
+
+.sanctions-telemetry-strip {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.sanctions-telemetry-box {
+  background: rgba(17, 24, 39, 0.8);
+  border: 1px solid rgba(156, 163, 175, 0.15);
+  border-radius: 8px;
+  padding: 0.45rem 0.75rem;
+  text-align: center;
+  min-width: 68px;
+}
+
+.sanctions-telemetry-val {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #f8fafc;
+  line-height: 1.1;
+}
+
+.sanctions-telemetry-val.risk-score {
+  color: #fbbf24;
+}
+
+.sanctions-telemetry-val.stat-red {
+  color: #f87171;
+}
+
+.sanctions-telemetry-label {
+  font-size: 0.65rem;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-top: 0.15rem;
+}
+
+/* Feedback alert */
+.sanctions-feedback {
+  padding: 0.5rem 1.4rem;
+  background: rgba(16, 185, 129, 0.15);
+  border-bottom: 1px solid rgba(16, 185, 129, 0.3);
+  color: #6ee7b7;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+/* Body Content */
+.sanctions-hud-body {
+  padding: 1.2rem 1.4rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.3rem;
+  flex: 1;
+}
+
+/* Section Header */
+.sanctions-section-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #9ca3af;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.7rem;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Jurisdiction Grid */
+.sanctions-jurisdiction-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 0.75rem;
+}
+
+.sanctions-jurisdiction-card {
+  background: rgba(17, 24, 39, 0.6);
+  border: 1px solid rgba(156, 163, 175, 0.15);
+  border-radius: 10px;
+  padding: 0.85rem;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.sanctions-jurisdiction-card:hover, .sanctions-jurisdiction-card.selected {
+  border-color: rgba(245, 158, 11, 0.5);
+  background: rgba(17, 24, 39, 0.9);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+}
+
+.sanctions-jurisdiction-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.4rem;
+}
+
+.sanctions-jurisdiction-name {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #f3f4f6;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.sanctions-jurisdiction-desc {
+  font-size: 0.78rem;
+  color: #9ca3af;
+  line-height: 1.35;
+  margin-bottom: 0.5rem;
+}
+
+.sanctions-jurisdiction-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: #6b7280;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Badges */
+.sanction-badge {
+  display: inline-block;
+  padding: 0.2rem 0.55rem;
+  border-radius: 4px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+.sanction-badge-critical {
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid rgba(239, 68, 68, 0.6);
+  color: #f87171;
+}
+
+.sanction-badge-high {
+  background: rgba(245, 158, 11, 0.2);
+  border: 1px solid rgba(245, 158, 11, 0.6);
+  color: #fbbf24;
+}
+
+.sanction-badge-elevated {
+  background: rgba(56, 189, 248, 0.2);
+  border: 1px solid rgba(56, 189, 248, 0.5);
+  color: #38bdf8;
+}
+
+.sanction-badge-nominal {
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  color: #34d399;
+}
+
+/* Filter Bar */
+.sanctions-filters-bar {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.8rem;
+}
+
+.sanctions-filter-pill {
+  background: rgba(31, 41, 55, 0.7);
+  border: 1px solid rgba(156, 163, 175, 0.2);
+  color: #9ca3af;
+  padding: 0.35rem 0.75rem;
+  border-radius: 20px;
+  font-size: 0.76rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.sanctions-filter-pill:hover, .sanctions-filter-pill.active {
+  background: rgba(245, 158, 11, 0.2);
+  border-color: #fbbf24;
+  color: #fffbeb;
+}
+
+/* Measure Cards */
+.sanctions-measure-card {
+  background: rgba(17, 24, 39, 0.7);
+  border: 1px solid rgba(156, 163, 175, 0.18);
+  border-left: 4px solid #fbbf24;
+  border-radius: 10px;
+  padding: 1rem 1.15rem;
+  margin-bottom: 0.8rem;
+  transition: all 0.2s ease;
+}
+
+.sanctions-measure-card.critical {
+  border-left-color: #ef4444;
+}
+
+.sanctions-measure-card.high {
+  border-left-color: #f59e0b;
+}
+
+.sanctions-measure-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+  margin-bottom: 0.5rem;
+}
+
+.sanctions-measure-title {
+  margin: 0;
+  font-size: 0.96rem;
+  font-weight: 700;
+  color: #f8fafc;
+  line-height: 1.35;
+}
+
+.sanctions-measure-tags {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-shrink: 0;
+}
+
+.sanctions-regime-tag {
+  color: #cbd5e1;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+}
+
+.sanctions-measure-metadata {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.78rem;
+  color: #9ca3af;
+  margin-bottom: 0.65rem;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+.sanctions-measure-exposure {
+  font-size: 0.84rem;
+  color: #d1d5db;
+  line-height: 1.45;
+  margin-bottom: 0.75rem;
+}
+
+.sanctions-impacted-sectors {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.sanctions-sector-pill {
+  font-size: 0.7rem;
+  background: rgba(55, 65, 81, 0.6);
+  border: 1px solid rgba(156, 163, 175, 0.2);
+  color: #e5e7eb;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+}
+
+.sanctions-directives-box {
+  background: rgba(3, 7, 18, 0.6);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: 8px;
+  padding: 0.65rem 0.85rem;
+}
+
+.sanctions-directives-heading {
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #fbbf24;
+  margin-bottom: 0.4rem;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+.sanctions-directives-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.8rem;
+  color: #e5e7eb;
+  line-height: 1.4;
+}
+
+.sanctions-directives-list li {
+  margin-bottom: 0.25rem;
+}
+
+.sanctions-measure-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 0.75rem;
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+.sanctions-link-btn {
+  color: #fbbf24;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.sanctions-link-btn:hover {
+  text-decoration: underline;
+}
+
+/* Compliance Directives Panel */
+.sanctions-compliance-panel {
+  background: rgba(17, 24, 39, 0.5);
+  border: 1px solid rgba(156, 163, 175, 0.15);
+  border-radius: 10px;
+  padding: 0.9rem 1.15rem;
+}
+
+.sanctions-compliance-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.sanctions-compliance-item:last-child {
+  border-bottom: none;
+}
+
+.sanctions-urgency-badge {
+  font-size: 0.68rem;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-weight: 700;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.sanctions-urgency-p0 {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.5);
+}
+
+.sanctions-urgency-p1 {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.5);
+}
+
+.sanctions-urgency-p2 {
+  background: rgba(56, 189, 248, 0.2);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.4);
+}
+
+.sanctions-compliance-text {
+  font-size: 0.82rem;
+  color: #e5e7eb;
+  line-height: 1.35;
+}
+
+.sanctions-compliance-domain {
+  font-size: 0.7rem;
+  color: #9ca3af;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  margin-top: 0.15rem;
+}
+
+/* Animations */
+@keyframes sanctionsPulseDot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+
+@keyframes sanctionsPulseGlow {
+  0%, 100% { box-shadow: 0 0 10px rgba(245, 158, 11, 0.4); }
+  50% { box-shadow: 0 0 20px rgba(245, 158, 11, 0.7); }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .sanctions-posture-banner {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+  .sanctions-telemetry-strip {
+    justify-content: space-between;
+  }
+  .sanctions-jurisdiction-grid {
+    grid-template-columns: 1fr;
+  }
+  .sanctions-hud-container {
+    max-height: 96vh;
+    border-radius: 10px;
+  }
+}

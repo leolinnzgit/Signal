@@ -60,6 +60,7 @@ import RegulatoryRadarModal from "./RegulatoryRadarModal";
 import ClaimsArbiterModal from "./ClaimsArbiterModal";
 import SupplyChainModal from "./SupplyChainModal";
 import CyberIncidentModal from "./CyberIncidentModal";
+import SanctionsRadarModal from "./SanctionsRadarModal";
 import {
   fetchKeywordRules,
   isArticleMuted,
@@ -948,6 +949,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [claimsArbiterOpen, setClaimsArbiterOpen] = useState(false);
   const [supplyChainOpen, setSupplyChainOpen] = useState(false);
   const [cyberIncidentOpen, setCyberIncidentOpen] = useState(false);
+  const [sanctionsRadarOpen, setSanctionsRadarOpen] = useState(false);
 
   useEffect(() => {
     void fetchKeywordRules().then((rules) => {
@@ -4091,6 +4093,15 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           >
             ⚡
           </button>
+          <button
+            type="button"
+            className="sanctions-radar-header-trigger"
+            onClick={() => setSanctionsRadarOpen(true)}
+            title="Global Sanctions, Tariffs & Export Controls Radar"
+            aria-label="Open Sanctions Radar"
+          >
+            🛡️
+          </button>
           <div className="live-status"><span className="pulse" aria-hidden="true" />Live web briefing</div>
           {!appInstalled && (
             <button
@@ -6832,6 +6843,15 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         <CyberIncidentModal
           isOpen={cyberIncidentOpen}
           onClose={() => setCyberIncidentOpen(false)}
+          articles={articles}
+          preferredVoice={resolveUserReadingVoice()}
+        />
+      )}
+
+      {sanctionsRadarOpen && (
+        <SanctionsRadarModal
+          isOpen={sanctionsRadarOpen}
+          onClose={() => setSanctionsRadarOpen(false)}
           articles={articles}
           preferredVoice={resolveUserReadingVoice()}
         />
