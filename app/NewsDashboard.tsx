@@ -63,6 +63,7 @@ import CyberIncidentModal from "./CyberIncidentModal";
 import SanctionsRadarModal from "./SanctionsRadarModal";
 import KnowledgeGraphModal from "./KnowledgeGraphModal";
 import HorizonScannerModal from "./HorizonScannerModal";
+import { ExecutiveCommandCenter } from "./ExecutiveCommandCenter.tsx";
 import {
   fetchKeywordRules,
   isArticleMuted,
@@ -3962,168 +3963,26 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
             {wakeUpBannerReady && <span className="daily-briefing-ready-dot" aria-hidden="true" />}
             🗞️ Daily Briefing
           </button>
-          <button
-            type="button"
-            className="clock-radio-header-trigger"
-            onClick={() => setClockRadioOpen(true)}
-            title="Open Bedside Clock Radio & Wake-up Alarm"
-            aria-label="Open Bedside Clock Radio"
-          >
-            ⏰
-          </button>
-          <button
-            type="button"
-            className="market-heatmap-header-trigger"
-            onClick={() => setMarketHeatmapOpen(true)}
-            title="Open Market Sentiment & Macro Correlation Heatmap"
-            aria-label="Open Market Sentiment Heatmap"
-          >
-            📊
-          </button>
-          <button
-            type="button"
-            className="radar-header-trigger"
-            onClick={() => setRadarOpen(true)}
-            title="Scan Executive Radar: Breaking Story Velocity & Market Anomalies"
-            aria-label="Open Executive Radar"
-          >
-            📡
-          </button>
-          <button
-            type="button"
-            className="commute-header-trigger"
-            onClick={() => setCommuteOpen(true)}
-            title="Executive Commute Playlist & Chapters"
-            aria-label="Open Executive Commute Playlist"
-          >
-            🚗
-          </button>
-          <button
-            type="button"
-            className="csuite-report-header-trigger"
-            onClick={() => setCSuiteReportOpen(true)}
-            title="C-Suite Intelligence Report & PDF Export"
-            aria-label="Open C-Suite Intelligence Report"
-          >
-            📑
-          </button>
-          <button
-            type="button"
-            className="meeting-prep-header-trigger"
-            onClick={() => setMeetingPrepOpen(true)}
-            title="1-Minute Executive Meeting Prep Brief"
-            aria-label="Open Meeting Prep Brief"
-          >
-            🎯
-          </button>
-          <button
-            type="button"
-            className="scenario-sim-header-trigger"
-            onClick={() => setScenarioSimOpen(true)}
-            title="Boardroom Scenario Simulator"
-            aria-label="Open Scenario Simulator"
-          >
-            🎲
-          </button>
-          <button
-            type="button"
-            className="quote-extractor-header-trigger"
-            onClick={() => setQuoteExtractorOpen(true)}
-            title="Verbatim Soundbites & Leadership Stance Tracker"
-            aria-label="Open Soundbites Tracker"
-          >
-            🎙️
-          </button>
-          <button
-            type="button"
-            className="quiet-hours-header-trigger"
-            onClick={() => setQuietHoursOpen(true)}
-            title="Quiet Hours & VIP Crisis Threshold"
-            aria-label="Open Quiet Hours"
-          >
-            🌙
-          </button>
-          <button
-            type="button"
-            className="competitor-radar-header-trigger"
-            onClick={() => setCompetitorRadarOpen(true)}
-            title="Competitive Intelligence Radar & M&A Tracker"
-            aria-label="Open Competitor Radar"
-          >
-            🎯
-          </button>
-          <button
-            type="button"
-            className="crisis-war-room-header-trigger"
-            onClick={() => setCrisisWarRoomOpen(true)}
-            title="Crisis War Room & Incident Command HUD"
-            aria-label="Open Crisis War Room"
-          >
-            🚨
-          </button>
-          <button
-            type="button"
-            className="regulatory-radar-header-trigger"
-            onClick={() => setRegulatoryRadarOpen(true)}
-            title="Regulatory Horizon & Policy Compliance Radar"
-            aria-label="Open Regulatory Radar"
-          >
-            📜
-          </button>
-          <button
-            type="button"
-            className="claims-arbiter-header-trigger"
-            onClick={() => setClaimsArbiterOpen(true)}
-            title="Contradiction Arbiter & Multi-Source Fact Verifier"
-            aria-label="Open Claims Arbiter"
-          >
-            ⚖️
-          </button>
-          <button
-            type="button"
-            className="supply-chain-header-trigger"
-            onClick={() => setSupplyChainOpen(true)}
-            title="Global Supply Chain & Geopolitical Trade Chokepoints"
-            aria-label="Open Supply Chain Tracker"
-          >
-            🚢
-          </button>
-          <button
-            type="button"
-            className="cyber-incident-header-trigger"
-            onClick={() => setCyberIncidentOpen(true)}
-            title="Cyber Threat Radar & Critical Infrastructure Incident HUD"
-            aria-label="Open Cyber Incident HUD"
-          >
-            ⚡
-          </button>
-          <button
-            type="button"
-            className="sanctions-radar-header-trigger"
-            onClick={() => setSanctionsRadarOpen(true)}
-            title="Global Sanctions, Tariffs & Export Controls Radar"
-            aria-label="Open Sanctions Radar"
-          >
-            🛡️
-          </button>
-          <button
-            type="button"
-            className="kg-header-trigger"
-            onClick={() => setKnowledgeGraphOpen(true)}
-            title="Interactive Intelligence Knowledge Graph"
-            aria-label="Open Knowledge Graph"
-          >
-            🌐
-          </button>
-          <button
-            type="button"
-            className="horizon-scanner-header-trigger"
-            onClick={() => setHorizonScannerOpen(true)}
-            title="Autonomous Horizon Scanner & Living Strategic Dossiers"
-            aria-label="Open Horizon Scanner"
-          >
-            🔭
-          </button>
+          <ExecutiveCommandCenter
+            onOpenRadar={() => setRadarOpen(true)}
+            onOpenCrisisWarRoom={() => setCrisisWarRoomOpen(true)}
+            onOpenCyberIncident={() => setCyberIncidentOpen(true)}
+            onOpenSanctionsRadar={() => setSanctionsRadarOpen(true)}
+            onOpenSupplyChain={() => setSupplyChainOpen(true)}
+            onOpenRegulatoryRadar={() => setRegulatoryRadarOpen(true)}
+            onOpenKnowledgeGraph={() => setKnowledgeGraphOpen(true)}
+            onOpenHorizonScanner={() => setHorizonScannerOpen(true)}
+            onOpenCompetitorRadar={() => setCompetitorRadarOpen(true)}
+            onOpenMarketHeatmap={() => setMarketHeatmapOpen(true)}
+            onOpenScenarioSim={() => setScenarioSimOpen(true)}
+            onOpenClaimsArbiter={() => setClaimsArbiterOpen(true)}
+            onOpenCSuiteReport={() => setCSuiteReportOpen(true)}
+            onOpenMeetingPrep={() => setMeetingPrepOpen(true)}
+            onOpenQuoteExtractor={() => setQuoteExtractorOpen(true)}
+            onOpenCommute={() => setCommuteOpen(true)}
+            onOpenClockRadio={() => setClockRadioOpen(true)}
+            onOpenQuietHours={() => setQuietHoursOpen(true)}
+          />
           <div className="live-status"><span className="pulse" aria-hidden="true" />Live web briefing</div>
           {!appInstalled && (
             <button
