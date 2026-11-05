@@ -59,6 +59,7 @@ import CrisisWarRoomModal from "./CrisisWarRoomModal";
 import RegulatoryRadarModal from "./RegulatoryRadarModal";
 import ClaimsArbiterModal from "./ClaimsArbiterModal";
 import SupplyChainModal from "./SupplyChainModal";
+import CyberIncidentModal from "./CyberIncidentModal";
 import {
   fetchKeywordRules,
   isArticleMuted,
@@ -946,6 +947,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [regulatoryRadarOpen, setRegulatoryRadarOpen] = useState(false);
   const [claimsArbiterOpen, setClaimsArbiterOpen] = useState(false);
   const [supplyChainOpen, setSupplyChainOpen] = useState(false);
+  const [cyberIncidentOpen, setCyberIncidentOpen] = useState(false);
 
   useEffect(() => {
     void fetchKeywordRules().then((rules) => {
@@ -4080,6 +4082,15 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           >
             🚢
           </button>
+          <button
+            type="button"
+            className="cyber-incident-header-trigger"
+            onClick={() => setCyberIncidentOpen(true)}
+            title="Cyber Threat Radar & Critical Infrastructure Incident HUD"
+            aria-label="Open Cyber Incident HUD"
+          >
+            ⚡
+          </button>
           <div className="live-status"><span className="pulse" aria-hidden="true" />Live web briefing</div>
           {!appInstalled && (
             <button
@@ -6812,6 +6823,15 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         <SupplyChainModal
           isOpen={supplyChainOpen}
           onClose={() => setSupplyChainOpen(false)}
+          articles={articles}
+          preferredVoice={resolveUserReadingVoice()}
+        />
+      )}
+
+      {cyberIncidentOpen && (
+        <CyberIncidentModal
+          isOpen={cyberIncidentOpen}
+          onClose={() => setCyberIncidentOpen(false)}
           articles={articles}
           preferredVoice={resolveUserReadingVoice()}
         />

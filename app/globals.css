@@ -3065,7 +3065,20 @@ button.local-weather {
 }
 
 .clock-radio-header-trigger,
-.market-heatmap-header-trigger {
+.market-heatmap-header-trigger,
+.radar-header-trigger,
+.commute-header-trigger,
+.csuite-report-header-trigger,
+.meeting-prep-header-trigger,
+.scenario-sim-header-trigger,
+.quote-extractor-header-trigger,
+.quiet-hours-header-trigger,
+.competitor-radar-header-trigger,
+.crisis-war-room-header-trigger,
+.regulatory-radar-header-trigger,
+.claims-arbiter-header-trigger,
+.supply-chain-header-trigger,
+.cyber-incident-header-trigger {
   background: var(--surface-subtle, rgba(255, 255, 255, 0.05));
   border: 1px solid var(--line, #334155);
   border-radius: 9999px;
@@ -3080,7 +3093,20 @@ button.local-weather {
 }
 
 .clock-radio-header-trigger:hover,
-.market-heatmap-header-trigger:hover {
+.market-heatmap-header-trigger:hover,
+.radar-header-trigger:hover,
+.commute-header-trigger:hover,
+.csuite-report-header-trigger:hover,
+.meeting-prep-header-trigger:hover,
+.scenario-sim-header-trigger:hover,
+.quote-extractor-header-trigger:hover,
+.quiet-hours-header-trigger:hover,
+.competitor-radar-header-trigger:hover,
+.crisis-war-room-header-trigger:hover,
+.regulatory-radar-header-trigger:hover,
+.claims-arbiter-header-trigger:hover,
+.supply-chain-header-trigger:hover,
+.cyber-incident-header-trigger:hover {
   background: rgba(56, 189, 248, 0.15);
   border-color: #38bdf8;
 }
