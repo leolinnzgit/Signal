@@ -29,6 +29,7 @@ export interface ExecutiveCommandCenterProps {
   onOpenCommute: () => void;
   onOpenClockRadio: () => void;
   onOpenQuietHours: () => void;
+  onOpenVoiceDebrief: () => void;
 }
 
 export function ExecutiveCommandCenter(props: ExecutiveCommandCenterProps) {
@@ -64,6 +65,7 @@ export function ExecutiveCommandCenter(props: ExecutiveCommandCenterProps) {
       "commute-playlist": props.onOpenCommute,
       "clock-radio": props.onOpenClockRadio,
       "quiet-hours": props.onOpenQuietHours,
+      "voice-debrief": props.onOpenVoiceDebrief,
     };
   }, [props]);
 
@@ -183,7 +185,7 @@ export function ExecutiveCommandCenter(props: ExecutiveCommandCenterProps) {
       >
         <span className="command-center-trigger-icon" aria-hidden="true">⚡</span>
         <span className="command-center-trigger-label">Intelligence Hub</span>
-        <span className="command-center-trigger-badge">18</span>
+        <span className="command-center-trigger-badge">{categoryCounts.all}</span>
         <span className={`command-center-trigger-chevron${isOpen ? " open" : ""}`} aria-hidden="true">▾</span>
       </button>
 
@@ -205,10 +207,22 @@ export function ExecutiveCommandCenter(props: ExecutiveCommandCenterProps) {
                   <span className="command-center-badge-icon" aria-hidden="true">⚡</span>
                   <div>
                     <h2>Executive Command Center</h2>
-                    <p>18 Specialized Intelligence Radars & Decision Suites</p>
+                    <p>{categoryCounts.all} Specialized Intelligence Radars & Decision Suites</p>
                   </div>
                 </div>
                 <div className="command-center-header-actions">
+                  <button
+                    type="button"
+                    className="command-center-talk-btn"
+                    onClick={() => {
+                      setIsOpen(false);
+                      props.onOpenVoiceDebrief();
+                    }}
+                    title="Talk to Signal (Voice Debrief)"
+                    aria-label="Talk to Signal Voice Debrief"
+                  >
+                    🎙️ Talk to Signal
+                  </button>
                   <span className="command-center-key-hint">⌘K / Esc</span>
                   <button
                     type="button"
@@ -228,7 +242,7 @@ export function ExecutiveCommandCenter(props: ExecutiveCommandCenterProps) {
                   ref={searchInputRef}
                   type="text"
                   className="command-center-search-input"
-                  placeholder="Filter 18 suites... (e.g. radar, m&a, sanctions, supply chain, audio)"
+                  placeholder={`Filter ${categoryCounts.all} suites... (e.g. radar, m&a, sanctions, audio)`}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   aria-label="Search intelligence suites"

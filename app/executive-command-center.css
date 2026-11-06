@@ -178,6 +178,29 @@
   gap: 0.65rem;
 }
 
+.command-center-talk-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.28rem 0.65rem;
+  background: rgba(56, 189, 248, 0.16);
+  border: 1px solid #38bdf8;
+  border-radius: 999px;
+  color: #38bdf8;
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.command-center-talk-btn:hover {
+  background: rgba(56, 189, 248, 0.28);
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.35);
+  transform: translateY(-1px);
+}
+
 .command-center-key-hint {
   font-size: 0.68rem;
   font-weight: 700;

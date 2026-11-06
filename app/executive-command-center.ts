@@ -194,6 +194,16 @@ export const EXECUTIVE_SUITES: ExecutiveSuite[] = [
     shortcutBadge: "O",
   },
   {
+    id: "voice-debrief",
+    title: "Talk to Signal (Voice Debrief)",
+    subtitle: "Conversational 2-way spoken executive debrief & strategic Q&A",
+    category: "workflow",
+    categoryLabel: "Executive Operations",
+    icon: "🎙️",
+    keywords: ["voice", "talk", "speak", "debrief", "assistant", "speech", "ask", "conversation"],
+    shortcutBadge: "V",
+  },
+  {
     id: "quiet-hours",
     title: "Quiet Hours & Crisis VIP",
     subtitle: "Do-not-disturb filters with breaking VIP crisis threshold bypass",

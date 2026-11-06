@@ -63,6 +63,7 @@ import CyberIncidentModal from "./CyberIncidentModal";
 import SanctionsRadarModal from "./SanctionsRadarModal";
 import KnowledgeGraphModal from "./KnowledgeGraphModal";
 import HorizonScannerModal from "./HorizonScannerModal";
+import VoiceDebriefModal from "./VoiceDebriefModal.tsx";
 import { ExecutiveCommandCenter } from "./ExecutiveCommandCenter.tsx";
 import {
   fetchKeywordRules,
@@ -955,6 +956,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [sanctionsRadarOpen, setSanctionsRadarOpen] = useState(false);
   const [knowledgeGraphOpen, setKnowledgeGraphOpen] = useState(false);
   const [horizonScannerOpen, setHorizonScannerOpen] = useState(false);
+  const [voiceDebriefOpen, setVoiceDebriefOpen] = useState(false);
 
   useEffect(() => {
     void fetchKeywordRules().then((rules) => {
@@ -3982,6 +3984,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
             onOpenCommute={() => setCommuteOpen(true)}
             onOpenClockRadio={() => setClockRadioOpen(true)}
             onOpenQuietHours={() => setQuietHoursOpen(true)}
+            onOpenVoiceDebrief={() => setVoiceDebriefOpen(true)}
           />
           <div className="live-status"><span className="pulse" aria-hidden="true" />Live web briefing</div>
           {!appInstalled && (
@@ -6752,6 +6755,20 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           isOpen={horizonScannerOpen}
           onClose={() => setHorizonScannerOpen(false)}
           articles={articles}
+          preferredVoice={resolveUserReadingVoice()}
+        />
+      )}
+
+      {voiceDebriefOpen && (
+        <VoiceDebriefModal
+          isOpen={voiceDebriefOpen}
+          onClose={() => setVoiceDebriefOpen(false)}
+          articles={articles}
+          marketContext={
+            dashboardBriefing?.marketGlance
+              ? `${dashboardBriefing.marketGlance.name} (${dashboardBriefing.marketGlance.symbol}) ${dashboardBriefing.marketGlance.percentChange >= 0 ? "+" : ""}${dashboardBriefing.marketGlance.percentChange}%`
+              : ""
+          }
           preferredVoice={resolveUserReadingVoice()}
         />
       )}
