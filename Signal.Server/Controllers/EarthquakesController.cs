@@ -18,7 +18,8 @@ public sealed class EarthquakesController(
     EarthquakeFeed feed,
     DisasterFeed disasters,
     DisasterAlertFeed alerts,
-    IOptions<AzureMapsOptions> mapsOptions) : ControllerBase
+    IOptions<AzureMapsOptions> mapsOptions,
+    AzureMapsWeatherService? weather = null) : ControllerBase
 {
     [HttpGet("config")]
     public IActionResult Config()
@@ -41,6 +42,7 @@ public sealed class EarthquakesController(
         double? userLat = null;
         double? userLon = null;
         double radiusKm = 300;
+        EarthquakeDevice? device = null;
 
         if (latitude.HasValue && longitude.HasValue && EarthquakeFeed.ValidLocation(latitude.Value, longitude.Value))
         {
@@ -49,7 +51,7 @@ public sealed class EarthquakesController(
         }
         else
         {
-            var device = await database.EarthquakeDevices.AsNoTracking()
+            device = await database.EarthquakeDevices.AsNoTracking()
                 .Where(d => d.UserId == userId)
                 .OrderByDescending(d => d.LocationUpdatedAtUtc)
                 .FirstOrDefaultAsync(ct);
@@ -60,6 +62,11 @@ public sealed class EarthquakesController(
                 radiusKm = device.RadiusKm;
             }
         }
+
+        device ??= await database.EarthquakeDevices.AsNoTracking()
+            .Where(d => d.UserId == userId)
+            .OrderByDescending(d => d.LocationUpdatedAtUtc)
+            .FirstOrDefaultAsync(ct);
 
         bool geoNet = source?.ToLowerInvariant() switch
         {
@@ -81,11 +88,81 @@ public sealed class EarthquakesController(
             catch (Exception ex) when (!ct.IsCancellationRequested && ex is HttpRequestException or System.Xml.XmlException or TaskCanceledException)
             { lock (warnings) warnings.Add("GDACS disaster feed unavailable. Retry to check floods and other disasters."); return []; }
         }
+        async Task<(object[] Alerts, string? Warning)> LoadWeather()
+        {
+            if (!userLat.HasValue || !userLon.HasValue || weather is null || !weather.Enabled)
+                return ([], null);
+            try
+            {
+                var result = await weather.GetAlertsAsync(userLat.Value, userLon.Value, ct);
+                if (!result.Available) return ([], null);
+                var items = result.Alerts.Select(a =>
+                {
+                    var alertLevel = a.Level.ToLowerInvariant().Contains("warning") ? "red" : "orange";
+                    return (object)new
+                    {
+                        id = $"azure:weather:{a.Id}",
+                        kind = "weather",
+                        title = string.IsNullOrWhiteSpace(a.Headline) ? a.Description : a.Headline,
+                        place = string.IsNullOrWhiteSpace(a.AreaName) ? "Local area" : a.AreaName,
+                        source = string.IsNullOrWhiteSpace(a.Source) ? "Azure Maps Weather" : a.Source,
+                        alertLevel,
+                        description = a.Description,
+                        timeUtc = (a.EffectiveTime ?? DateTimeOffset.UtcNow).UtcDateTime,
+                        distanceKm = 0.0
+                    };
+                }).ToArray();
+                return (items, null);
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested && ex is HttpRequestException or JsonException or TaskCanceledException)
+            {
+                return ([], "Azure Maps weather alerts temporarily unavailable.");
+            }
+        }
+        async Task<object?> LoadActiveAlert()
+        {
+            if (device is null) return null;
+            try
+            {
+                var alertResult = await alerts.GetAsync(device, ct);
+                var top = alertResult.Events
+                    .Where(e => (e.UpdatedAtUtc >= DateTime.UtcNow.AddHours(-24) || e.TimeUtc >= DateTime.UtcNow.AddHours(-24)))
+                    .OrderByDescending(e => e.Kind == "earthquake" ? ((e.Magnitude ?? 0) >= 6.0 ? 3 : (e.Magnitude ?? 0) >= 4.5 ? 2 : 1) : (e.AlertLevel == "red" ? 3 : e.AlertLevel == "orange" ? 2 : 1))
+                    .ThenByDescending(e => e.UpdatedAtUtc)
+                    .FirstOrDefault();
+                if (top is null) return null;
+                var msg = PushNotificationService.DisasterMessage(top);
+                return new
+                {
+                    id = top.Id,
+                    tag = msg.Tag,
+                    title = msg.Title,
+                    body = msg.Body,
+                    url = msg.Url,
+                    kind = top.Kind,
+                    alertLevel = top.AlertLevel ?? (top.Kind == "earthquake" ? ((top.Magnitude ?? 0) >= 6.0 ? "red" : (top.Magnitude ?? 0) >= 4.5 ? "orange" : "green") : "green"),
+                    place = top.Place,
+                    distanceKm = top.DistanceKm,
+                    receivedAt = new DateTimeOffset(top.UpdatedAtUtc).ToUnixTimeMilliseconds()
+                };
+            }
+            catch (Exception) when (!ct.IsCancellationRequested)
+            {
+                return null;
+            }
+        }
+
         var quakeTask = LoadEarthquakes();
         var disasterTask = LoadDisasters();
-        await Task.WhenAll(quakeTask, disasterTask);
+        var weatherTask = LoadWeather();
+        var activeAlertTask = LoadActiveAlert();
+        await Task.WhenAll(quakeTask, disasterTask, weatherTask, activeAlertTask);
         var events = await quakeTask;
         var disasterEvents = await disasterTask;
+        var (weatherEvents, weatherWarning) = await weatherTask;
+        if (weatherWarning is not null) lock (warnings) warnings.Add(weatherWarning);
+        var activeAlert = await activeAlertTask;
+
         if (userLat.HasValue && userLon.HasValue)
         {
             disasterEvents = disasterEvents.Select(e => e with
@@ -105,10 +182,56 @@ public sealed class EarthquakesController(
             source = geoNet ? "GeoNet" : "USGS",
             events,
             disasters = disasterEvents,
+            weather = weatherEvents,
+            activeAlert,
             warnings,
             userLocation = userLat.HasValue && userLon.HasValue
                 ? new { latitude = userLat.Value, longitude = userLon.Value, radiusKm }
                 : null,
+            checkedAtUtc = DateTime.UtcNow
+        });
+    }
+
+    [HttpGet("active")]
+    [HttpGet("/api/disasters/active")]
+    public async Task<IActionResult> ActiveDisaster(CancellationToken ct)
+    {
+        var userId = users.GetUserId(User)!;
+        var device = await database.EarthquakeDevices.AsNoTracking()
+            .Where(d => d.UserId == userId)
+            .OrderByDescending(d => d.LocationUpdatedAtUtc)
+            .FirstOrDefaultAsync(ct);
+        if (device is null) return Ok(new { active = false, reason = "No registered disaster device" });
+        if (device.LocationUpdatedAtUtc < DateTime.UtcNow.AddHours(-24))
+            return Ok(new { active = false, reason = "Refresh your phone location to resume disaster monitoring." });
+
+        var result = await alerts.GetAsync(device, ct);
+        var top = result.Events
+            .Where(e => (e.UpdatedAtUtc >= DateTime.UtcNow.AddHours(-24) || e.TimeUtc >= DateTime.UtcNow.AddHours(-24)))
+            .OrderByDescending(e => e.Kind == "earthquake" ? ((e.Magnitude ?? 0) >= 6.0 ? 3 : (e.Magnitude ?? 0) >= 4.5 ? 2 : 1) : (e.AlertLevel == "red" ? 3 : e.AlertLevel == "orange" ? 2 : 1))
+            .ThenByDescending(e => e.UpdatedAtUtc)
+            .FirstOrDefault();
+
+        if (top is null) return Ok(new { active = false, checkedAtUtc = DateTime.UtcNow });
+
+        var msg = PushNotificationService.DisasterMessage(top);
+        return Ok(new
+        {
+            active = true,
+            alert = new
+            {
+                id = top.Id,
+                tag = msg.Tag,
+                title = msg.Title,
+                body = msg.Body,
+                url = msg.Url,
+                kind = top.Kind,
+                alertLevel = top.AlertLevel ?? (top.Kind == "earthquake" ? ((top.Magnitude ?? 0) >= 6.0 ? "red" : (top.Magnitude ?? 0) >= 4.5 ? "orange" : "green") : "green"),
+                place = top.Place,
+                distanceKm = top.DistanceKm,
+                receivedAt = new DateTimeOffset(top.UpdatedAtUtc).ToUnixTimeMilliseconds()
+            },
+            source = result.Source,
             checkedAtUtc = DateTime.UtcNow
         });
     }

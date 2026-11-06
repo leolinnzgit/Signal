@@ -1,5 +1,22 @@
 # SignalWatch release preparation
 
+## Disaster alert parity, severe weather warnings & preview: SignalWatch 0.24.1 (38) and SignalCompanion 0.12.1 (22)
+
+SignalWatch 0.24.1 (38) and SignalCompanion 0.12.1 (22) establish full disaster alert parity between the Wear OS watch app, companion, and the Signal web app.
+
+Severe weather warnings (`/#weather-alerts`), earthquakes (`/#earthquake-alerts`), and GDACS disasters (`/#disaster-alerts`) are fully supported across native push validation, Wear OS data layer forwarding, and watch UI feeds. Previously, native push notifications for severe weather were rejected due to restrictive URL pattern matching in `NativeNotice.valid()`. With `/#weather-alerts` whitelisted and payload URL propagation in `NativeNotice.show()`, weather warnings are delivered smoothly to both phone and watch.
+
+Life-safety disaster alerts on the watch now default to enabled (`true`) whenever notifications are permitted, preventing silent drop of critical warnings. Active disaster alerts matching the user's phone location are synchronized directly into the watch's live feed and active alert modal from `/api/earthquakes/map-feed` and `/api/disasters/active`. The live hazards feed on the watch highlights RED and ORANGE severity events with dedicated styling and emergency badges ("RED ALERT" / "ORANGE ALERT"). Furthermore, a "Test disaster alert" preview action is available in the watch's Disasters view, matching the Signal web app's preview capability with a simulated Cook Strait M5.2 event.
+
+Release validation (7 November 2026): all server checks, 461 client tests, and 98 Kotlin JVM test tasks passed across `app`, `phone`, and `shared` modules. Release lint reported zero errors. Signed APK/AAB, bundletool validation, unchanged upload certificate, 64-bit/16 KB alignment, and private signing material exclusion checks passed.
+
+Checked artifacts:
+- Watch: `../SignalWatch/outputs/play-release/0.24.1-38/`. APK SHA256: `e5a340b7b2658625aa8730abbfaeaa7cb88b4ad9dadabc21337ea7717844d819`.
+- Companion: `../SignalWatch/outputs/play-release/0.12.1-22/`. APK SHA256: `7329ea1c3b2876ed8ebd3899b843f1c9f9e77fd507f2459a22b5b473877f281e`.
+ADB listed no connected devices; physical-device verification remains physical QA.
+
+Publication verification (7 November 2026): both Watch channels serve 0.24.1 (38), and both public HTTPS APK downloads match the checked hashes above. Active disaster feed parity and weather warnings are deployed to IIS. Watch publication retained protected production file checksums, App_Data, and existing data.
+
 ## Briefing queue sync, offline images and background handoff: SignalWatch 0.24.0 (37)
 
 SignalWatch 0.24.0 (37) brings shared briefing and catch-up queue synchronization with the phone web app, disk caching for story preview images, and background wake-up for phone-to-watch handoff.
