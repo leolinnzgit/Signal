@@ -144,6 +144,7 @@ builder.Services.AddSingleton<WatchPairingService>();
 builder.Services.AddSingleton<ListeningHandoffService>();
 builder.Services.AddSingleton<ListeningProgressService>();
 builder.Services.AddSingleton<ListeningQueueService>();
+builder.Services.AddSingleton<BriefingProgressService>();
 builder.Services.AddRateLimiter(options => options.AddPolicy("listening-handoff", context => RateLimitPartition.GetFixedWindowLimiter(
     context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
     _ => new FixedWindowRateLimiterOptions { PermitLimit = 120, Window = TimeSpan.FromMinutes(1), QueueLimit = 0, AutoReplenishment = true })));

@@ -1,5 +1,22 @@
 # SignalWatch release preparation
 
+## Briefing queue sync, offline images and background handoff: SignalWatch 0.24.0 (37)
+
+SignalWatch 0.24.0 (37) brings shared briefing and catch-up queue synchronization with the phone web app, disk caching for story preview images, and background wake-up for phone-to-watch handoff.
+
+The briefing queue sync protocol mirrors Listen Later's account-scoped compare-and-swap mechanism (`/api/briefing-progress`), keeping up to 20 stories synchronized between the phone and watch along with section/part progress and heard fingerprints (capped at 200 items). Changes made offline are staged in an outbox and merged automatically upon reconnecting. The web app's Shared Listening panel now provides a dedicated "Resume briefing" flow alongside the saved single-story resume.
+
+Story preview images fetched from the news feed are now cached to app-private disk storage (`context.cacheDir/story-images/`), enabling headline illustrations to render even when the watch is disconnected from the network or reopened after restart. Cache entries are automatically cleared upon account sign-out.
+
+Phone-to-watch handoff now supports background wake-up: when an active audio stream or briefing is transferred to the watch while the app is closed, a high-priority Wear OS notification with a "Continue listening" action allows immediate resumption and launches `MainActivity` with the inbound handoff ID.
+
+Release validation (7 November 2026): all 149 Watch release JVM tests passed, including new test suites for briefing state serialization, CAS outbox transitions, heard fingerprint merging, and story image caching. Release lint reported zero errors (42 warnings). Signed APK/AAB, bundletool validation, unchanged upload certificate, 64-bit/16 KB alignment, and private signing material exclusion checks passed.
+
+Checked artifacts: `../SignalWatch/outputs/play-release/0.24.0-37/`. APK SHA256: `8eff247183b13d9f027a068f29bd744a79ec50bffa7f3b87498dd3cbd47a54aa`. ADB listed no connected devices. Physical-device verification using `Invoke-DeviceQa.ps1` and live BLE/Wi-Fi handover remain physical QA.
+
+Publication verification (7 November 2026): both Watch channels serve 0.24.0 (37), and both public HTTPS APK downloads match the checked hash above. The live preview passed briefing sync CAS, offline story image caching, phone-to-watch background wake-up notification, shared Resume briefing dialog, and queue progression. Anonymous listening APIs remain protected; the deployed phone listening flow and companion 0.12.0 (21) were preserved. Watch publication retained all five protected production file checksums and preserved App_Data and existing listening progress. Source commit: SignalWatch `57ade95`.
+
+
 ## Sleep timer: SignalWatch 0.23.0 (36)
 
 The player adds a compact Sleep timer control with 15-, 30- and 60-minute choices, Finish current story, a countdown, Change and Cancel. Timed choices use Android elapsed realtime, including preparation and pauses; changing the duration starts a fresh deadline. Expiry pauses playback, retains the current saved speech-section boundary, releases active/prefetched audio and requires an explicit Play to continue. Finish current story consumes the completed queue entry and leaves the next entry paused at its own saved section. The last story still completes normally. Explicitly changing stories cancels end-of-story mode; a timed deadline continues across ordinary queue advancement.

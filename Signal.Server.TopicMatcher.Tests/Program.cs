@@ -16,6 +16,7 @@ using Signal.Server.Services;
 await QueueHandoffChecks.RunAsync();
 await ListeningQueueChecks.RunAsync();
 await ListeningProgressChecks.RunAsync();
+await BriefingProgressChecks.RunAsync();
 await ListeningHandoffChecks.RunAsync();
 if (args.Contains("--listening-progress-only")) return;
 if (args.Contains("--listening-handoffs-only")) return;
