@@ -30,6 +30,10 @@ export interface ExecutiveCommandCenterProps {
   onOpenClockRadio: () => void;
   onOpenQuietHours: () => void;
   onOpenVoiceDebrief: () => void;
+  onOpenGeopoliticalTransit?: () => void;
+  onOpenBoardSparring?: () => void;
+  onOpenTariffMatrix?: () => void;
+  onOpenBriefingStudio?: () => void;
 }
 
 export function ExecutiveCommandCenter(props: ExecutiveCommandCenterProps) {
@@ -66,6 +70,10 @@ export function ExecutiveCommandCenter(props: ExecutiveCommandCenterProps) {
       "clock-radio": props.onOpenClockRadio,
       "quiet-hours": props.onOpenQuietHours,
       "voice-debrief": props.onOpenVoiceDebrief,
+      "geopolitical-transit": () => props.onOpenGeopoliticalTransit?.(),
+      "board-sparring": () => props.onOpenBoardSparring?.(),
+      "tariff-matrix": () => props.onOpenTariffMatrix?.(),
+      "briefing-studio": () => props.onOpenBriefingStudio?.(),
     };
   }, [props]);
 

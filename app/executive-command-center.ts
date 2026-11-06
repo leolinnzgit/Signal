@@ -79,6 +79,16 @@ export const EXECUTIVE_SUITES: ExecutiveSuite[] = [
     keywords: ["regulatory", "policy", "compliance", "antitrust", "legislation", "fma", "sec"],
     shortcutBadge: "L",
   },
+  {
+    id: "geopolitical-transit",
+    title: "Signal Sky & Sea (Straits Watch)",
+    subtitle: "Maritime chokepoints, Cape detour penalties & NOTAM airspace cones",
+    category: "risk",
+    categoryLabel: "Risk & Defense",
+    icon: "🌐",
+    keywords: ["straits", "transit", "airspace", "notam", "sea", "sky", "chokepoint", "hormuz", "red sea"],
+    shortcutBadge: "Y",
+  },
 
   // --- Category: Strategic Foresight & Analysis (6) ---
   {
@@ -140,6 +150,26 @@ export const EXECUTIVE_SUITES: ExecutiveSuite[] = [
     icon: "⚖️",
     keywords: ["claims", "arbiter", "fact check", "contradictions", "verification", "sources"],
     shortcutBadge: "A",
+  },
+  {
+    id: "board-sparring",
+    title: "Boardroom & Negotiation Sparring",
+    subtitle: "Tactical adversarial sparring against activist, regulator & short-seller personas",
+    category: "strategy",
+    categoryLabel: "Strategy & Foresight",
+    icon: "🤺",
+    keywords: ["sparring", "negotiation", "boardroom", "activist", "regulator", "short seller", "tactics"],
+    shortcutBadge: "N",
+  },
+  {
+    id: "tariff-matrix",
+    title: "Global Tariff & Supply Arbitrage",
+    subtitle: "Cross-border tariff shock modeling, COGS variance & FTA nearshoring arbitrage",
+    category: "strategy",
+    categoryLabel: "Strategy & Foresight",
+    icon: "📊",
+    keywords: ["tariff", "trade", "arbitrage", "cogs", "usmca", "cptpp", "margin", "customs"],
+    shortcutBadge: "X",
   },
 
   // --- Category: Executive Operations & Workflows (6) ---
@@ -212,6 +242,16 @@ export const EXECUTIVE_SUITES: ExecutiveSuite[] = [
     icon: "🌙",
     keywords: ["quiet hours", "dnd", "notifications", "vip", "sleep", "bypass", "crisis threshold"],
     shortcutBadge: "U",
+  },
+  {
+    id: "briefing-studio",
+    title: "Executive Briefing Studio",
+    subtitle: "Autonomous broadcast video reels with animated telemetry & neural voice",
+    category: "workflow",
+    categoryLabel: "Executive Operations",
+    icon: "🎬",
+    keywords: ["studio", "video", "broadcast", "reel", "media", "storyboard", "webm", "narration"],
+    shortcutBadge: "J",
   },
 ];
 

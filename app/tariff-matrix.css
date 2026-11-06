@@ -1,0 +1,290 @@
+/* Global Tariff & Trade Arbitrage Impact Matrix */
+
+.tariff-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(3, 7, 18, 0.84);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.tariff-modal-container {
+  width: 100%;
+  max-width: 1100px;
+  max-height: 90vh;
+  background: #090e18;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7), 0 0 40px rgba(245, 158, 11, 0.08);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: #f1f5f9;
+  font-family: inherit;
+}
+
+.tariff-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.5rem;
+  background: linear-gradient(90deg, rgba(28, 20, 10, 0.95), rgba(30, 41, 59, 0.95));
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.tariff-title-group {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.tariff-title-icon {
+  font-size: 1.5rem;
+}
+
+.tariff-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #fbbf24;
+  margin: 0;
+}
+
+.tariff-subtitle {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  margin: 0;
+}
+
+.tariff-close-btn {
+  background: transparent;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  color: #94a3b8;
+  border-radius: 6px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tariff-close-btn:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+/* Profile Selector Bar */
+.tariff-profile-bar {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.65rem 1.25rem;
+  background: rgba(15, 23, 42, 0.75);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+  overflow-x: auto;
+}
+
+.profile-tab {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 6px;
+  background: rgba(30, 41, 59, 0.5);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  color: #cbd5e1;
+  font-size: 0.78rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.profile-tab:hover {
+  background: rgba(51, 65, 85, 0.7);
+  color: #ffffff;
+}
+
+.profile-tab.active {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: #fbbf24;
+  color: #fef3c7;
+  font-weight: 600;
+}
+
+/* Body Split */
+.tariff-body {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 1.25rem;
+  padding: 1.25rem;
+  overflow-y: auto;
+}
+
+@media (max-width: 860px) {
+  .tariff-body {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Sliders Control Panel */
+.tariff-controls-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 8px;
+  padding: 1.15rem;
+}
+
+.control-section-title {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.25rem;
+}
+
+.slider-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.slider-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.78rem;
+  color: #cbd5e1;
+}
+
+.slider-rate-badge {
+  font-weight: 700;
+  color: #fbbf24;
+}
+
+.tariff-range-input {
+  width: 100%;
+  accent-color: #f59e0b;
+  cursor: pointer;
+}
+
+/* Results & Arbitrage Panel */
+.tariff-results-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1.15rem;
+}
+
+.tariff-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
+  gap: 0.75rem;
+}
+
+.tariff-metric-card {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 8px;
+  padding: 0.75rem;
+}
+
+.metric-card-label {
+  font-size: 0.7rem;
+  color: #94a3b8;
+  text-transform: uppercase;
+  margin-bottom: 0.25rem;
+}
+
+.metric-card-val {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.metric-card-val.color-amber {
+  color: #fbbf24;
+}
+
+.metric-card-val.color-red {
+  color: #ef4444;
+}
+
+/* Arbitrage Cards */
+.arbitrage-cards-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.arbitrage-card {
+  background: rgba(30, 41, 59, 0.55);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  border-radius: 8px;
+  padding: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.arbitrage-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.arbitrage-dest {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #34d399;
+}
+
+.arbitrage-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  background: rgba(16, 185, 129, 0.2);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.arbitrage-rationale {
+  font-size: 0.8rem;
+  color: #cbd5e1;
+  line-height: 1.45;
+}
+
+/* Footer */
+.tariff-footer {
+  padding: 0.85rem 1.5rem;
+  background: rgba(15, 23, 42, 0.85);
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tariff-export-btn {
+  background: #d97706;
+  color: #ffffff;
+  border: none;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0.45rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  transition: all 0.15s ease;
+}
+
+.tariff-export-btn:hover {
+  background: #b45309;
+}

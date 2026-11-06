@@ -8,8 +8,8 @@ import {
   recordRecentSuite,
 } from "../app/executive-command-center.ts";
 
-test("EXECUTIVE_SUITES registry contains exactly 19 distinct tools with valid fields", () => {
-  assert.equal(EXECUTIVE_SUITES.length, 19, "Should contain exactly 19 executive suites");
+test("EXECUTIVE_SUITES registry contains exactly 23 distinct tools with valid fields", () => {
+  assert.equal(EXECUTIVE_SUITES.length, 23, "Should contain exactly 23 executive suites");
   
   const ids = new Set();
   for (const suite of EXECUTIVE_SUITES) {
@@ -24,29 +24,29 @@ test("EXECUTIVE_SUITES registry contains exactly 19 distinct tools with valid fi
   }
 });
 
-test("getCategoryCounts accurately partitions the 19 suites into 6 risk, 6 strategy, 7 workflow", () => {
+test("getCategoryCounts accurately partitions the 23 suites into 7 risk, 8 strategy, 8 workflow", () => {
   const counts = getCategoryCounts(EXECUTIVE_SUITES);
-  assert.equal(counts.all, 19);
-  assert.equal(counts.risk, 6);
-  assert.equal(counts.strategy, 6);
-  assert.equal(counts.workflow, 7);
+  assert.equal(counts.all, 23);
+  assert.equal(counts.risk, 7);
+  assert.equal(counts.strategy, 8);
+  assert.equal(counts.workflow, 8);
 });
 
 test("filterExecutiveSuites filters accurately by category", () => {
   const riskSuites = filterExecutiveSuites(EXECUTIVE_SUITES, "", "risk");
-  assert.equal(riskSuites.length, 6);
+  assert.equal(riskSuites.length, 7);
   assert.ok(riskSuites.every((s) => s.category === "risk"));
 
   const strategySuites = filterExecutiveSuites(EXECUTIVE_SUITES, "", "strategy");
-  assert.equal(strategySuites.length, 6);
+  assert.equal(strategySuites.length, 8);
   assert.ok(strategySuites.every((s) => s.category === "strategy"));
 
   const workflowSuites = filterExecutiveSuites(EXECUTIVE_SUITES, "", "workflow");
-  assert.equal(workflowSuites.length, 7);
+  assert.equal(workflowSuites.length, 8);
   assert.ok(workflowSuites.every((s) => s.category === "workflow"));
 
   const allSuites = filterExecutiveSuites(EXECUTIVE_SUITES, "", "all");
-  assert.equal(allSuites.length, 19);
+  assert.equal(allSuites.length, 23);
 });
 
 test("filterExecutiveSuites matches queries across titles, subtitles, categories and keywords", () => {
@@ -67,8 +67,10 @@ test("filterExecutiveSuites matches queries across titles, subtitles, categories
 
   // Multi-term / whitespace trimming
   const chokepointsMatches = filterExecutiveSuites(EXECUTIVE_SUITES, "   chokepoints  ");
-  assert.equal(chokepointsMatches.length, 1);
-  assert.equal(chokepointsMatches[0].id, "supply-chain");
+  assert.equal(chokepointsMatches.length, 2);
+  const matchedIds = chokepointsMatches.map((m) => m.id);
+  assert.ok(matchedIds.includes("supply-chain"));
+  assert.ok(matchedIds.includes("geopolitical-transit"));
 
   // Non-matching query returns empty array
   const emptyMatches = filterExecutiveSuites(EXECUTIVE_SUITES, "nonexistent-query-xyz");

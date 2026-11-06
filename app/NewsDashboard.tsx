@@ -64,6 +64,10 @@ import SanctionsRadarModal from "./SanctionsRadarModal";
 import KnowledgeGraphModal from "./KnowledgeGraphModal";
 import HorizonScannerModal from "./HorizonScannerModal";
 import VoiceDebriefModal from "./VoiceDebriefModal.tsx";
+import { GeopoliticalTransitModal } from "./GeopoliticalTransitModal.tsx";
+import { BoardSparringModal } from "./BoardSparringModal.tsx";
+import { TariffMatrixModal } from "./TariffMatrixModal.tsx";
+import { BriefingStudioModal } from "./BriefingStudioModal.tsx";
 import { ExecutiveCommandCenter } from "./ExecutiveCommandCenter.tsx";
 import {
   fetchKeywordRules,
@@ -957,6 +961,10 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [knowledgeGraphOpen, setKnowledgeGraphOpen] = useState(false);
   const [horizonScannerOpen, setHorizonScannerOpen] = useState(false);
   const [voiceDebriefOpen, setVoiceDebriefOpen] = useState(false);
+  const [geopoliticalTransitOpen, setGeopoliticalTransitOpen] = useState(false);
+  const [boardSparringOpen, setBoardSparringOpen] = useState(false);
+  const [tariffMatrixOpen, setTariffMatrixOpen] = useState(false);
+  const [briefingStudioOpen, setBriefingStudioOpen] = useState(false);
 
   useEffect(() => {
     void fetchKeywordRules().then((rules) => {
@@ -3985,6 +3993,10 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
             onOpenClockRadio={() => setClockRadioOpen(true)}
             onOpenQuietHours={() => setQuietHoursOpen(true)}
             onOpenVoiceDebrief={() => setVoiceDebriefOpen(true)}
+            onOpenGeopoliticalTransit={() => setGeopoliticalTransitOpen(true)}
+            onOpenBoardSparring={() => setBoardSparringOpen(true)}
+            onOpenTariffMatrix={() => setTariffMatrixOpen(true)}
+            onOpenBriefingStudio={() => setBriefingStudioOpen(true)}
           />
           <div className="live-status"><span className="pulse" aria-hidden="true" />Live web briefing</div>
           {!appInstalled && (
@@ -6770,6 +6782,36 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
               : ""
           }
           preferredVoice={resolveUserReadingVoice()}
+        />
+      )}
+
+      {geopoliticalTransitOpen && (
+        <GeopoliticalTransitModal
+          isOpen={geopoliticalTransitOpen}
+          onClose={() => setGeopoliticalTransitOpen(false)}
+          articles={articles}
+        />
+      )}
+
+      {boardSparringOpen && (
+        <BoardSparringModal
+          isOpen={boardSparringOpen}
+          onClose={() => setBoardSparringOpen(false)}
+        />
+      )}
+
+      {tariffMatrixOpen && (
+        <TariffMatrixModal
+          isOpen={tariffMatrixOpen}
+          onClose={() => setTariffMatrixOpen(false)}
+        />
+      )}
+
+      {briefingStudioOpen && (
+        <BriefingStudioModal
+          isOpen={briefingStudioOpen}
+          onClose={() => setBriefingStudioOpen(false)}
+          articles={articles}
         />
       )}
       <footer><p><span className="footer-dot" /> SIGNAL gathers public reporting and sends you to the original publisher.</p></footer>

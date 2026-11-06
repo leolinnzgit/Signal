@@ -1,0 +1,305 @@
+/* Executive Briefing Studio (Autonomous Broadcast Video Generator) */
+
+.studio-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(3, 7, 18, 0.86);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.studio-modal-container {
+  width: 100%;
+  max-width: 1080px;
+  max-height: 92vh;
+  background: #080c16;
+  border: 1px solid rgba(168, 85, 247, 0.28);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.75), 0 0 40px rgba(168, 85, 247, 0.1);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: #f1f5f9;
+  font-family: inherit;
+}
+
+.studio-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.5rem;
+  background: linear-gradient(90deg, rgba(23, 15, 34, 0.95), rgba(30, 41, 59, 0.95));
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.studio-title-group {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.studio-title-icon {
+  font-size: 1.5rem;
+}
+
+.studio-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #c084fc;
+  margin: 0;
+}
+
+.studio-subtitle {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  margin: 0;
+}
+
+.studio-close-btn {
+  background: transparent;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  color: #94a3b8;
+  border-radius: 6px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.studio-close-btn:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+/* Template bar */
+.studio-template-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.65rem 1.25rem;
+  background: rgba(15, 23, 42, 0.75);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+  gap: 0.75rem;
+}
+
+.studio-templates-list {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+}
+
+.studio-template-tab {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 6px;
+  background: rgba(30, 41, 59, 0.5);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  color: #cbd5e1;
+  font-size: 0.78rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.studio-template-tab:hover {
+  background: rgba(51, 65, 85, 0.7);
+  color: #ffffff;
+}
+
+.studio-template-tab.active {
+  background: rgba(168, 85, 247, 0.15);
+  border-color: #c084fc;
+  color: #f3e8ff;
+  font-weight: 600;
+}
+
+.studio-aspect-btn {
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  color: #94a3b8;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.3rem 0.6rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.studio-aspect-btn.active {
+  background: #a855f7;
+  color: #ffffff;
+  border-color: #c084fc;
+}
+
+/* Studio Body */
+.studio-body {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 1.25rem;
+  padding: 1.25rem;
+  overflow-y: auto;
+  align-items: start;
+}
+
+@media (max-width: 880px) {
+  .studio-body {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Monitor Canvas area */
+.studio-monitor-wrapper {
+  display: flex;
+  flex-direction: column;
+  background: #020617;
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+}
+
+.studio-canvas {
+  width: 100%;
+  height: auto;
+  display: block;
+  background: #000;
+}
+
+/* Controls underneath canvas */
+.studio-playback-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.65rem 1rem;
+  background: rgba(15, 23, 42, 0.9);
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+  gap: 0.75rem;
+}
+
+.studio-play-btn {
+  background: #a855f7;
+  border: none;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 0.8rem;
+  padding: 0.4rem 0.85rem;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  transition: all 0.15s ease;
+}
+
+.studio-play-btn:hover {
+  background: #9333ea;
+}
+
+.studio-scenes-selector {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.scene-pill {
+  font-size: 0.72rem;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  color: #cbd5e1;
+  padding: 0.25rem 0.55rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.scene-pill.active {
+  background: rgba(168, 85, 247, 0.25);
+  border-color: #c084fc;
+  color: #f3e8ff;
+  font-weight: 600;
+}
+
+/* Sidebar Script & Export */
+.studio-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.studio-section-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.25rem;
+}
+
+.studio-narration-box {
+  background: rgba(30, 41, 59, 0.5);
+  border-left: 3px solid #a855f7;
+  border-radius: 0 6px 6px 0;
+  padding: 0.75rem;
+  font-size: 0.82rem;
+  color: #e2e8f0;
+  line-height: 1.5;
+}
+
+.studio-render-status {
+  padding: 0.6rem;
+  border-radius: 6px;
+  background: rgba(30, 41, 59, 0.4);
+  font-size: 0.76rem;
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Footer */
+.studio-footer {
+  padding: 0.85rem 1.5rem;
+  background: rgba(15, 23, 42, 0.85);
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.studio-record-btn {
+  background: linear-gradient(90deg, #9333ea, #7e22ce);
+  color: #ffffff;
+  border: none;
+  font-size: 0.82rem;
+  font-weight: 700;
+  padding: 0.5rem 1.15rem;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  transition: all 0.15s ease;
+}
+
+.studio-record-btn:hover {
+  background: linear-gradient(90deg, #a855f7, #9333ea);
+}
+
+.recording-indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 10px #ef4444;
+  animation: pulse-dot 1s infinite;
+}
