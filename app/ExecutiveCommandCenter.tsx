@@ -34,6 +34,10 @@ export interface ExecutiveCommandCenterProps {
   onOpenBoardSparring?: () => void;
   onOpenTariffMatrix?: () => void;
   onOpenBriefingStudio?: () => void;
+  onOpenSignalCortex?: () => void;
+  onOpenDailyCast?: () => void;
+  onOpenSovereignRisk?: () => void;
+  onOpenPreMortem?: () => void;
 }
 
 export function ExecutiveCommandCenter(props: ExecutiveCommandCenterProps) {
@@ -74,6 +78,10 @@ export function ExecutiveCommandCenter(props: ExecutiveCommandCenterProps) {
       "board-sparring": () => props.onOpenBoardSparring?.(),
       "tariff-matrix": () => props.onOpenTariffMatrix?.(),
       "briefing-studio": () => props.onOpenBriefingStudio?.(),
+      "signal-cortex": () => props.onOpenSignalCortex?.(),
+      "daily-cast": () => props.onOpenDailyCast?.(),
+      "sovereign-risk": () => props.onOpenSovereignRisk?.(),
+      "pre-mortem": () => props.onOpenPreMortem?.(),
     };
   }, [props]);
 

@@ -89,6 +89,16 @@ export const EXECUTIVE_SUITES: ExecutiveSuite[] = [
     keywords: ["straits", "transit", "airspace", "notam", "sea", "sky", "chokepoint", "hormuz", "red sea"],
     shortcutBadge: "Y",
   },
+  {
+    id: "sovereign-risk",
+    title: "Sovereign Risk & Debt Stress",
+    subtitle: "Macro FX velocity, CDS spreads, capital controls & treasury repatriation haircuts",
+    category: "risk",
+    categoryLabel: "Risk & Defense",
+    icon: "🏛️",
+    keywords: ["sovereign", "debt", "cds", "fx", "currency", "repatriation", "haircut", "macro", "reserves"],
+    shortcutBadge: "F",
+  },
 
   // --- Category: Strategic Foresight & Analysis (6) ---
   {
@@ -171,6 +181,16 @@ export const EXECUTIVE_SUITES: ExecutiveSuite[] = [
     keywords: ["tariff", "trade", "arbitrage", "cogs", "usmca", "cptpp", "margin", "customs"],
     shortcutBadge: "X",
   },
+  {
+    id: "pre-mortem",
+    title: "Corporate Pre-Mortem Simulator",
+    subtitle: "Adversarial failure cascade modeling, early warning indicators & boardroom hedging directives",
+    category: "strategy",
+    categoryLabel: "Strategy & Foresight",
+    icon: "⚔️",
+    keywords: ["pre-mortem", "kill the company", "failure", "adversarial", "autopsy", "hedging", "wargame"],
+    shortcutBadge: "Z",
+  },
 
   // --- Category: Executive Operations & Workflows (6) ---
   {
@@ -252,6 +272,26 @@ export const EXECUTIVE_SUITES: ExecutiveSuite[] = [
     icon: "🎬",
     keywords: ["studio", "video", "broadcast", "reel", "media", "storyboard", "webm", "narration"],
     shortcutBadge: "J",
+  },
+  {
+    id: "signal-cortex",
+    title: "Signal Cortex (Executive Second Brain)",
+    subtitle: "Unified cross-corpus semantic search, verified citations & instant brief synthesis",
+    category: "workflow",
+    categoryLabel: "Executive Operations",
+    icon: "🧠",
+    keywords: ["cortex", "second brain", "semantic", "corpus", "omni", "digest", "synthesis"],
+    shortcutBadge: "⌘J",
+  },
+  {
+    id: "daily-cast",
+    title: "Signal Studio Daily Cast",
+    subtitle: "Autonomous dual-host executive podcast with real-time vocal sparring & show notes",
+    category: "workflow",
+    categoryLabel: "Executive Operations",
+    icon: "🎙️",
+    keywords: ["daily cast", "podcast", "hosts", "vance", "chen", "sparring", "broadcast", "show notes"],
+    shortcutBadge: "P",
   },
 ];
 

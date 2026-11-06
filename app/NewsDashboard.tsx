@@ -68,6 +68,10 @@ import { GeopoliticalTransitModal } from "./GeopoliticalTransitModal.tsx";
 import { BoardSparringModal } from "./BoardSparringModal.tsx";
 import { TariffMatrixModal } from "./TariffMatrixModal.tsx";
 import { BriefingStudioModal } from "./BriefingStudioModal.tsx";
+import { SignalCortexModal } from "./SignalCortexModal.tsx";
+import { DailyCastModal } from "./DailyCastModal.tsx";
+import { SovereignRiskModal } from "./SovereignRiskModal.tsx";
+import { PreMortemModal } from "./PreMortemModal.tsx";
 import { ExecutiveCommandCenter } from "./ExecutiveCommandCenter.tsx";
 import {
   fetchKeywordRules,
@@ -965,6 +969,25 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [boardSparringOpen, setBoardSparringOpen] = useState(false);
   const [tariffMatrixOpen, setTariffMatrixOpen] = useState(false);
   const [briefingStudioOpen, setBriefingStudioOpen] = useState(false);
+  const [signalCortexOpen, setSignalCortexOpen] = useState(false);
+  const [dailyCastOpen, setDailyCastOpen] = useState(false);
+  const [sovereignRiskOpen, setSovereignRiskOpen] = useState(false);
+  const [preMortemOpen, setPreMortemOpen] = useState(false);
+
+  useEffect(() => {
+    const handleGlobalShortcuts = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "j") {
+        const target = e.target as HTMLElement | null;
+        if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
+          return;
+        }
+        e.preventDefault();
+        setSignalCortexOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", handleGlobalShortcuts);
+    return () => window.removeEventListener("keydown", handleGlobalShortcuts);
+  }, []);
 
   useEffect(() => {
     void fetchKeywordRules().then((rules) => {
@@ -3997,6 +4020,10 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
             onOpenBoardSparring={() => setBoardSparringOpen(true)}
             onOpenTariffMatrix={() => setTariffMatrixOpen(true)}
             onOpenBriefingStudio={() => setBriefingStudioOpen(true)}
+            onOpenSignalCortex={() => setSignalCortexOpen(true)}
+            onOpenDailyCast={() => setDailyCastOpen(true)}
+            onOpenSovereignRisk={() => setSovereignRiskOpen(true)}
+            onOpenPreMortem={() => setPreMortemOpen(true)}
           />
           <div className="live-status"><span className="pulse" aria-hidden="true" />Live web briefing</div>
           {!appInstalled && (
@@ -6812,6 +6839,46 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           isOpen={briefingStudioOpen}
           onClose={() => setBriefingStudioOpen(false)}
           articles={articles}
+        />
+      )}
+
+      {signalCortexOpen && (
+        <SignalCortexModal
+          isOpen={signalCortexOpen}
+          onClose={() => setSignalCortexOpen(false)}
+          onOpenSuite={(suiteId) => {
+            setSignalCortexOpen(false);
+            if (suiteId === "geopolitical-transit") setGeopoliticalTransitOpen(true);
+            else if (suiteId === "tariff-matrix") setTariffMatrixOpen(true);
+            else if (suiteId === "board-sparring") setBoardSparringOpen(true);
+            else if (suiteId === "cyber-incident") setCyberIncidentOpen(true);
+            else if (suiteId === "competitor-radar") setCompetitorRadarOpen(true);
+            else if (suiteId === "radar") setRadarOpen(true);
+            else if (suiteId === "sovereign-risk") setSovereignRiskOpen(true);
+            else if (suiteId === "pre-mortem") setPreMortemOpen(true);
+            else if (suiteId === "daily-cast") setDailyCastOpen(true);
+          }}
+        />
+      )}
+
+      {dailyCastOpen && (
+        <DailyCastModal
+          isOpen={dailyCastOpen}
+          onClose={() => setDailyCastOpen(false)}
+        />
+      )}
+
+      {sovereignRiskOpen && (
+        <SovereignRiskModal
+          isOpen={sovereignRiskOpen}
+          onClose={() => setSovereignRiskOpen(false)}
+        />
+      )}
+
+      {preMortemOpen && (
+        <PreMortemModal
+          isOpen={preMortemOpen}
+          onClose={() => setPreMortemOpen(false)}
         />
       )}
       <footer><p><span className="footer-dot" /> SIGNAL gathers public reporting and sends you to the original publisher.</p></footer>

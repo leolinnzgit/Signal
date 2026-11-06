@@ -1,0 +1,418 @@
+/* Corporate Pre-Mortem Simulator ("Kill The Company") Styles */
+
+.pre-mortem-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 15, 29, 0.75);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  padding: 16px;
+  animation: preMortemFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes preMortemFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.pre-mortem-modal {
+  width: 100%;
+  max-width: 960px;
+  max-height: 90vh;
+  background: var(--bg-card, #111827);
+  border: 1px solid var(--border-color, #374151);
+  border-radius: 14px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--text-color, #f3f4f6);
+}
+
+.pre-mortem-header {
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--border-color, #374151);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.pre-mortem-header-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.pre-mortem-icon-pill {
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.pre-mortem-header h2 {
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin: 0;
+  letter-spacing: -0.01em;
+  color: var(--text-primary, #ffffff);
+}
+
+.pre-mortem-header p {
+  font-size: 0.82rem;
+  margin: 2px 0 0;
+  color: var(--text-muted, #9ca3af);
+}
+
+.pre-mortem-close-btn {
+  background: transparent;
+  border: 1px solid var(--border-color, #374151);
+  color: var(--text-muted, #9ca3af);
+  border-radius: 8px;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  touch-action: manipulation;
+}
+
+.pre-mortem-close-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-color, #f3f4f6);
+  border-color: var(--border-hover, #4b5563);
+}
+
+.pre-mortem-body {
+  padding: 20px 24px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Initiatives picker */
+.pre-mortem-initiatives-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.pre-mortem-initiative-btn {
+  background: var(--bg-surface, #1f2937);
+  border: 1px solid var(--border-color, #374151);
+  border-radius: 8px;
+  padding: 12px;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: all 0.15s ease;
+  color: var(--text-color, #f3f4f6);
+  touch-action: manipulation;
+}
+
+.pre-mortem-initiative-btn:hover {
+  background: var(--bg-hover, #2d3748);
+  border-color: var(--border-hover, #4b5563);
+}
+
+.pre-mortem-initiative-btn.active {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: #f59e0b;
+}
+
+.pre-mortem-initiative-title {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text-primary, #ffffff);
+}
+
+.pre-mortem-initiative-meta {
+  font-size: 0.75rem;
+  color: var(--text-muted, #9ca3af);
+  display: flex;
+  justify-content: space-between;
+}
+
+/* Controls bar: Horizon slider */
+.pre-mortem-controls {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-color, #374151);
+  border-radius: 10px;
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.pre-mortem-horizon-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 260px;
+}
+
+.pre-mortem-horizon-label {
+  font-size: 0.85rem;
+  color: var(--text-muted, #9ca3af);
+  white-space: nowrap;
+}
+
+.pre-mortem-slider {
+  flex: 1;
+  height: 6px;
+  accent-color: #f59e0b;
+  background: var(--bg-hover, #374151);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+/* Autopsy Banner */
+.pre-mortem-autopsy-card {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.12) 0%, rgba(31, 41, 55, 0.4) 100%);
+  border-left: 4px solid #ef4444;
+  border-radius: 0 10px 10px 0;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pre-mortem-autopsy-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pre-mortem-autopsy-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #fca5a5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pre-mortem-fatality-tag {
+  background: rgba(239, 68, 68, 0.25);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.pre-mortem-autopsy-text {
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: var(--text-secondary, #d1d5db);
+  margin: 0;
+}
+
+/* Board Directive */
+.pre-mortem-board-directive {
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: #fde68a;
+}
+
+.pre-mortem-board-directive strong {
+  color: #f59e0b;
+}
+
+/* Collapse Vectors */
+.pre-mortem-vectors-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pre-mortem-vectors-container h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-primary, #ffffff);
+}
+
+.pre-mortem-vector-card {
+  background: var(--bg-surface, #1f2937);
+  border: 1px solid var(--border-color, #374151);
+  border-radius: 10px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pre-mortem-vector-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.pre-mortem-vector-name {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--text-primary, #ffffff);
+}
+
+.pre-mortem-badge-critical {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.pre-mortem-badge-high {
+  background: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.pre-mortem-badge-moderate {
+  background: rgba(59, 130, 246, 0.2);
+  color: #3b82f6;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.pre-mortem-mechanism {
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--text-secondary, #d1d5db);
+  margin: 0;
+}
+
+.pre-mortem-ewi-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pre-mortem-ewi-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted, #9ca3af);
+}
+
+.pre-mortem-ewi-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pre-mortem-ewi-tag {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border-color, #374151);
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  color: var(--text-secondary, #d1d5db);
+}
+
+.pre-mortem-hedging-box {
+  background: rgba(16, 185, 129, 0.08);
+  border-left: 3px solid #10b981;
+  padding: 10px 14px;
+  border-radius: 0 6px 6px 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: #a7f3d0;
+}
+
+/* Footer */
+.pre-mortem-footer {
+  padding: 14px 24px;
+  border-top: 1px solid var(--border-color, #374151);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(255, 255, 255, 0.02);
+  gap: 12px;
+}
+
+.pre-mortem-footer-status {
+  font-size: 0.8rem;
+  color: var(--text-muted, #9ca3af);
+}
+
+.pre-mortem-export-btn {
+  background: #f59e0b;
+  color: #111827;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  touch-action: manipulation;
+}
+
+.pre-mortem-export-btn:hover {
+  background: #d97706;
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+  .pre-mortem-modal {
+    max-height: 95vh;
+  }
+  .pre-mortem-initiatives-list {
+    grid-template-columns: 1fr;
+  }
+  .pre-mortem-header,
+  .pre-mortem-body,
+  .pre-mortem-footer {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .pre-mortem-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .pre-mortem-export-btn {
+    width: 100%;
+    min-height: 44px;
+  }
+}

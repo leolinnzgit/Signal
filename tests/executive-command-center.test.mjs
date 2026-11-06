@@ -8,8 +8,8 @@ import {
   recordRecentSuite,
 } from "../app/executive-command-center.ts";
 
-test("EXECUTIVE_SUITES registry contains exactly 23 distinct tools with valid fields", () => {
-  assert.equal(EXECUTIVE_SUITES.length, 23, "Should contain exactly 23 executive suites");
+test("EXECUTIVE_SUITES registry contains exactly 27 distinct tools with valid fields", () => {
+  assert.equal(EXECUTIVE_SUITES.length, 27, "Should contain exactly 27 executive suites");
   
   const ids = new Set();
   for (const suite of EXECUTIVE_SUITES) {
@@ -24,29 +24,29 @@ test("EXECUTIVE_SUITES registry contains exactly 23 distinct tools with valid fi
   }
 });
 
-test("getCategoryCounts accurately partitions the 23 suites into 7 risk, 8 strategy, 8 workflow", () => {
+test("getCategoryCounts accurately partitions the 27 suites into 8 risk, 9 strategy, 10 workflow", () => {
   const counts = getCategoryCounts(EXECUTIVE_SUITES);
-  assert.equal(counts.all, 23);
-  assert.equal(counts.risk, 7);
-  assert.equal(counts.strategy, 8);
-  assert.equal(counts.workflow, 8);
+  assert.equal(counts.all, 27);
+  assert.equal(counts.risk, 8);
+  assert.equal(counts.strategy, 9);
+  assert.equal(counts.workflow, 10);
 });
 
 test("filterExecutiveSuites filters accurately by category", () => {
   const riskSuites = filterExecutiveSuites(EXECUTIVE_SUITES, "", "risk");
-  assert.equal(riskSuites.length, 7);
+  assert.equal(riskSuites.length, 8);
   assert.ok(riskSuites.every((s) => s.category === "risk"));
 
   const strategySuites = filterExecutiveSuites(EXECUTIVE_SUITES, "", "strategy");
-  assert.equal(strategySuites.length, 8);
+  assert.equal(strategySuites.length, 9);
   assert.ok(strategySuites.every((s) => s.category === "strategy"));
 
   const workflowSuites = filterExecutiveSuites(EXECUTIVE_SUITES, "", "workflow");
-  assert.equal(workflowSuites.length, 8);
+  assert.equal(workflowSuites.length, 10);
   assert.ok(workflowSuites.every((s) => s.category === "workflow"));
 
   const allSuites = filterExecutiveSuites(EXECUTIVE_SUITES, "", "all");
-  assert.equal(allSuites.length, 23);
+  assert.equal(allSuites.length, 27);
 });
 
 test("filterExecutiveSuites matches queries across titles, subtitles, categories and keywords", () => {
