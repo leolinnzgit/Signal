@@ -372,3 +372,70 @@
   color: #10b981;
   font-weight: 600;
 }
+
+/* Mobile & Responsive Adaptations */
+@media (max-width: 768px) {
+  .transit-modal-overlay {
+    padding: 0.25rem;
+  }
+
+  .transit-modal-container {
+    max-height: 98vh;
+    border-radius: 10px;
+  }
+
+  .transit-header {
+    padding: 0.75rem 1rem;
+  }
+
+  .transit-title {
+    font-size: 1rem;
+  }
+
+  .transit-subtitle {
+    display: none;
+  }
+
+  .transit-body {
+    padding: 0.75rem;
+    gap: 0.75rem;
+  }
+
+  .transit-map-svg {
+    min-height: 180px;
+    max-height: 220px;
+  }
+
+  .transit-content-grid {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+
+  .transit-sidebar-list {
+    flex-direction: row;
+    overflow-x: auto;
+    max-height: none;
+    padding-bottom: 0.5rem;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .transit-chokepoint-card {
+    min-width: 220px;
+    flex-shrink: 0;
+  }
+
+  .transit-telemetry-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .transit-footer {
+    padding: 0.75rem 1rem;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .transit-export-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}

@@ -606,4 +606,8 @@
   .command-center-header-trigger {
     padding: 0.34rem 0.55rem;
   }
+
+  .command-center-search-input {
+    font-size: 16px; /* Prevents auto-zoom on iOS Safari */
+  }
 }

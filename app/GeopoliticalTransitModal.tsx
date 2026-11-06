@@ -197,6 +197,8 @@ export function GeopoliticalTransitModal({
                       if (e.key === "Enter" || e.key === " ") setSelectedId(cp.id);
                     }}
                   >
+                    {/* Generous touch target for mobile devices */}
+                    <circle cx={pt.x} cy={pt.y} r="22" fill="transparent" pointerEvents="all" />
                     {/* Pulsing ring */}
                     <circle cx={pt.x} cy={pt.y} r={isSelected ? "14" : "10"} fill={colors.stroke} opacity="0.6">
                       <animate attributeName="r" values="8;18;8" dur="3s" repeatCount="indefinite" />

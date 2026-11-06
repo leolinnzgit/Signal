@@ -704,4 +704,8 @@
   .voice-citations-grid {
     grid-template-columns: 1fr;
   }
+
+  .voice-debrief-text-input {
+    font-size: 16px; /* Prevents auto-zoom on iOS Safari */
+  }
 }

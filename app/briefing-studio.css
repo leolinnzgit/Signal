@@ -128,9 +128,11 @@
   color: #94a3b8;
   font-size: 0.75rem;
   font-weight: 600;
-  padding: 0.3rem 0.6rem;
+  padding: 0.35rem 0.65rem;
   border-radius: 4px;
   cursor: pointer;
+  min-height: 34px;
+  touch-action: manipulation;
 }
 
 .studio-aspect-btn.active {
@@ -167,10 +169,13 @@
 }
 
 .studio-canvas {
-  width: 100%;
+  width: auto;
+  max-width: 100%;
   height: auto;
+  margin: 0 auto;
   display: block;
   background: #000;
+  object-fit: contain;
 }
 
 /* Controls underneath canvas */
@@ -302,4 +307,64 @@
   background: #ef4444;
   box-shadow: 0 0 10px #ef4444;
   animation: pulse-dot 1s infinite;
+}
+
+/* Mobile & Responsive Adaptations */
+@media (max-width: 880px) {
+  .studio-modal-overlay {
+    padding: 0.25rem;
+  }
+
+  .studio-modal-container {
+    max-height: 98vh;
+    border-radius: 10px;
+  }
+
+  .studio-header {
+    padding: 0.75rem 1rem;
+  }
+
+  .studio-title {
+    font-size: 1rem;
+  }
+
+  .studio-subtitle {
+    display: none;
+  }
+
+  .studio-template-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+  }
+
+  .studio-templates-list {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .studio-body {
+    padding: 0.75rem;
+    gap: 0.75rem;
+  }
+
+  .studio-canvas {
+    max-height: 240px !important;
+  }
+
+  .studio-playback-bar {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .studio-footer {
+    padding: 0.75rem 1rem;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .studio-record-btn {
+    width: 100%;
+    justify-content: center;
+  }
 }
