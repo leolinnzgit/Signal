@@ -50,6 +50,56 @@ internal static class ArticleReaderChecks
         Require(reader.ExtractArticle($"<title>Cloudflare explains bot protection</title><article>{Body}</article>", ArticleUri).Available,
             "News about bot protection must remain readable.");
 
+        var scopedPaywallHtml = $"<header><p>Subscribe to continue reading our weekly edition.</p></header><article>{Body}</article><footer><p>Sign in to continue reading comments.</p></footer>";
+        var scopedArticle = reader.ExtractArticle(scopedPaywallHtml, ArticleUri);
+        Require(scopedArticle.Available && scopedArticle.Article!.Paragraphs.Count == 5,
+            "Paywall markers in header or footer must not falsely reject clean article body.");
+
+        var hydrationBody = string.Join("\n\n", Enumerable.Range(1, 4).Select(i => $"Hydrated section {i}. {Paragraph}"));
+        var nextDataPayload = JsonSerializer.Serialize(new
+        {
+            props = new
+            {
+                pageProps = new
+                {
+                    story = new
+                    {
+                        contentBody = hydrationBody,
+                        author = new { name = "Hydration Reporter" },
+                        publisher = new { name = "Next News" },
+                        datePublished = "2026-11-06T12:00:00Z"
+                    }
+                }
+            }
+        });
+        var hydrationHtml = $"<html><head><script id='__NEXT_DATA__' type='application/json'>{nextDataPayload}</script></head><body><div id='__next'><main>Loading dynamic content...</main></div></body></html>";
+        var hydrationArticle = reader.ExtractArticle(hydrationHtml, ArticleUri);
+        Require(hydrationArticle.Available && hydrationArticle.Article!.Paragraphs.Count == 4
+            && hydrationArticle.Article.Byline == "Hydration Reporter"
+            && hydrationArticle.Article.SiteName == "Next News",
+            "Next.js hydration state must extract story text and metadata without browser rendering.");
+
+        var divBodyHtml = $"<div itemprop='articleBody'><div class='article-paragraph'>Section 1. {Paragraph}</div><div class='article-paragraph'>Section 2. {Paragraph}</div></div>";
+        var divExtracted = reader.ExtractArticle(divBodyHtml, ArticleUri);
+        Require(divExtracted.Available && divExtracted.Article!.Paragraphs.Count == 2,
+            "Semantic itemprop articleBody with div text blocks must be extracted.");
+
+        var testReq = new HttpRequestMessage(HttpMethod.Get, "https://example.com/test");
+        ArticleReaderService.ApplyBrowserHeaders(testReq);
+        Require(testReq.Headers.Contains("sec-ch-ua") && testReq.Headers.Contains("Sec-Fetch-Dest"),
+            "Browser headers must include authentic client hints.");
+
+        var arrayMetadata = JsonSerializer.Serialize(new Dictionary<string, object>
+        {
+            ["@type"] = "LiveBlogPosting",
+            ["articleBody"] = new[] { $"Update 1. {Paragraph}", $"Update 2. {Paragraph}" },
+            ["author"] = new { name = "Live Blogger" }
+        });
+        var arrayArticle = reader.ExtractArticle($"<script type='application/ld+json'>{arrayMetadata}</script>", ArticleUri);
+        Require(arrayArticle.Available && arrayArticle.Article!.Paragraphs.Count == 2
+            && arrayArticle.Article.Byline == "Live Blogger",
+            "LiveBlogPosting with array articleBody must be supported.");
+
         using (var negotiationClient = new HttpClient(new ContentNegotiationHandler()))
         using (var negotiationCache = new MemoryCache(new MemoryCacheOptions()))
         {

@@ -32,6 +32,24 @@ public sealed class ArticleReaderService(
     internal const string BotProtectionReason = "This publisher's bot protection blocked Signal Reader. Open the original article in your browser to read it.";
     internal const string BrowserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
+    internal static void ApplyBrowserHeaders(HttpRequestMessage request)
+    {
+        request.Headers.Accept.ParseAdd("text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7");
+        request.Headers.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
+        if (!request.Headers.UserAgent.Any())
+        {
+            request.Headers.UserAgent.ParseAdd(BrowserUserAgent);
+        }
+        request.Headers.TryAddWithoutValidation("Upgrade-Insecure-Requests", "1");
+        request.Headers.TryAddWithoutValidation("sec-ch-ua", "\"Google Chrome\";v=\"131\", \"Chromium\";v=\"131\", \"Not_A Brand\";v=\"24\"");
+        request.Headers.TryAddWithoutValidation("sec-ch-ua-mobile", "?0");
+        request.Headers.TryAddWithoutValidation("sec-ch-ua-platform", "\"Windows\"");
+        request.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "document");
+        request.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "navigate");
+        request.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "none");
+        request.Headers.TryAddWithoutValidation("Sec-Fetch-User", "?1");
+    }
+
     private const int MaximumArticleBytes = 2_000_000;
     private const int MaximumParagraphs = 80;
     private const int MaximumTextLength = 30_000;
@@ -40,6 +58,14 @@ public sealed class ArticleReaderService(
     private static readonly Regex JsonLdBlock = new(
         @"<script\b[^>]*type\s*=\s*[""']application/ld\+json[""'][^>]*>([\s\S]*?)</script\s*>",
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
+        TimeSpan.FromSeconds(1));
+    private static readonly Regex NextDataBlock = new(
+        @"<script\b[^>]*id\s*=\s*[""']__NEXT_DATA__[""'][^>]*>([\s\S]*?)</script\s*>",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled,
+        TimeSpan.FromSeconds(1));
+    private static readonly Regex InitialStateBlock = new(
+        @"(?:window\.__INITIAL_STATE__|window\.__PRELOADED_STATE__)\s*=\s*(\{[\s\S]*?\});",
+        RegexOptions.Compiled,
         TimeSpan.FromSeconds(1));
     private static readonly Regex WhiteSpace = new(
         @"\s+",
@@ -104,13 +130,7 @@ public sealed class ArticleReaderService(
         for (var redirectCount = 0; redirectCount <= MaximumRedirects; redirectCount++)
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, currentUri);
-            request.Headers.Accept.ParseAdd("text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8");
-            request.Headers.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
-            if (!request.Headers.UserAgent.Any())
-            {
-                request.Headers.UserAgent.ParseAdd(BrowserUserAgent);
-            }
-            request.Headers.TryAddWithoutValidation("Upgrade-Insecure-Requests", "1");
+            ApplyBrowserHeaders(request);
             using var response = await httpClient.SendAsync(
                 request,
                 HttpCompletionOption.ResponseHeadersRead,
@@ -157,13 +177,7 @@ public sealed class ArticleReaderService(
             using var request = new HttpRequestMessage(HttpMethod.Get, currentUri);
             // Some publishers return HTTP 406 without a general fallback, even
             // though they serve HTML. Keep HTML preferred and validate the response below.
-            request.Headers.Accept.ParseAdd("text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8");
-            request.Headers.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
-            if (!request.Headers.UserAgent.Any())
-            {
-                request.Headers.UserAgent.ParseAdd(BrowserUserAgent);
-            }
-            request.Headers.TryAddWithoutValidation("Upgrade-Insecure-Requests", "1");
+            ApplyBrowserHeaders(request);
             using var response = await httpClient.SendAsync(
                 request,
                 HttpCompletionOption.ResponseHeadersRead,
@@ -334,15 +348,31 @@ public sealed class ArticleReaderService(
                 > readable.Paragraphs.Sum(paragraph => paragraph.Length)
                 ? structured.Paragraphs
                 : readable.Paragraphs;
+
+            var (document, cleanedHtml) = CleanDocument(html);
+
             if (paragraphs.Sum(paragraph => paragraph.Length) < 300)
             {
-                var fallback = ExtractParagraphs(html);
+                var fallback = ExtractParagraphs(document);
                 if (fallback.Sum(paragraph => paragraph.Length) > paragraphs.Sum(paragraph => paragraph.Length))
                     paragraphs = fallback;
             }
+
+            if (paragraphs.Sum(paragraph => paragraph.Length) < 300)
+            {
+                var hydration = ExtractHydrationArticle(html);
+                if (hydration.Paragraphs.Sum(p => p.Length) > paragraphs.Sum(p => p.Length))
+                {
+                    paragraphs = hydration.Paragraphs;
+                    structured.Byline = FirstNonEmpty(structured.Byline, hydration.Byline);
+                    structured.SiteName = FirstNonEmpty(structured.SiteName, hydration.SiteName);
+                    structured.PublishedAt = FirstNonEmpty(structured.PublishedAt, hydration.PublishedAt);
+                }
+            }
+
             var textLength = paragraphs.Sum(paragraph => paragraph.Length);
             var paywallDetected = structured.IsPaywalled
-                || PaywallMarkers.Any(marker => html.Contains(marker, StringComparison.OrdinalIgnoreCase));
+                || PaywallMarkers.Any(marker => cleanedHtml.Contains(marker, StringComparison.OrdinalIgnoreCase));
 
             if (structured.IsPaywalled || (paywallDetected && textLength < 1_200))
                 return Unavailable("This story appears to require a subscription or publisher login.");
@@ -384,7 +414,7 @@ public sealed class ArticleReaderService(
                     best.Byline = FirstNonEmpty(best.Byline, ReadAuthor(candidate));
                     best.SiteName = FirstNonEmpty(best.SiteName, ReadPublisher(candidate));
                     best.PublishedAt = FirstNonEmpty(best.PublishedAt, JsonString(candidate, "datePublished"));
-                    var body = JsonString(candidate, "articleBody");
+                    var body = ReadArticleBody(candidate);
                     var paragraphs = SplitStructuredBody(body);
                     if (paragraphs.Sum(paragraph => paragraph.Length)
                         > best.Paragraphs.Sum(paragraph => paragraph.Length))
@@ -439,21 +469,164 @@ public sealed class ArticleReaderService(
         }
     }
 
-    private static List<string> ExtractParagraphs(string html)
+    private static string ReadArticleBody(JsonElement element)
+    {
+        if (element.TryGetProperty("articleBody", out var body))
+        {
+            if (body.ValueKind == JsonValueKind.String)
+                return body.GetString()?.Trim() ?? "";
+            if (body.ValueKind == JsonValueKind.Array)
+            {
+                var items = body.EnumerateArray()
+                    .Where(item => item.ValueKind == JsonValueKind.String)
+                    .Select(item => item.GetString()?.Trim())
+                    .Where(item => !string.IsNullOrWhiteSpace(item));
+                return string.Join("\n\n", items);
+            }
+        }
+        if (element.TryGetProperty("text", out var text) && text.ValueKind == JsonValueKind.String)
+        {
+            return text.GetString()?.Trim() ?? "";
+        }
+        return "";
+    }
+
+    private static StructuredArticle ExtractHydrationArticle(string html)
+    {
+        var result = new StructuredArticle();
+        var match = NextDataBlock.Match(html);
+        var json = match.Success ? match.Groups[1].Value.Trim() : "";
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            var stateMatch = InitialStateBlock.Match(html);
+            if (stateMatch.Success) json = stateMatch.Groups[1].Value.Trim();
+        }
+        if (string.IsNullOrWhiteSpace(json)) return result;
+
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            VisitJson(document.RootElement, candidate =>
+            {
+                if (string.IsNullOrWhiteSpace(result.Byline))
+                    result.Byline = ReadAuthor(candidate);
+                if (string.IsNullOrWhiteSpace(result.SiteName))
+                    result.SiteName = ReadPublisher(candidate);
+                if (string.IsNullOrWhiteSpace(result.PublishedAt))
+                {
+                    var date = JsonString(candidate, "datePublished");
+                    if (string.IsNullOrWhiteSpace(date)) date = JsonString(candidate, "publishedAt");
+                    if (string.IsNullOrWhiteSpace(date)) date = JsonString(candidate, "publishDate");
+                    result.PublishedAt = date;
+                }
+
+                foreach (var propName in new[] { "articleBody", "storyBody", "contentBody", "fullText", "contentHtml", "bodyHtml" })
+                {
+                    if (candidate.TryGetProperty(propName, out var bodyProp) && bodyProp.ValueKind == JsonValueKind.String)
+                    {
+                        var body = bodyProp.GetString()?.Trim() ?? "";
+                        if (body.Length >= 300)
+                        {
+                            var paragraphs = SplitStructuredBody(body);
+                            if (paragraphs.Sum(p => p.Length) > result.Paragraphs.Sum(p => p.Length))
+                                result.Paragraphs = paragraphs;
+                        }
+                    }
+                }
+
+                if (candidate.TryGetProperty("paragraphs", out var paragraphsProp) && paragraphsProp.ValueKind == JsonValueKind.Array)
+                {
+                    var items = paragraphsProp.EnumerateArray()
+                        .Where(item => item.ValueKind == JsonValueKind.String)
+                        .Select(item => item.GetString()?.Trim() ?? "")
+                        .Where(item => !string.IsNullOrWhiteSpace(item))
+                        .ToList();
+                    if (items.Count > 0)
+                    {
+                        var paragraphs = LimitParagraphs(items);
+                        if (paragraphs.Sum(p => p.Length) > result.Paragraphs.Sum(p => p.Length))
+                            result.Paragraphs = paragraphs;
+                    }
+                }
+            });
+        }
+        catch (JsonException) { }
+        return result;
+    }
+
+    private static (IDocument Document, string CleanedHtml) CleanDocument(string html)
     {
         var document = new HtmlParser().ParseDocument(html);
-        foreach (var unwanted in document.QuerySelectorAll("script, style, nav, header, footer, aside, form, button, svg, noscript"))
+        foreach (var unwanted in document.QuerySelectorAll("script, style, nav, header, footer, aside, form, button, svg, noscript, .advertisement, .ad-banner, .comments, #comments"))
             unwanted.Remove();
+        return (document, document.Body?.InnerHtml ?? document.DocumentElement?.InnerHtml ?? "");
+    }
 
-        // Evaluate actual text, rather than picking the largest HTML container.
-        var candidates = document.QuerySelectorAll("article, main")
-            .Select(element => LimitParagraphs(element.QuerySelectorAll("p").Select(p => p.TextContent)))
-            .OrderByDescending(paragraphs => paragraphs.Sum(paragraph => paragraph.Length))
-            .ToList();
-        var best = candidates.FirstOrDefault() ?? [];
-        return best.Sum(paragraph => paragraph.Length) >= 300
-            ? best
-            : LimitParagraphs(document.QuerySelectorAll("p").Select(p => p.TextContent));
+    internal static List<string> ExtractParagraphs(string html)
+    {
+        var (document, _) = CleanDocument(html);
+        return ExtractParagraphs(document);
+    }
+
+    private static List<string> ExtractParagraphs(IDocument document)
+    {
+        var containerSelectors = new[]
+        {
+            "article",
+            "main",
+            "[itemprop='articleBody']",
+            ".article-body",
+            ".story-body",
+            ".entry-content",
+            ".post-content",
+            ".article__body",
+            ".article-content",
+            ".story-content",
+            ".article__content",
+        };
+
+        var containers = document.QuerySelectorAll(string.Join(", ", containerSelectors)).ToList();
+        if (containers.Count > 0)
+        {
+            var pCandidates = containers
+                .Select(element => LimitParagraphs(element.QuerySelectorAll("p").Select(p => p.TextContent)))
+                .OrderByDescending(paragraphs => paragraphs.Sum(paragraph => paragraph.Length))
+                .ToList();
+            var bestP = pCandidates.FirstOrDefault() ?? [];
+            if (bestP.Sum(paragraph => paragraph.Length) >= 300)
+                return bestP;
+
+            var blockCandidates = containers
+                .Select(element => ExtractContainerBlocks(element))
+                .OrderByDescending(paragraphs => paragraphs.Sum(paragraph => paragraph.Length))
+                .ToList();
+            var bestBlock = blockCandidates.FirstOrDefault() ?? [];
+            if (bestBlock.Sum(paragraph => paragraph.Length) >= 300)
+                return bestBlock;
+        }
+
+        var documentParagraphs = LimitParagraphs(document.QuerySelectorAll("p").Select(p => p.TextContent));
+        if (documentParagraphs.Sum(paragraph => paragraph.Length) >= 300)
+            return documentParagraphs;
+
+        var fallbackBlocks = LimitParagraphs(document.QuerySelectorAll(
+            "div[class*='paragraph'], div[class*='text-block'], div[class*='story_body'], div[class*='article-text'], section[class*='paragraph']")
+            .Select(element => element.TextContent));
+        return fallbackBlocks.Sum(paragraph => paragraph.Length) > documentParagraphs.Sum(paragraph => paragraph.Length)
+            ? fallbackBlocks
+            : documentParagraphs;
+    }
+
+    private static List<string> ExtractContainerBlocks(IElement container)
+    {
+        var elements = container.QuerySelectorAll("p, div[class*='paragraph'], div[class*='text'], section, li, blockquote");
+        if (elements.Length > 0)
+        {
+            var fromElements = LimitParagraphs(elements.Select(e => e.TextContent));
+            if (fromElements.Sum(p => p.Length) >= 300)
+                return fromElements;
+        }
+        return LimitParagraphs(Regex.Split(container.TextContent, @"[\r\n]+"));
     }
 
     private static List<string> SplitStructuredBody(string body)
@@ -519,7 +692,10 @@ public sealed class ArticleReaderService(
 
     private static bool IsArticleType(string? value) =>
         value is not null && (value.Equals("Article", StringComparison.OrdinalIgnoreCase)
-            || value.EndsWith("Article", StringComparison.OrdinalIgnoreCase));
+            || value.EndsWith("Article", StringComparison.OrdinalIgnoreCase)
+            || value.EndsWith("Posting", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("Report", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("NewsItem", StringComparison.OrdinalIgnoreCase));
 
     private static string JsonString(JsonElement element, string name) =>
         element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String

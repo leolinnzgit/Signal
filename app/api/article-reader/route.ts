@@ -100,7 +100,11 @@ function visitJson(value: unknown, visitor: (candidate: Record<string, unknown>)
 
 function isArticleType(value: unknown) {
   const types = Array.isArray(value) ? value : [value];
-  return types.some((type) => typeof type === "string" && /article$/i.test(type));
+  return types.some(
+    (type) =>
+      typeof type === "string"
+      && (/article$/i.test(type) || /posting$/i.test(type) || /report$/i.test(type) || /newsitem$/i.test(type)),
+  );
 }
 
 function extractStructuredArticle(html: string): StructuredArticle {
@@ -123,7 +127,15 @@ function extractStructuredArticle(html: string): StructuredArticle {
         if (accessibility === false || (typeof accessibility === "string" && accessibility.toLowerCase() === "false")) {
           best.isPaywalled = true;
         }
-        const body = typeof candidate.articleBody === "string" ? cleanText(candidate.articleBody) : "";
+        let body = "";
+        if (typeof candidate.articleBody === "string") {
+          body = cleanText(candidate.articleBody);
+        } else if (Array.isArray(candidate.articleBody)) {
+          body = candidate.articleBody
+            .filter((item): item is string => typeof item === "string")
+            .map((item) => cleanText(item))
+            .join(" ");
+        }
         if (body.length > best.paragraphs.join("").length) {
           best.paragraphs = body.length >= 40 ? [body.slice(0, MAXIMUM_TEXT_LENGTH)] : [];
           best.byline = namesFromJson(candidate.author);
@@ -138,33 +150,86 @@ function extractStructuredArticle(html: string): StructuredArticle {
   return best;
 }
 
+function extractHydrationArticle(html: string): StructuredArticle {
+  const best: StructuredArticle = {
+    paragraphs: [],
+    byline: "",
+    siteName: "",
+    publishedAt: "",
+    isPaywalled: false,
+  };
+  const match = html.match(/<script\b[^>]*id\s*=\s*["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script\s*>/i);
+  if (!match) return best;
+  try {
+    const data = JSON.parse(decodeHtml(match[1].trim())) as unknown;
+    visitJson(data, (candidate) => {
+      for (const prop of ["articleBody", "storyBody", "contentBody", "fullText", "contentHtml", "bodyHtml"]) {
+        const val = candidate[prop];
+        if (typeof val === "string" && val.length >= 300) {
+          const cleaned = cleanText(val);
+          if (cleaned.length > best.paragraphs.join("").length) {
+            best.paragraphs = [cleaned.slice(0, MAXIMUM_TEXT_LENGTH)];
+            if (!best.byline && typeof candidate.author === "object") best.byline = namesFromJson(candidate.author);
+            if (!best.publishedAt && typeof candidate.datePublished === "string") best.publishedAt = candidate.datePublished.trim();
+          }
+        }
+      }
+      if (Array.isArray(candidate.paragraphs)) {
+        const items = candidate.paragraphs
+          .filter((p): p is string => typeof p === "string" && p.trim().length >= 20)
+          .map((p) => cleanText(p));
+        if (items.join("").length > best.paragraphs.join("").length) {
+          best.paragraphs = items;
+        }
+      }
+    });
+  } catch {}
+  return best;
+}
+
+function cleanHtmlContent(html: string): string {
+  return html
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, " ")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, " ")
+    .replace(/<(nav|header|footer|aside|form|button|svg|noscript)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, " ")
+    .replace(/<div\b[^>]*class=["'][^"']*(?:ad-banner|advertisement|comments|cookie)[^"']*["'][^>]*>[\s\S]*?<\/div\s*>/gi, " ");
+}
+
 function extractParagraphs(html: string) {
-  const articles = [...html.matchAll(/<article\b[^>]*>([\s\S]*?)<\/article\s*>/gi)]
+  const cleaned = cleanHtmlContent(html);
+  const containerMatches = [
+    ...cleaned.matchAll(/<(?:article|main|div\b[^>]*(?:itemprop=["']articleBody["']|class=["'][^"']*(?:article-body|story-body|entry-content|post-content)[^"']*))\b[^>]*>([\s\S]*?)<\/(?:article|main|div)\s*>/gi),
+  ]
     .map((match) => match[1])
     .sort((left, right) => right.length - left.length);
-  const mains = articles.length > 0
-    ? []
-    : [...html.matchAll(/<main\b[^>]*>([\s\S]*?)<\/main\s*>/gi)]
-        .map((match) => match[1])
-        .sort((left, right) => right.length - left.length);
-  let content = articles[0] ?? mains[0] ?? html.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, " ");
-  content = content.replace(
-    /<(nav|header|footer|aside|form|button|style|svg|noscript)\b[^>]*>[\s\S]*?<\/\1\s*>/gi,
-    " ",
-  );
 
+  const content = containerMatches[0] ?? cleaned;
   const paragraphs: string[] = [];
   const seen = new Set<string>();
   let textLength = 0;
+
   for (const match of content.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p\s*>/gi)) {
     const paragraph = cleanText(match[1]);
-    if (paragraph.length < 40 || seen.has(paragraph)) continue;
+    if (paragraph.length < 20 || seen.has(paragraph)) continue;
     if (textLength + paragraph.length > MAXIMUM_TEXT_LENGTH) break;
     seen.add(paragraph);
     paragraphs.push(paragraph);
     textLength += paragraph.length;
     if (paragraphs.length === MAXIMUM_PARAGRAPHS) break;
   }
+
+  if (paragraphs.reduce((sum, p) => sum + p.length, 0) < 300) {
+    for (const match of content.matchAll(/<div\b[^>]*class=["'][^"']*(?:paragraph|text-block|story)[^"']*["'][^>]*>([\s\S]*?)<\/div\s*>/gi)) {
+      const paragraph = cleanText(match[1]);
+      if (paragraph.length < 20 || seen.has(paragraph)) continue;
+      if (textLength + paragraph.length > MAXIMUM_TEXT_LENGTH) break;
+      seen.add(paragraph);
+      paragraphs.push(paragraph);
+      textLength += paragraph.length;
+      if (paragraphs.length === MAXIMUM_PARAGRAPHS) break;
+    }
+  }
+
   return paragraphs;
 }
 
@@ -205,10 +270,17 @@ export async function GET(request: Request) {
     for (let redirectCount = 0; redirectCount <= MAXIMUM_REDIRECTS; redirectCount += 1) {
       const response = await fetch(currentUrl, {
         headers: {
-          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
           "Accept-Language": "en-US,en;q=0.9",
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
           "Upgrade-Insecure-Requests": "1",
+          "sec-ch-ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+          "sec-ch-ua-mobile": "?0",
+          "sec-ch-ua-platform": '"Windows"',
+          "Sec-Fetch-Dest": "document",
+          "Sec-Fetch-Mode": "navigate",
+          "Sec-Fetch-Site": "none",
+          "Sec-Fetch-User": "?1",
         },
         redirect: "manual",
         signal: AbortSignal.timeout(20_000),
@@ -235,12 +307,24 @@ export async function GET(request: Request) {
 
       const html = await readLimitedHtml(response);
       const structured = extractStructuredArticle(html);
-      const paragraphs = structured.paragraphs.length > 0
+      let paragraphs = structured.paragraphs.length > 0
         ? structured.paragraphs
         : extractParagraphs(html);
+
+      if (paragraphs.reduce((total, paragraph) => total + paragraph.length, 0) < 300) {
+        const hydration = extractHydrationArticle(html);
+        if (hydration.paragraphs.reduce((total, p) => total + p.length, 0) > paragraphs.reduce((total, p) => total + p.length, 0)) {
+          paragraphs = hydration.paragraphs;
+          if (!structured.byline) structured.byline = hydration.byline;
+          if (!structured.siteName) structured.siteName = hydration.siteName;
+          if (!structured.publishedAt) structured.publishedAt = hydration.publishedAt;
+        }
+      }
+
       const textLength = paragraphs.reduce((total, paragraph) => total + paragraph.length, 0);
+      const cleaned = cleanHtmlContent(html).toLowerCase();
       const paywallDetected = structured.isPaywalled
-        || PAYWALL_MARKERS.some((marker) => html.toLowerCase().includes(marker));
+        || PAYWALL_MARKERS.some((marker) => cleaned.includes(marker));
 
       if (structured.isPaywalled || (paywallDetected && textLength < 1_200)) {
         return unavailable("This story appears to require a subscription or publisher login.");
