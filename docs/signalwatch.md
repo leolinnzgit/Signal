@@ -1,5 +1,23 @@
 # SignalWatch release preparation
 
+## Daily Cast, Talk to Signal debrief & Hazard Tile / Complication: SignalWatch 0.25.0 (39) and SignalCompanion 0.13.0 (23)
+
+SignalWatch 0.25.0 (39) and SignalCompanion 0.13.0 (23) introduce Daily Cast podcast listening on the wrist, "Talk to Signal" voice executive debriefs, and an active hazard & severe weather Glance Tile and Wear OS Complication.
+
+Key capabilities introduced:
+- **Daily Cast on Wrist:** Wear OS users can browse Daily Cast presets (`/api/daily-cast`) or stream/play today's full episode directly. Two-host podcast dialog turns (David Vance & Sarah Chen) are natively partitioned into audio/speech sections with full `BriefingPlaybackService` and `NewsPlayer` integration, sleep timer support, rotary navigation, and offline encrypted caching in `DailyCastCache`. A dedicated "Today's Daily Cast" Glance Tile (`DailyCastTileService`) provides one-tap episode opening and playback from the watch face carousel.
+- **Talk to Signal / Voice Executive Debrief:** Users can speak natural-language executive queries directly to their watch via microphone speech recognition (`RecognizerIntent`) or pick curated executive presets ("Morning NZ Business Brief", "Tech & AI Briefing", "Emergency & Hazard Status"). Watch queries are routed to `/api/voice-debrief/query`, rendering executive summaries and key takeaways on screen while triggering spoken debrief playback.
+- **Active Hazard & Severe Weather Tile / Complication:** Real-time emergency hazard monitoring is integrated into the watch face via `HazardComplicationService` (`SHORT_TEXT` showing "✓ Calm" or "⚠️ RED" and `LONG_TEXT`) and a dedicated Glance Tile (`HazardTileService`). When GDACS, GeoNet earthquake, or MetService severe weather alerts are active, the tile renders an emergency warning with an immediate "View Hazards" launch button into the Disasters view.
+
+Release validation (8 November 2026): all server checks, 461 client tests, and 98 Kotlin JVM test tasks passed across `app`, `phone`, and `shared` modules. Release lint reported zero errors. Signed APK/AAB, bundletool validation, unchanged upload certificate, 64-bit/16 KB alignment, and private signing material exclusion checks passed.
+
+Checked artifacts:
+- Watch: `../SignalWatch/outputs/play-release/0.25.0-39/`. APK SHA256: `a479bc1d14ea6855440d6870328ff7902fa484ce19325d4d920791bcb8e52a05`.
+- Companion: `../SignalWatch/outputs/play-release/0.13.0-23/`. APK SHA256: `7cd3e6363f7dcc281be729ec03208865261b7f9dada79c4c8bcb49c72a9dc222`.
+ADB listed no connected devices; physical-device verification remains physical QA.
+
+Publication verification (8 November 2026): both Watch channels serve 0.25.0 (39), and both public HTTPS APK downloads match the checked hashes above. Active hazard tile/complication, Daily Cast podcast streaming, and Talk to Signal voice debriefs are deployed to IIS. Watch publication retained protected production file checksums, App_Data, and existing data.
+
 ## Disaster alert parity, severe weather warnings & preview: SignalWatch 0.24.1 (38) and SignalCompanion 0.12.1 (22)
 
 SignalWatch 0.24.1 (38) and SignalCompanion 0.12.1 (22) establish full disaster alert parity between the Wear OS watch app, companion, and the Signal web app.
