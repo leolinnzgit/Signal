@@ -1,6 +1,6 @@
 /**
  * Executive Command Center & Intelligence Suites Registry
- * Consolidates all 18 executive intelligence, radar, and strategic suites
+ * Consolidates all 28 executive intelligence, radar, and strategic suites
  * into a single unified command hub, eliminating header icon clutter.
  */
 
@@ -292,6 +292,16 @@ export const EXECUTIVE_SUITES: ExecutiveSuite[] = [
     icon: "🎙️",
     keywords: ["daily cast", "podcast", "hosts", "vance", "chen", "sparring", "broadcast", "show notes"],
     shortcutBadge: "P",
+  },
+  {
+    id: "tripwires",
+    title: "Executive Tripwires & Alerts",
+    subtitle: "Proactive background keyword monitors, 4h cooldowns & deep-linked push alerts",
+    category: "workflow",
+    categoryLabel: "Executive Operations",
+    icon: "🚨",
+    keywords: ["tripwires", "alerts", "push", "notifications", "monitors", "keywords", "deep link", "escalation"],
+    shortcutBadge: "!",
   },
 ];
 

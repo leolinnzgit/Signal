@@ -28,6 +28,8 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
 
     public DbSet<UserPresence> UserPresences => Set<UserPresence>();
 
+    public DbSet<ExecutiveTripwire> ExecutiveTripwires => Set<ExecutiveTripwire>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
@@ -185,6 +187,26 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
             message.Property(item => item.SharedArticleSource).HasMaxLength(256).IsRequired();
             message.HasIndex(item => new { item.SenderUserId, item.RecipientUserId, item.CreatedAtUtc });
             message.HasIndex(item => new { item.RecipientUserId, item.ReadAtUtc });
+        });
+
+        builder.Entity<ExecutiveTripwire>(tripwire =>
+        {
+            tripwire.ToTable("ExecutiveTripwires");
+            tripwire.HasKey(item => item.Id);
+            tripwire.Property(item => item.Id).HasMaxLength(64);
+            tripwire.Property(item => item.UserId).HasMaxLength(450).IsRequired();
+            tripwire.Property(item => item.Name).HasMaxLength(160).IsRequired();
+            tripwire.Property(item => item.KeywordsJson).IsRequired();
+            tripwire.Property(item => item.TargetSuiteId).HasMaxLength(80).IsRequired();
+            tripwire.Property(item => item.TargetEntityId).HasMaxLength(120).IsRequired();
+            tripwire.Property(item => item.Severity).HasMaxLength(24).IsRequired();
+            tripwire.Property(item => item.LastMatchedTitle).HasMaxLength(500).IsRequired();
+            tripwire.Property(item => item.LastMatchedUrl).HasMaxLength(2048).IsRequired();
+            tripwire.HasIndex(item => new { item.UserId, item.Enabled });
+            tripwire.HasOne(item => item.User)
+                .WithMany()
+                .HasForeignKey(item => item.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         builder.Entity<UserPresence>(presence =>

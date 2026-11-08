@@ -97,6 +97,7 @@ public sealed class HorizonScannerController(
         if (!hasCustomArticles)
         {
             cache.Set(cacheKey, response, TimeSpan.FromMinutes(10));
+        logger?.LogDebug("Horizon scanner generated {Count} dossiers.", dossiers.Length);
         }
 
         return Ok(response);

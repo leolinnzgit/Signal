@@ -125,6 +125,7 @@ public sealed class MeetingPrepController(
             GeneratedAt: DateTimeOffset.UtcNow);
 
         cache.Set(cacheKey, response, TimeSpan.FromMinutes(15));
+        logger?.LogDebug("Meeting prep dossier compiled for {Entity}.", entity);
         return Ok(response);
     }
 

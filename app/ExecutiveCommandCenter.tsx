@@ -38,6 +38,7 @@ export interface ExecutiveCommandCenterProps {
   onOpenDailyCast?: () => void;
   onOpenSovereignRisk?: () => void;
   onOpenPreMortem?: () => void;
+  onOpenTripwires?: () => void;
 }
 
 export function ExecutiveCommandCenter(props: ExecutiveCommandCenterProps) {
@@ -82,6 +83,7 @@ export function ExecutiveCommandCenter(props: ExecutiveCommandCenterProps) {
       "daily-cast": () => props.onOpenDailyCast?.(),
       "sovereign-risk": () => props.onOpenSovereignRisk?.(),
       "pre-mortem": () => props.onOpenPreMortem?.(),
+      "tripwires": () => props.onOpenTripwires?.(),
     };
   }, [props]);
 
@@ -389,7 +391,7 @@ export function ExecutiveCommandCenter(props: ExecutiveCommandCenterProps) {
             <div className="command-center-footer">
               <span className="command-center-footer-status">
                 <span className="command-center-live-dot" aria-hidden="true" />
-                18 Executive Intelligence Suites Active
+                {categoryCounts.all} Executive Intelligence Suites Active
               </span>
               <span className="command-center-footer-shortcuts">
                 Use <kbd>&uarr;</kbd> <kbd>&darr;</kbd> to navigate, <kbd>Enter</kbd> to launch, <kbd>Esc</kbd> to dismiss

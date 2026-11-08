@@ -118,6 +118,7 @@ public sealed class QuietHoursController(
         };
 
         var text = $"{request.Title} {request.Summary}".ToLowerInvariant();
+        logger?.LogDebug("Evaluating quiet hours alert triage for headline ({Length} chars).", text.Length);
         var isCriticalKeywordMatch = criticalTerms.Any(term => text.Contains(term, StringComparison.OrdinalIgnoreCase));
 
         var shockThreshold = config.ShockThresholdPercent > 0 ? config.ShockThresholdPercent : 2.5m;

@@ -78,6 +78,7 @@ public sealed class ScenarioSimulatorController(
             SimulatedAt: DateTimeOffset.UtcNow);
 
         cache.Set(cacheKey, response, TimeSpan.FromMinutes(20));
+        logger?.LogDebug("Scenario simulator evaluated '{Scenario}'.", scenario);
         return Ok(response);
     }
 

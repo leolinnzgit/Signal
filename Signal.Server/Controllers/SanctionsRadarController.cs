@@ -109,6 +109,7 @@ public sealed class SanctionsRadarController(
         if (!hasCustomArticles)
         {
             cache.Set(cacheKey, response, TimeSpan.FromMinutes(10));
+            logger?.LogDebug("Sanctions radar evaluated {Count} measures.", measures.Length);
         }
 
         return Ok(response);

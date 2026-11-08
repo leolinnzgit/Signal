@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FollowedArticle } from "./NewsDashboard";
 import { translationLanguages } from "./article-translation";
 import ContinueOnWatch from "./ContinueOnWatch";
@@ -70,24 +70,25 @@ import { fetchBriefingDeepDive, type DeepDiveEpisode } from "./daily-briefing-de
 import { useReadingVoices } from "./ReadingVoiceSelector";
 import StoryTimelineScrubber from "./StoryTimelineScrubber";
 import { fetchStoryTimeline, type TimelineMilestone } from "./daily-briefing-timeline";
-import BedsideClockRadioModal from "./BedsideClockRadioModal";
-import MarketSentimentHeatmap from "./MarketSentimentHeatmap";
-import AudiogramSnippetModal from "./AudiogramSnippetModal";
-import ExecutiveDossierModal from "./ExecutiveDossierModal";
-import CommutePlaylistModal from "./CommutePlaylistModal";
-import ExecutiveRadarModal from "./ExecutiveRadarModal";
-import CSuiteReportModal from "./CSuiteReportModal";
-import MeetingPrepModal from "./MeetingPrepModal";
-import ScenarioSimulatorModal from "./ScenarioSimulatorModal";
-import QuoteExtractorModal from "./QuoteExtractorModal";
-import QuietHoursModal from "./QuietHoursModal";
-import CompetitorRadarModal from "./CompetitorRadarModal";
-import CrisisWarRoomModal from "./CrisisWarRoomModal";
-import RegulatoryRadarModal from "./RegulatoryRadarModal";
-import ClaimsArbiterModal from "./ClaimsArbiterModal";
-import SupplyChainModal from "./SupplyChainModal";
 import ErrorBoundary from "./ErrorBoundary";
 import "./daily-briefing.css";
+
+const BedsideClockRadioModal = lazy(() => import("./BedsideClockRadioModal"));
+const MarketSentimentHeatmap = lazy(() => import("./MarketSentimentHeatmap"));
+const AudiogramSnippetModal = lazy(() => import("./AudiogramSnippetModal"));
+const ExecutiveDossierModal = lazy(() => import("./ExecutiveDossierModal"));
+const CommutePlaylistModal = lazy(() => import("./CommutePlaylistModal"));
+const ExecutiveRadarModal = lazy(() => import("./ExecutiveRadarModal"));
+const CSuiteReportModal = lazy(() => import("./CSuiteReportModal"));
+const MeetingPrepModal = lazy(() => import("./MeetingPrepModal"));
+const ScenarioSimulatorModal = lazy(() => import("./ScenarioSimulatorModal"));
+const QuoteExtractorModal = lazy(() => import("./QuoteExtractorModal"));
+const QuietHoursModal = lazy(() => import("./QuietHoursModal"));
+const CompetitorRadarModal = lazy(() => import("./CompetitorRadarModal"));
+const CrisisWarRoomModal = lazy(() => import("./CrisisWarRoomModal"));
+const RegulatoryRadarModal = lazy(() => import("./RegulatoryRadarModal"));
+const ClaimsArbiterModal = lazy(() => import("./ClaimsArbiterModal"));
+const SupplyChainModal = lazy(() => import("./SupplyChainModal"));
 
 function getWeatherIcon(code: number): string {
   if (code === 0) return "☀️";
@@ -2353,6 +2354,7 @@ export default function DailyBriefingModal({
           />
         )}
 
+        <Suspense fallback={null}>
         {clockRadioOpen && (
           <BedsideClockRadioModal
             isOpen={clockRadioOpen}
@@ -2555,6 +2557,7 @@ export default function DailyBriefingModal({
             preferredVoice={activeAzureVoice}
           />
         )}
+        </Suspense>
       </div>
     </ErrorBoundary>
   </dialog>

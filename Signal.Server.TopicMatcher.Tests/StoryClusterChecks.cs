@@ -145,7 +145,7 @@ internal static class StoryClusterChecks
 
         // 8. Executive Radar anomaly velocity scanning
         var radarController = new ExecutiveRadarController(cache, null, NullLogger<ExecutiveRadarController>.Instance);
-        var radarScanRes = (radarController.Scan(new ExecutiveRadarController.RadarScanRequest(
+        var radarScanRes = ((await radarController.Scan(new ExecutiveRadarController.RadarScanRequest(
             [
                 new("RBNZ Emergency Cash Rate Announcement", "RNZ", "https://example.com/rbnz-1", DateTimeOffset.UtcNow.AddMinutes(-10)),
                 new("RBNZ Emergency Cash Rate Announcement", "NZ Herald", "https://example.com/rbnz-2", DateTimeOffset.UtcNow.AddMinutes(-5)),
@@ -156,13 +156,13 @@ internal static class StoryClusterChecks
                 new("NZDUSD", "NZD / USD", -0.95m, 0.598m)
             ],
             45
-        )) as OkObjectResult)?.Value as ExecutiveRadarController.RadarScanResponse;
+        ))) as OkObjectResult)?.Value as ExecutiveRadarController.RadarScanResponse;
 
         Assert(radarScanRes is { Active: true, AnomalyCount: >= 2 }, "Radar scan must detect anomalies across velocity and market divergence.");
         Assert(radarScanRes!.Anomalies.Any(a => a.AnomalyType == "velocity_spike"), "Radar must detect multi-publisher velocity spike.");
         Assert(radarScanRes.Anomalies.Any(a => a.AnomalyType == "market_divergence"), "Radar must detect macro market divergence.");
 
-        var latestRadar = (radarController.GetLatest() as OkObjectResult)?.Value as ExecutiveRadarController.RadarScanResponse;
+        var latestRadar = ((await radarController.GetLatest()) as OkObjectResult)?.Value as ExecutiveRadarController.RadarScanResponse;
         Assert(latestRadar is { Active: true }, "Radar latest endpoint must retrieve cached scan response.");
 
         // 9. Meeting Prep flash briefing generation
@@ -223,7 +223,7 @@ internal static class StoryClusterChecks
         Assert(quietConfig is { Enabled: true, StartTime: "22:00", EndTime: "06:30" }, "Quiet hours default config must be enabled for night window.");
 
         // Standard article during quiet hours gets suppressed
-        var overnightConfig = quietConfig with { StartTime = "00:00", EndTime = "23:59" }; // Force active
+        var overnightConfig = quietConfig! with { StartTime = "00:00", EndTime = "23:59" }; // Force active
         var suppressedRes = (quietController.Evaluate(new QuietHoursController.QuietHoursEvaluateRequest(
             "Routine quarterly trade balance report published",
             "Stats NZ",

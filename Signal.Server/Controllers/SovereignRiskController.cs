@@ -1,7 +1,12 @@
+using System.Security.Claims;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.EntityFrameworkCore;
+using Signal.Server.Data;
+using Signal.Server.Services;
 
 namespace Signal.Server.Controllers;
 
@@ -9,7 +14,10 @@ namespace Signal.Server.Controllers;
 [Route("api/sovereign-risk")]
 [EnableRateLimiting("account")]
 [ResponseCache(Location = ResponseCacheLocation.None, NoStore = true)]
-public sealed class SovereignRiskController : ControllerBase
+public sealed class SovereignRiskController(
+    SignalDbContext? database = null,
+    MarketDataService? marketData = null,
+    ILogger<SovereignRiskController>? logger = null) : ControllerBase
 {
     public sealed record SovereignEconomy(
         [property: JsonPropertyName("id")] string Id,
@@ -26,6 +34,12 @@ public sealed class SovereignRiskController : ControllerBase
         [property: JsonPropertyName("economyId")] string? EconomyId,
         [property: JsonPropertyName("corporateExposureUsd")] double? CorporateExposureUsd);
 
+    public sealed record SovereignCorrelatedSignal(
+        [property: JsonPropertyName("title")] string Title,
+        [property: JsonPropertyName("source")] string Source,
+        [property: JsonPropertyName("url")] string Url,
+        [property: JsonPropertyName("signalType")] string SignalType);
+
     public sealed record SovereignAssessResponse(
         [property: JsonPropertyName("economyId")] string EconomyId,
         [property: JsonPropertyName("name")] string Name,
@@ -38,7 +52,9 @@ public sealed class SovereignRiskController : ControllerBase
         [property: JsonPropertyName("repatriationHaircutPercent")] double RepatriationHaircutPercent,
         [property: JsonPropertyName("estimatedExposureLossUsd")] string EstimatedExposureLossUsd,
         [property: JsonPropertyName("treasuryActionPlaybooks")] string[] TreasuryActionPlaybooks,
-        [property: JsonPropertyName("assessedAt")] DateTimeOffset AssessedAt);
+        [property: JsonPropertyName("assessedAt")] DateTimeOffset AssessedAt,
+        [property: JsonPropertyName("correlatedSignals")] SovereignCorrelatedSignal[]? CorrelatedSignals = null,
+        [property: JsonPropertyName("dataSource")] string DataSource = "Signal Sovereign Model");
 
     private static readonly SovereignEconomy[] DefaultEconomies =
     [
@@ -140,11 +156,103 @@ public sealed class SovereignRiskController : ControllerBase
 
     [HttpPost("assess")]
     [IgnoreAntiforgeryToken]
-    public IActionResult Assess([FromBody] SovereignAssessRequest? request)
+    public async Task<IActionResult> Assess(
+        [FromBody] SovereignAssessRequest? request,
+        CancellationToken cancellationToken)
     {
         var economyId = request?.EconomyId?.Trim().ToLowerInvariant() ?? "argentina";
         var economy = DefaultEconomies.FirstOrDefault(e => e.Id == economyId) ?? DefaultEconomies[0];
-        var exposureUsd = request?.CorporateExposureUsd ?? 10_000_000.0;
+        var exposureUsd = Math.Clamp(request?.CorporateExposureUsd ?? 10_000_000.0, 0.0, 5_000_000_000.0);
+
+        var correlatedSignals = new List<SovereignCorrelatedSignal>();
+        var dataSources = new List<string> { "Signal Sovereign Model" };
+
+        // Corroborate with signed-in user's stored news articles (strictly scoped by UserId)
+        var userId = User?.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (database is not null && !string.IsNullOrEmpty(userId))
+        {
+            try
+            {
+                var recent = await database.StoredNewsArticles
+                    .AsNoTracking()
+                    .Where(a => a.UserId == userId)
+                    .OrderByDescending(a => a.LastSeenAtUtc)
+                    .Take(100)
+                    .Select(a => new { a.Title, a.Source, a.Url, a.Summary })
+                    .ToArrayAsync(cancellationToken);
+
+                var namePattern = $@"\b(?:{Regex.Escape(economy.Name)}|{Regex.Escape(economy.CurrencyCode)})\b";
+                foreach (var item in recent)
+                {
+                    var haystack = string.Concat(item.Title, " ", item.Summary);
+                    if (Regex.IsMatch(haystack, namePattern, RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(150)))
+                    {
+                        correlatedSignals.Add(new SovereignCorrelatedSignal(
+                            item.Title,
+                            item.Source,
+                            item.Url,
+                            "Live Wire"));
+                        if (correlatedSignals.Count >= 3) break;
+                    }
+                }
+
+                if (correlatedSignals.Count > 0)
+                {
+                    dataSources.Add("Live News Stream");
+                }
+            }
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                logger?.LogDebug(ex, "Sovereign risk DB corroboration skipped.");
+            }
+        }
+
+        // Corroborate with MarketDataService FX/equity proxy when configured
+        if (marketData is { IsConfigured: true })
+        {
+            try
+            {
+                var proxySymbol = economy.Id switch
+                {
+                    "argentina" => "ARGT",
+                    "egypt" => "EGPT",
+                    "turkey" => "TUR",
+                    "japan" => "EWJ",
+                    "uk" => "EWU",
+                    "us" => "SPY",
+                    _ => null
+                };
+                if (proxySymbol is not null)
+                {
+                    var quote = await marketData.GetForTopicAsync(economy.Name, proxySymbol, cancellationToken);
+                    if (quote is not null)
+                    {
+                        var sign = quote.PercentChange >= 0 ? "+" : "";
+                        correlatedSignals.Add(new SovereignCorrelatedSignal(
+                            $"{quote.Name} ({quote.Symbol}) trading {quote.Currency} {quote.Price:F2} ({sign}{quote.PercentChange:F2}%)",
+                            quote.Provider,
+                            "",
+                            "Market Proxy"));
+                        dataSources.Add(quote.Provider);
+                    }
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                // Ignore market proxy lookup misses
+            }
+        }
+
+        // Slightly elevate risk score when live negative market move or crisis headlines corroborate
+        var riskScore = economy.SovereignRiskScore;
+        if (correlatedSignals.Count >= 2 && riskScore < 98)
+        {
+            riskScore = Math.Min(98, riskScore + 1);
+        }
 
         // Calculate expected repatriation haircut %
         var haircutPercent = economy.CapitalControlStatus switch
@@ -155,7 +263,7 @@ public sealed class SovereignRiskController : ControllerBase
             _ => 1.5
         };
 
-        var estimatedLoss = (exposureUsd * (haircutPercent / 100.0));
+        var estimatedLoss = exposureUsd * (haircutPercent / 100.0);
         var estimatedLossStr = $"${Math.Round(estimatedLoss / 1_000_000.0, 2)}M USD";
 
         string[] playbooks = economy.CapitalControlStatus switch
@@ -186,7 +294,7 @@ public sealed class SovereignRiskController : ControllerBase
             EconomyId: economy.Id,
             Name: economy.Name,
             CurrencyCode: economy.CurrencyCode,
-            SovereignRiskScore: economy.SovereignRiskScore,
+            SovereignRiskScore: riskScore,
             CdsSpreadBps: economy.CdsSpreadBps,
             Fx30dDepreciationVelocityPercent: economy.Fx30dDepreciationVelocityPercent,
             ForeignReservesCoverMonths: economy.ForeignReservesCoverMonths,
@@ -194,7 +302,9 @@ public sealed class SovereignRiskController : ControllerBase
             RepatriationHaircutPercent: haircutPercent,
             EstimatedExposureLossUsd: estimatedLossStr,
             TreasuryActionPlaybooks: playbooks,
-            AssessedAt: DateTimeOffset.UtcNow);
+            AssessedAt: DateTimeOffset.UtcNow,
+            CorrelatedSignals: correlatedSignals.ToArray(),
+            DataSource: string.Join(" + ", dataSources));
 
         return Ok(response);
     }

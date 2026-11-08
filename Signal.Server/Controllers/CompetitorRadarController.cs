@@ -83,6 +83,7 @@ public sealed class CompetitorRadarController(
             GeneratedAt: DateTimeOffset.UtcNow);
 
         cache.Set(cacheKey, response, TimeSpan.FromMinutes(15));
+        logger?.LogDebug("Competitor radar generated intelligence for peer group {PeerGroup}.", peerGroup);
         return Ok(response);
     }
 

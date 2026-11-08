@@ -119,6 +119,7 @@ public sealed class ClaimsArbiterController(
             GeneratedAt: DateTimeOffset.UtcNow);
 
         cache.Set(cacheKey, response, TimeSpan.FromMinutes(15));
+        logger?.LogDebug("Claims arbiter reconciled {Count} claims for topic {Topic}.", claims.Length, topic);
         return Ok(response);
     }
 }

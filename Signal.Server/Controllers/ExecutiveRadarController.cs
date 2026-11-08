@@ -1,4 +1,3 @@
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Caching.Memory;
@@ -57,13 +56,43 @@ public sealed class ExecutiveRadarController(
         DateTimeOffset ScannedAt);
 
     [HttpPost("scan")]
-    public IActionResult Scan([FromBody] RadarScanRequest? request)
+    public async Task<IActionResult> Scan(
+        [FromBody] RadarScanRequest? request,
+        CancellationToken cancellationToken = default)
     {
         var window = Math.Clamp(request?.TimeWindowMinutes ?? 45, 10, 180);
         var articles = request?.Articles ?? [];
         var markets = request?.Markets ?? [];
         var now = DateTimeOffset.UtcNow;
         var cutoff = now.AddMinutes(-window);
+
+        if (markets.Length == 0 && marketData is { IsConfigured: true })
+        {
+            try
+            {
+                var watchlist = await marketData.GetWatchlistAsync(
+                    [
+                        new("SPY", "SPY"),
+                        new("QQQ", "QQQ"),
+                        new("NVDA", "NVDA"),
+                        new("TSMC", "TSM"),
+                        new("Apple", "AAPL")
+                    ],
+                    5,
+                    cancellationToken);
+                markets = watchlist
+                    .Select(q => new RadarMarketItem(q.Symbol, q.Name, q.PercentChange, q.Price))
+                    .ToArray();
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                logger?.LogDebug(ex, "Live market watchlist fetch failed during executive radar scan.");
+            }
+        }
 
         var recentArticles = articles
             .Where(a => a.PublishedAt >= cutoff && !string.IsNullOrWhiteSpace(a.Title))
@@ -157,18 +186,19 @@ public sealed class ExecutiveRadarController(
         );
 
         cache.Set(RadarCacheKey, response, TimeSpan.FromMinutes(15));
+        logger?.LogDebug("Executive radar scan completed with {Count} anomalies.", anomalies.Count);
         return Ok(response);
     }
 
     [HttpGet("latest")]
-    public IActionResult GetLatest()
+    public async Task<IActionResult> GetLatest(CancellationToken cancellationToken = default)
     {
         if (cache.TryGetValue<RadarScanResponse>(RadarCacheKey, out var cached) && cached is not null)
         {
             return Ok(cached);
         }
 
-        return Scan(new RadarScanRequest());
+        return await Scan(new RadarScanRequest(), cancellationToken);
     }
 
     private static string ExtractTopicKey(string title)

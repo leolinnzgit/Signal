@@ -51,7 +51,7 @@ if (Test-Path -LiteralPath $assetRoot -PathType Container) {
         throw 'Asset cleanup cannot follow a redirected directory.'
     }
     foreach ($asset in Get-ChildItem -LiteralPath $assetRoot -File) {
-        if ($asset.Name -notmatch '^index-[A-Za-z0-9_-]+\.(?:js|css)(?:\.(?:br|gz))?$' -or
+        if ($asset.Name -notmatch '^(?:index-[A-Za-z0-9_-]+|[A-Za-z0-9._-]+-[A-Za-z0-9_-]{8,})\.(?:js|css)(?:\.(?:br|gz))?$' -or
             $asset.LastWriteTimeUtc -ge [datetime]::UtcNow.AddDays(-7) -or
             (Test-Path -LiteralPath (Join-Path $packageAssets $asset.Name))) { continue }
         $candidate = [IO.Path]::GetFullPath($asset.FullName)

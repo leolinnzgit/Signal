@@ -1,4 +1,4 @@
-const STATIC_CACHE = "signal-static-v11";
+const STATIC_CACHE = "signal-static-v12";
 const APP_BADGE_MESSAGE = "signal:update-app-badge";
 const NEWS_NOTIFICATION_TAG = "signal-new-stories";
 const publicShell = (html) => /<div\s+id=["']root["']\s*>\s*<\/div>/i.test(html) && /["']\/assets\/index-[^"']+\.js["']/i.test(html);
@@ -153,7 +153,7 @@ self.addEventListener("push", (event) => {
       body: payload.body || "Fresh coverage is ready in your briefing.",
       icon: payload.icon || "/icons/signal-medallion-192.png",
       badge: payload.badge || "/icons/signal-notification-medallion-96.png",
-      tag: typeof payload.tag === "string" && (payload.tag.startsWith(`${NEWS_NOTIFICATION_TAG}-`) || payload.tag.startsWith("signal-earthquake-") || payload.tag.startsWith("signal-disaster-") || payload.tag.startsWith("signal-briefing"))
+      tag: typeof payload.tag === "string" && (payload.tag.startsWith(`${NEWS_NOTIFICATION_TAG}-`) || payload.tag.startsWith("signal-earthquake-") || payload.tag.startsWith("signal-disaster-") || payload.tag.startsWith("signal-briefing") || payload.tag.startsWith("signal-tripwire-"))
         ? payload.tag
         : NEWS_NOTIFICATION_TAG,
       renotify: false,
@@ -162,7 +162,7 @@ self.addEventListener("push", (event) => {
     }),
   ];
 
-  if (typeof payload.tag === "string" && (payload.tag.startsWith("signal-earthquake-") || payload.tag.startsWith("signal-disaster-") || payload.tag.startsWith("signal-briefing"))) {
+  if (typeof payload.tag === "string" && (payload.tag.startsWith("signal-earthquake-") || payload.tag.startsWith("signal-disaster-") || payload.tag.startsWith("signal-briefing") || payload.tag.startsWith("signal-tripwire-"))) {
     // Alert pushes must not clear the unrelated unread-news badge.
     event.waitUntil(Promise.all(operations));
     return;

@@ -22,6 +22,13 @@ export interface PreMortemSimulateRequest {
   horizonMonths?: number;
 }
 
+export interface PreMortemLiveSignal {
+  title: string;
+  source: string;
+  url: string;
+  matchedVector: string;
+}
+
 export interface PreMortemDossier {
   initiativeId: string;
   title: string;
@@ -31,6 +38,7 @@ export interface PreMortemDossier {
   collapseVectors: CollapseVector[];
   boardRecommendation: string;
   simulatedAt: string;
+  liveRiskSignals?: PreMortemLiveSignal[];
 }
 
 export const FALLBACK_INITIATIVES: PreMortemInitiative[] = [
@@ -109,7 +117,7 @@ export function formatPreMortemDossier(dossier: PreMortemDossier): string {
 
 export async function fetchPreMortemInitiatives(fetchImpl: typeof fetch = fetch): Promise<PreMortemInitiative[]> {
   try {
-    const res = await fetchImpl('/api/pre-mortem/initiatives');
+    const res = await fetchImpl('/api/pre-mortem/initiatives', { credentials: 'same-origin' });
     if (!res.ok) {
       return FALLBACK_INITIATIVES;
     }
@@ -126,6 +134,7 @@ export async function simulatePreMortem(
   try {
     const res = await fetchImpl('/api/pre-mortem/simulate', {
       method: 'POST',
+      credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request)
     });

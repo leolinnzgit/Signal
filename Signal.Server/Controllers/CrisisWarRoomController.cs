@@ -131,6 +131,8 @@ public sealed class CrisisWarRoomController(
             UrgentSituationScript: script,
             ActivatedAt: DateTimeOffset.UtcNow);
 
+        cache.Set($"crisis_war_room:{incidentId}", response, TimeSpan.FromMinutes(30));
+        logger?.LogDebug("Crisis war room activated incident {IncidentId} for {Entity}.", incidentId, entity);
         return Ok(response);
     }
 }

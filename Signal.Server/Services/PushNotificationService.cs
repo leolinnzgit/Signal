@@ -183,6 +183,32 @@ public sealed class PushNotificationService(
         return SendAsync(userId, [message], cancellationToken, watchBriefing: message);
     }
 
+    public sealed record TripwirePushAlert(
+        string TripwireId,
+        string Name,
+        string Severity,
+        string MatchedTitle,
+        string DeepLinkUrl,
+        int BadgeCount);
+
+    public Task<int> SendTripwireAlertsAsync(
+        string userId,
+        IReadOnlyCollection<TripwirePushAlert> alerts,
+        CancellationToken cancellationToken)
+    {
+        if (alerts.Count == 0) return Task.FromResult(0);
+        var messages = alerts
+            .Take(5)
+            .Select(alert => new PushMessage(
+                $"Tripwire [{alert.Severity}]: {ShortPreview(alert.Name, 85)}",
+                ShortPreview(alert.MatchedTitle, 200),
+                string.IsNullOrWhiteSpace(alert.DeepLinkUrl) ? "/?suite=tripwires" : alert.DeepLinkUrl,
+                alert.BadgeCount,
+                $"signal-tripwire-{alert.TripwireId}"))
+            .ToArray();
+        return SendAsync(userId, messages, cancellationToken, watchBriefing: messages[0]);
+    }
+
     internal static PushMessage DisasterMessage(DisasterAlertEvent report) => new(
         report.Kind == "earthquake" ? $"Earthquake: magnitude {report.Magnitude:F1}"
             : $"{DisasterAlertFeed.Label(report.Kind)}: {report.AlertLevel} alert",

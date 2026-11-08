@@ -5,7 +5,7 @@ import ListeningLibrary from "./ListeningLibrary";
 import WatchListeningHandoff from "./WatchListeningHandoff";
 import { clearPendingWatchHandoff, pendingWatchHandoff } from "./listening-handoff";
 
-import { type CSSProperties, type ReactNode, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type ReactNode, FormEvent, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { startWeatherLocationRefresh } from "./weather-location";
 import { resolveWeatherLocationName } from "./weather-location-name";
@@ -42,36 +42,7 @@ import ArticleKeyPhrases from "./ArticleKeyPhrases";
 import RelatedStoriesModal from "./RelatedStoriesModal";
 import EntityPulseModal from "./EntityPulseModal";
 import CompareCoverageModal from "./CompareCoverageModal";
-import ArticleInterrogationModal from "./ArticleInterrogationModal";
-import BedsideClockRadioModal from "./BedsideClockRadioModal";
-import MarketSentimentHeatmap from "./MarketSentimentHeatmap";
-import AudiogramSnippetModal from "./AudiogramSnippetModal";
-import ExecutiveDossierModal from "./ExecutiveDossierModal";
-import CommutePlaylistModal from "./CommutePlaylistModal";
-import ExecutiveRadarModal from "./ExecutiveRadarModal";
-import CSuiteReportModal from "./CSuiteReportModal";
-import MeetingPrepModal from "./MeetingPrepModal";
-import ScenarioSimulatorModal from "./ScenarioSimulatorModal";
-import QuoteExtractorModal from "./QuoteExtractorModal";
-import QuietHoursModal from "./QuietHoursModal";
-import CompetitorRadarModal from "./CompetitorRadarModal";
-import CrisisWarRoomModal from "./CrisisWarRoomModal";
-import RegulatoryRadarModal from "./RegulatoryRadarModal";
-import ClaimsArbiterModal from "./ClaimsArbiterModal";
-import SupplyChainModal from "./SupplyChainModal";
-import CyberIncidentModal from "./CyberIncidentModal";
-import SanctionsRadarModal from "./SanctionsRadarModal";
-import KnowledgeGraphModal from "./KnowledgeGraphModal";
-import HorizonScannerModal from "./HorizonScannerModal";
-import VoiceDebriefModal from "./VoiceDebriefModal.tsx";
-import { GeopoliticalTransitModal } from "./GeopoliticalTransitModal.tsx";
-import { BoardSparringModal } from "./BoardSparringModal.tsx";
-import { TariffMatrixModal } from "./TariffMatrixModal.tsx";
-import { BriefingStudioModal } from "./BriefingStudioModal.tsx";
-import { SignalCortexModal } from "./SignalCortexModal.tsx";
-import { DailyCastModal } from "./DailyCastModal.tsx";
-import { SovereignRiskModal } from "./SovereignRiskModal.tsx";
-import { PreMortemModal } from "./PreMortemModal.tsx";
+import ExecutiveSuitesHost from "./ExecutiveSuitesHost";
 import { ExecutiveCommandCenter } from "./ExecutiveCommandCenter.tsx";
 import {
   fetchKeywordRules,
@@ -81,7 +52,8 @@ import {
   syncKeywordRulesToServer,
   type KeywordRules,
 } from "./noise-cancellation";
-import DailyBriefingModal, { type OfflinePackDownloadStatus } from "./DailyBriefingModal";
+import type { OfflinePackDownloadStatus } from "./DailyBriefingModal";
+const DailyBriefingModal = lazy(() => import("./DailyBriefingModal"));
 import ErrorBoundary from "./ErrorBoundary";
 import {
   buildDailyBriefing,
@@ -973,6 +945,41 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [dailyCastOpen, setDailyCastOpen] = useState(false);
   const [sovereignRiskOpen, setSovereignRiskOpen] = useState(false);
   const [preMortemOpen, setPreMortemOpen] = useState(false);
+  const [tripwiresOpen, setTripwiresOpen] = useState(false);
+  const [suiteFocusEntityId, setSuiteFocusEntityId] = useState("");
+
+  const openSuiteById = useCallback((suiteId: string, focusId?: string) => {
+    const normalized = (suiteId || "").trim().toLowerCase();
+    setSuiteFocusEntityId((focusId || "").trim());
+    if (normalized === "radar") setRadarOpen(true);
+    else if (normalized === "crisis-war-room") setCrisisWarRoomOpen(true);
+    else if (normalized === "cyber-incident") setCyberIncidentOpen(true);
+    else if (normalized === "sanctions-radar") setSanctionsRadarOpen(true);
+    else if (normalized === "supply-chain") setSupplyChainOpen(true);
+    else if (normalized === "regulatory-radar") setRegulatoryRadarOpen(true);
+    else if (normalized === "geopolitical-transit") setGeopoliticalTransitOpen(true);
+    else if (normalized === "sovereign-risk") setSovereignRiskOpen(true);
+    else if (normalized === "knowledge-graph") setKnowledgeGraphOpen(true);
+    else if (normalized === "horizon-scanner") setHorizonScannerOpen(true);
+    else if (normalized === "competitor-radar") setCompetitorRadarOpen(true);
+    else if (normalized === "market-heatmap") setMarketHeatmapOpen(true);
+    else if (normalized === "scenario-simulator") setScenarioSimOpen(true);
+    else if (normalized === "claims-arbiter") setClaimsArbiterOpen(true);
+    else if (normalized === "board-sparring") setBoardSparringOpen(true);
+    else if (normalized === "tariff-matrix") setTariffMatrixOpen(true);
+    else if (normalized === "pre-mortem") setPreMortemOpen(true);
+    else if (normalized === "csuite-report") setCSuiteReportOpen(true);
+    else if (normalized === "meeting-prep") setMeetingPrepOpen(true);
+    else if (normalized === "quote-extractor") setQuoteExtractorOpen(true);
+    else if (normalized === "commute-playlist") setCommuteOpen(true);
+    else if (normalized === "clock-radio") setClockRadioOpen(true);
+    else if (normalized === "voice-debrief") setVoiceDebriefOpen(true);
+    else if (normalized === "quiet-hours") setQuietHoursOpen(true);
+    else if (normalized === "briefing-studio") setBriefingStudioOpen(true);
+    else if (normalized === "signal-cortex") setSignalCortexOpen(true);
+    else if (normalized === "daily-cast") setDailyCastOpen(true);
+    else if (normalized === "tripwires") setTripwiresOpen(true);
+  }, []);
 
   useEffect(() => {
     const handleGlobalShortcuts = (e: KeyboardEvent) => {
@@ -1347,25 +1354,34 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     }
   }, [runSaveOfflineBriefingPack]);
 
-  // Open Daily Briefing directly when launched from a Wake-up Notification or Action (?briefing=1, ?carMode=1, ?autoPlayBriefing=1)
+  // Open Daily Briefing or a specific Executive Suite directly from deep-link query params (?briefing=1, ?suite=..., ?focus=...)
   useEffect(() => {
     if (typeof window === "undefined") return;
     const url = new URL(window.location.href);
     const hasBriefing = url.searchParams.get("briefing") === "1";
     const hasAutoPlay = url.searchParams.get("autoPlayBriefing") === "1";
     const hasCarMode = url.searchParams.get("carMode") === "1";
+    const requestedSuite = url.searchParams.get("suite")?.trim() || "";
+    const requestedFocus = url.searchParams.get("focus")?.trim() || "";
 
-    if (hasBriefing || hasAutoPlay || hasCarMode) {
+    if (hasBriefing || hasAutoPlay || hasCarMode || requestedSuite) {
       if (hasBriefing) url.searchParams.delete("briefing");
       if (hasAutoPlay) url.searchParams.delete("autoPlayBriefing");
       if (hasCarMode) url.searchParams.delete("carMode");
+      if (requestedSuite) url.searchParams.delete("suite");
+      if (requestedFocus || url.searchParams.has("focus")) url.searchParams.delete("focus");
       window.history.replaceState(window.history.state, "", url);
 
-      if (hasCarMode) setDailyBriefingCarMode(true);
-      if (hasAutoPlay) setDailyBriefingAutoPlay(true);
-      setDailyBriefingOpen(true);
+      if (hasBriefing || hasAutoPlay || hasCarMode) {
+        if (hasCarMode) setDailyBriefingCarMode(true);
+        if (hasAutoPlay) setDailyBriefingAutoPlay(true);
+        setDailyBriefingOpen(true);
+      }
+      if (requestedSuite) {
+        openSuiteById(requestedSuite, requestedFocus);
+      }
     }
-  }, []);
+  }, [openSuiteById]);
 
   // Listen for background service worker alarm snooze events
   useEffect(() => {
@@ -3997,33 +4013,34 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
             🗞️ Daily Briefing
           </button>
           <ExecutiveCommandCenter
-            onOpenRadar={() => setRadarOpen(true)}
-            onOpenCrisisWarRoom={() => setCrisisWarRoomOpen(true)}
-            onOpenCyberIncident={() => setCyberIncidentOpen(true)}
-            onOpenSanctionsRadar={() => setSanctionsRadarOpen(true)}
-            onOpenSupplyChain={() => setSupplyChainOpen(true)}
-            onOpenRegulatoryRadar={() => setRegulatoryRadarOpen(true)}
-            onOpenKnowledgeGraph={() => setKnowledgeGraphOpen(true)}
-            onOpenHorizonScanner={() => setHorizonScannerOpen(true)}
-            onOpenCompetitorRadar={() => setCompetitorRadarOpen(true)}
-            onOpenMarketHeatmap={() => setMarketHeatmapOpen(true)}
-            onOpenScenarioSim={() => setScenarioSimOpen(true)}
-            onOpenClaimsArbiter={() => setClaimsArbiterOpen(true)}
-            onOpenCSuiteReport={() => setCSuiteReportOpen(true)}
-            onOpenMeetingPrep={() => setMeetingPrepOpen(true)}
-            onOpenQuoteExtractor={() => setQuoteExtractorOpen(true)}
-            onOpenCommute={() => setCommuteOpen(true)}
-            onOpenClockRadio={() => setClockRadioOpen(true)}
-            onOpenQuietHours={() => setQuietHoursOpen(true)}
-            onOpenVoiceDebrief={() => setVoiceDebriefOpen(true)}
-            onOpenGeopoliticalTransit={() => setGeopoliticalTransitOpen(true)}
-            onOpenBoardSparring={() => setBoardSparringOpen(true)}
-            onOpenTariffMatrix={() => setTariffMatrixOpen(true)}
-            onOpenBriefingStudio={() => setBriefingStudioOpen(true)}
-            onOpenSignalCortex={() => setSignalCortexOpen(true)}
-            onOpenDailyCast={() => setDailyCastOpen(true)}
-            onOpenSovereignRisk={() => setSovereignRiskOpen(true)}
-            onOpenPreMortem={() => setPreMortemOpen(true)}
+            onOpenRadar={() => openSuiteById("radar")}
+            onOpenCrisisWarRoom={() => openSuiteById("crisis-war-room")}
+            onOpenCyberIncident={() => openSuiteById("cyber-incident")}
+            onOpenSanctionsRadar={() => openSuiteById("sanctions-radar")}
+            onOpenSupplyChain={() => openSuiteById("supply-chain")}
+            onOpenRegulatoryRadar={() => openSuiteById("regulatory-radar")}
+            onOpenKnowledgeGraph={() => openSuiteById("knowledge-graph")}
+            onOpenHorizonScanner={() => openSuiteById("horizon-scanner")}
+            onOpenCompetitorRadar={() => openSuiteById("competitor-radar")}
+            onOpenMarketHeatmap={() => openSuiteById("market-heatmap")}
+            onOpenScenarioSim={() => openSuiteById("scenario-simulator")}
+            onOpenClaimsArbiter={() => openSuiteById("claims-arbiter")}
+            onOpenCSuiteReport={() => openSuiteById("csuite-report")}
+            onOpenMeetingPrep={() => openSuiteById("meeting-prep")}
+            onOpenQuoteExtractor={() => openSuiteById("quote-extractor")}
+            onOpenCommute={() => openSuiteById("commute-playlist")}
+            onOpenClockRadio={() => openSuiteById("clock-radio")}
+            onOpenQuietHours={() => openSuiteById("quiet-hours")}
+            onOpenVoiceDebrief={() => openSuiteById("voice-debrief")}
+            onOpenGeopoliticalTransit={() => openSuiteById("geopolitical-transit")}
+            onOpenBoardSparring={() => openSuiteById("board-sparring")}
+            onOpenTariffMatrix={() => openSuiteById("tariff-matrix")}
+            onOpenBriefingStudio={() => openSuiteById("briefing-studio")}
+            onOpenSignalCortex={() => openSuiteById("signal-cortex")}
+            onOpenDailyCast={() => openSuiteById("daily-cast")}
+            onOpenSovereignRisk={() => openSuiteById("sovereign-risk")}
+            onOpenPreMortem={() => openSuiteById("pre-mortem")}
+            onOpenTripwires={() => openSuiteById("tripwires")}
           />
           <div className="live-status"><span className="pulse" aria-hidden="true" />Live web briefing</div>
           {!appInstalled && (
@@ -6426,7 +6443,8 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
             setDailyBriefingCarMode(false);
           }}
         >
-          <DailyBriefingModal
+          <Suspense fallback={null}>
+            <DailyBriefingModal
           isOpen={dailyBriefingOpen}
           onClose={() => {
             setDailyBriefingMinimized(false);
@@ -6489,21 +6507,9 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         onListenArticle={(art) => openArticleReader(art, readerCloseButton.current ?? document.body, true)}
         userTime={currentTime ?? undefined}
       />
+          </Suspense>
       </ErrorBoundary>
       )}
-      {interrogateArticle && (
-        <ArticleInterrogationModal
-          article={{
-            url: interrogateArticle.url,
-            title: interrogateArticle.title,
-            source: interrogateArticle.source || interrogateArticle.providers?.[0] || "Publisher",
-            paragraphs: interrogateArticle.paragraphs || (interrogateArticle.summary ? [interrogateArticle.summary] : undefined),
-          }}
-          onClose={() => setInterrogateArticle(null)}
-          preferredVoice={resolveUserReadingVoice()}
-        />
-      )}
-
       {stagedDossierArticles.length > 0 && (
         <aside className="dossier-floating-dock" role="region" aria-label="Staged Dossier Articles">
           <div className="dock-info">
@@ -6531,356 +6537,101 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         </aside>
       )}
 
-      {clockRadioOpen && (
-        <BedsideClockRadioModal
-          isOpen={clockRadioOpen}
-          onClose={() => setClockRadioOpen(false)}
-          weather={weatherStatus === "ready" ? localWeather : null}
-          alarmTime={briefingSchedule.time}
-          alarmEnabled={briefingSchedule.enabled}
-          onChangeAlarmTime={(time) => {
-            const next = { ...briefingSchedule, time };
-            setBriefingSchedule(next);
-            syncBriefingPreferencesToServer({ schedule: next });
-          }}
-          onToggleAlarm={(enabled) => {
-            const next = { ...briefingSchedule, enabled };
-            setBriefingSchedule(next);
-            syncBriefingPreferencesToServer({ schedule: next });
-          }}
-          briefingData={dashboardBriefing}
-          briefingLanguage={briefingLanguage}
-          onTriggerBriefing={() => {
-            setDailyBriefingMinimized(false);
-            setDailyBriefingOpen(true);
-            setDailyBriefingAutoPlay(true);
-          }}
-        />
-      )}
-
-      {marketHeatmapOpen && (
-        <MarketSentimentHeatmap
-          isOpen={marketHeatmapOpen}
-          onClose={() => setMarketHeatmapOpen(false)}
-          watchlistItems={marketWatchlist.map((w) => ({ topic: w.symbol, symbol: w.symbol }))}
-          headlines={articles.slice(0, 10).map((a) => a.title)}
-          onOpenArticleUrl={(url) => {
-            const matched = articles.find((a) => a.url === url);
-            if (matched) {
-              setMarketHeatmapOpen(false);
-              openArticleReader(matched, document.body);
-            }
-          }}
-        />
-      )}
-
-      {audiogramTarget && (
-        <AudiogramSnippetModal
-          isOpen={audiogramTarget !== null}
-          onClose={() => setAudiogramTarget(null)}
-          title={audiogramTarget.title}
-          excerpt={audiogramTarget.excerpt}
-          source={audiogramTarget.source}
-          url={audiogramTarget.url}
-          preferredVoice={resolveUserReadingVoice()}
-        />
-      )}
-
-      {dossierOpen && stagedDossierArticles.length > 0 && (
-        <ExecutiveDossierModal
-          isOpen={dossierOpen}
-          onClose={() => setDossierOpen(false)}
-          topic={stagedDossierArticles[0]?.topics?.[0] || "Executive Intelligence Dossier"}
-          articles={stagedDossierArticles.map((a) => ({
-            url: a.url,
-            title: a.title,
-            source: a.source,
-            summary: a.summary,
-          }))}
-        />
-      )}
-
-      {commuteOpen && (
-        <CommutePlaylistModal
-          isOpen={commuteOpen}
-          onClose={() => setCommuteOpen(false)}
-          preferredVoice={resolveUserReadingVoice()}
-          briefing={dashboardBriefing}
-          marketSentiment={{
-            macroHeadline: dashboardBriefing?.marketGlance
-              ? `${dashboardBriefing.marketGlance.name} (${dashboardBriefing.marketGlance.symbol}) ${dashboardBriefing.marketGlance.percentChange >= 0 ? "+" : ""}${dashboardBriefing.marketGlance.percentChange}%`
-              : "Consolidation across primary regional market benchmarks",
-            assets: marketWatchlist.map((m) => ({
-              symbol: m.symbol,
-              name: m.name || m.symbol,
-              price: m.price,
-              percentChange: m.percentChange,
-              changePercent: m.percentChange,
-              sentimentTone: m.percentChange >= 0 ? "bullish" : "bearish",
-            })),
-          }}
-          stagedArticles={stagedDossierArticles}
-        />
-      )}
-
-      {radarOpen && (
-        <ExecutiveRadarModal
-          isOpen={radarOpen}
-          onClose={() => setRadarOpen(false)}
-          articles={articles}
-          markets={marketWatchlist}
-          onStageDossierArticle={(art) => {
-            setStagedDossierArticles((prev) => {
-              if (prev.some((p) => p.url === art.url)) return prev;
-              return [
-                ...prev,
-                {
-                  title: art.title,
-                  source: art.source,
-                  url: art.url,
-                  publishedAt: new Date().toISOString(),
-                  summary: "",
-                  topics: [],
-                  providers: [art.source],
-                },
-              ];
-            });
-          }}
-        />
-      )}
-
-      {csuiteReportOpen && (
-        <CSuiteReportModal
-          isOpen={csuiteReportOpen}
-          onClose={() => setCSuiteReportOpen(false)}
-          briefing={dashboardBriefing}
-          marketSentiment={{
-            macroHeadline: dashboardBriefing?.marketGlance
-              ? `${dashboardBriefing.marketGlance.name} (${dashboardBriefing.marketGlance.symbol}) ${dashboardBriefing.marketGlance.percentChange >= 0 ? "+" : ""}${dashboardBriefing.marketGlance.percentChange}%`
-              : "Consolidation across primary regional market benchmarks",
-            assets: marketWatchlist.map((m) => ({
-              symbol: m.symbol,
-              name: m.name || m.symbol,
-              price: m.price,
-              percentChange: m.percentChange,
-              changePercent: m.percentChange,
-              sector: "Global Markets",
-            })),
-          }}
-        />
-      )}
-
-      {meetingPrepOpen && (
-        <MeetingPrepModal
-          isOpen={meetingPrepOpen}
-          onClose={() => setMeetingPrepOpen(false)}
-          initialEntity={articles[0]?.topics?.[0] || "Fonterra"}
-          articles={articles}
-          preferredVoice={resolveUserReadingVoice()}
-        />
-      )}
-
-      {scenarioSimOpen && (
-        <ScenarioSimulatorModal
-          isOpen={scenarioSimOpen}
-          onClose={() => setScenarioSimOpen(false)}
-          baselineAssets={marketWatchlist}
-        />
-      )}
-
-      {quoteExtractorOpen && (
-        <QuoteExtractorModal
-          isOpen={quoteExtractorOpen}
-          onClose={() => setQuoteExtractorOpen(false)}
-          articles={articles}
-          onOpenAudiogram={(q) => {
-            setQuoteExtractorOpen(false);
-            setAudiogramTarget({
-              title: `${q.speaker} (${q.organization})`,
-              excerpt: q.quoteText,
-              source: q.publisher,
-              url: q.sourceArticleUrl,
-            });
-          }}
-        />
-      )}
-
-      {quietHoursOpen && (
-        <QuietHoursModal
-          isOpen={quietHoursOpen}
-          onClose={() => setQuietHoursOpen(false)}
-        />
-      )}
-
-      {competitorRadarOpen && (
-        <CompetitorRadarModal
-          isOpen={competitorRadarOpen}
-          onClose={() => setCompetitorRadarOpen(false)}
-          initialPeerGroup="Dairy & Agri-Export"
-          articles={articles}
-          preferredVoice={resolveUserReadingVoice()}
-        />
-      )}
-
-      {crisisWarRoomOpen && (
-        <CrisisWarRoomModal
-          isOpen={crisisWarRoomOpen}
-          onClose={() => setCrisisWarRoomOpen(false)}
-          initialIncidentTitle="Critical Supply Chain & Operational Disruption"
-          affectedEntity={articles[0]?.topics?.[0] || "Primary Regional Operations"}
-          articles={articles}
-          preferredVoice={resolveUserReadingVoice()}
-        />
-      )}
-
-      {regulatoryRadarOpen && (
-        <RegulatoryRadarModal
-          isOpen={regulatoryRadarOpen}
-          onClose={() => setRegulatoryRadarOpen(false)}
-          initialSector="All NZ/APAC Sectors"
-          articles={articles}
-          preferredVoice={resolveUserReadingVoice()}
-        />
-      )}
-
-      {claimsArbiterOpen && (
-        <ClaimsArbiterModal
-          isOpen={claimsArbiterOpen}
-          onClose={() => setClaimsArbiterOpen(false)}
-          initialTopic={articles[0]?.title || "Reserve Bank Monetary Policy & Dairy Payout Forecasts"}
-          articles={articles}
-          preferredVoice={resolveUserReadingVoice()}
-        />
-      )}
-
-      {supplyChainOpen && (
-        <SupplyChainModal
-          isOpen={supplyChainOpen}
-          onClose={() => setSupplyChainOpen(false)}
-          articles={articles}
-          preferredVoice={resolveUserReadingVoice()}
-        />
-      )}
-
-      {cyberIncidentOpen && (
-        <CyberIncidentModal
-          isOpen={cyberIncidentOpen}
-          onClose={() => setCyberIncidentOpen(false)}
-          articles={articles}
-          preferredVoice={resolveUserReadingVoice()}
-        />
-      )}
-
-      {sanctionsRadarOpen && (
-        <SanctionsRadarModal
-          isOpen={sanctionsRadarOpen}
-          onClose={() => setSanctionsRadarOpen(false)}
-          articles={articles}
-          preferredVoice={resolveUserReadingVoice()}
-        />
-      )}
-
-      {knowledgeGraphOpen && (
-        <KnowledgeGraphModal
-          isOpen={knowledgeGraphOpen}
-          onClose={() => setKnowledgeGraphOpen(false)}
-          articles={articles}
-          preferredVoice={resolveUserReadingVoice()}
-        />
-      )}
-
-      {horizonScannerOpen && (
-        <HorizonScannerModal
-          isOpen={horizonScannerOpen}
-          onClose={() => setHorizonScannerOpen(false)}
-          articles={articles}
-          preferredVoice={resolveUserReadingVoice()}
-        />
-      )}
-
-      {voiceDebriefOpen && (
-        <VoiceDebriefModal
-          isOpen={voiceDebriefOpen}
-          onClose={() => setVoiceDebriefOpen(false)}
-          articles={articles}
-          marketContext={
-            dashboardBriefing?.marketGlance
-              ? `${dashboardBriefing.marketGlance.name} (${dashboardBriefing.marketGlance.symbol}) ${dashboardBriefing.marketGlance.percentChange >= 0 ? "+" : ""}${dashboardBriefing.marketGlance.percentChange}%`
-              : ""
-          }
-          preferredVoice={resolveUserReadingVoice()}
-        />
-      )}
-
-      {geopoliticalTransitOpen && (
-        <GeopoliticalTransitModal
-          isOpen={geopoliticalTransitOpen}
-          onClose={() => setGeopoliticalTransitOpen(false)}
-          articles={articles}
-        />
-      )}
-
-      {boardSparringOpen && (
-        <BoardSparringModal
-          isOpen={boardSparringOpen}
-          onClose={() => setBoardSparringOpen(false)}
-        />
-      )}
-
-      {tariffMatrixOpen && (
-        <TariffMatrixModal
-          isOpen={tariffMatrixOpen}
-          onClose={() => setTariffMatrixOpen(false)}
-        />
-      )}
-
-      {briefingStudioOpen && (
-        <BriefingStudioModal
-          isOpen={briefingStudioOpen}
-          onClose={() => setBriefingStudioOpen(false)}
-          articles={articles}
-        />
-      )}
-
-      {signalCortexOpen && (
-        <SignalCortexModal
-          isOpen={signalCortexOpen}
-          onClose={() => setSignalCortexOpen(false)}
-          onOpenSuite={(suiteId) => {
-            setSignalCortexOpen(false);
-            if (suiteId === "geopolitical-transit") setGeopoliticalTransitOpen(true);
-            else if (suiteId === "tariff-matrix") setTariffMatrixOpen(true);
-            else if (suiteId === "board-sparring") setBoardSparringOpen(true);
-            else if (suiteId === "cyber-incident") setCyberIncidentOpen(true);
-            else if (suiteId === "competitor-radar") setCompetitorRadarOpen(true);
-            else if (suiteId === "radar") setRadarOpen(true);
-            else if (suiteId === "sovereign-risk") setSovereignRiskOpen(true);
-            else if (suiteId === "pre-mortem") setPreMortemOpen(true);
-            else if (suiteId === "daily-cast") setDailyCastOpen(true);
-          }}
-        />
-      )}
-
-      {dailyCastOpen && (
-        <DailyCastModal
-          isOpen={dailyCastOpen}
-          onClose={() => setDailyCastOpen(false)}
-        />
-      )}
-
-      {sovereignRiskOpen && (
-        <SovereignRiskModal
-          isOpen={sovereignRiskOpen}
-          onClose={() => setSovereignRiskOpen(false)}
-        />
-      )}
-
-      {preMortemOpen && (
-        <PreMortemModal
-          isOpen={preMortemOpen}
-          onClose={() => setPreMortemOpen(false)}
-        />
-      )}
+      <ExecutiveSuitesHost
+        articles={articles}
+        marketWatchlist={marketWatchlist}
+        dashboardBriefing={dashboardBriefing}
+        weather={weatherStatus === "ready" ? localWeather : null}
+        briefingSchedule={briefingSchedule}
+        briefingLanguage={briefingLanguage}
+        preferredVoice={resolveUserReadingVoice()}
+        suiteFocusEntityId={suiteFocusEntityId}
+        stagedDossierArticles={stagedDossierArticles}
+        setStagedDossierArticles={setStagedDossierArticles}
+        onOpenArticle={openArticleReader}
+        onUpdateSchedule={(next) => {
+          setBriefingSchedule(next);
+          syncBriefingPreferencesToServer({ schedule: next });
+        }}
+        onTriggerBriefing={() => {
+          setDailyBriefingMinimized(false);
+          setDailyBriefingOpen(true);
+          setDailyBriefingAutoPlay(true);
+        }}
+        onOpenSuite={openSuiteById}
+        interrogateArticle={interrogateArticle}
+        onCloseInterrogate={() => setInterrogateArticle(null)}
+        clockRadioOpen={clockRadioOpen}
+        onCloseClockRadio={() => setClockRadioOpen(false)}
+        marketHeatmapOpen={marketHeatmapOpen}
+        onCloseMarketHeatmap={() => setMarketHeatmapOpen(false)}
+        audiogramTarget={audiogramTarget}
+        onOpenAudiogram={setAudiogramTarget}
+        onCloseAudiogram={() => setAudiogramTarget(null)}
+        dossierOpen={dossierOpen}
+        onCloseDossier={() => setDossierOpen(false)}
+        commuteOpen={commuteOpen}
+        onCloseCommute={() => setCommuteOpen(false)}
+        radarOpen={radarOpen}
+        onCloseRadar={() => setRadarOpen(false)}
+        csuiteReportOpen={csuiteReportOpen}
+        onCloseCSuiteReport={() => setCSuiteReportOpen(false)}
+        meetingPrepOpen={meetingPrepOpen}
+        onCloseMeetingPrep={() => setMeetingPrepOpen(false)}
+        scenarioSimOpen={scenarioSimOpen}
+        onCloseScenarioSim={() => setScenarioSimOpen(false)}
+        quoteExtractorOpen={quoteExtractorOpen}
+        onCloseQuoteExtractor={() => setQuoteExtractorOpen(false)}
+        quietHoursOpen={quietHoursOpen}
+        onCloseQuietHours={() => setQuietHoursOpen(false)}
+        competitorRadarOpen={competitorRadarOpen}
+        onCloseCompetitorRadar={() => setCompetitorRadarOpen(false)}
+        crisisWarRoomOpen={crisisWarRoomOpen}
+        onCloseCrisisWarRoom={() => setCrisisWarRoomOpen(false)}
+        regulatoryRadarOpen={regulatoryRadarOpen}
+        onCloseRegulatoryRadar={() => setRegulatoryRadarOpen(false)}
+        claimsArbiterOpen={claimsArbiterOpen}
+        onCloseClaimsArbiter={() => setClaimsArbiterOpen(false)}
+        supplyChainOpen={supplyChainOpen}
+        onCloseSupplyChain={() => setSupplyChainOpen(false)}
+        cyberIncidentOpen={cyberIncidentOpen}
+        onCloseCyberIncident={() => setCyberIncidentOpen(false)}
+        sanctionsRadarOpen={sanctionsRadarOpen}
+        onCloseSanctionsRadar={() => setSanctionsRadarOpen(false)}
+        knowledgeGraphOpen={knowledgeGraphOpen}
+        onCloseKnowledgeGraph={() => setKnowledgeGraphOpen(false)}
+        horizonScannerOpen={horizonScannerOpen}
+        onCloseHorizonScanner={() => setHorizonScannerOpen(false)}
+        voiceDebriefOpen={voiceDebriefOpen}
+        onCloseVoiceDebrief={() => setVoiceDebriefOpen(false)}
+        geopoliticalTransitOpen={geopoliticalTransitOpen}
+        onCloseGeopoliticalTransit={() => {
+          setGeopoliticalTransitOpen(false);
+          setSuiteFocusEntityId("");
+        }}
+        boardSparringOpen={boardSparringOpen}
+        onCloseBoardSparring={() => setBoardSparringOpen(false)}
+        tariffMatrixOpen={tariffMatrixOpen}
+        onCloseTariffMatrix={() => setTariffMatrixOpen(false)}
+        briefingStudioOpen={briefingStudioOpen}
+        onCloseBriefingStudio={() => setBriefingStudioOpen(false)}
+        signalCortexOpen={signalCortexOpen}
+        onCloseSignalCortex={() => setSignalCortexOpen(false)}
+        dailyCastOpen={dailyCastOpen}
+        onCloseDailyCast={() => setDailyCastOpen(false)}
+        sovereignRiskOpen={sovereignRiskOpen}
+        onCloseSovereignRisk={() => {
+          setSovereignRiskOpen(false);
+          setSuiteFocusEntityId("");
+        }}
+        preMortemOpen={preMortemOpen}
+        onClosePreMortem={() => {
+          setPreMortemOpen(false);
+          setSuiteFocusEntityId("");
+        }}
+        tripwiresOpen={tripwiresOpen}
+        onCloseTripwires={() => setTripwiresOpen(false)}
+      />
       <footer><p><span className="footer-dot" /> SIGNAL gathers public reporting and sends you to the original publisher.</p></footer>
     </main>
   );

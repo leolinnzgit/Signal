@@ -14,19 +14,44 @@ interface GeopoliticalTransitModalProps {
   isOpen: boolean;
   onClose: () => void;
   articles?: Array<{ title: string; source: string; url: string; summary?: string }>;
+  initialChokepointId?: string;
+}
+
+function normalizeChokepointFocus(value?: string): string {
+  const clean = (value || "").trim().toLowerCase();
+  if (!clean) return "bab-el-mandeb";
+  if (clean === "red-sea" || clean === "redsea") return "bab-el-mandeb";
+  if (clean === "persian-gulf") return "hormuz";
+  return clean;
 }
 
 export function GeopoliticalTransitModal({
   isOpen,
   onClose,
   articles = [],
+  initialChokepointId,
 }: GeopoliticalTransitModalProps) {
   const [chokepoints, setChokepoints] = useState<ChokepointZone[]>([]);
-  const [selectedId, setSelectedId] = useState<string>("bab-el-mandeb");
+  const [selectedId, setSelectedId] = useState<string>(() => normalizeChokepointFocus(initialChokepointId));
   const [assessment, setAssessment] = useState<TransitAssessmentResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [copied, setCopied] = useState<boolean>(false);
   const [filterAirspace, setFilterAirspace] = useState<boolean>(true);
+
+  useEffect(() => {
+    if (isOpen && initialChokepointId) {
+      setSelectedId(normalizeChokepointFocus(initialChokepointId));
+    }
+  }, [isOpen, initialChokepointId]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
 
   // Load chokepoints on mount or open
   useEffect(() => {

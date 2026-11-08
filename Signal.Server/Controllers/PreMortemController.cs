@@ -1,7 +1,11 @@
+using System.Security.Claims;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.EntityFrameworkCore;
+using Signal.Server.Data;
 
 namespace Signal.Server.Controllers;
 
@@ -9,7 +13,9 @@ namespace Signal.Server.Controllers;
 [Route("api/pre-mortem")]
 [EnableRateLimiting("account")]
 [ResponseCache(Location = ResponseCacheLocation.None, NoStore = true)]
-public sealed class PreMortemController : ControllerBase
+public sealed class PreMortemController(
+    SignalDbContext? database = null,
+    ILogger<PreMortemController>? logger = null) : ControllerBase
 {
     public sealed record PreMortemInitiative(
         [property: JsonPropertyName("id")] string Id,
@@ -32,6 +38,12 @@ public sealed class PreMortemController : ControllerBase
         [property: JsonPropertyName("customTitle")] string? CustomTitle,
         [property: JsonPropertyName("horizonMonths")] int? HorizonMonths);
 
+    public sealed record PreMortemLiveSignal(
+        [property: JsonPropertyName("title")] string Title,
+        [property: JsonPropertyName("source")] string Source,
+        [property: JsonPropertyName("url")] string Url,
+        [property: JsonPropertyName("matchedVector")] string MatchedVector);
+
     public sealed record PreMortemDossier(
         [property: JsonPropertyName("initiativeId")] string InitiativeId,
         [property: JsonPropertyName("title")] string Title,
@@ -40,7 +52,8 @@ public sealed class PreMortemController : ControllerBase
         [property: JsonPropertyName("overallFatalityProbabilityPercent")] int OverallFatalityProbabilityPercent,
         [property: JsonPropertyName("collapseVectors")] CollapseVector[] CollapseVectors,
         [property: JsonPropertyName("boardRecommendation")] string BoardRecommendation,
-        [property: JsonPropertyName("simulatedAt")] DateTimeOffset SimulatedAt);
+        [property: JsonPropertyName("simulatedAt")] DateTimeOffset SimulatedAt,
+        [property: JsonPropertyName("liveRiskSignals")] PreMortemLiveSignal[]? LiveRiskSignals = null);
 
     private static readonly PreMortemInitiative[] DefaultInitiatives =
     [
@@ -86,7 +99,9 @@ public sealed class PreMortemController : ControllerBase
 
     [HttpPost("simulate")]
     [IgnoreAntiforgeryToken]
-    public IActionResult Simulate([FromBody] PreMortemSimulateRequest? request)
+    public async Task<IActionResult> Simulate(
+        [FromBody] PreMortemSimulateRequest? request,
+        CancellationToken cancellationToken)
     {
         var initiativeId = request?.InitiativeId?.Trim().ToLowerInvariant() ?? "ai-cloud-migration";
         var matched = DefaultInitiatives.FirstOrDefault(i => i.Id == initiativeId);
@@ -180,6 +195,48 @@ public sealed class PreMortemController : ControllerBase
             ]
         };
 
+        var liveSignals = new List<PreMortemLiveSignal>();
+        var userId = User?.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (database is not null && !string.IsNullOrEmpty(userId))
+        {
+            try
+            {
+                string[] searchTerms = initiativeId switch
+                {
+                    "ai-cloud-migration" => ["ai", "cloud", "model", "eu ai", "hyperscaler", "gpu", "regulation"],
+                    "critical-materials-foundry" => ["gallium", "rare earth", "semiconductor", "tariff", "embargo", "china", "supply"],
+                    "pan-european-fintech-mna" => ["fintech", "sepa", "eu", "antitrust", "payments", "regulator"],
+                    _ => ["health", "biometric", "breach", "fda", "churn", "subscription"]
+                };
+
+                var stored = await database.StoredNewsArticles
+                    .AsNoTracking()
+                    .Where(a => a.UserId == userId)
+                    .OrderByDescending(a => a.LastSeenAtUtc)
+                    .Take(100)
+                    .Select(a => new { a.Title, a.Source, a.Url, a.Summary })
+                    .ToArrayAsync(cancellationToken);
+
+                foreach (var art in stored)
+                {
+                    var haystack = string.Concat(art.Title, " ", art.Summary);
+                    if (searchTerms.Any(term => Regex.IsMatch(haystack, $@"\b{Regex.Escape(term)}\b", RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(150))))
+                    {
+                        liveSignals.Add(new PreMortemLiveSignal(
+                            art.Title,
+                            art.Source,
+                            art.Url,
+                            vectors[0].Name));
+                        if (liveSignals.Count >= 3) break;
+                    }
+                }
+            }
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                logger?.LogDebug(ex, "Pre-Mortem live DB signal scan skipped.");
+            }
+        }
+
         var fatalityPercent = initiativeId switch
         {
             "ai-cloud-migration" => 64,
@@ -187,6 +244,11 @@ public sealed class PreMortemController : ControllerBase
             "pan-european-fintech-mna" => 58,
             _ => 52
         };
+
+        if (liveSignals.Count > 0)
+        {
+            fatalityPercent = Math.Min(92, fatalityPercent + Math.Min(5, liveSignals.Count * 2));
+        }
 
         var summary = $"PRE-MORTEM AUTOPSY SCENARIO: By month {horizon}, '{title}' has experienced catastrophic operational failure resulting in total impairment of allocated capital. The failure did not originate from unpredictable macro black swans, but rather from unmitigated internal fragility and delayed response to known early warning indicators.";
 
@@ -202,7 +264,8 @@ public sealed class PreMortemController : ControllerBase
             OverallFatalityProbabilityPercent: fatalityPercent,
             CollapseVectors: vectors,
             BoardRecommendation: recommendation,
-            SimulatedAt: DateTimeOffset.UtcNow);
+            SimulatedAt: DateTimeOffset.UtcNow,
+            LiveRiskSignals: liveSignals.ToArray());
 
         return Ok(dossier);
     }

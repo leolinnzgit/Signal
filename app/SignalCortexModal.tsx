@@ -11,7 +11,7 @@ interface SignalCortexModalProps {
   isOpen: boolean;
   onClose: () => void;
   articles?: Array<{ title: string; source: string; url: string; summary?: string }>;
-  onOpenSuite: (suiteId: string) => void;
+  onOpenSuite: (suiteId: string, focusEntityId?: string) => void;
 }
 
 export function SignalCortexModal({
@@ -26,6 +26,7 @@ export function SignalCortexModal({
   const [copied, setCopied] = useState<boolean>(false);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const wasOpenRef = useRef<boolean>(false);
 
   // Focus input when opened
   useEffect(() => {
@@ -33,7 +34,6 @@ export function SignalCortexModal({
       setTimeout(() => {
         searchInputRef.current?.focus();
       }, 50);
-      void executeSearch("");
     }
   }, [isOpen]);
 
@@ -49,33 +49,53 @@ export function SignalCortexModal({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, onClose]);
 
-  // Execute search with debounce
-  const executeSearch = async (searchTerm: string) => {
-    try {
-      setIsSearching(true);
-      const res = await searchSignalCortex(searchTerm, articles);
-      setResponse(res);
-    } catch (err) {
-      console.error("Cortex search error:", err);
-    } finally {
-      setIsSearching(false);
-    }
-  };
-
+  // Execute search (immediate on open, 200ms debounced on query edits)
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      wasOpenRef.current = false;
+      return;
+    }
+
+    let cancelled = false;
+    const run = async () => {
+      try {
+        setIsSearching(true);
+        const res = await searchSignalCortex(query, articles);
+        if (!cancelled) setResponse(res);
+      } catch (err) {
+        console.error("Cortex search error:", err);
+      } finally {
+        if (!cancelled) setIsSearching(false);
+      }
+    };
+
+    if (!wasOpenRef.current) {
+      wasOpenRef.current = true;
+      void run();
+      return () => {
+        cancelled = true;
+      };
+    }
+
     const timeout = setTimeout(() => {
-      void executeSearch(query);
+      void run();
     }, 200);
 
-    return () => clearTimeout(timeout);
-  }, [query, isOpen]);
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+    };
+  }, [query, isOpen, articles]);
 
   if (!isOpen) return null;
 
-  const handleJump = (suiteId: string) => {
+  const handleJump = (suiteId: string, hitId?: string) => {
+    let focusEntityId: string | undefined;
+    if (suiteId === "geopolitical-transit") {
+      focusEntityId = hitId === "hit-chokepoint-2" ? "hormuz" : "bab-el-mandeb";
+    }
     onClose();
-    onOpenSuite(suiteId);
+    onOpenSuite(suiteId, focusEntityId);
   };
 
   const handleCopy = async () => {
@@ -108,7 +128,7 @@ export function SignalCortexModal({
             ref={searchInputRef}
             type="text"
             className="cortex-search-field"
-            placeholder="Search across all 23 intelligence suites, entities, straits, or tariffs..."
+            placeholder="Search across all 28 intelligence suites, entities, straits, or tariffs..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             aria-label="Query Signal Cortex"
@@ -184,13 +204,25 @@ export function SignalCortexModal({
                       <span style={{ fontSize: "0.72rem", color: "#64748b" }}>
                         Relevance: {Math.round(hit.relevanceScore * 100)}%
                       </span>
-                      <button
-                        type="button"
-                        className="cortex-jump-btn"
-                        onClick={() => handleJump(hit.targetSuiteId)}
-                      >
-                        Open in {hit.targetSuiteId} ↗
-                      </button>
+                      <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                        {hit.url && (
+                          <a
+                            href={hit.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ fontSize: "0.72rem", color: "#38bdf8", textDecoration: "underline" }}
+                          >
+                            Source ↗
+                          </a>
+                        )}
+                        <button
+                          type="button"
+                          className="cortex-jump-btn"
+                          onClick={() => handleJump(hit.targetSuiteId, hit.id)}
+                        >
+                          Open in {hit.targetSuiteId} ↗
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );

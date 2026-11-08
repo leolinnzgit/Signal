@@ -15,6 +15,13 @@ export interface SovereignAssessRequest {
   corporateExposureUsd?: number;
 }
 
+export interface SovereignCorrelatedSignal {
+  title: string;
+  source: string;
+  url: string;
+  signalType: string;
+}
+
 export interface SovereignAssessResponse {
   economyId: string;
   name: string;
@@ -28,6 +35,8 @@ export interface SovereignAssessResponse {
   estimatedExposureLossUsd: string;
   treasuryActionPlaybooks: string[];
   assessedAt: string;
+  correlatedSignals?: SovereignCorrelatedSignal[];
+  dataSource?: string;
 }
 
 export const FALLBACK_ECONOMIES: SovereignEconomy[] = [
@@ -154,7 +163,7 @@ export function formatSovereignRiskReport(assessment: SovereignAssessResponse): 
 
 export async function fetchSovereignEconomies(fetchImpl: typeof fetch = fetch): Promise<SovereignEconomy[]> {
   try {
-    const res = await fetchImpl('/api/sovereign-risk/economies');
+    const res = await fetchImpl('/api/sovereign-risk/economies', { credentials: 'same-origin' });
     if (!res.ok) {
       return FALLBACK_ECONOMIES;
     }
@@ -171,6 +180,7 @@ export async function assessSovereignRisk(
   try {
     const res = await fetchImpl('/api/sovereign-risk/assess', {
       method: 'POST',
+      credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request)
     });

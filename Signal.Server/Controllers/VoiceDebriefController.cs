@@ -124,6 +124,31 @@ public sealed class VoiceDebriefController(
             marketContext,
             token);
 
+        if (translator.Enabled && !language.StartsWith("en", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var translated = await translator.TranslateAsync(summary, [spokenScript, .. takeaways], language, token);
+                if (translated.Available && translated.Paragraphs.Length >= 1)
+                {
+                    summary = translated.Title;
+                    spokenScript = translated.Paragraphs[0];
+                    if (translated.Paragraphs.Length > 1)
+                    {
+                        takeaways = translated.Paragraphs[1..];
+                    }
+                }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                logger.LogDebug(ex, "Voice debrief translation skipped for language {Language}.", language);
+            }
+        }
+
         // Prepare citations
         var citations = topArticles
             .Where(a => !string.IsNullOrEmpty(a.Url))
@@ -255,6 +280,18 @@ public sealed class VoiceDebriefController(
 
         if (leadArticle != null)
         {
+            if (summaries.Enabled && string.IsNullOrWhiteSpace(leadArticle.Summary) && !string.IsNullOrWhiteSpace(leadArticle.Title) && leadArticle.Title.Length >= 100)
+            {
+                try
+                {
+                    var summarized = await summaries.SummarizeAsync([leadArticle.Title], token, 2);
+                    if (summarized.Available && summarized.Paragraphs.Length > 0)
+                        leadArticle = leadArticle with { Summary = string.Join(" ", summarized.Paragraphs) };
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+                catch (Exception ex) { logger.LogDebug(ex, "Voice debrief summary enrichment skipped."); }
+            }
+
             var leadTitle = CleanTitle(leadArticle.Title);
             var leadSource = leadArticle.Source ?? "intelligence wires";
             var leadSummary = !string.IsNullOrWhiteSpace(leadArticle.Summary)

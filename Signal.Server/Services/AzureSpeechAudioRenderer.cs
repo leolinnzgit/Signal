@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
@@ -237,4 +238,133 @@ public sealed class AzureSpeechAudioRenderer
     }
 
     internal static HeadlineAudio Assemble(IReadOnlyList<byte[]> clips, int seconds) => RecordedNarration.Assemble(clips, seconds);
+
+    public async Task<HeadlineAudio> GenerateDialogueAsync(
+        IReadOnlyList<(string Speaker, string Text)> turns,
+        int gapMilliseconds,
+        CancellationToken token)
+    {
+        if (!Enabled)
+            throw new HeadlineAudioUnavailableException("configuration", "Azure Neural speech is not configured on this server.");
+        if (turns is not { Count: > 0 } || turns.Count > 30)
+            throw new ArgumentException("Daily Cast audio supports between 1 and 30 turns.");
+
+        var normalized = new List<(string Speaker, string Text)>(turns.Count);
+        var totalChars = 0;
+        foreach (var (speaker, rawText) in turns)
+        {
+            var text = Regex.Replace(rawText ?? "", @"\s+", " ").Trim();
+            if (text.Length == 0 || text.Length > 1_000)
+                throw new ArgumentException("Each dialogue turn must be between 1 and 1,000 characters.");
+            totalChars += text.Length;
+            if (totalChars > 12_000)
+                throw new ArgumentException("This Daily Cast script exceeds the 12,000-character synthesis limit.");
+            normalized.Add((speaker, text));
+        }
+
+        var available = await GetVoicesAsync(token);
+        var englishVoices = available
+            .Where(v => v.Language.StartsWith("en-", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        if (englishVoices.Length == 0)
+            throw new HeadlineAudioUnavailableException("voices", "No English neural voices are available for Daily Cast.");
+
+        var davidVoice =
+            englishVoices.FirstOrDefault(v => v.Id.Equals("en-US-AndrewNeural", StringComparison.OrdinalIgnoreCase))
+            ?? englishVoices.FirstOrDefault(v => v.Id.Equals("en-US-BrianNeural", StringComparison.OrdinalIgnoreCase))
+            ?? englishVoices.FirstOrDefault(v => v.Id.Equals("en-US-GuyNeural", StringComparison.OrdinalIgnoreCase))
+            ?? englishVoices.FirstOrDefault(v => v.Gender.Equals("Male", StringComparison.OrdinalIgnoreCase))
+            ?? englishVoices[0];
+
+        var sarahVoice =
+            englishVoices.FirstOrDefault(v => v.Id.Equals(settings.EnglishVoice, StringComparison.OrdinalIgnoreCase) && !v.Id.Equals(davidVoice.Id, StringComparison.OrdinalIgnoreCase))
+            ?? englishVoices.FirstOrDefault(v => v.Id.Equals("en-US-AvaNeural", StringComparison.OrdinalIgnoreCase))
+            ?? englishVoices.FirstOrDefault(v => v.Id.Equals("en-US-JennyNeural", StringComparison.OrdinalIgnoreCase))
+            ?? englishVoices.FirstOrDefault(v => v.Gender.Equals("Female", StringComparison.OrdinalIgnoreCase))
+            ?? englishVoices.FirstOrDefault(v => !v.Id.Equals(davidVoice.Id, StringComparison.OrdinalIgnoreCase))
+            ?? englishVoices[0];
+
+        var clips = normalized
+            .Select(turn =>
+            {
+                var isDavid = string.Equals(turn.Speaker, "david", StringComparison.OrdinalIgnoreCase);
+                return NormalizeClip(new Clip(isDavid ? davidVoice.Id : sarahVoice.Id, turn.Text));
+            })
+            .ToArray();
+
+        var pcm = new Dictionary<Clip, byte[]>();
+        var missing = new List<Clip>();
+        cache.Prune();
+        foreach (var clip in clips.Distinct())
+        {
+            token.ThrowIfCancellationRequested();
+            if (cache.TryGet("azure-v1/" + clip.Voice, clip.Text) is { } ready) pcm[clip] = ready;
+            else missing.Add(clip);
+        }
+
+        while (missing.Count > 0)
+        {
+            token.ThrowIfCancellationRequested();
+            var batch = new List<Clip>();
+            var characters = 0;
+            foreach (var clip in missing)
+            {
+                if (batch.Count == 50 || (batch.Count > 0 && characters + clip.Text.Length > 4_000)) break;
+                batch.Add(clip);
+                characters += clip.Text.Length;
+            }
+            var rendered = await synth.SynthesizeAsync(CreateSsml(batch), token);
+            var segments = SplitClips(rendered, batch.Count);
+            for (var index = 0; index < batch.Count; index++)
+            {
+                token.ThrowIfCancellationRequested();
+                var clip = batch[index];
+                pcm[clip] = segments[index];
+                cache.Store("azure-v1/" + clip.Voice, clip.Text, segments[index]);
+            }
+            missing.RemoveRange(0, batch.Count);
+        }
+
+        var result = AssembleDialogue(clips.Select(clip => pcm[clip]).ToArray(), gapMilliseconds);
+        cache.Prune();
+        return result;
+    }
+
+    internal static HeadlineAudio AssembleDialogue(IReadOnlyList<byte[]> clips, int gapMilliseconds)
+    {
+        var boundedGapMs = Math.Clamp(gapMilliseconds, 100, 3_000);
+        var gapBytes = (boundedGapMs * BytesPerSecond / 1000) & ~1;
+        using var pcm = new MemoryStream();
+        var starts = new double[clips.Count];
+        var silence = new byte[Math.Min(gapBytes, BytesPerSecond)];
+        for (var index = 0; index < clips.Count; index++)
+        {
+            starts[index] = pcm.Length / (double)BytesPerSecond;
+            var clip = clips[index];
+            if (pcm.Length + clip.Length + gapBytes > 64 * 1024 * 1024)
+                throw new ArgumentException("This Daily Cast recording is too long to prepare.");
+            pcm.Write(clip);
+            if (index + 1 < clips.Count)
+            {
+                var remaining = gapBytes;
+                while (remaining > 0)
+                {
+                    var length = Math.Min(remaining, silence.Length);
+                    pcm.Write(silence, 0, length);
+                    remaining -= length;
+                }
+            }
+        }
+        using var wave = new MemoryStream(checked((int)pcm.Length + 44));
+        using (var writer = new BinaryWriter(wave, Encoding.ASCII, leaveOpen: true))
+        {
+            writer.Write(Encoding.ASCII.GetBytes("RIFF")); writer.Write(checked((int)pcm.Length + 36));
+            writer.Write(Encoding.ASCII.GetBytes("WAVEfmt ")); writer.Write(16);
+            writer.Write((short)1); writer.Write((short)1); writer.Write(16_000); writer.Write(BytesPerSecond);
+            writer.Write((short)2); writer.Write((short)16); writer.Write(Encoding.ASCII.GetBytes("data")); writer.Write(checked((int)pcm.Length));
+        }
+        pcm.Position = 0;
+        pcm.CopyTo(wave);
+        return new HeadlineAudio(wave.ToArray(), starts);
+    }
 }

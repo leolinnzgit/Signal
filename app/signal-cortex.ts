@@ -44,6 +44,16 @@ export function getDomainBadgeClass(domain: string): { label: string; badgeClass
       return { label: "🤺 SPARRING", badgeClass: "domain-sparring" };
     case "Competitor Radar":
       return { label: "🎯 COMPETITOR", badgeClass: "domain-competitor" };
+    case "Executive Tripwires":
+      return { label: "🚨 TRIPWIRE", badgeClass: "domain-tripwire" };
+    case "Sovereign Risk":
+      return { label: "🏛️ SOVEREIGN", badgeClass: "domain-sovereign" };
+    case "Pre-Mortem Wargame":
+      return { label: "⚔️ PRE-MORTEM", badgeClass: "domain-premortem" };
+    case "Signal Daily Cast":
+      return { label: "🎙️ DAILY CAST", badgeClass: "domain-dailycast" };
+    case "Market Heatmap":
+      return { label: "📈 MARKETS", badgeClass: "domain-market" };
     default:
       return { label: "🗞️ WIRE", badgeClass: "domain-news" };
   }
@@ -85,6 +95,7 @@ export async function searchSignalCortex(
 ): Promise<CortexSearchResponse> {
   const res = await fetch("/api/cortex/search", {
     method: "POST",
+    credentials: "same-origin",
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json",

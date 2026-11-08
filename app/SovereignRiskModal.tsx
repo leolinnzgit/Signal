@@ -13,15 +13,26 @@ import './sovereign-risk.css';
 interface SovereignRiskModalProps {
   isOpen: boolean;
   onClose: () => void;
+  initialEconomyId?: string;
 }
 
-export const SovereignRiskModal: React.FC<SovereignRiskModalProps> = ({ isOpen, onClose }) => {
+export const SovereignRiskModal: React.FC<SovereignRiskModalProps> = ({
+  isOpen,
+  onClose,
+  initialEconomyId,
+}) => {
   const [economies, setEconomies] = useState<SovereignEconomy[]>(FALLBACK_ECONOMIES);
-  const [selectedEconomyId, setSelectedEconomyId] = useState<string>('argentina');
+  const [selectedEconomyId, setSelectedEconomyId] = useState<string>(initialEconomyId || 'argentina');
   const [exposureUsd, setExposureUsd] = useState<number>(10000000);
   const [assessment, setAssessment] = useState<SovereignAssessResponse | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (isOpen && initialEconomyId) {
+      setSelectedEconomyId(initialEconomyId.toLowerCase());
+    }
+  }, [isOpen, initialEconomyId]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -219,6 +230,22 @@ export const SovereignRiskModal: React.FC<SovereignRiskModalProps> = ({ isOpen, 
             </div>
           </div>
 
+          {/* Live Corroborating Signals */}
+          {assessment?.correlatedSignals && assessment.correlatedSignals.length > 0 && (
+            <div className="sovereign-playbooks-wrap">
+              <h3>Corroborating Live Intelligence &amp; Market Proxies</h3>
+              {assessment.correlatedSignals.map((sig, idx) => (
+                <div key={idx} className="sovereign-playbook-item">
+                  <span className="sovereign-playbook-num">⚡</span>
+                  <span>
+                    <strong>[{sig.signalType}]</strong> {sig.title}{' '}
+                    <span style={{ color: 'var(--text-muted, #9ca3af)' }}>({sig.source})</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Treasury Action Playbooks */}
           {assessment && (
             <div className="sovereign-playbooks-wrap">
@@ -236,7 +263,9 @@ export const SovereignRiskModal: React.FC<SovereignRiskModalProps> = ({ isOpen, 
         {/* Footer */}
         <div className="sovereign-risk-footer">
           <div className="sovereign-footer-status">
-            {isLoading ? 'Assessing sovereign macro telemetry...' : `Live Radar: ${currentEconomy.name} (${currentEconomy.currencyCode})`}
+            {isLoading
+              ? 'Assessing sovereign macro telemetry...'
+              : `Live Radar: ${currentEconomy.name} (${currentEconomy.currencyCode}) • ${assessment?.dataSource || 'Signal Sovereign Model'}`}
           </div>
           <button
             className="sovereign-export-btn"

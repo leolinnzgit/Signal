@@ -269,6 +269,8 @@ public sealed class GeopoliticalTransitController(
             CorrelatedArticles: articles,
             AssessedAt: DateTimeOffset.UtcNow);
 
+        cache.Set($"geopolitical_transit:{chokepoint.Id}", response, TimeSpan.FromMinutes(10));
+        logger?.LogDebug("Geopolitical transit risk scored {Score} for {Chokepoint}.", baseScore, chokepoint.Id);
         return Ok(response);
     }
 }

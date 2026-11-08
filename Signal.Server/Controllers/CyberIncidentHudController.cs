@@ -110,6 +110,7 @@ public sealed class CyberIncidentHudController(
         if (!hasCustomArticles)
         {
             cache.Set(cacheKey, response, TimeSpan.FromMinutes(10));
+            logger?.LogDebug("Cyber HUD scanned {Count} incidents at {Defcon}.", incidents.Length, defconLevel);
         }
 
         return Ok(response);

@@ -13,15 +13,28 @@ import './pre-mortem.css';
 interface PreMortemModalProps {
   isOpen: boolean;
   onClose: () => void;
+  initialInitiativeId?: string;
 }
 
-export const PreMortemModal: React.FC<PreMortemModalProps> = ({ isOpen, onClose }) => {
+export const PreMortemModal: React.FC<PreMortemModalProps> = ({
+  isOpen,
+  onClose,
+  initialInitiativeId,
+}) => {
   const [initiatives, setInitiatives] = useState<PreMortemInitiative[]>(FALLBACK_INITIATIVES);
-  const [selectedInitiativeId, setSelectedInitiativeId] = useState<string>('ai-cloud-migration');
+  const [selectedInitiativeId, setSelectedInitiativeId] = useState<string>(
+    initialInitiativeId || 'ai-cloud-migration'
+  );
   const [horizonMonths, setHorizonMonths] = useState<number>(18);
   const [dossier, setDossier] = useState<PreMortemDossier | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (isOpen && initialInitiativeId) {
+      setSelectedInitiativeId(initialInitiativeId.toLowerCase());
+    }
+  }, [isOpen, initialInitiativeId]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -172,6 +185,20 @@ export const PreMortemModal: React.FC<PreMortemModalProps> = ({ isOpen, onClose 
           {dossier && (
             <div className="pre-mortem-board-directive">
               <strong>Governance Directive:</strong> {dossier.boardRecommendation}
+            </div>
+          )}
+
+          {/* Live Risk Wires */}
+          {dossier?.liveRiskSignals && dossier.liveRiskSignals.length > 0 && (
+            <div className="pre-mortem-board-directive" style={{ borderColor: 'rgba(239, 68, 68, 0.4)' }}>
+              <strong>🔴 Live EWI Wire Matches ({dossier.liveRiskSignals.length}):</strong>
+              <ul style={{ margin: '6px 0 0 18px', padding: 0 }}>
+                {dossier.liveRiskSignals.map((sig, i) => (
+                  <li key={i} style={{ marginBottom: '4px' }}>
+                    <strong>{sig.source}:</strong> {sig.title} <em>({sig.matchedVector})</em>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
 

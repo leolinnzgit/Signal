@@ -272,6 +272,7 @@ builder.Services.AddHttpClient<ArticleReaderService>(client =>
     ConnectCallback = ArticleReaderService.ConnectPublicAsync,
     AutomaticDecompression = System.Net.DecompressionMethods.All,
 });
+builder.Services.AddScoped<TripwireEvaluatorService>();
 builder.Services.AddScoped<TopicRefreshService>();
 builder.Services.AddScoped<ExecutiveBriefingDeliveryService>();
 builder.Services.AddSingleton<VapidKeyStore>();
@@ -545,6 +546,28 @@ await using (var scope = app.Services.CreateAsyncScope())
         """);
     await database.Database.ExecuteSqlRawAsync(
         "CREATE INDEX IF NOT EXISTS \"IX_UserPresences_LastSeenAtUtc\" ON \"UserPresences\" (\"LastSeenAtUtc\");");
+    await database.Database.ExecuteSqlRawAsync("""
+        CREATE TABLE IF NOT EXISTS "ExecutiveTripwires" (
+            "Id" TEXT NOT NULL CONSTRAINT "PK_ExecutiveTripwires" PRIMARY KEY,
+            "UserId" TEXT NOT NULL,
+            "Name" TEXT NOT NULL,
+            "KeywordsJson" TEXT NOT NULL,
+            "TargetSuiteId" TEXT NOT NULL,
+            "TargetEntityId" TEXT NOT NULL DEFAULT '',
+            "Severity" TEXT NOT NULL,
+            "Enabled" INTEGER NOT NULL DEFAULT 1,
+            "PushOnMatch" INTEGER NOT NULL DEFAULT 1,
+            "TriggerCount" INTEGER NOT NULL DEFAULT 0,
+            "LastTriggeredAtUtc" TEXT NULL,
+            "LastMatchedTitle" TEXT NOT NULL DEFAULT '',
+            "LastMatchedUrl" TEXT NOT NULL DEFAULT '',
+            "CreatedAtUtc" TEXT NOT NULL,
+            CONSTRAINT "FK_ExecutiveTripwires_AspNetUsers_UserId"
+                FOREIGN KEY ("UserId") REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE
+        );
+        """);
+    await database.Database.ExecuteSqlRawAsync(
+        "CREATE INDEX IF NOT EXISTS \"IX_ExecutiveTripwires_UserId_Enabled\" ON \"ExecutiveTripwires\" (\"UserId\", \"Enabled\");");
 
     await database.Database.OpenConnectionAsync();
     try

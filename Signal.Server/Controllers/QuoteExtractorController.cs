@@ -119,12 +119,17 @@ public sealed class QuoteExtractorController(
         var quoteList = finalQuotes.Take(25).ToArray();
         var speakers = quoteList.Select(q => q.Speaker).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
 
-        return Ok(new QuoteExtractionResponse(
+        var response = new QuoteExtractionResponse(
             Available: true,
             TotalExtracted: quoteList.Length,
             Quotes: quoteList,
             DiscoveredSpeakers: speakers,
-            ExtractedAt: DateTimeOffset.UtcNow));
+            ExtractedAt: DateTimeOffset.UtcNow);
+
+        cache.Set($"quote_extractor:latest:{request?.FilterSpeaker ?? "all"}", response, TimeSpan.FromMinutes(10));
+        logger?.LogDebug("Extracted {Count} executive quotes across {ArticleCount} articles.", quoteList.Length, articles.Length);
+
+        return Ok(response);
     }
 
     private static (string Speaker, string Role, string Org) InferAttributedSpeaker(string text, int quoteIndex, string defaultOrg)

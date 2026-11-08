@@ -125,6 +125,7 @@ public sealed class RegulatoryRadarController(
             GeneratedAt: DateTimeOffset.UtcNow);
 
         cache.Set(cacheKey, response, TimeSpan.FromMinutes(15));
+        logger?.LogDebug("Regulatory radar compiled response for sector {Sector}.", sector);
         return Ok(response);
     }
 }

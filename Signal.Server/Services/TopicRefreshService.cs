@@ -12,7 +12,8 @@ public sealed class TopicRefreshService(
     IAccountEmailSender emailSender,
     PushNotificationService pushNotificationService,
     ILogger<TopicRefreshService> logger,
-    IArticleAudioPrewarmer? audioPrewarmer = null)
+    IArticleAudioPrewarmer? audioPrewarmer = null,
+    TripwireEvaluatorService? tripwireEvaluator = null)
 {
     private const int ProviderConcurrency = 8;
     private const int TopicsPerProviderBatch = 8;
@@ -129,6 +130,24 @@ public sealed class TopicRefreshService(
                     logger.LogError(
                         exception,
                         "Could not send new-story push notifications for user {UserId}.",
+                        userId);
+                }
+            }
+            if (tripwireEvaluator is not null && newArticles.Count > 0)
+            {
+                try
+                {
+                    await tripwireEvaluator.EvaluateAndNotifyAsync(userId, newArticles, cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    logger.LogWarning(
+                        exception,
+                        "Tripwire evaluation failed during topic refresh for user {UserId}.",
                         userId);
                 }
             }

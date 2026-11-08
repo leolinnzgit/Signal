@@ -95,6 +95,7 @@ public sealed class KnowledgeGraphController(
         if (!hasCustomArticles)
         {
             cache.Set(cacheKey, response, TimeSpan.FromMinutes(10));
+        logger?.LogDebug("Knowledge graph compiled {NodeCount} nodes.", nodes.Length);
         }
 
         return Ok(response);

@@ -117,6 +117,7 @@ public sealed class SupplyChainTrackerController(
         if (!hasCustomArticles)
         {
             cache.Set(cacheKey, response, TimeSpan.FromMinutes(15));
+            logger?.LogDebug("Supply chain telemetry scored index {Index}.", compositeIndex);
         }
 
         return Ok(response);
