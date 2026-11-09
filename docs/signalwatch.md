@@ -1,5 +1,15 @@
 # SignalWatch release preparation
 
+## Automatic read status after listening: 0.25.1 (40)
+
+News is marked read automatically when its final narration section finishes in Listen to unread, Catch me up, full-story playback and Listen later. Pause, Stop, failed playback and skipping to another story do not mark that unfinished story read. The player no longer requires a separate Mark heard as read action.
+
+Read changes use the existing encrypted, account-bound offline action queue and sync through `/api/articles/read`. They survive app/service restart and retry during playback or while the app is open. Completion updates the local briefing, selected story, tile and unread complication. Foreground bookmark/refresh actions merge with the latest durable cache so background completion cannot overwrite pending actions. The final story gets a brief sync opportunity before its playback service stops. Synthetic Daily Cast and voice-debrief items do not create article read requests. Companion 0.13.0 (23) remains compatible.
+
+Validation (9 November 2026): all 155 Watch release JVM tests passed; release lint reported zero errors. Signed AAB/APK, bundle validation, signature, 64-bit/16 KB alignment and private-file checks passed with the existing upload certificate. Browser completion and preview checks passed at 390px and 1280px, covering completed, paused/stopped and skipped news plus Listen later queue advancement. ADB listed no connected devices, so physical-watch verification remains outstanding. Checked release: `outputs/play-release/0.25.1-40/`. APK SHA256: `eeeedc276817f102b7b31409be304a2807c77475f4e09893566cb25aeeb93451`.
+
+Publication verification (9 November 2026): both public HTTPS watch APK downloads serve 0.25.1 (40) and match the checked SHA256 above. The live preview passed completion, pause/Stop, skip and Listen later advancement checks at 390px and 1280px. Companion 0.13.0 (23) and its hash are unchanged. Production configuration guards passed; publication wrote only the watch download/support folders and excluded App_Data. Listening progress continued updating during subsequent read-only checks, explaining the live data hash audit difference. Native source commit: `5729612`. No Google Play upload was made.
+
 ## Daily Cast, Talk to Signal debrief & Hazard Tile / Complication: SignalWatch 0.25.0 (39) and SignalCompanion 0.13.0 (23)
 
 SignalWatch 0.25.0 (39) and SignalCompanion 0.13.0 (23) introduce Daily Cast podcast listening on the wrist, "Talk to Signal" voice executive debriefs, and an active hazard & severe weather Glance Tile and Wear OS Complication.
