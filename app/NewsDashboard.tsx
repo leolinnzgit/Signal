@@ -1918,19 +1918,24 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
 
   useEffect(() => {
     let cancelled = false;
-    if (selectedTopic === ALL_TOPICS) {
+    const controller = new AbortController();
+    if (!ready || selectedTopic === ALL_TOPICS) {
       setMarketQuote(null);
       setMarketNotice(null);
       return;
     }
 
+    let loading = false;
     const loadMarketQuote = async () => {
+      if (loading) return;
+      loading = true;
       try {
         const params = new URLSearchParams({ topic: selectedTopic, sparkline: "true" });
         if (selectedTickerOverride) params.set("symbol", selectedTickerOverride);
         const response = await fetch(`/api/market?${params.toString()}`, {
           credentials: "same-origin",
           cache: "no-store",
+          signal: controller.signal,
         });
         if (!response.ok) {
           if (!cancelled) {
@@ -1959,18 +1964,23 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           setMarketQuote(null);
           setMarketNotice(null);
         }
+      } finally {
+        loading = false;
       }
     };
 
     setMarketQuote(null);
     setMarketNotice(null);
     void loadMarketQuote();
-    const refresh = window.setInterval(() => void loadMarketQuote(), 5 * 60 * 1_000);
+    const refresh = window.setInterval(() => {
+      if (document.visibilityState === "visible") void loadMarketQuote();
+    }, 5 * 60 * 1_000);
     return () => {
       cancelled = true;
+      controller.abort();
       window.clearInterval(refresh);
     };
-  }, [selectedTopic, selectedTickerOverride]);
+  }, [ready, selectedTopic, selectedTickerOverride]);
 
   useEffect(() => {
     if (!ready) return;
@@ -1982,23 +1992,26 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     const refreshWatchlist = () => {
       controller.abort();
       controller = new AbortController();
-      void loadMarketWatchlist(preferences.topics, preferences.tickerOverrides, controller.signal, fetch, 5)
+      const signal = controller.signal;
+      void loadMarketWatchlist(preferences.topics, preferences.tickerOverrides, signal, fetch, 5)
         .then((res) => {
-          if (!controller.signal.aborted) {
+          if (!signal.aborted) {
             setMarketWatchlist(res.quotes);
           }
         })
         .catch(() => {});
-      void loadMarketPortfolio(controller.signal, fetch)
+      void loadMarketPortfolio(signal, fetch)
         .then((res) => {
-          if (!controller.signal.aborted) {
+          if (!signal.aborted) {
             setPortfolioAlerts(res.items);
           }
         })
         .catch(() => {});
     };
     refreshWatchlist();
-    const interval = window.setInterval(refreshWatchlist, 5 * 60 * 1_000);
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === "visible") refreshWatchlist();
+    }, 5 * 60 * 1_000);
     return () => {
       controller.abort();
       window.clearInterval(interval);

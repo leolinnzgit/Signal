@@ -11,7 +11,7 @@ const server = await createServer({ configFile: false, root: process.cwd(), cach
     });
   },
 }], optimizeDeps: { entries: ["tests/briefing-market.fixture.tsx"], include: ["react", "react-dom", "react-dom/client"] },
-  server: { host: "127.0.0.1", port: 3016, strictPort: true, watch: { ignored: ["**/work/**", "**/Signal.Server/wwwroot/**", "**/iis-publish/**"] } } });
+  server: { host: "127.0.0.1", port: 3016, strictPort: true, watch: { ignored: ["**/work/**", "**/Signal.Server/**", "**/Signal.Server.TopicMatcher.Tests/**", "**/iis-publish/**"] } } });
 
 const quotes = {
   nvidia: { symbol: "NVDA", name: "NVIDIA Corporation", price: 189.32 },
@@ -28,10 +28,11 @@ await server.listen();
 let browser;
 try {
   browser = await chromium.launch({ headless: true, ...(process.env.SIGNAL_BROWSER_CHANNEL ? { channel: process.env.SIGNAL_BROWSER_CHANNEL } : {}) });
-  for (const scenario of ["browser", "recorded", "override", "selected", "stale", "dashboard"]) {
+  for (const scenario of process.argv.includes("--cancellation-only") ? [] : ["browser", "recorded", "override", "selected", "stale", "dashboard"]) {
     for (const width of scenario === "browser" || scenario === "recorded" ? [1280, 390] : [1280]) {
       const page = await browser.newPage({ viewport: { width, height: 900 } });
       page.setDefaultTimeout(20000);
+      page.setDefaultNavigationTimeout(90000);
       const errors = [], requests = [];
       let releaseMicrosoft;
       const microsoftGate = new Promise(resolve => { releaseMicrosoft = resolve; });
@@ -107,4 +108,45 @@ try {
       console.log(`PASS ${scenario} ${width}px`);
     }
   }
+  // A slow quote for the topic being left must release its browser connection,
+  // while the newly selected topic remains usable.
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  page.setDefaultNavigationTimeout(90000);
+  const errors = [], failed = [];
+  page.on("pageerror", error => errors.push(error.message));
+  page.on("requestfailed", request => failed.push(request.url()));
+  await page.addInitScript(() => {
+    localStorage.setItem("signal.weather-audio-on-open.v1", "false");
+    localStorage.setItem("signal-news-preferences", JSON.stringify({ topics: ["NVIDIA", "Microsoft"], sources: { google: true, gdelt: false, rssFeeds: [] }, tickerOverrides: {} }));
+  });
+  let releaseSlowQuote;
+  const slowQuote = new Promise(resolve => { releaseSlowQuote = resolve; });
+  await page.route("**/*", async route => {
+    const url = new URL(route.request().url());
+    if (url.hostname !== "127.0.0.1") return route.abort();
+    if (url.pathname === "/api/market") {
+      const topic = url.searchParams.get("topic").toLowerCase();
+      if (topic === "nvidia") await slowQuote;
+      return route.fulfill({ json: { matched: true, quote: { ...quotes[topic], topic, exchange: "NASDAQ", currency: "USD", change: 1, percentChange: 1, provider: "Test" } } }).catch(() => {});
+    }
+    if (url.pathname === "/api/auth/csrf") return route.fulfill({ json: { token: "test" } });
+    if (url.pathname === "/api/news") return route.fulfill({ json: { topic: "NVIDIA", articles: [], fetchedAt: new Date().toISOString() } });
+    if (url.pathname.startsWith("/api/")) return route.fulfill({ json: {} });
+    return route.continue();
+  });
+  try {
+    await page.goto("http://127.0.0.1:3016/briefing-test?dashboard");
+    const topicToggle = page.locator(".topic-filters-toggle");
+    if (await topicToggle.getAttribute("aria-expanded") === "false") await topicToggle.click();
+    const nvidiaRequest = page.waitForRequest(request => new URL(request.url()).pathname === "/api/market" && new URL(request.url()).searchParams.get("topic")?.toLowerCase() === "nvidia");
+    await page.getByRole("button", { name: /^NVIDIA, \d+ stories/ }).first().click();
+    await nvidiaRequest;
+    await page.getByRole("button", { name: /^Microsoft, \d+ stories/ }).first().click();
+    await page.waitForFunction(() => document.querySelector(".market-snapshot")?.textContent.includes("MSFT"));
+    releaseSlowQuote();
+    await page.waitForFunction(() => document.querySelector(".market-snapshot")?.textContent.includes("MSFT"));
+    assert.ok(failed.some(url => new URL(url).searchParams.get("topic")?.toLowerCase() === "nvidia"), "Leaving a topic aborts its slow quote request");
+    assert.deepEqual(errors, []);
+    console.log("PASS desktop topic switching cancels obsolete market requests");
+  } finally { releaseSlowQuote(); await page.close(); }
 } finally { await browser?.close(); await server.close(); }

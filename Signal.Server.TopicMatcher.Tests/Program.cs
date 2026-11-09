@@ -13,6 +13,9 @@ using Signal.Server.Controllers;
 using Signal.Server.Models;
 using Signal.Server.Services;
 
+await MarketEndpointChecks.RunAsync();
+if (args.Contains("--market-only")) return;
+
 await QueueHandoffChecks.RunAsync();
 await ListeningQueueChecks.RunAsync();
 await ListeningProgressChecks.RunAsync();

@@ -39,7 +39,7 @@ internal static class DailyBriefingBackendChecks
 
         // 1. Unconfigured returns Configured=false, Quotes=[]
         var unconfiguredService = new MarketDataService(http, cache, Options.Create(new MarketDataOptions()));
-        var unconfiguredController = new MarketController(unconfiguredService, NullLogger<MarketController>.Instance)
+        var unconfiguredController = new MarketController(unconfiguredService, null!, null!, NullLogger<MarketController>.Instance)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
@@ -54,7 +54,7 @@ internal static class DailyBriefingBackendChecks
             http,
             cache,
             Options.Create(new MarketDataOptions { ApiKey = "fake-twelve-data-api-key" }));
-        var configuredController = new MarketController(configuredService, NullLogger<MarketController>.Instance)
+        var configuredController = new MarketController(configuredService, null!, null!, NullLogger<MarketController>.Instance)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };

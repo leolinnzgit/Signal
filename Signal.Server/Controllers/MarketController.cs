@@ -19,11 +19,6 @@ public sealed class MarketController(
     UserManager<ApplicationUser> userManager,
     ILogger<MarketController> logger) : ControllerBase
 {
-    public MarketController(MarketDataService marketData, ILogger<MarketController> logger)
-        : this(marketData, null!, null!, logger)
-    {
-    }
-
     public sealed record MarketWatchlistRequest(MarketWatchlistTopicInput[]? Items, int MaxQuotes = 5, bool IncludeSparklines = false);
     public sealed record MarketWatchlistResponse(bool Configured, MarketQuote[] Quotes);
 
@@ -61,6 +56,10 @@ public sealed class MarketController(
         {
             logger.LogInformation(exception, "Market pricing requires a higher provider plan for topic {Topic}.", topic);
             return StatusCode(StatusCodes.Status402PaymentRequired, new { error = exception.Message });
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return StatusCode(499);
         }
         catch (Exception exception)
         {
