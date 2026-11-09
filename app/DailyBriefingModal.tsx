@@ -530,24 +530,14 @@ export default function DailyBriefingModal({
       } catch {}
     }
 
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        setCarModeOpen(false);
-        onClose();
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
     return () => {
-      window.removeEventListener("keydown", handleKeyDown);
       if (dialog && dialog.open) {
         try {
           dialog.close();
         } catch {}
       }
     };
-  }, [isMinimized, isOpen, onClose]);
+  }, [isMinimized, isOpen]);
 
   // Auto-play support when launched from Wake-up Briefing "Play Briefing" button
   useEffect(() => {
@@ -969,13 +959,16 @@ export default function DailyBriefingModal({
       ref={dialogRef}
       className="daily-briefing-dialog"
       aria-labelledby="daily-briefing-title"
-      open={isOpen && !isMinimized}
       onCancel={(e) => {
         e.preventDefault();
         setCarModeOpen(false);
         onClose();
       }}
-      onClose={() => {
+      onClose={(event) => {
+        // Cleanup/minimizing may queue a native close event that arrives after
+        // reopening or detaching this dialog. Only an actual visible-dialog
+        // dismissal should close the dashboard's briefing state.
+        if (event.currentTarget.open || !event.currentTarget.isConnected || isMinimized || !isOpen) return;
         setCarModeOpen(false);
         onClose();
       }}
