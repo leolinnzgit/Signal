@@ -56,3 +56,27 @@ test('browser fetch is invoked as a function rather than with the client as its 
  const server=setup();const client=new SharedListeningClient(email,server.storage(),()=>{},function(...args){assert.equal(this,undefined);return server.fetcher(...args)});
  try{await client.sync();assert.equal(client.progress.accountKey,account)}finally{client.dispose()}
 });
+
+test('playback started before the first sync uses the initial server revision rather than conflicting with version zero',async()=>{
+ const server=setup(), existing=new SharedListeningClient(email,server.storage(),()=>{},server.fetcher);
+ let client;
+ try{
+  await existing.sync();existing.begin('existing');existing.report('existing',story);await existing.sync();
+  let conflicts=0;
+  client=new SharedListeningClient(email,server.storage(),()=>{},async(...args)=>{
+   const response=await server.fetcher(...args);if(response.status===409)conflicts++;return response;
+  });
+  client.begin('fresh-playback');client.report('fresh-playback',{...story,partIndex:2});await client.sync();
+  assert.equal(conflicts,0);assert.equal(server.state().document.partIndex,2);assert.equal(client.pending,null);
+ }finally{existing.dispose();client?.dispose()}
+});
+
+test('a failed initial baseline must not rebase offline playback over newer remote progress',async()=>{
+ const server=setup(), remote=new SharedListeningClient(email,server.storage(),()=>{},server.fetcher),client=new SharedListeningClient(email,server.storage(),()=>{},server.fetcher);
+ try{
+  await remote.sync();remote.begin('remote');remote.report('remote',story);await remote.sync();
+  server.setOnline(false);client.begin('offline');client.report('offline',{...story,partIndex:2});await client.sync();
+  server.setOnline(true);remote.forget();await remote.sync();await client.sync();
+  assert.equal(server.state().state,'forgotten');assert.equal(client.pending,null);assert.equal(client.saved(),null);
+ }finally{remote.dispose();client.dispose()}
+});

@@ -28,6 +28,7 @@ export class SharedListeningClient {
   message = "";
   private writer: string | null = null;
   private writerVersion: string | null = null;
+  private writerAwaitingBaseline = false;
   private blocked = false;
   private running: Promise<void> | null = null;
   private dead = false;
@@ -60,6 +61,7 @@ export class SharedListeningClient {
   saved() { return this.pending ? this.pending.action === "save" ? this.pending.document : null : this.progress?.state === "active" ? this.progress.document : null; }
   begin(id: string) {
     if (this.dead || this.writer === id) return;
+    this.writerAwaitingBaseline = !this.progress && !this.pending;
     this.writer = id; this.writerVersion = this.pending?.baseVersion ?? this.progress?.version ?? "0"; this.blocked = false;
   }
   report(id: string, document: SharedStory) {
@@ -101,6 +103,11 @@ export class SharedListeningClient {
         if (!response.ok) throw new Error("Saved listening is unavailable. Local progress is kept.");
         this.adopt(validateSharedProgress(await response.json()), true);
         if (this.pending) this.pending.accountKey = this.progress!.accountKey;
+        if (this.writerAwaitingBaseline) {
+          this.writerVersion = this.progress!.version;
+          if (this.pending) this.pending.baseVersion = this.progress!.version;
+          this.writerAwaitingBaseline = false;
+        }
       }
       while (this.pending && !this.dead) {
         const sent = structuredClone(this.pending);
@@ -128,6 +135,7 @@ export class SharedListeningClient {
       if (!response.ok) throw new Error("Saved listening is unavailable. Local progress is kept.");
       this.adopt(validateSharedProgress(await response.json())); this.persist();
     } catch (error) {
+      this.writerAwaitingBaseline = false;
       if (!this.dead) { this.message = this.pending ? "Offline or unavailable. Listening progress is saved here and will retry." : error instanceof Error ? error.message : "Saved listening is unavailable."; this.persist(); }
     }
   }

@@ -6,8 +6,12 @@ test("loadArticleKeyPhrases requests API and caches results", async () => {
   let callCount = 0;
   const fakeFetcher = async (url, init) => {
     callCount++;
+    assert.equal(init?.credentials, "same-origin");
+    assert.equal(init?.cache, "no-store");
+    if (url === "/api/auth/csrf") return Response.json({ token: "article-csrf" });
     assert.equal(url, "/api/article-keyphrases");
     assert.equal(init?.method, "POST");
+    assert.equal(init?.headers["X-XSRF-TOKEN"], "article-csrf");
     const body = JSON.parse(init?.body);
     assert.equal(body.url, "https://example.com/ai");
     return {
@@ -27,13 +31,22 @@ test("loadArticleKeyPhrases requests API and caches results", async () => {
     assert.equal(res1.available, true);
     assert.equal(res1.keyPhrases.length, 3);
     assert.equal(res1.keyPhrases[0], "cloud AI advancements");
-    assert.equal(callCount, 1);
+    assert.equal(callCount, 2);
 
     // Second call should come from cache
     const res2 = await loadArticleKeyPhrases("https://example.com/ai", "AI News", ["Paragraph one."]);
     assert.equal(res2.available, true);
-    assert.equal(callCount, 1);
+    assert.equal(callCount, 2);
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("key phrase extraction never posts without a security token", async () => {
+  const calls = [];
+  const result = await loadArticleKeyPhrases("https://example.com/no-token", "Story", ["Body"], undefined, async path => {
+    calls.push(path); return Response.json({});
+  });
+  assert.equal(result.available, false);
+  assert.deepEqual(calls, ["/api/auth/csrf"]);
 });

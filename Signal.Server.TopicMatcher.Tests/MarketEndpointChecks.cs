@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -30,7 +31,7 @@ internal static class MarketEndpointChecks
         using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
         builder.Services.AddDbContext<SignalDbContext>(options => options.UseSqlite(connection));
-        builder.Services.AddIdentityCore<ApplicationUser>().AddEntityFrameworkStores<SignalDbContext>();
+        builder.Services.AddIdentityCore<ApplicationUser>().AddEntityFrameworkStores<SignalDbContext>().AddSignInManager();
         builder.Services.AddAuthentication("test").AddCookie("test", options =>
             options.Events.OnRedirectToLogin = context => { context.Response.StatusCode = 401; return Task.CompletedTask; });
         builder.Services.AddAuthorization();
@@ -38,6 +39,13 @@ internal static class MarketEndpointChecks
         builder.Services.AddControllersWithViews(options => options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute()))
             .AddApplicationPart(typeof(MarketController).Assembly);
         builder.Services.AddMemoryCache();
+        builder.Services.AddRateLimiter(SignalRateLimiting.Configure);
+        builder.Services.AddScoped<IAccountEmailSender, NoEmail>();
+        builder.Services.Configure<AzureLanguageOptions>(_ => { });
+        builder.Services.AddHttpClient();
+        builder.Services.AddHttpClient<ArticleReaderService>();
+        builder.Services.AddSingleton<AzureLanguageSentimentService>();
+        builder.Services.AddSingleton<AzureLanguageKeyPhraseService>();
         builder.Services.Configure<MarketDataOptions>(options => options.ApiKey = "test-only");
         builder.Services.AddHttpClient<MarketDataService>(client => client.BaseAddress = new("https://api.twelvedata.com/"))
             .ConfigurePrimaryHttpMessageHandler(() => new MarketHandler());
@@ -45,6 +53,7 @@ internal static class MarketEndpointChecks
         app.UseRouting();
         app.UseAuthentication();
         app.UseAuthorization();
+        app.UseRateLimiter();
         app.MapControllers();
         app.MapGet("/test/login", async (HttpContext context) =>
         {
@@ -54,6 +63,13 @@ internal static class MarketEndpointChecks
         });
         app.MapGet("/test/csrf", (HttpContext context, IAntiforgery csrf) =>
             Results.Json(new { token = csrf.GetAndStoreTokens(context).RequestToken }));
+        app.MapGet("/test/activity", () => Results.Ok()).RequireAuthorization().RequireRateLimiting("account");
+        app.MapPost("/test/activity", () => Results.Ok()).RequireAuthorization().RequireRateLimiting("account");
+        app.MapGet("/test/credential", () => Results.Ok()).RequireRateLimiting("authentication");
+        app.MapGet("/test/other-user", async (HttpContext context) => {
+            await context.SignInAsync("test", new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "second-user")], "test")));
+            return Results.Ok();
+        });
         await using (var scope = app.Services.CreateAsyncScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<SignalDbContext>();
@@ -100,9 +116,56 @@ internal static class MarketEndpointChecks
             var savedPortfolio = await saved.Content.ReadFromJsonAsync<JsonElement>();
             Check(savedPortfolio.GetProperty("items").GetArrayLength() == 1 && savedPortfolio.GetProperty("hasAlerts").GetBoolean(),
                 "Saved portfolio and price alerts must remain functional.");
+            await CheckDesktopRequestsAsync(client);
         }
         finally { await app.StopAsync(); }
         Console.WriteLine("Market HTTP endpoints passed MVC activation, topic matches, unmatched topics, portfolio reads/writes, alerts, authentication and CSRF checks.");
+    }
+
+    private static async Task CheckDesktopRequestsAsync(HttpClient client)
+    {
+        for (var i = 0; i < 45; i++)
+        {
+            Check((await client.GetAsync("/test/activity")).IsSuccessStatusCode, "Routine signed-in reads must exceed the old shared 30-request ceiling.");
+            Check((await client.GetAsync("/api/auth/csrf")).IsSuccessStatusCode, "Token issuance must have an independent budget.");
+        }
+        client.DefaultRequestHeaders.Remove("X-XSRF-TOKEN");
+        var article = new { url = "https://example.com/story", title = "Story", paragraphs = new[] { "A full paragraph for analysis, without calling any cloud services in this test." } };
+        foreach (var endpoint in new[] { "/api/article-sentiment", "/api/article-keyphrases" })
+            Check((await client.PostAsJsonAsync(endpoint, article)).StatusCode == HttpStatusCode.BadRequest, "Article analysis must require a CSRF token.");
+        var token = (await client.GetFromJsonAsync<JsonElement>("/api/auth/csrf")).GetProperty("token").GetString();
+        client.DefaultRequestHeaders.Add("X-XSRF-TOKEN", token);
+        foreach (var endpoint in new[] { "/api/article-sentiment", "/api/article-keyphrases" })
+            Check((await client.PostAsJsonAsync(endpoint, article)).IsSuccessStatusCode, "Signed-in article analysis with CSRF must succeed through MVC.");
+
+        HttpResponseMessage? rejected = null;
+        for (var i = 0; i < 250; i++)
+        {
+            var response = await client.GetAsync("/test/activity");
+            if (response.StatusCode == HttpStatusCode.TooManyRequests) { rejected = response; break; }
+            Check(response.IsSuccessStatusCode, "Routine reads must return success until the bounded limit is reached.");
+            response.Dispose();
+        }
+        using (rejected)
+            Check(rejected?.Headers.RetryAfter?.Delta is { TotalSeconds: > 0 }, "Actual throttling must return Retry-After.");
+        Check((await client.GetAsync("/api/auth/csrf")).IsSuccessStatusCode, "Throttled reads must not prevent obtaining security tokens.");
+        Check((await client.PostAsync("/test/activity", null)).IsSuccessStatusCode, "Background reads must not block app writes.");
+        for (var i = 0; i < 30; i++) Check((await client.GetAsync("/test/credential")).IsSuccessStatusCode, "Credential requests retain their existing bounded allowance.");
+        Check((await client.GetAsync("/test/credential")).StatusCode == HttpStatusCode.TooManyRequests, "Credential attempts must still be throttled.");
+        Check((await client.PostAsJsonAsync("/api/auth/login", new { email = "missing@example.com", password = "invalid" })).StatusCode == HttpStatusCode.TooManyRequests,
+            "The actual login endpoint must use the stricter credential policy.");
+        Check((await client.GetAsync("/api/auth/csrf")).IsSuccessStatusCode, "Credential throttling must not cascade into token failures.");
+        await client.GetAsync("/test/other-user");
+        Check((await client.GetAsync("/test/activity")).IsSuccessStatusCode, "Two accounts behind one proxy/IP must have separate app budgets.");
+        Console.WriteLine("Desktop requests passed real CSRF-protected analysis, routine polling bursts, separate token/read/write/sign-in budgets, per-user isolation and Retry-After checks.");
+    }
+
+    private sealed class NoEmail : IAccountEmailSender
+    {
+        public Task SendConfirmationAsync(string email, string url, CancellationToken token) => throw new NotSupportedException();
+        public Task SendPasswordResetAsync(string email, string url, CancellationToken token) => throw new NotSupportedException();
+        public Task SendNewsSummaryAsync(string email, NewsSummaryDigest digest, CancellationToken token) => throw new NotSupportedException();
+        public Task SendSharedArticleAsync(string email, SharedArticleEmail article, CancellationToken token) => throw new NotSupportedException();
     }
 
     private static void Check(bool condition, string message)

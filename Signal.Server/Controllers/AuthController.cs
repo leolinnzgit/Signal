@@ -16,7 +16,7 @@ namespace Signal.Server.Controllers;
 
 [ApiController]
 [Route("api/auth")]
-[EnableRateLimiting("account")]
+[EnableRateLimiting("authentication")]
 [ResponseCache(Location = ResponseCacheLocation.None, NoStore = true)]
 public sealed class AuthController(
     UserManager<ApplicationUser> userManager,
@@ -32,6 +32,7 @@ public sealed class AuthController(
 
     [AllowAnonymous]
     [HttpGet("csrf")]
+    [EnableRateLimiting("csrf")]
     public IActionResult Csrf()
     {
         var tokens = antiforgery.GetAndStoreTokens(HttpContext);
@@ -40,6 +41,7 @@ public sealed class AuthController(
 
     [AllowAnonymous]
     [HttpGet("providers")]
+    [EnableRateLimiting("account")]
     public IActionResult Providers() => Ok(new { google = GoogleConfigured });
 
     [AllowAnonymous]
@@ -287,6 +289,7 @@ public sealed class AuthController(
 
     [Authorize]
     [HttpPost("logout")]
+    [EnableRateLimiting("account")]
     public async Task<IActionResult> Logout()
     {
         await signInManager.SignOutAsync();
@@ -295,6 +298,7 @@ public sealed class AuthController(
 
     [Authorize]
     [HttpGet("me")]
+    [EnableRateLimiting("account")]
     public async Task<IActionResult> Me(CancellationToken cancellationToken)
     {
         var user = await userManager.GetUserAsync(User);
@@ -303,6 +307,7 @@ public sealed class AuthController(
 
     [Authorize]
     [HttpGet("profile-photo")]
+    [EnableRateLimiting("account")]
     public async Task<IActionResult> ProfilePhoto(CancellationToken cancellationToken)
     {
         var userId = userManager.GetUserId(User);
@@ -325,6 +330,7 @@ public sealed class AuthController(
 
     [Authorize]
     [HttpPost("profile-photo")]
+    [EnableRateLimiting("account")]
     [RequestSizeLimit(1_250_000)]
     public async Task<IActionResult> SaveProfilePhoto(
         [FromForm] IFormFile? photo,
@@ -360,6 +366,7 @@ public sealed class AuthController(
 
     [Authorize]
     [HttpDelete("profile-photo")]
+    [EnableRateLimiting("account")]
     public async Task<IActionResult> DeleteProfilePhoto(CancellationToken cancellationToken)
     {
         var userId = userManager.GetUserId(User);

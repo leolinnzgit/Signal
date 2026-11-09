@@ -260,9 +260,16 @@ export async function loadArticleSentiment(
   if (cached) return cached;
 
   try {
+    const csrf = await fetcher("/api/auth/csrf", { credentials: "same-origin", cache: "no-store", signal });
+    if (!csrf.ok) throw new Error("Could not start a secure article request.");
+    const { token } = await csrf.json() as { token?: string };
+    if (!token) throw new Error("Could not start a secure article request.");
+    signal?.throwIfAborted();
     const response = await fetcher("/api/article-sentiment", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json", "X-XSRF-TOKEN": token },
       body: JSON.stringify({
         url,
         title: title || undefined,

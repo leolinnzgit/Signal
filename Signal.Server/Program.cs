@@ -124,19 +124,7 @@ builder.Services.AddAntiforgery(options =>
 builder.Services.AddControllersWithViews(options =>
     options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute()));
 builder.Services.AddAuthorization();
-builder.Services.AddRateLimiter(options =>
-{
-    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    options.AddPolicy("account", context => RateLimitPartition.GetFixedWindowLimiter(
-        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-        _ => new FixedWindowRateLimiterOptions
-        {
-            PermitLimit = 30,
-            Window = TimeSpan.FromMinutes(1),
-            QueueLimit = 0,
-            AutoReplenishment = true,
-        }));
-});
+builder.Services.AddRateLimiter(SignalRateLimiting.Configure);
 builder.Services.AddRateLimiter(options => options.AddPolicy("audio", context => RateLimitPartition.GetFixedWindowLimiter(
     context.User.Identity?.Name ?? context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
     _ => new FixedWindowRateLimiterOptions { PermitLimit = 120, Window = TimeSpan.FromMinutes(1), QueueLimit = 0, AutoReplenishment = true })));

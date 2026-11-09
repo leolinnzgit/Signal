@@ -62,16 +62,22 @@ test("recordArticleSentiment persists Azure sentiment across cache clears and ov
   const storage = createMemoryStorage();
   clearSentimentCache(storage);
 
-  const mockFetcher = async () => ({
-    ok: true,
-    json: async () => ({
-      available: true,
-      sentiment: "negative",
-      positiveScore: 0.05,
-      neutralScore: 0.15,
-      negativeScore: 0.8,
-    }),
-  });
+  const mockFetcher = async (path, init) => {
+    assert.equal(init.credentials, "same-origin");
+    assert.equal(init.cache, "no-store");
+    if (path === "/api/auth/csrf") return Response.json({ token: "article-csrf" });
+    assert.equal(init.headers["X-XSRF-TOKEN"], "article-csrf");
+    return {
+      ok: true,
+      json: async () => ({
+        available: true,
+        sentiment: "negative",
+        positiveScore: 0.05,
+        neutralScore: 0.15,
+        negativeScore: 0.8,
+      }),
+    };
+  };
 
   const fetched = await loadArticleSentiment(
     "https://example.com/story-1",
@@ -118,4 +124,13 @@ test("recordArticleSentiment persists Azure sentiment across cache clears and ov
   );
   assert.equal(heuristicResolved.source, "heuristic");
   assert.equal(heuristicResolved.sentiment, "positive");
+});
+
+test("sentiment analysis never posts without a security token", async () => {
+  const calls = [];
+  const result = await loadArticleSentiment("https://example.com/no-token", "Story", ["Body"], undefined, async path => {
+    calls.push(path); return Response.json({});
+  });
+  assert.equal(result.available, false);
+  assert.deepEqual(calls, ["/api/auth/csrf"]);
 });
