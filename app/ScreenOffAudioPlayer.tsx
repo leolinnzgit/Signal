@@ -45,6 +45,7 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
   const initialPosition = useRef(initialIndex);
   const resumeTime = useRef<number | null>(null);
   const resumeAfterReader = useRef(false);
+  const autoPlayPending = useRef(true);
   const restorePosition = useRef(true);
   const recordingKey = useRef("");
   const positionRestored = useRef(false);
@@ -132,6 +133,21 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
     };
   }, [track]);
 
+  useEffect(() => {
+    const element = audio.current;
+    if (!track || !element || suspended || !autoPlayPending.current) return;
+    // Opening the briefing is already a request to listen. Start both streams
+    // and prepared recordings as soon as they arrive, without another tap.
+    autoPlayPending.current = false;
+    let active = true;
+    void element.play().catch(() => {
+      if (!active) return;
+      setError("Your briefing is ready. Tap Play to start listening.");
+      setPaused(true);
+    });
+    return () => { active = false; };
+  }, [track, suspended]);
+
   function canSeek(time: number) {
     const element = audio.current;
     if (!element || !Number.isFinite(time)) return false;
@@ -152,7 +168,8 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
   function updateBuffer() { restorePlaybackPosition(); setBufferVersion((version) => version + 1); }
   useEffect(restorePlaybackPosition, [starts, streamComplete]);
 
-  function pause() { audio.current?.pause(); setPaused(true); }
+  function pause() { autoPlayPending.current = false; audio.current?.pause(); setPaused(true); }
+  function retry() { autoPlayPending.current = true; setPreparationAttempt((attempt) => attempt + 1); }
   function toggle() {
     const element = audio.current;
     if (!element || !track) return;
@@ -240,7 +257,8 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
     const element = audio.current;
     if (suspended) {
       resumeAfterReader.current = !!element && !element.paused && !element.ended;
-      pause();
+      element?.pause();
+      setPaused(true);
     } else if (resumeAfterReader.current) {
       resumeAfterReader.current = false;
       void element?.play().catch(() => {
@@ -267,8 +285,8 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
         {!error && <span className="article-reader-loader" aria-hidden="true" />}
         <strong>{error ? "Audio unavailable" : "Loading your audio briefing"}</strong>
         {!error && !useStream && <p>{preparedCount} of {articles.length} headlines ready</p>}
-        <p>{error || (useStream && readingVoices.streaming ? "Opening your audio stream. Tap Play to listen while the remaining headlines are generated." : "Loading saved audio and preparing any new headlines. Keep Signal open until it is ready, then tap Play and turn off the screen.")}</p>
-        {error && <button type="button" onClick={() => setPreparationAttempt((attempt) => attempt + 1)}>Try again</button>}
+        <p>{error || (useStream && readingVoices.streaming ? "Opening your audio stream. Playback starts automatically while the remaining headlines are generated." : "Loading saved audio and preparing any new headlines. Playback starts automatically when ready.")}</p>
+        {error && <button type="button" onClick={retry}>Try again</button>}
       </div> : completed ? <div className="headline-player-complete"><h2>All caught up.</h2><p>You’ve reached the end of this audio briefing.</p></div> : <div className="headline-player-story">
         {article.imageUrl && (
           <img key={`${article.url}-${article.imageUrl}`} className="headline-player-image"
@@ -287,7 +305,7 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
     <div className="screen-off-audio-controls">
       <ReadingVoiceSelector {...readingVoices} selectVoice={selectVoice} active playbackActive={!paused} onPreviewStart={pause} />
       {track && <>
-        <p>{track.streaming && !streamComplete ? "Tap Play to start listening while the rest of the briefing is generated. You can turn off the screen." : "Tap Play, then turn off the screen. Your phone’s media controls can pause or resume the briefing."}</p>
+        <p>{paused ? "Tap Play if playback has not started. You can turn off the screen while listening." : "You can turn off the screen. Your phone’s media controls can pause or resume the briefing."}</p>
         <audio ref={audio} src={track.url} controls preload="auto" aria-label="Screen-off audio briefing"
           onLoadedMetadata={updateBuffer} onCanPlay={updateBuffer} onProgress={updateBuffer}
           onPlay={() => { setPaused(false); setError(""); syncPosition(); }} onPause={() => setPaused(true)}
@@ -295,7 +313,7 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
           onEnded={() => { syncPosition(); setIndex(articles.length); onIndexChange(articles.length); setPaused(true); }}
           onError={() => { setError("The audio could not be played. Try again or prepare a recording instead."); setPaused(true); }} />
         {track.streaming && !streamComplete && !error && <p role="status">Streaming audio · {preparedCount} of {articles.length} headlines generated. Skip controls become available as audio arrives.</p>}
-        {error && <><p role="alert">{error}</p><button type="button" onClick={() => setPreparationAttempt((attempt) => attempt + 1)}>Try again</button></>}
+        {error && <><p role="alert">{error}</p><button type="button" onClick={retry}>Try again</button></>}
         <label>Speaking speed <select value={rate} onChange={(event) => onRateChange(Number(event.target.value))}>{Array.from(new Set([0.8, 0.95, 1, 1.1, 1.2, rate])).sort().map((value) => <option key={value} value={value}>{value}×</option>)}</select></label>
       </>}
       {readingVoices.streaming && <button type="button" onClick={() => {

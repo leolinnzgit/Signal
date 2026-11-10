@@ -75,7 +75,7 @@ test("browser briefings narrate completion with saved preferences and stop on cl
 
 // Replay the rendered player's media events without a browser or speech server.
 // Effects that fetch recordings are replaced with an already prepared track.
-async function recordedPlayerHarness({ lifecycle = false, announcement = false, streaming = false, articleCount = 4 } = {}) {
+async function recordedPlayerHarness({ lifecycle = false, announcement = false, streaming = false, articleCount = 4, suspended = false, blocked = false } = {}) {
   const playerSource = await readFile(new URL("../app/ScreenOffAudioPlayer.tsx", import.meta.url), "utf8");
   const playerCode = ts.transpileModule(playerSource, { compilerOptions: {
     module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX,
@@ -90,7 +90,7 @@ async function recordedPlayerHarness({ lifecycle = false, announcement = false, 
   let effectIndex = 0;
   let stateIndex = 0;
   let playCalls = 0;
-  let rejectPlay = false;
+  let rejectPlay = blocked;
   let gesture;
   let reportStatus;
   let streamedTitles;
@@ -151,7 +151,7 @@ async function recordedPlayerHarness({ lifecycle = false, announcement = false, 
       if (audio) return audio;
     }
   }
-  let props = { ref: controls, articles, initialIndex: 0, seconds: 6, rate: 1,
+  let props = { ref: controls, articles, initialIndex: 0, seconds: 6, rate: 1, suspended,
     onArticleRead: (article) => heard.push(article.url), onIndexChange() {},
   };
   let tree;
@@ -182,6 +182,8 @@ async function recordedPlayerHarness({ lifecycle = false, announcement = false, 
 test("briefing streaming exposes Play before generation and timing updates keep the same audio request playing", async () => {
   const player = await recordedPlayerHarness({ lifecycle: true, streaming: true });
   const src = player.events.src;
+  assert.equal(player.playCalls, 1, "Opening a stream starts listening without a second tap");
+  assert.equal(player.element.paused, false);
   assert.equal(player.recordings, 0, "Streaming must not wait for the complete WAV");
   assert.equal(player.streamedTitles.at(-1), BRIEFING_COMPLETE_MESSAGE);
   player.element.duration = Infinity;
@@ -213,6 +215,30 @@ test("large random briefings expose Play without preparing the whole queue", asy
   }
 });
 
+test("audio becoming ready behind a reader starts only after returning to the briefing", async () => {
+  for (const streaming of [false, true]) {
+    const player = await recordedPlayerHarness({ lifecycle: true, streaming, suspended: true });
+    assert.equal(player.playCalls, 0);
+    assert.equal(player.element.paused, true);
+    player.render({ suspended: false });
+    assert.equal(player.playCalls, 1);
+    assert.equal(player.element.paused, false);
+    player.controls.pause();
+    player.render({ rate: 1.1 });
+    assert.equal(player.playCalls, 1, "Settings cannot restart deliberately paused audio");
+  }
+});
+
+test("blocked initial playback keeps the ready audio and asks for a Play tap", async () => {
+  const player = await recordedPlayerHarness({ lifecycle: true, blocked: true });
+  await Promise.resolve();
+  assert.equal(player.playCalls, 1);
+  assert.equal(player.element.paused, true);
+  assert.equal(player.events.src, "blob:briefing");
+  assert.match(JSON.stringify(player.render()), /Your briefing is ready. Tap Play to start listening/);
+  assert.equal(player.playCalls, 1, "A blocked attempt does not loop on rerender");
+});
+
 test("a failed briefing stream keeps a complete recording fallback available", async () => {
   const player = await recordedPlayerHarness({ lifecycle: true, streaming: true });
   const tree = player.report({ starts: [0], complete: false, error: "Speech service interrupted" });
@@ -233,6 +259,7 @@ test("a failed briefing stream keeps a complete recording fallback available", a
 
 test("closing full news restores the recorded briefing at its playhead and returns media controls", async () => {
   const player = await recordedPlayerHarness({ lifecycle: true });
+  assert.equal(player.playCalls, 1, "Prepared recordings also start automatically");
   player.element.currentTime = 13;
   player.element.paused = false;
   player.events.onPlay();
@@ -249,7 +276,7 @@ test("closing full news restores the recorded briefing at its playhead and retur
   player.render({ suspended: false });
   assert.equal(player.element.currentTime, 13);
   assert.equal(player.element.paused, false);
-  assert.equal(player.playCalls, 1);
+  assert.equal(player.playCalls, 2);
   assert.equal(typeof player.handlers.get("play"), "function");
   assert.notEqual(player.handlers.get("play"), briefingPlay);
   player.events.onPlay();
@@ -257,7 +284,7 @@ test("closing full news restores the recorded briefing at its playhead and retur
   assert.equal(player.mediaSession.playbackState, "playing");
   player.render({ suspended: true });
   player.render({ suspended: false });
-  assert.equal(player.playCalls, 2, "Later article interruptions also resume");
+  assert.equal(player.playCalls, 3, "Later article interruptions also resume");
 });
 
 test("hand gestures control recorded headlines, handle blocked playback and yield bookmarks to the parent", async () => {
@@ -280,10 +307,12 @@ test("hand gestures control recorded headlines, handle blocked playback and yiel
 test("closing a reader keeps manually paused and completed briefings stopped", async () => {
   for (const ended of [false, true]) {
     const player = await recordedPlayerHarness({ lifecycle: true });
+    assert.equal(player.playCalls, 1);
+    player.controls.pause();
     player.element.ended = ended;
     player.render({ suspended: true });
     player.render({ suspended: false });
-    assert.equal(player.playCalls, 0);
+    assert.equal(player.playCalls, 1, "Closing a reader cannot restart paused or completed audio");
     assert.equal(player.element.paused, true);
   }
 });
