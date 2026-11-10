@@ -1,5 +1,13 @@
 # SignalWatch release preparation
 
+## Briefing resumption after full listen: 0.25.3 (42)
+
+When listening to a full story during an unread briefing or catch-up, completing that full story automatically resumes playback to the next story in the briefing and marks the finished story as read. Explicitly stopping playback cancels resumption. If the full story was the last story in the briefing, playback completes normally. Companion remains 0.13.0 (23).
+
+Validation: packaged version 0.25.3 (42) verified; release JVM tests passed and release lint reported zero errors. Signed AAB/APK, bundle validation, signature, 64-bit/16 KB alignment and private-file checks passed. Checked artifacts: `outputs/play-release/0.25.3-42/`. APK SHA256: `b43f7345876e4968bca4761d748357c7ab9f8ef3559db2a798a0afe31925d2b8`.
+
+Publication verification (11 November 2026): public HTTPS watch APK downloads serve 0.25.3 (42) and match the checked SHA256 above. Preview version labels match. Companion 0.13.0 (23) is unchanged; production server/configuration guards passed and App_Data was excluded. Native source commit: `79744f7`. No Google Play upload was made.
+
 ## Version increment: 0.25.2 (41)
 
 Increments the watch version and Play upload build number. Includes the automatic read-status fix from 0.25.1: completed news is marked read, unfinished news stays unread, and offline changes sync when connected. Companion remains 0.13.0 (23).
