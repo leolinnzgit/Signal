@@ -124,6 +124,35 @@
   border-color: rgba(45, 212, 191, 0.28);
 }
 
+.signal-bot-model-select {
+  height: 1.75rem;
+  max-width: 9.2rem;
+  padding: 0 0.52rem;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 118, 110, 0.28);
+  background: rgba(15, 118, 110, 0.11);
+  color: #0f766e;
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.signal-bot-model-select:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+[data-theme="dark"] .signal-bot-model-select {
+  background: rgba(45, 212, 191, 0.14);
+  color: #5eead4;
+  border-color: rgba(45, 212, 191, 0.3);
+}
+
+[data-theme="dark"] .signal-bot-model-select option {
+  background: #10161f;
+  color: #e2e8f0;
+}
+
 .signal-bot-header-controls {
   display: flex;
   align-items: center;
@@ -753,6 +782,52 @@
   display: none;
 }
 
+.signal-bot-share-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.45rem 0.68rem;
+  border-radius: 10px;
+  border: 1px solid rgba(15, 118, 110, 0.26);
+  background: rgba(15, 118, 110, 0.08);
+  font-size: 0.78rem;
+}
+
+[data-theme="dark"] .signal-bot-share-banner {
+  border-color: rgba(45, 212, 191, 0.28);
+  background: rgba(45, 212, 191, 0.09);
+}
+
+.signal-bot-share-label {
+  color: #0f766e;
+  font-weight: 600;
+}
+
+[data-theme="dark"] .signal-bot-share-label {
+  color: #5eead4;
+}
+
+.signal-bot-share-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.36rem;
+}
+
+.signal-bot-share-open {
+  text-decoration: none;
+}
+
+.signal-bot-share-error {
+  padding: 0.42rem 0.65rem;
+  border-radius: 8px;
+  background: rgba(185, 28, 28, 0.1);
+  border: 1px solid rgba(185, 28, 28, 0.24);
+  color: var(--red, #c83f32);
+  font-size: 0.76rem;
+}
+
 @media (max-width: 680px) {
   .signal-bot-overlay {
     padding: 0.35rem;
@@ -817,8 +892,9 @@
     max-width: 5.2rem;
   }
 
-  .signal-bot-status-pill {
-    max-width: 6.4rem;
+  .signal-bot-status-pill,
+  .signal-bot-model-select {
+    max-width: 6.8rem;
     overflow: hidden;
     text-overflow: ellipsis;
   }

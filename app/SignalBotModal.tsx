@@ -4,9 +4,14 @@ import { briefingSpeechLocale } from "./daily-briefing-translation";
 import type { FollowedArticle } from "./NewsDashboard";
 import {
   analyzeNewsTopicWithSignalBot,
+  createHostedSignalBotShare,
   fetchSignalBotStatus,
   formatSignalBotMarkdown,
+  getModelDisplayLabel,
+  loadPreferredSignalBotModel,
   normalizeSignalBotArticles,
+  resolveSelectedSignalBotModel,
+  savePreferredSignalBotModel,
   sentimentBadgeMeta,
   SIGNAL_BOT_PRESETS,
   type SignalBotAnalyzeResponse,
@@ -37,6 +42,10 @@ interface ConversationTurn {
   userPrompt: string;
   response?: SignalBotAnalyzeResponse;
   error?: string;
+  sharePath?: string;
+  shareUrl?: string;
+  sharing?: boolean;
+  shareError?: string;
 }
 
 function citationToFollowedArticle(citation: SignalBotCitation, topic: string): FollowedArticle {
@@ -93,8 +102,10 @@ export default function SignalBotModal({
     available: true,
     provider: "Microsoft Foundry",
     model: "",
+    availableModels: [],
   });
   const [statusLoading, setStatusLoading] = useState(false);
+  const [selectedModel, setSelectedModel] = useState<string>(() => loadPreferredSignalBotModel());
   const [selectedTopic, setSelectedTopic] = useState<string>(initialTopic || followedTopics[0] || "All Topics");
   const [customTopicInput, setCustomTopicInput] = useState<string>("");
   const [customTopicOpen, setCustomTopicOpen] = useState<boolean>(false);
@@ -104,8 +115,20 @@ export default function SignalBotModal({
   const [turns, setTurns] = useState<ConversationTurn[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [copiedTurnId, setCopiedTurnId] = useState<string | null>(null);
+  const [shareCopiedTurnId, setShareCopiedTurnId] = useState<string | null>(null);
   const [speakingTurnId, setSpeakingTurnId] = useState<string | null>(null);
   const [highlightedCitationKey, setHighlightedCitationKey] = useState<string | null>(null);
+
+  const selectableModels = useMemo(() => {
+    if (!status.available) return [];
+    if (status.availableModels.length > 0) return status.availableModels;
+    return status.model ? [status.model] : [];
+  }, [status]);
+
+  const activeModel = useMemo(
+    () => resolveSelectedSignalBotModel(status, selectedModel),
+    [status, selectedModel],
+  );
 
   const threadEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -161,6 +184,10 @@ export default function SignalBotModal({
     void fetchSignalBotStatus(controller.signal)
       .then((nextStatus) => {
         setStatus(nextStatus);
+        const resolved = resolveSelectedSignalBotModel(nextStatus, loadPreferredSignalBotModel());
+        if (resolved) {
+          setSelectedModel(resolved);
+        }
       })
       .catch(() => {
         // Keep modal usable if status check was aborted or transient; analyze endpoint reports exact errors.
@@ -229,6 +256,7 @@ export default function SignalBotModal({
           tickerOverride: tickerOverride || undefined,
           language,
           includeLiveSearch,
+          model: activeModel || undefined,
         },
         controller.signal,
       );
@@ -292,6 +320,65 @@ export default function SignalBotModal({
     }
   };
 
+  const copyShareUrl = async (turnId: string, shareUrl: string) => {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setShareCopiedTurnId(turnId);
+      setTimeout(() => setShareCopiedTurnId((current) => (current === turnId ? null : current)), 2200);
+    } catch {
+      // Clipboard may be unavailable cleanly.
+    }
+  };
+
+  const shareTurnHosted = async (turn: ConversationTurn) => {
+    if (!turn.response || turn.sharing) return;
+    if (turn.shareUrl) {
+      await copyShareUrl(turn.id, turn.shareUrl);
+      return;
+    }
+
+    setTurns((prev) =>
+      prev.map((item) => (item.id === turn.id ? { ...item, sharing: true, shareError: undefined } : item)),
+    );
+
+    try {
+      const created = await createHostedSignalBotShare({
+        topic: turn.response.topic || turn.topic,
+        userPrompt: turn.userPrompt,
+        headline: turn.response.headline,
+        analysis: turn.response.analysis,
+        keyDrivers: turn.response.keyDrivers,
+        perspectives: turn.response.perspectives,
+        watchNext: turn.response.watchNext,
+        sentiment: turn.response.sentiment,
+        citations: turn.response.citations,
+        marketQuote: turn.response.marketQuote,
+        model: turn.response.model,
+        language: turn.response.language || language,
+        coverageNote: turn.response.coverageNote,
+      });
+
+      const shareUrl = typeof window !== "undefined"
+        ? new URL(created.path, window.location.origin).href
+        : created.path;
+
+      setTurns((prev) =>
+        prev.map((item) =>
+          item.id === turn.id
+            ? { ...item, sharing: false, sharePath: created.path, shareUrl, shareError: undefined }
+            : item,
+        ),
+      );
+
+      await copyShareUrl(turn.id, shareUrl);
+    } catch (err) {
+      const shareError = err instanceof Error ? err.message : "Could not share analysis right now.";
+      setTurns((prev) =>
+        prev.map((item) => (item.id === turn.id ? { ...item, sharing: false, shareError } : item)),
+      );
+    }
+  };
+
   const jumpToCitation = (turnId: string, citationIndex: number) => {
     const key = `${turnId}-cite-${citationIndex}`;
     setHighlightedCitationKey(key);
@@ -324,13 +411,33 @@ export default function SignalBotModal({
             <div className="signal-bot-title-group">
               <span className="signal-bot-avatar" aria-hidden="true">🤖</span>
               <h2>Signal Bot</h2>
-              <span
-                className={`signal-bot-status-pill ${status.available ? "ready" : "offline"}`}
-                title={status.available ? `Microsoft Foundry (${status.model || "configured"})` : "Microsoft Foundry not configured"}
-              >
-                <span className="signal-bot-status-dot" aria-hidden="true" />
-                {statusText}
-              </span>
+              {status.available && !statusLoading && selectableModels.length > 0 ? (
+                <select
+                  className="signal-bot-model-select"
+                  value={activeModel}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    setSelectedModel(next);
+                    savePreferredSignalBotModel(next);
+                  }}
+                  aria-label="Microsoft Foundry AI model"
+                  title="Choose Microsoft Foundry GPT model"
+                >
+                  {selectableModels.map((modelName) => (
+                    <option key={modelName} value={modelName}>
+                      {getModelDisplayLabel(modelName)}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span
+                  className={`signal-bot-status-pill ${status.available ? "ready" : "offline"}`}
+                  title={status.available ? `Microsoft Foundry (${status.model || "configured"})` : "Microsoft Foundry not configured"}
+                >
+                  <span className="signal-bot-status-dot" aria-hidden="true" />
+                  {statusText}
+                </span>
+              )}
             </div>
 
             <div className="signal-bot-header-controls">
@@ -498,7 +605,7 @@ export default function SignalBotModal({
                           </span>
                         )}
                         <span className="signal-bot-meta-note">
-                          {turn.response.coverageNote} • {turn.response.model}
+                          {turn.response.coverageNote} • {getModelDisplayLabel(turn.response.model)}
                         </span>
                       </div>
 
@@ -517,8 +624,54 @@ export default function SignalBotModal({
                         >
                           {copiedTurnId === turn.id ? "✓ Copied" : "📋 Copy"}
                         </button>
+                        <button
+                          type="button"
+                          className="signal-bot-mini-btn"
+                          disabled={Boolean(turn.sharing)}
+                          onClick={() => void shareTurnHosted(turn)}
+                          title="Host a public read & audio page for this Signal analysis"
+                        >
+                          {turn.sharing
+                            ? "Sharing…"
+                            : shareCopiedTurnId === turn.id
+                              ? "✓ Link copied"
+                              : turn.shareUrl
+                                ? "🔗 Copy link"
+                                : "🔗 Share"}
+                        </button>
                       </div>
                     </div>
+
+                    {turn.shareError && (
+                      <div className="signal-bot-share-error" role="alert">
+                        {turn.shareError}
+                      </div>
+                    )}
+
+                    {turn.shareUrl && (
+                      <div className="signal-bot-share-banner">
+                        <span className="signal-bot-share-label">
+                          Public page with Read Aloud ready
+                        </span>
+                        <div className="signal-bot-share-actions">
+                          <button
+                            type="button"
+                            className="signal-bot-mini-btn"
+                            onClick={() => void copyShareUrl(turn.id, turn.shareUrl!)}
+                          >
+                            {shareCopiedTurnId === turn.id ? "✓ Copied" : "Copy link"}
+                          </button>
+                          <a
+                            href={turn.shareUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="signal-bot-mini-btn signal-bot-share-open"
+                          >
+                            Open ↗
+                          </a>
+                        </div>
+                      </div>
+                    )}
 
                     <h4 className="signal-bot-headline">{turn.response.headline}</h4>
 
@@ -669,7 +822,9 @@ export default function SignalBotModal({
           {isAnalyzing && (
             <div className="signal-bot-loading" role="status" aria-live="polite">
               <span className="signal-bot-spinner" aria-hidden="true" />
-              <span>Analyzing “{effectiveTopic}” via Microsoft Foundry…</span>
+              <span>
+                Analyzing “{effectiveTopic}” via {activeModel ? getModelDisplayLabel(activeModel) : "Microsoft Foundry"}…
+              </span>
             </div>
           )}
 

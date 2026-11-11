@@ -12,7 +12,9 @@ public sealed class MicrosoftFoundryOptions
     public const string SecondarySectionName = "MicrosoftFoundry";
     public const string DefaultApiVersion = "2024-10-21";
 
-    private static readonly Regex DeploymentNameRegex = new(
+    private static readonly string[] BuiltInSelectableModels = ["gpt-4.1-mini", "gpt-5-mini"];
+
+    internal static readonly Regex DeploymentNameRegex = new(
         @"^[A-Za-z0-9._-]+$",
         RegexOptions.Compiled,
         TimeSpan.FromSeconds(1));
@@ -25,6 +27,7 @@ public sealed class MicrosoftFoundryOptions
     public string Endpoint { get; set; } = "";
     public string Key { get; set; } = "";
     public string Deployment { get; set; } = "";
+    public string[] Deployments { get; set; } = [];
     public string ApiVersion { get; set; } = DefaultApiVersion;
 
     public bool Enabled =>
@@ -32,7 +35,39 @@ public sealed class MicrosoftFoundryOptions
         && !string.IsNullOrWhiteSpace(Key)
         && !string.IsNullOrWhiteSpace(Deployment);
 
-    internal (Uri BaseUri, string Key, string Deployment, string ApiVersion) Validate()
+    public string[] GetSelectableDeployments()
+    {
+        if (!Enabled) return [];
+
+        var list = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void TryAdd(string? candidate)
+        {
+            var trimmed = (candidate ?? "").Trim();
+            if (trimmed.Length is >= 1 and <= 128
+                && DeploymentNameRegex.IsMatch(trimmed)
+                && !trimmed.Contains("embedding", StringComparison.OrdinalIgnoreCase)
+                && seen.Add(trimmed))
+            {
+                list.Add(trimmed);
+            }
+        }
+
+        TryAdd(Deployment);
+        foreach (var item in Deployments ?? [])
+        {
+            TryAdd(item);
+        }
+        foreach (var builtIn in BuiltInSelectableModels)
+        {
+            TryAdd(builtIn);
+        }
+
+        return list.ToArray();
+    }
+
+    internal (Uri BaseUri, string Key, string Deployment, string ApiVersion) Validate(string? deploymentOverride = null)
     {
         var rawEndpoint = (Endpoint ?? "").Trim().TrimEnd('/') + "/";
         if (!Uri.TryCreate(rawEndpoint, UriKind.Absolute, out var uri)
@@ -59,8 +94,11 @@ public sealed class MicrosoftFoundryOptions
                 StatusCodes.Status503ServiceUnavailable);
         }
 
-        var trimmedDeployment = (Deployment ?? "").Trim();
-        if (trimmedDeployment.Length is < 1 or > 128 || !DeploymentNameRegex.IsMatch(trimmedDeployment))
+        var targetDeployment = string.IsNullOrWhiteSpace(deploymentOverride)
+            ? (Deployment ?? "").Trim()
+            : ResolveAllowedDeployment(deploymentOverride);
+
+        if (targetDeployment.Length is < 1 or > 128 || !DeploymentNameRegex.IsMatch(targetDeployment))
         {
             throw new FoundryServiceException(
                 "Microsoft Foundry deployment name is missing or invalid.",
@@ -75,7 +113,27 @@ public sealed class MicrosoftFoundryOptions
                 StatusCodes.Status503ServiceUnavailable);
         }
 
-        return (uri, trimmedKey, trimmedDeployment, trimmedApiVersion);
+        return (uri, trimmedKey, targetDeployment, trimmedApiVersion);
+    }
+
+    public string ResolveAllowedDeployment(string? requested)
+    {
+        var defaultDeployment = (Deployment ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(requested))
+        {
+            return defaultDeployment;
+        }
+
+        var candidate = requested.Trim();
+        foreach (var allowed in GetSelectableDeployments())
+        {
+            if (string.Equals(allowed, candidate, StringComparison.OrdinalIgnoreCase))
+            {
+                return allowed;
+            }
+        }
+
+        throw new ArgumentException($"Choose an available Signal Bot model ({string.Join(", ", GetSelectableDeployments())}).");
     }
 
     public static void BindConfiguration(MicrosoftFoundryOptions target, IConfiguration configuration)
@@ -86,6 +144,14 @@ public sealed class MicrosoftFoundryOptions
         if (string.IsNullOrWhiteSpace(target.Endpoint)) target.Endpoint = fallback["Endpoint"] ?? "";
         if (string.IsNullOrWhiteSpace(target.Key)) target.Key = fallback["Key"] ?? "";
         if (string.IsNullOrWhiteSpace(target.Deployment)) target.Deployment = fallback["Deployment"] ?? "";
+        if ((target.Deployments is null || target.Deployments.Length == 0))
+        {
+            var fallbackList = fallback.GetSection("Deployments").Get<string[]>();
+            if (fallbackList is { Length: > 0 })
+            {
+                target.Deployments = fallbackList;
+            }
+        }
         if (string.IsNullOrWhiteSpace(primary["ApiVersion"]))
         {
             var fallbackVersion = fallback["ApiVersion"];
@@ -105,7 +171,8 @@ public sealed record FoundryMessage(string Role, string Content);
 public sealed record FoundryChatOptions(
     double Temperature = 0.25,
     int MaxTokens = 1200,
-    bool JsonObjectResponse = true);
+    bool JsonObjectResponse = true,
+    string? Deployment = null);
 
 public sealed record FoundryChatUsage(int PromptTokens, int CompletionTokens, int TotalTokens);
 
@@ -121,6 +188,19 @@ public sealed class MicrosoftFoundryService(
 
     public bool Enabled => options.Value.Enabled;
     public string DeploymentName => (options.Value.Deployment ?? "").Trim();
+    public string[] AvailableDeployments => options.Value.GetSelectableDeployments();
+
+    public string ResolveDeployment(string? requestedDeployment) =>
+        options.Value.ResolveAllowedDeployment(requestedDeployment);
+
+    internal static bool IsReasoningDeployment(string deployment)
+    {
+        var normalized = (deployment ?? "").Trim().ToLowerInvariant();
+        return normalized.StartsWith("gpt-5", StringComparison.Ordinal)
+            || normalized.StartsWith("o1", StringComparison.Ordinal)
+            || normalized.StartsWith("o3", StringComparison.Ordinal)
+            || normalized.StartsWith("o4", StringComparison.Ordinal);
+    }
 
     public async Task<FoundryChatResult> CompleteChatAsync(
         IReadOnlyList<FoundryMessage> messages,
@@ -139,14 +219,15 @@ public sealed class MicrosoftFoundryService(
             throw new ArgumentException("At least one chat message is required.", nameof(messages));
         }
 
-        var (baseUri, apiKey, deployment, apiVersion) = options.Value.Validate();
         var effectiveOptions = chatOptions ?? new FoundryChatOptions();
+        var (baseUri, apiKey, deployment, apiVersion) = options.Value.Validate(effectiveOptions.Deployment);
+        var isReasoningModel = IsReasoningDeployment(deployment);
         var requestUri = new Uri(
             baseUri,
             $"openai/deployments/{Uri.EscapeDataString(deployment)}/chat/completions?api-version={Uri.EscapeDataString(apiVersion)}");
 
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
-        deadline.CancelAfter(TimeSpan.FromSeconds(45));
+        deadline.CancelAfter(TimeSpan.FromSeconds(isReasoningModel ? 60 : 45));
 
         try
         {
@@ -157,9 +238,18 @@ public sealed class MicrosoftFoundryService(
             var payload = new Dictionary<string, object?>
             {
                 ["messages"] = messages.Select(m => new { role = m.Role, content = m.Content }).ToArray(),
-                ["temperature"] = Math.Clamp(effectiveOptions.Temperature, 0.0, 1.0),
-                ["max_tokens"] = Math.Clamp(effectiveOptions.MaxTokens, 64, 4096),
             };
+            if (isReasoningModel)
+            {
+                // Reasoning models (gpt-5*, o-series) reject temperature/max_tokens and share the token budget with thinking.
+                payload["max_completion_tokens"] = Math.Clamp(Math.Max(effectiveOptions.MaxTokens * 2, 2800), 1000, 6000);
+                payload["reasoning_effort"] = "low";
+            }
+            else
+            {
+                payload["temperature"] = Math.Clamp(effectiveOptions.Temperature, 0.0, 1.0);
+                payload["max_tokens"] = Math.Clamp(effectiveOptions.MaxTokens, 64, 4096);
+            }
             if (effectiveOptions.JsonObjectResponse)
             {
                 payload["response_format"] = new { type = "json_object" };

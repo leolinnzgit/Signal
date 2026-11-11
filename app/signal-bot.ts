@@ -36,6 +36,7 @@ export interface SignalBotStatusResponse {
   available: boolean;
   provider: string;
   model: string;
+  availableModels: string[];
 }
 
 export type SignalBotSentiment = "bullish" | "bearish" | "mixed" | "neutral" | "urgent";
@@ -48,6 +49,33 @@ export interface SignalBotAnalyzeRequest {
   tickerOverride?: string;
   language?: string;
   includeLiveSearch?: boolean;
+  model?: string;
+}
+
+export interface SharedSignalBotAnalysisRequest {
+  topic: string;
+  userPrompt?: string;
+  headline: string;
+  analysis: string;
+  keyDrivers?: string[];
+  perspectives?: string[];
+  watchNext?: string[];
+  sentiment?: SignalBotSentiment | string;
+  citations?: SignalBotCitation[];
+  marketQuote?: SignalBotMarketSnapshot | null;
+  model?: string;
+  language?: string;
+  coverageNote?: string;
+}
+
+export interface SharedSignalBotAnalysisResponse {
+  id: string;
+  path: string;
+  headline: string;
+  topic: string;
+  model: string;
+  language: string;
+  createdAtUtc: string;
 }
 
 export interface SignalBotAnalyzeResponse {
@@ -169,36 +197,61 @@ export function normalizeSignalBotArticles(
   return [...matched, ...other].slice(0, maxArticles);
 }
 
-export async function fetchSignalBotStatus(
-  signal?: AbortSignal,
-  fetcher: typeof fetch = fetch,
-): Promise<SignalBotStatusResponse> {
-  const response = await fetcher("/api/signal-bot/status", {
-    credentials: "same-origin",
-    cache: "no-store",
-    signal,
-  });
+const SIGNAL_BOT_MODEL_STORAGE_KEY = "signal:signal-bot-model:v1";
 
-  if (!response.ok) {
-    if (response.status === 401) {
-      throw new Error("Sign in again to check Signal Bot availability.");
-    }
-    throw new Error("Could not check Signal Bot availability.");
-  }
-
-  const data = (await response.json()) as Partial<SignalBotStatusResponse>;
-  return {
-    available: Boolean(data.available),
-    provider: typeof data.provider === "string" && data.provider.trim() ? data.provider : "Microsoft Foundry",
-    model: typeof data.model === "string" ? data.model : "",
-  };
+export function getModelDisplayLabel(model: string): string {
+  const clean = (model || "").trim();
+  if (!clean) return "Microsoft Foundry";
+  if (clean.toLowerCase() === "gpt-5-mini") return "GPT-5 mini";
+  if (clean.toLowerCase() === "gpt-4.1-mini") return "GPT-4.1 mini";
+  return clean;
 }
 
-export async function analyzeNewsTopicWithSignalBot(
-  request: SignalBotAnalyzeRequest,
+export function loadPreferredSignalBotModel(): string {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return "";
+    return (window.localStorage.getItem(SIGNAL_BOT_MODEL_STORAGE_KEY) ?? "").trim();
+  } catch {
+    return "";
+  }
+}
+
+export function savePreferredSignalBotModel(model: string): void {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return;
+    const clean = model.trim();
+    if (clean) {
+      window.localStorage.setItem(SIGNAL_BOT_MODEL_STORAGE_KEY, clean);
+    } else {
+      window.localStorage.removeItem(SIGNAL_BOT_MODEL_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore storage quota or private-mode errors.
+  }
+}
+
+export function resolveSelectedSignalBotModel(
+  status: SignalBotStatusResponse | null,
+  preferredModel: string,
+): string {
+  if (!status || !status.available) return "";
+  const available = status.availableModels.length > 0
+    ? status.availableModels
+    : status.model
+      ? [status.model]
+      : [];
+  if (available.length === 0) return status.model || "";
+  const match = available.find((m) => m.toLowerCase() === preferredModel.trim().toLowerCase());
+  return match || status.model || available[0] || "";
+}
+
+async function postWithCsrf<TResponse>(
+  url: string,
+  body: unknown,
+  fallbackError: string,
   signal?: AbortSignal,
   fetcher: typeof fetch = fetch,
-): Promise<SignalBotAnalyzeResponse> {
+): Promise<TResponse> {
   const csrf = await fetcher("/api/auth/csrf", {
     credentials: "same-origin",
     cache: "no-store",
@@ -213,7 +266,7 @@ export async function analyzeNewsTopicWithSignalBot(
     throw new Error("Sign in again to use Signal Bot.");
   }
 
-  const response = await fetcher("/api/signal-bot/analyze", {
+  const response = await fetcher(url, {
     method: "POST",
     credentials: "same-origin",
     cache: "no-store",
@@ -222,7 +275,7 @@ export async function analyzeNewsTopicWithSignalBot(
       "Content-Type": "application/json",
       "X-XSRF-TOKEN": csrfData.token,
     },
-    body: JSON.stringify(request),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -243,10 +296,57 @@ export async function analyzeNewsTopicWithSignalBot(
     if (response.status === 429) {
       throw new Error("Too many Signal Bot requests. Please wait a moment and try again.");
     }
-    throw new Error("Signal Bot could not analyze that topic right now.");
+    throw new Error(fallbackError);
   }
 
-  const result = (await response.json()) as SignalBotAnalyzeResponse;
+  return (await response.json()) as TResponse;
+}
+
+export async function fetchSignalBotStatus(
+  signal?: AbortSignal,
+  fetcher: typeof fetch = fetch,
+): Promise<SignalBotStatusResponse> {
+  const response = await fetcher("/api/signal-bot/status", {
+    credentials: "same-origin",
+    cache: "no-store",
+    signal,
+  });
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      throw new Error("Sign in again to check Signal Bot availability.");
+    }
+    throw new Error("Could not check Signal Bot availability.");
+  }
+
+  const data = (await response.json()) as Partial<SignalBotStatusResponse>;
+  const model = typeof data.model === "string" ? data.model.trim() : "";
+  const rawModels = Array.isArray(data.availableModels)
+    ? data.availableModels.filter((m): m is string => typeof m === "string" && m.trim().length > 0).map((m) => m.trim())
+    : [];
+  const availableModels = Array.from(new Set(rawModels.length > 0 ? rawModels : model ? [model] : []));
+
+  return {
+    available: Boolean(data.available),
+    provider: typeof data.provider === "string" && data.provider.trim() ? data.provider : "Microsoft Foundry",
+    model,
+    availableModels,
+  };
+}
+
+export async function analyzeNewsTopicWithSignalBot(
+  request: SignalBotAnalyzeRequest,
+  signal?: AbortSignal,
+  fetcher: typeof fetch = fetch,
+): Promise<SignalBotAnalyzeResponse> {
+  const result = await postWithCsrf<SignalBotAnalyzeResponse>(
+    "/api/signal-bot/analyze",
+    request,
+    "Signal Bot could not analyze that topic right now.",
+    signal,
+    fetcher,
+  );
+
   if (!result || typeof result.analysis !== "string" || !result.analysis.trim()) {
     throw new Error("Signal Bot returned an incomplete analysis. Please try again.");
   }
@@ -259,6 +359,30 @@ export async function analyzeNewsTopicWithSignalBot(
     suggestedFollowUps: Array.isArray(result.suggestedFollowUps) ? result.suggestedFollowUps : [],
     citations: Array.isArray(result.citations) ? result.citations : [],
   };
+}
+
+export async function createHostedSignalBotShare(
+  request: SharedSignalBotAnalysisRequest,
+  signal?: AbortSignal,
+  fetcher: typeof fetch = fetch,
+): Promise<SharedSignalBotAnalysisResponse> {
+  if (!request || typeof request.analysis !== "string" || !request.analysis.trim()) {
+    throw new Error("Analysis content is required to share.");
+  }
+
+  const result = await postWithCsrf<SharedSignalBotAnalysisResponse>(
+    "/api/signal-bot/shares",
+    request,
+    "Could not create a hosted share link right now.",
+    signal,
+    fetcher,
+  );
+
+  if (!result || typeof result.id !== "string" || !result.id.trim() || typeof result.path !== "string" || !result.path.trim()) {
+    throw new Error("Signal returned an incomplete share link. Please try again.");
+  }
+
+  return result;
 }
 
 export function sentimentBadgeMeta(sentiment: string): { label: string; toneClass: string } {

@@ -2,9 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   analyzeNewsTopicWithSignalBot,
+  createHostedSignalBotShare,
   fetchSignalBotStatus,
   formatSignalBotMarkdown,
+  getModelDisplayLabel,
   normalizeSignalBotArticles,
+  resolveSelectedSignalBotModel,
   sentimentBadgeMeta,
   SIGNAL_BOT_PRESETS,
 } from "../app/signal-bot.ts";
@@ -33,18 +36,30 @@ test("normalizeSignalBotArticles prioritizes topic matches, deduplicates URLs, a
   assert.equal(result[1].title, "Macro update");
 });
 
-test("fetchSignalBotStatus parses Foundry provider and model", async () => {
+test("fetchSignalBotStatus parses Foundry provider and selectable models", async () => {
   const status = await fetchSignalBotStatus(undefined, async (input) => {
     assert.equal(input, "/api/signal-bot/status");
-    return new Response(JSON.stringify({ available: true, provider: "Microsoft Foundry", model: "gpt-4.1-mini" }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({
+        available: true,
+        provider: "Microsoft Foundry",
+        model: "gpt-4.1-mini",
+        availableModels: ["gpt-4.1-mini", "gpt-5-mini"],
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
   });
 
   assert.equal(status.available, true);
   assert.equal(status.provider, "Microsoft Foundry");
   assert.equal(status.model, "gpt-4.1-mini");
+  assert.deepEqual(status.availableModels, ["gpt-4.1-mini", "gpt-5-mini"]);
+  assert.equal(getModelDisplayLabel("gpt-5-mini"), "GPT-5 mini");
+  assert.equal(resolveSelectedSignalBotModel(status, "gpt-5-mini"), "gpt-5-mini");
+  assert.equal(resolveSelectedSignalBotModel(status, "non-existent"), "gpt-4.1-mini");
 });
 
 test("analyzeNewsTopicWithSignalBot acquires CSRF token and posts structured topic payload", async () => {
@@ -89,13 +104,14 @@ test("analyzeNewsTopicWithSignalBot acquires CSRF token and posts structured top
       const body = JSON.parse(init.body);
       assert.equal(body.topic, "AI Chip Supply");
       assert.equal(body.prompt, "Summarize the bottleneck.");
+      assert.equal(body.model, "gpt-5-mini");
       return new Response(JSON.stringify(fakeResponse), { status: 200 });
     }
     throw new Error(`Unexpected URL: ${input}`);
   };
 
   const result = await analyzeNewsTopicWithSignalBot(
-    { topic: "AI Chip Supply", prompt: "Summarize the bottleneck." },
+    { topic: "AI Chip Supply", prompt: "Summarize the bottleneck.", model: "gpt-5-mini" },
     undefined,
     mockFetch,
   );
@@ -165,4 +181,52 @@ test("formatSignalBotMarkdown renders complete exportable intelligence digest", 
   assert.match(md, /# Signal Bot: Rocket Lab/);
   assert.match(md, /Rocket Lab \(RKLB\) — USD 21\.50 \(\+1\.25, \+6\.17%\)/);
   assert.match(md, /\[S1\] \[Rocket Lab completes stage test\]\(https:\/\/example\.com\/rklb\)/);
+});
+
+test("createHostedSignalBotShare acquires CSRF token and creates hosted Signal analysis page", async () => {
+  await assert.rejects(
+    () => createHostedSignalBotShare({ topic: "NZ", headline: "Empty", analysis: "   " }),
+    /Analysis content is required/,
+  );
+
+  const mockFetch = async (input, init = {}) => {
+    if (input === "/api/auth/csrf") {
+      assert.equal(init.credentials, "same-origin");
+      return new Response(JSON.stringify({ token: "csrf-share-1" }), { status: 200 });
+    }
+    if (input === "/api/signal-bot/shares") {
+      assert.equal(init.method, "POST");
+      assert.equal(init.headers["X-XSRF-TOKEN"], "csrf-share-1");
+      const body = JSON.parse(init.body);
+      assert.equal(body.model, "gpt-5-mini");
+      return new Response(
+        JSON.stringify({
+          id: "a".repeat(48),
+          path: `/shared/analysis/${"a".repeat(48)}`,
+          headline: "RBNZ Hold Outlook",
+          topic: "RBNZ",
+          model: "gpt-5-mini",
+          language: "en",
+          createdAtUtc: "2026-11-12T00:00:00Z",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    throw new Error(`Unexpected URL: ${input}`);
+  };
+
+  const shared = await createHostedSignalBotShare(
+    {
+      topic: "RBNZ",
+      headline: "RBNZ Hold Outlook",
+      analysis: "Rates expected to hold steady.",
+      model: "gpt-5-mini",
+    },
+    undefined,
+    mockFetch,
+  );
+
+  assert.equal(shared.id, "a".repeat(48));
+  assert.equal(shared.path, `/shared/analysis/${"a".repeat(48)}`);
+  assert.equal(shared.model, "gpt-5-mini");
 });

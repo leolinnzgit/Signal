@@ -27,7 +27,8 @@ public sealed record SignalBotAnalyzeRequest(
     SignalBotHistoryTurn[]? History = null,
     string? TickerOverride = null,
     string? Language = "en",
-    bool IncludeLiveSearch = true);
+    bool IncludeLiveSearch = true,
+    string? Model = null);
 
 public sealed record SignalBotCitation(
     int Index,
@@ -165,6 +166,7 @@ public sealed class SignalBotService(
                 StatusCodes.Status503ServiceUnavailable);
         }
 
+        var selectedDeployment = foundry.ResolveDeployment(request.Model);
         var language = NormalizeLanguage(request.Language);
         var effectivePrompt = prompt.Length > 0
             ? prompt
@@ -197,7 +199,7 @@ public sealed class SignalBotService(
 
         var chatResult = await foundry.CompleteChatAsync(
             messages,
-            new FoundryChatOptions(Temperature: 0.25, MaxTokens: 1300, JsonObjectResponse: true),
+            new FoundryChatOptions(Temperature: 0.25, MaxTokens: 1300, JsonObjectResponse: true, Deployment: selectedDeployment),
             cancellationToken);
 
         var structured = ParseStructuredResponse(chatResult.Content, effectiveTopic);

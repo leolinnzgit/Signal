@@ -14,6 +14,8 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
 
     public DbSet<SharedNewsArticle> SharedNewsArticles => Set<SharedNewsArticle>();
 
+    public DbSet<SharedAiAnalysis> SharedAiAnalyses => Set<SharedAiAnalysis>();
+
     public DbSet<TopicRefreshState> TopicRefreshStates => Set<TopicRefreshState>();
 
     public DbSet<UserPushSubscription> UserPushSubscriptions => Set<UserPushSubscription>();
@@ -62,6 +64,31 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
             article.HasIndex(item => new { item.UserId, item.ContentHash }).IsUnique();
             article.HasIndex(item => new { item.UserId, item.ShareKey }).IsUnique();
             article.HasOne(item => item.User).WithMany()
+                .HasForeignKey(item => item.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<SharedAiAnalysis>(analysis =>
+        {
+            analysis.ToTable("SharedAiAnalyses");
+            analysis.HasKey(item => item.Id);
+            analysis.Property(item => item.Id).HasMaxLength(48);
+            analysis.Property(item => item.UserId).HasMaxLength(450).IsRequired();
+            analysis.Property(item => item.ContentHash).HasMaxLength(64).IsRequired();
+            analysis.Property(item => item.Topic).HasMaxLength(160).IsRequired();
+            analysis.Property(item => item.UserPrompt).HasMaxLength(1500).IsRequired();
+            analysis.Property(item => item.Headline).HasMaxLength(400).IsRequired();
+            analysis.Property(item => item.Analysis).HasMaxLength(12000).IsRequired();
+            analysis.Property(item => item.KeyDriversJson).IsRequired();
+            analysis.Property(item => item.PerspectivesJson).IsRequired();
+            analysis.Property(item => item.WatchNextJson).IsRequired();
+            analysis.Property(item => item.Sentiment).HasMaxLength(32).IsRequired();
+            analysis.Property(item => item.CitationsJson).IsRequired();
+            analysis.Property(item => item.MarketQuoteJson).IsRequired();
+            analysis.Property(item => item.Model).HasMaxLength(128).IsRequired();
+            analysis.Property(item => item.Language).HasMaxLength(24).IsRequired();
+            analysis.Property(item => item.CoverageNote).HasMaxLength(300).IsRequired();
+            analysis.HasIndex(item => new { item.UserId, item.ContentHash }).IsUnique();
+            analysis.HasOne(item => item.User).WithMany()
                 .HasForeignKey(item => item.UserId).OnDelete(DeleteBehavior.Cascade);
         });
 

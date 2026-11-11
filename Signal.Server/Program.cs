@@ -266,7 +266,7 @@ builder.Services.Configure<MicrosoftFoundryOptions>(options =>
     MicrosoftFoundryOptions.BindConfiguration(options, builder.Configuration));
 builder.Services.AddHttpClient(MicrosoftFoundryService.HttpClientName, client =>
 {
-    client.Timeout = TimeSpan.FromSeconds(50);
+    client.Timeout = TimeSpan.FromSeconds(65);
 }).ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
 builder.Services.AddSingleton<MicrosoftFoundryService>();
 builder.Services.AddScoped<SignalBotService>();
@@ -564,6 +564,33 @@ await using (var scope = app.Services.CreateAsyncScope())
         """);
     await database.Database.ExecuteSqlRawAsync(
         "CREATE INDEX IF NOT EXISTS \"IX_ExecutiveTripwires_UserId_Enabled\" ON \"ExecutiveTripwires\" (\"UserId\", \"Enabled\");");
+
+    await database.Database.ExecuteSqlRawAsync(
+        """
+        CREATE TABLE IF NOT EXISTS "SharedAiAnalyses" (
+            "Id" TEXT NOT NULL CONSTRAINT "PK_SharedAiAnalyses" PRIMARY KEY,
+            "UserId" TEXT NOT NULL,
+            "ContentHash" TEXT NOT NULL,
+            "Topic" TEXT NOT NULL,
+            "UserPrompt" TEXT NOT NULL,
+            "Headline" TEXT NOT NULL,
+            "Analysis" TEXT NOT NULL,
+            "KeyDriversJson" TEXT NOT NULL,
+            "PerspectivesJson" TEXT NOT NULL,
+            "WatchNextJson" TEXT NOT NULL,
+            "Sentiment" TEXT NOT NULL,
+            "CitationsJson" TEXT NOT NULL,
+            "MarketQuoteJson" TEXT NOT NULL,
+            "Model" TEXT NOT NULL,
+            "Language" TEXT NOT NULL,
+            "CoverageNote" TEXT NOT NULL,
+            "CreatedAtUtc" TEXT NOT NULL,
+            CONSTRAINT "FK_SharedAiAnalyses_AspNetUsers_UserId"
+                FOREIGN KEY ("UserId") REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE
+        );
+        """);
+    await database.Database.ExecuteSqlRawAsync(
+        "CREATE UNIQUE INDEX IF NOT EXISTS \"IX_SharedAiAnalyses_UserId_ContentHash\" ON \"SharedAiAnalyses\" (\"UserId\", \"ContentHash\");");
 
     await database.Database.OpenConnectionAsync();
     try

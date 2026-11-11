@@ -19,14 +19,16 @@ public sealed class SignalBotController(
     public sealed record SignalBotStatusResponse(
         bool Available,
         string Provider,
-        string Model);
+        string Model,
+        string[] AvailableModels);
 
     [HttpGet("status")]
     public ActionResult<SignalBotStatusResponse> Status() =>
         Ok(new SignalBotStatusResponse(
             Available: foundry.Enabled,
             Provider: "Microsoft Foundry",
-            Model: foundry.Enabled ? foundry.DeploymentName : ""));
+            Model: foundry.Enabled ? foundry.DeploymentName : "",
+            AvailableModels: foundry.Enabled ? foundry.AvailableDeployments : []));
 
     [HttpPost("analyze")]
     [RequestSizeLimit(196_608)]
