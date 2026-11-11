@@ -61,16 +61,8 @@ public sealed class NewsController(NewsService newsService, ILogger<NewsControll
         [FromBody] PreferencesController.SourceDiagnosticsRequest? request,
         CancellationToken cancellationToken)
     {
-        var feedUrls = request?.Feeds ?? [];
-        var results = new List<NewsService.FeedDiagnosticResult>();
-        foreach (var url in feedUrls.Take(30))
-        {
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeoutCts.CancelAfter(TimeSpan.FromSeconds(6));
-            var diag = await newsService.DiagnosePublisherFeedAsync(url, timeoutCts.Token);
-            results.Add(diag);
-        }
-
-        return Ok(new PreferencesController.SourceDiagnosticsResponse(results.ToArray()));
+        var feedUrls = (request?.Feeds ?? []).Take(PreferencesController.MaxRssFeeds).ToArray();
+        var results = await PreferencesController.DiagnoseFeedsAsync(newsService, feedUrls, cancellationToken);
+        return Ok(new PreferencesController.SourceDiagnosticsResponse(results));
     }
 }

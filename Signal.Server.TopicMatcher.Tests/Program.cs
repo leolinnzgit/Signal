@@ -16,6 +16,8 @@ using Signal.Server.Services;
 await MarketAvailabilityChecks.RunAsync();
 await MarketEndpointChecks.RunAsync();
 if (args.Contains("--market-only")) return;
+await RssFeedLimitChecks.RunAsync();
+if (args.Contains("--rss-limit-only")) return;
 
 await QueueHandoffChecks.RunAsync();
 await ListeningQueueChecks.RunAsync();

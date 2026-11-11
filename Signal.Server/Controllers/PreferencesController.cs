@@ -22,6 +22,7 @@ public sealed class PreferencesController(
     NewsService newsService,
     ILogger<PreferencesController> logger) : ControllerBase
 {
+    public const int MaxRssFeeds = 100;
     private static readonly int[] AllowedRefreshMinutes = [0, 5, 15, 30, 60, 120, 180, 240, 300, 360, 420, 480];
     private static readonly int[] AllowedRetentionDays = [1, 7, 14, 30, 90, 180, 365];
 
@@ -163,8 +164,8 @@ public sealed class PreferencesController(
                     StringComparison.OrdinalIgnoreCase));
             if (duplicateOf is not null)
                 return Ok(new ResolveRssFeedResponse(candidate, false, duplicateOf, feeds.ToArray()));
-            if (feeds.Count >= 30)
-                return BadRequest(new { error = "You can add up to 30 publisher feeds." });
+            if (feeds.Count >= MaxRssFeeds)
+                return BadRequest(new { error = $"You can add up to {MaxRssFeeds} publisher feeds." });
 
             feeds.Add(candidate);
             return Ok(new ResolveRssFeedResponse(candidate, true, null, feeds.ToArray()));
@@ -287,7 +288,7 @@ public sealed class PreferencesController(
                 continue;
             }
 
-            if (currentFeedList.Count >= 30)
+            if (currentFeedList.Count >= MaxRssFeeds)
             {
                 skipped.Add(candidate);
                 continue;
@@ -361,26 +362,45 @@ public sealed class PreferencesController(
         string[] feedUrls;
         if (request?.Feeds is not null && request.Feeds.Length > 0)
         {
-            feedUrls = request.Feeds.Take(30).ToArray();
+            feedUrls = request.Feeds.Take(MaxRssFeeds).ToArray();
         }
         else
         {
             var preferences = await database.UserNewsPreferences
                 .AsNoTracking()
                 .SingleOrDefaultAsync(item => item.UserId == userId, cancellationToken);
-            feedUrls = preferences is null ? [] : DeserializeList(preferences.RssFeedsJson);
+            feedUrls = preferences is null ? [] : DeserializeList(preferences.RssFeedsJson).Take(MaxRssFeeds).ToArray();
         }
 
-        var results = new List<NewsService.FeedDiagnosticResult>();
-        foreach (var url in feedUrls)
+        var results = await DiagnoseFeedsAsync(newsService, feedUrls, cancellationToken);
+        return Ok(new SourceDiagnosticsResponse(results));
+    }
+
+    internal static async Task<NewsService.FeedDiagnosticResult[]> DiagnoseFeedsAsync(
+        NewsService newsService,
+        IReadOnlyList<string> feedUrls,
+        CancellationToken cancellationToken)
+    {
+        if (feedUrls.Count == 0) return [];
+
+        // Bounded concurrency avoids multi-minute sequential timeouts as users approach 100 feeds.
+        var results = new NewsService.FeedDiagnosticResult[feedUrls.Count];
+        using var gate = new SemaphoreSlim(8, 8);
+        await Task.WhenAll(feedUrls.Select(async (url, index) =>
         {
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeoutCts.CancelAfter(TimeSpan.FromSeconds(6));
-            var diag = await newsService.DiagnosePublisherFeedAsync(url, timeoutCts.Token);
-            results.Add(diag);
-        }
-
-        return Ok(new SourceDiagnosticsResponse(results.ToArray()));
+            await gate.WaitAsync(cancellationToken);
+            try
+            {
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeoutCts.CancelAfter(TimeSpan.FromSeconds(6));
+                results[index] = await newsService.DiagnosePublisherFeedAsync(url, timeoutCts.Token);
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }));
+        return results;
     }
 
     public sealed record KeywordRulesDto(
@@ -498,7 +518,7 @@ public sealed class PreferencesController(
         .Distinct(StringComparer.OrdinalIgnoreCase)
         .ToArray();
 
-    private static string[] NormalizeRssFeeds(IEnumerable<string> values)
+    internal static string[] NormalizeRssFeeds(IEnumerable<string> values)
     {
         var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         return values
@@ -506,7 +526,7 @@ public sealed class PreferencesController(
         .Where(value => value is not null)
         .Where(value => keys.Add(FeedUrlCanonicalizer.GetComparisonKey(value!)!))
         .Select(value => value!)
-        .Take(30)
+        .Take(MaxRssFeeds)
         .ToArray();
     }
 

@@ -17,7 +17,7 @@ IIS for a persistent personal deployment.
 - Follow any number of topics and move quickly to the next unread topic using
   a floating navigation bar with previous topic, next unread, back-to-top,
   and add-topic shortcuts that can be switched between sides of the viewport.
-- Collect stories from Google News, GDELT, and up to 20 custom RSS or Atom
+- Collect stories from Google News, GDELT, and up to 100 custom RSS or Atom
   publisher feeds with source-balanced selection that prevents aggregators
   from crowding out direct publisher content.
 - Deduplicate feeds and articles before they enter the briefing.

@@ -468,6 +468,7 @@ const ALL_PROVIDERS = "all";
 const HISTORY_PAGE_SIZE = 50;
 const VISIBLE_TOPIC_FILTERS = 6;
 const VISIBLE_SOURCE_FILTERS = 4;
+const MAX_RSS_FEEDS = 100;
 const TOPICS_PER_PROVIDER_BATCH = 8;
 
 type ColorTheme = "light" | "dark";
@@ -807,7 +808,7 @@ function normalizePreferences(saved: Partial<NewsPreferences> & { topic?: string
       rssFeeds: rssFeeds.filter((feed) => {
         const key = canonicalFeedKey(feed);
         return key !== null && !feedKeys.has(key) && Boolean(feedKeys.add(key));
-      }).slice(0, 30),
+      }).slice(0, MAX_RSS_FEEDS),
     },
   };
 }
@@ -2950,8 +2951,8 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         setNotice(message);
         return false;
       }
-      if (preferences.sources.rssFeeds.length >= 30) {
-        const message = "You can add up to 30 publisher feeds.";
+      if (preferences.sources.rssFeeds.length >= MAX_RSS_FEEDS) {
+        const message = `You can add up to ${MAX_RSS_FEEDS} publisher feeds.`;
         setRssMessage(message);
         setNotice(message);
         return false;
@@ -3056,7 +3057,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         }));
       }
       setOpmlFeedback(
-        `Imported ${data.imported} feeds (${data.duplicates} duplicates skipped, ${data.totalFeeds}/30 total).`,
+        `Imported ${data.imported} feeds (${data.duplicates} duplicates skipped, ${data.totalFeeds}/${MAX_RSS_FEEDS} total).`,
       );
     } catch {
       setOpmlFeedback("Could not read or upload OPML file.");
@@ -4881,7 +4882,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
             {rssMessage && <p className="rss-feedback" role="status">{rssMessage}</p>}
 
             <form className="rss-form" onSubmit={submitRssFeed}>
-              <label htmlFor="rss-feed">Add a publisher RSS or Atom feed</label>
+              <label htmlFor="rss-feed">Add a publisher RSS or Atom feed ({preferences.sources.rssFeeds.length}/{MAX_RSS_FEEDS})</label>
               <div className="rss-input-wrap">
                  <input id="rss-feed" type="url" inputMode="url" value={rssInput} onChange={(event) => setRssInput(event.target.value)} placeholder="https://publisher.com/feed.xml" disabled={rssResolving} />
                  <button type="submit" disabled={rssResolving}>{rssResolving ? "Checking..." : "Add feed"}</button>
