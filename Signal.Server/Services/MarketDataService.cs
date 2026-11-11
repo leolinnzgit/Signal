@@ -127,6 +127,9 @@ public sealed class MarketDataService(
         if (match is null) return null;
 
         var quoteCacheKey = $"market-quote:{match.Symbol}:{match.Exchange}".ToLowerInvariant();
+        var restrictionCacheKey = quoteCacheKey + ":plan-required";
+        if (cache.TryGetValue(restrictionCacheKey, out MarketDataPlanRequiredException? restriction) && restriction is not null)
+            throw restriction;
         if (cache.TryGetValue(quoteCacheKey, out MarketQuote? cachedQuote) && cachedQuote is not null)
         {
             var resolved = cachedQuote with { Topic = topic };
@@ -152,11 +155,13 @@ public sealed class MarketDataService(
             var qualifiedSymbol = match.Exchange.Length > 0
                 ? $"{match.Symbol}:{match.Exchange}"
                 : match.Symbol;
-            throw new MarketDataPlanRequiredException(
+            var planRequired = new MarketDataPlanRequiredException(
                 match.Exchange.Equals("NZX", StringComparison.OrdinalIgnoreCase)
-                    ? $"{qualifiedSymbol} is a valid NZX ticker, but NZX prices require a Twelve Data Pro or Venture plan."
+                    ? $"{qualifiedSymbol} is a valid NZX ticker, but NZX prices are not included in the configured Twelve Data plan."
                     : $"{qualifiedSymbol} is not available on the configured Twelve Data plan.",
                 exception);
+            cache.Set(restrictionCacheKey, planRequired, TimeSpan.FromMinutes(30));
+            throw planRequired;
         }
         catch (InvalidOperationException exception) when (normalizedOverride is not null)
         {
@@ -436,7 +441,8 @@ public sealed class MarketDataService(
     }
 
     private static bool IsPlanRestriction(InvalidOperationException exception) =>
-        exception.Message.Contains("available starting with the Pro or Venture plan", StringComparison.OrdinalIgnoreCase);
+        exception.Message.Contains("available starting with", StringComparison.OrdinalIgnoreCase)
+        && exception.Message.Contains("plan", StringComparison.OrdinalIgnoreCase);
 
     private static string NormalizeForMatch(string value)
     {

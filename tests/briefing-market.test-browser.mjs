@@ -1,13 +1,19 @@
 import assert from "node:assert/strict";
 import { createServer } from "vite";
 import react from "@vitejs/plugin-react";
+import { readdir, readFile } from "node:fs/promises";
 const { chromium } = await import(process.env.SIGNAL_PLAYWRIGHT_MODULE || "playwright");
+const cssName = (await readdir("iis-publish/wwwroot/assets")).find(name => /^index-.+\.css$/.test(name));
+const productionCss = await readFile(`iis-publish/wwwroot/assets/${cssName}`, "utf8");
 const server = await createServer({ configFile: false, root: process.cwd(), cacheDir: "work/briefing-market-vite-cache", plugins: [react(), {
   name: "briefing-market-test",
   configureServer(server) {
+    server.middlewares.use("/production-style.css", (_request, response) => {
+      response.setHeader("Content-Type", "text/css"); response.end(productionCss);
+    });
     server.middlewares.use("/briefing-test", async (_request, response) => {
       response.setHeader("Content-Type", "text/html");
-      response.end(await server.transformIndexHtml("/briefing-test", '<!doctype html><html><body><div id="root"></div><script type="module" src="/tests/briefing-market.fixture.tsx"></script></body></html>'));
+      response.end(await server.transformIndexHtml("/briefing-test", '<!doctype html><html><head><link rel="stylesheet" href="/production-style.css"></head><body><div id="root"></div><script type="module" src="/tests/briefing-market.fixture.tsx"></script></body></html>'));
     });
   },
 }], optimizeDeps: { entries: ["tests/briefing-market.fixture.tsx"], include: ["react", "react-dom", "react-dom/client"] },

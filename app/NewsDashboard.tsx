@@ -1097,6 +1097,9 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [headlinesMinimized, setHeadlinesMinimized] = useState(false);
   const [headlineQueueRandomized, setHeadlineQueueRandomized] = useState(false);
   const headlineDuplicates = useRef(new Map<string, FollowedArticle[]>());
+  const pendingHeadlineReads = useRef(new Map<string, FollowedArticle>());
+  const flushHeadlineReads = useRef<() => void>(() => {});
+  const foregroundHeadlinePlayback = useRef(false);
   const headlineFullscreenRequested = useRef(false);
   const [readerContent, setReaderContent] = useState<ReaderContent>({ status: "idle" });
   const [topicPendingRemoval, setTopicPendingRemoval] = useState<string | null>(null);
@@ -1177,6 +1180,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   }, [weatherAlerts, dismissedWeatherAlertIds]);
 
   const weatherAudio = useWeatherAudio(weatherBriefing(weatherStatus === "ready" ? localWeather : null, weatherForecast, activeWeatherAlerts, weatherConditions), !!headlineQueue || !!readerArticle || !!watchHandoffId);
+  foregroundHeadlinePlayback.current = Boolean(headlineQueue && !headlinesMinimized && !readerArticle && !watchHandoffId);
   const earthquakes = useEarthquakeAlerts(user.email, !!pushNotificationStore);
   const watchlistCatalysts = useMemo(
     () =>
@@ -2284,14 +2288,14 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     if (!ready || preferences.topics.length === 0 || enabledSourceCount === 0) return;
     if (refreshStore) {
       const interval = window.setInterval(
-        () => void loadNews(preferences, { quiet: true }),
+        () => { if (!foregroundHeadlinePlayback.current) void loadNews(preferences, { quiet: true }); },
         30_000,
       );
       return () => window.clearInterval(interval);
     }
     if (preferences.refreshMinutes === 0) return;
     const interval = window.setInterval(
-      () => void loadNews(preferences, { quiet: true, emailSummary: true }),
+      () => { if (!foregroundHeadlinePlayback.current) void loadNews(preferences, { quiet: true, emailSummary: true }); },
       preferences.refreshMinutes * 60_000,
     );
     return () => window.clearInterval(interval);
@@ -2301,7 +2305,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     if (!ready || !refreshStore) return;
     let lastSyncAt = 0;
     const syncCrossDeviceState = () => {
-      if (document.visibilityState !== "visible") return;
+      if (document.visibilityState !== "visible" || foregroundHeadlinePlayback.current) return;
       const now = Date.now();
       if (now - lastSyncAt < 1_000) return;
       lastSyncAt = now;
@@ -2334,6 +2338,13 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     [articles],
   );
   const randomArticles = randomHeadlinePool.articles;
+
+  useEffect(() => {
+    // The player saves reads immediately, but the hidden feed need not rebuild
+    // on every title. Apply its display updates once the dashboard is visible.
+    if (!headlineQueue || headlinesMinimized || readerArticle || watchHandoffId)
+      flushHeadlineReads.current();
+  }, [headlineQueue, headlinesMinimized, readerArticle, watchHandoffId]);
 
   const closeHeadlinePlayer = useCallback(() => {
     setHeadlineQueue(null);
@@ -3648,6 +3659,40 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   }, [articleToOpen, articles, historyArticles]);
 
   function markArticleRead(article: FollowedArticle, fromLatest = feedView === "latest", copies = [article]) {
+    markArticlesRead(copies, fromLatest);
+  }
+
+  function persistArticleReads(urls: Iterable<string>) {
+    if (!articleStore) return;
+    for (const url of urls) {
+      void articleStore.setRead(url).catch(() => {
+        setNotice("The story opened, but its read status could not be saved.");
+      });
+    }
+  }
+
+  function markHeadlineRead(article: FollowedArticle) {
+    const copies = headlineDuplicates.current.get(article.url) ?? [article];
+    if (headlinesMinimized || readerArticle || watchHandoffId) {
+      markArticlesRead(copies, true);
+      return;
+    }
+    const urls: string[] = [];
+    for (const copy of copies) {
+      if (copy.isRead || pendingHeadlineReads.current.has(copy.url)) continue;
+      pendingHeadlineReads.current.set(copy.url, copy);
+      urls.push(copy.url);
+    }
+    persistArticleReads(urls);
+  }
+
+  flushHeadlineReads.current = () => {
+    const copies = Array.from(pendingHeadlineReads.current.values());
+    pendingHeadlineReads.current.clear();
+    if (copies.length) markArticlesRead(copies, true, false);
+  };
+
+  function markArticlesRead(copies: FollowedArticle[], fromLatest: boolean, persist = true) {
     const unread = copies.filter((copy) => !copy.isRead);
     if (unread.length === 0) return;
     const readUrls = new Set(unread.map((copy) => copy.url));
@@ -3665,13 +3710,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     setHistoryArticles((current) => current.map((item) => readUrls.has(item.url)
       ? { ...item, isRead: true, readAt }
       : item));
-    if (articleStore) {
-      for (const url of readUrls) {
-        void articleStore.setRead(url).catch(() => {
-          setNotice("The story opened, but its read status could not be saved.");
-        });
-      }
-    }
+    if (persist) persistArticleReads(readUrls);
     if (caughtUpTopics.length > 0) {
       const viewedAt = new Date().toISOString();
       const caughtUpKeys = new Set(caughtUpTopics.map((topic) => topic.toLowerCase()));
@@ -6259,9 +6298,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           onRestore={() => setHeadlinesMinimized(false)}
           suspended={readerArticle !== null || watchHandoffId !== null}
           startWithScreenOffAudio={preferScreenOffAudio(navigator.userAgent, appInstalled)}
-          onArticleRead={(article) => {
-            markArticleRead(article, true, headlineDuplicates.current.get(article.url) ?? [article]);
-          }}
+          onArticleRead={markHeadlineRead}
           onOpenArticle={(article) => {
             openArticleReader(article, document.activeElement instanceof HTMLElement ? document.activeElement : document.body);
           }}

@@ -27,7 +27,8 @@ public sealed class MarketController(
         [FromQuery] string topic,
         [FromQuery] string? symbol,
         CancellationToken cancellationToken,
-        [FromQuery] bool sparkline = false)
+        [FromQuery] bool sparkline = false,
+        [FromQuery] bool optional = false)
     {
         try
         {
@@ -54,6 +55,10 @@ public sealed class MarketController(
         }
         catch (MarketDataPlanRequiredException exception)
         {
+            // Automatic topic enrichment is optional. Report the unavailable
+            // quote explicitly instead of turning every headline into an HTTP error.
+            if (optional || string.IsNullOrWhiteSpace(symbol))
+                return Ok(new { matched = false, topic, status = "plan-required", message = exception.Message });
             logger.LogInformation(exception, "Market pricing requires a higher provider plan for topic {Topic}.", topic);
             return StatusCode(StatusCodes.Status402PaymentRequired, new { error = exception.Message });
         }

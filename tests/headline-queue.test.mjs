@@ -122,15 +122,17 @@ test("dashboard saves all heard copies and catches up their topics without consu
   const ast = ts.createSourceFile("NewsDashboard.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   let declaration;
   let randomDeclaration;
+  const readHelpers = [];
   function visit(node) {
     if (ts.isFunctionDeclaration(node) && node.name?.text === "markArticleRead") declaration = node;
+    if (ts.isFunctionDeclaration(node) && ["markArticlesRead", "persistArticleReads"].includes(node.name?.text)) readHelpers.push(node);
     if (ts.isFunctionDeclaration(node) && node.name?.text === "startRandomHeadlinePlayback") randomDeclaration = node;
     ts.forEachChild(node, visit);
   }
   visit(ast);
   assert.ok(declaration);
   assert.ok(randomDeclaration);
-  const code = ts.transpileModule(declaration.getText(ast), {
+  const code = ts.transpileModule([declaration, ...readHelpers].map(node => node.getText(ast)).join("\n"), {
     compilerOptions: { target: ts.ScriptTarget.ES2022 },
   }).outputText;
   const randomCode = ts.transpileModule(randomDeclaration.getText(ast), {

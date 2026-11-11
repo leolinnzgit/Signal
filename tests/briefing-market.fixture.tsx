@@ -2,7 +2,6 @@ import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import HeadlinePlayer from "../app/HeadlinePlayer";
 import NewsDashboard from "../app/NewsDashboard";
-import "../app/globals.css";
 
 const articles = [
   { title: "NVIDIA announces new chips", topics: ["NVIDIA"] },

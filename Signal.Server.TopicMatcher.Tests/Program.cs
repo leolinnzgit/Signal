@@ -13,6 +13,7 @@ using Signal.Server.Controllers;
 using Signal.Server.Models;
 using Signal.Server.Services;
 
+await MarketAvailabilityChecks.RunAsync();
 await MarketEndpointChecks.RunAsync();
 if (args.Contains("--market-only")) return;
 
@@ -222,7 +223,7 @@ try
 catch (MarketDataPlanRequiredException exception)
 {
     if (!exception.Message.Contains("CEN:NZX is a valid NZX ticker", StringComparison.Ordinal)
-        || !exception.Message.Contains("Pro or Venture", StringComparison.Ordinal))
+        || !exception.Message.Contains("configured Twelve Data plan", StringComparison.Ordinal))
         throw new InvalidOperationException("The NZX plan restriction message was not clear.");
 }
 
