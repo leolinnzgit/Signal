@@ -5242,3 +5242,60 @@ html:has(.listening-library-dialog[open]) { overflow: hidden; }
   filter: brightness(1.1);
 }
 
+.signal-bot-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  min-height: 2.35rem;
+  padding: 0.42rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid rgba(37, 99, 235, 0.28);
+  background: linear-gradient(135deg, rgba(15, 118, 110, 0.14), rgba(37, 99, 235, 0.14));
+  color: var(--page-text);
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+
+.signal-bot-trigger:hover {
+  border-color: #2563eb;
+  background: linear-gradient(135deg, rgba(15, 118, 110, 0.22), rgba(37, 99, 235, 0.22));
+  transform: translateY(-1px);
+}
+
+.signal-bot-feed-button {
+  display: inline-flex;
+  min-height: 3rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.65rem 1.05rem;
+  border: 1px solid rgba(37, 99, 235, 0.35);
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(15, 118, 110, 0.11), rgba(37, 99, 235, 0.12));
+  color: var(--page-text);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+}
+
+.signal-bot-feed-button:hover {
+  border-color: #2563eb;
+  background: linear-gradient(135deg, rgba(15, 118, 110, 0.18), rgba(37, 99, 235, 0.2));
+  transform: translateY(-1px);
+}
+
+@media (max-width: 720px) {
+  .feed-action-buttons .signal-bot-feed-button {
+    max-width: min(100%, 17rem);
+  }
+}
+
+

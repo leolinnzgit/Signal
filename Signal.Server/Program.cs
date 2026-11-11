@@ -262,6 +262,14 @@ builder.Services.AddHttpClient<ArticleReaderService>(client =>
 });
 builder.Services.AddScoped<TripwireEvaluatorService>();
 builder.Services.AddScoped<TopicRefreshService>();
+builder.Services.Configure<MicrosoftFoundryOptions>(options =>
+    MicrosoftFoundryOptions.BindConfiguration(options, builder.Configuration));
+builder.Services.AddHttpClient(MicrosoftFoundryService.HttpClientName, client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(50);
+}).ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
+builder.Services.AddSingleton<MicrosoftFoundryService>();
+builder.Services.AddScoped<SignalBotService>();
 builder.Services.AddScoped<ExecutiveBriefingDeliveryService>();
 builder.Services.AddSingleton<VapidKeyStore>();
 builder.Services.AddScoped<PushNotificationService>();

@@ -54,6 +54,7 @@ import {
 } from "./noise-cancellation";
 import type { OfflinePackDownloadStatus } from "./DailyBriefingModal";
 const DailyBriefingModal = lazy(() => import("./DailyBriefingModal"));
+const SignalBotModal = lazy(() => import("./SignalBotModal"));
 import ErrorBoundary from "./ErrorBoundary";
 import {
   buildDailyBriefing,
@@ -943,6 +944,9 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [tariffMatrixOpen, setTariffMatrixOpen] = useState(false);
   const [briefingStudioOpen, setBriefingStudioOpen] = useState(false);
   const [signalCortexOpen, setSignalCortexOpen] = useState(false);
+  const [signalBotOpen, setSignalBotOpen] = useState(false);
+  const [signalBotTopic, setSignalBotTopic] = useState("");
+  const [signalBotAutoPrompt, setSignalBotAutoPrompt] = useState("");
   const [dailyCastOpen, setDailyCastOpen] = useState(false);
   const [sovereignRiskOpen, setSovereignRiskOpen] = useState(false);
   const [preMortemOpen, setPreMortemOpen] = useState(false);
@@ -4065,6 +4069,19 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
             {wakeUpBannerReady && <span className="daily-briefing-ready-dot" aria-hidden="true" />}
             🗞️ Daily Briefing
           </button>
+          <button
+            type="button"
+            className="signal-bot-trigger"
+            onClick={() => {
+              setSignalBotTopic(selectedTopic === ALL_TOPICS ? (preferences.topics[0] ?? "All Topics") : selectedTopic);
+              setSignalBotAutoPrompt("");
+              setSignalBotOpen(true);
+            }}
+            title="Analyze news topics on demand with Signal Bot (Microsoft Foundry)"
+            aria-label="Open Signal Bot Topic Analyst"
+          >
+            🤖 Signal Bot
+          </button>
           <ExecutiveCommandCenter
             onOpenRadar={() => openSuiteById("radar")}
             onOpenCrisisWarRoom={() => openSuiteById("crisis-war-room")}
@@ -5000,6 +5017,24 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                       : `${filteredArticles.length} loaded / ${historyTotal} stored`}
             </div>
             <div className="feed-action-buttons">
+              <button
+                type="button"
+                className="signal-bot-feed-button"
+                onClick={() => {
+                  const targetTopic = selectedTopic === ALL_TOPICS ? "All Topics" : selectedTopic;
+                  setSignalBotTopic(targetTopic);
+                  setSignalBotAutoPrompt(
+                    selectedTopic === ALL_TOPICS
+                      ? "Analyze the biggest developments across my followed news topics right now."
+                      : `Analyze the latest developments, key drivers, and risks for ${selectedTopic}.`,
+                  );
+                  setSignalBotOpen(true);
+                }}
+                title={selectedTopic === ALL_TOPICS ? "Ask Signal Bot to analyze your news feed" : `Analyze ${selectedTopic} with Signal Bot`}
+              >
+                <span aria-hidden="true">🤖</span>{" "}
+                {selectedTopic === ALL_TOPICS ? "Ask Signal Bot" : <>Analyze <strong>{selectedTopic}</strong></>}
+              </button>
               {selectedTopic !== ALL_TOPICS && (
                 <button
                   type="button"
@@ -6560,6 +6595,25 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
       />
           </Suspense>
       </ErrorBoundary>
+      )}
+      {signalBotOpen && (
+        <ErrorBoundary name="Signal Bot">
+          <Suspense fallback={null}>
+            <SignalBotModal
+              isOpen={signalBotOpen}
+              onClose={() => setSignalBotOpen(false)}
+              articles={articles}
+              followedTopics={preferences.topics}
+              initialTopic={signalBotTopic || (selectedTopic === ALL_TOPICS ? (preferences.topics[0] ?? "All Topics") : selectedTopic)}
+              autoRunPrompt={signalBotAutoPrompt}
+              onAutoRunConsumed={() => setSignalBotAutoPrompt("")}
+              tickerOverrides={preferences.tickerOverrides}
+              defaultLanguage={briefingLanguage}
+              onOpenArticle={(art, trigger) => openArticleReader(art, trigger)}
+              onListenArticle={(art, trigger) => openArticleReader(art, trigger, true)}
+            />
+          </Suspense>
+        </ErrorBoundary>
       )}
       {stagedDossierArticles.length > 0 && (
         <aside className="dossier-floating-dock" role="region" aria-label="Staged Dossier Articles">
