@@ -58,6 +58,16 @@ html[data-theme="dark"] {
   color-scheme: dark;
 }
 
+html[data-theme="dark"] select {
+  color-scheme: dark;
+}
+
+html[data-theme="dark"] select option,
+html[data-theme="dark"] select optgroup {
+  background-color: var(--content-background);
+  color: var(--page-text);
+}
+
 * { box-sizing: border-box; }
 
 html { scroll-behavior: smooth; }
@@ -4158,7 +4168,8 @@ button.local-weather {
 .article-translation { margin-bottom: 1.2rem; padding-bottom: 1rem; border-bottom: 1px solid var(--line); }
 .article-translation-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.65rem; }
 .article-translation-controls label { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; font-size: 0.85rem; }
-.article-translation-controls select, .article-translation-controls button { padding: 0.55rem 0.7rem; border: 1px solid var(--line); border-radius: 5px; background: var(--paper); color: var(--ink); font: inherit; font-size: 0.85rem; }
+.article-translation-controls select, .article-translation-controls button { padding: 0.55rem 0.7rem; border: 1px solid var(--line); border-radius: 5px; background: var(--content-background); color: var(--page-text); font: inherit; font-size: 0.85rem; }
+.article-translation-controls select option { background: var(--content-background); color: var(--page-text); }
 .article-translation-controls button { cursor: pointer; }
 .article-translation-controls button:disabled { opacity: 0.6; cursor: wait; }
 .article-translation > p { margin: 0.65rem 0 0; font-size: 0.8rem; opacity: 0.75; }

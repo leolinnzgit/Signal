@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import {
   analyzeNewsTopicWithSignalBot,
   createHostedSignalBotShare,
@@ -229,4 +231,14 @@ test("createHostedSignalBotShare acquires CSRF token and creates hosted Signal a
   assert.equal(shared.id, "a".repeat(48));
   assert.equal(shared.path, `/shared/analysis/${"a".repeat(48)}`);
   assert.equal(shared.model, "gpt-5-mini");
+});
+
+test("Signal Bot and global language dropdowns define opaque dark-mode option contrast", () => {
+  const botCss = fs.readFileSync(path.resolve("app/signal-bot.css"), "utf8");
+  const globalCss = fs.readFileSync(path.resolve("app/globals.css"), "utf8");
+
+  assert.match(botCss, /\[data-theme="dark"\]\s+\.signal-bot-lang-select\s*\{[^}]*background:\s*#[0-9a-f]{3,8};[^}]*color:\s*#[0-9a-f]{3,8};/i);
+  assert.match(botCss, /\[data-theme="dark"\]\s+\.signal-bot-lang-select\s+option\s*\{[^}]*background:\s*#[0-9a-f]{3,8};[^}]*color:\s*#[0-9a-f]{3,8};/i);
+  assert.match(botCss, /\[data-theme="dark"\]\s+\.signal-bot-model-select\s+option\s*\{[^}]*background:\s*#[0-9a-f]{3,8};[^}]*color:\s*#[0-9a-f]{3,8};/i);
+  assert.match(globalCss, /html\[data-theme="dark"\]\s+select\s+option[\s\S]*?background-color:\s*var\(--content-background\);[\s\S]*?color:\s*var\(--page-text\);/i);
 });

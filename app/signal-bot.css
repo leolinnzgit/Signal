@@ -132,9 +132,15 @@
   border: 1px solid rgba(15, 118, 110, 0.28);
   background: rgba(15, 118, 110, 0.11);
   color: #0f766e;
+  color-scheme: light;
   font-size: 0.74rem;
   font-weight: 600;
   cursor: pointer;
+}
+
+.signal-bot-model-select option {
+  background: #ffffff;
+  color: #171815;
 }
 
 .signal-bot-model-select:focus-visible {
@@ -146,6 +152,7 @@
   background: rgba(45, 212, 191, 0.14);
   color: #5eead4;
   border-color: rgba(45, 212, 191, 0.3);
+  color-scheme: dark;
 }
 
 [data-theme="dark"] .signal-bot-model-select option {
@@ -166,10 +173,29 @@
   padding: 0 0.55rem;
   border-radius: 8px;
   border: 1px solid var(--line, rgba(23, 24, 21, 0.18));
-  background: var(--input-background, #ffffff);
+  background: var(--content-background, #ffffff);
   color: var(--page-text, #171815);
+  color-scheme: light;
   font-size: 0.8rem;
   font-weight: 500;
+  cursor: pointer;
+}
+
+.signal-bot-lang-select option {
+  background: #ffffff;
+  color: #171815;
+}
+
+[data-theme="dark"] .signal-bot-lang-select {
+  background: #1a2230;
+  color: #f1f5f9;
+  border-color: rgba(241, 245, 249, 0.24);
+  color-scheme: dark;
+}
+
+[data-theme="dark"] .signal-bot-lang-select option {
+  background: #10161f;
+  color: #f1f5f9;
 }
 
 .signal-bot-close-btn {
