@@ -97,6 +97,7 @@ export default function SignalBotModal({
   const [statusLoading, setStatusLoading] = useState(false);
   const [selectedTopic, setSelectedTopic] = useState<string>(initialTopic || followedTopics[0] || "All Topics");
   const [customTopicInput, setCustomTopicInput] = useState<string>("");
+  const [customTopicOpen, setCustomTopicOpen] = useState<boolean>(false);
   const [includeLiveSearch, setIncludeLiveSearch] = useState<boolean>(true);
   const [language, setLanguage] = useState<string>(defaultLanguage || "en");
   const [promptInput, setPromptInput] = useState<string>("");
@@ -108,6 +109,7 @@ export default function SignalBotModal({
 
   const threadEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const customTopicInputRef = useRef<HTMLInputElement | null>(null);
   const activeRequestAbortRef = useRef<AbortController | null>(null);
   const lastAutoRunRef = useRef<string>("");
 
@@ -147,8 +149,10 @@ export default function SignalBotModal({
       if (matchesFollowed) {
         setSelectedTopic(initialTopic);
         setCustomTopicInput("");
+        setCustomTopicOpen(false);
       } else {
         setCustomTopicInput(initialTopic);
+        setCustomTopicOpen(true);
       }
     }
 
@@ -298,6 +302,12 @@ export default function SignalBotModal({
     }, 2200);
   };
 
+  const statusText = statusLoading
+    ? "Checking…"
+    : status.available
+      ? status.model || "Foundry ready"
+      : "Offline";
+
   return (
     <div
       className="signal-bot-overlay"
@@ -310,48 +320,47 @@ export default function SignalBotModal({
     >
       <div className="signal-bot-modal">
         <header className="signal-bot-header">
-          <div className="signal-bot-title-group">
-            <span className="signal-bot-avatar" aria-hidden="true">🤖</span>
-            <div className="signal-bot-title-text">
-              <h2>
-                Signal Bot
-                <span className={`signal-bot-status-pill ${status.available ? "ready" : "offline"}`}>
-                  {statusLoading
-                    ? "Checking Foundry…"
-                    : status.available
-                      ? `Microsoft Foundry${status.model ? ` • ${status.model}` : ""}`
-                      : "Foundry Not Configured"}
-                </span>
-              </h2>
-              <p className="signal-bot-subtitle">
-                On-demand news topic intelligence grounded in your Signal feed &amp; live sources
-              </p>
+          <div className="signal-bot-header-top">
+            <div className="signal-bot-title-group">
+              <span className="signal-bot-avatar" aria-hidden="true">🤖</span>
+              <h2>Signal Bot</h2>
+              <span
+                className={`signal-bot-status-pill ${status.available ? "ready" : "offline"}`}
+                title={status.available ? `Microsoft Foundry (${status.model || "configured"})` : "Microsoft Foundry not configured"}
+              >
+                <span className="signal-bot-status-dot" aria-hidden="true" />
+                {statusText}
+              </span>
+            </div>
+
+            <div className="signal-bot-header-controls">
+              <select
+                className="signal-bot-lang-select"
+                value={language}
+                onChange={(event) => setLanguage(event.target.value)}
+                aria-label="Analysis response language"
+              >
+                {translationLanguages.map(([code, label]) => (
+                  <option key={code} value={code}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="signal-bot-close-btn"
+                onClick={onClose}
+                aria-label="Close Signal Bot"
+                title="Close Signal Bot (Esc)"
+              >
+                ×
+              </button>
             </div>
           </div>
 
-          <div className="signal-bot-header-controls">
-            <select
-              className="signal-bot-lang-select"
-              value={language}
-              onChange={(event) => setLanguage(event.target.value)}
-              aria-label="Analysis response language"
-            >
-              {translationLanguages.map(([code, label]) => (
-                <option key={code} value={code}>
-                  {label}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              className="signal-bot-close-btn"
-              onClick={onClose}
-              aria-label="Close Signal Bot"
-              title="Close Signal Bot (Esc)"
-            >
-              ×
-            </button>
-          </div>
+          <p className="signal-bot-subtitle">
+            On-demand Microsoft Foundry analysis grounded in your Signal feed &amp; live news
+          </p>
         </header>
 
         <section className="signal-bot-topic-bar" aria-label="Topic selection and analysis presets">
@@ -379,27 +388,54 @@ export default function SignalBotModal({
                 {topic}
               </button>
             ))}
+            <button
+              type="button"
+              className={`signal-bot-topic-chip utility ${customTopicOpen || customTopicInput.trim() ? "active" : ""}`}
+              onClick={() => {
+                const nextOpen = !customTopicOpen;
+                setCustomTopicOpen(nextOpen);
+                if (nextOpen) {
+                  setTimeout(() => customTopicInputRef.current?.focus(), 40);
+                }
+              }}
+              aria-expanded={customTopicOpen}
+            >
+              {customTopicInput.trim() ? `Custom: ${customTopicInput.trim()}` : "+ Custom topic"}
+            </button>
+            <button
+              type="button"
+              className={`signal-bot-live-pill ${includeLiveSearch ? "active" : ""}`}
+              onClick={() => setIncludeLiveSearch((prev) => !prev)}
+              aria-pressed={includeLiveSearch}
+              title="Supplement sparse local stories with live Google News results"
+            >
+              🌐 {includeLiveSearch ? "Live search on" : "Feed only"}
+            </button>
           </div>
 
-          <div className="signal-bot-custom-topic-row">
-            <input
-              type="text"
-              className="signal-bot-custom-topic-input"
-              value={customTopicInput}
-              onChange={(event) => setCustomTopicInput(event.target.value)}
-              placeholder="Or type any custom news topic (e.g. RBNZ rates, AI regulation, NVIDIA)…"
-              aria-label="Custom news topic"
-              maxLength={100}
-            />
-            <label className="signal-bot-toggle">
+          {customTopicOpen && (
+            <div className="signal-bot-custom-topic-row">
               <input
-                type="checkbox"
-                checked={includeLiveSearch}
-                onChange={(event) => setIncludeLiveSearch(event.target.checked)}
+                ref={customTopicInputRef}
+                type="text"
+                className="signal-bot-custom-topic-input"
+                value={customTopicInput}
+                onChange={(event) => setCustomTopicInput(event.target.value)}
+                placeholder="Any topic (e.g. RBNZ rates, AI regulation, TSMC)…"
+                aria-label="Custom news topic"
+                maxLength={100}
               />
-              Live web supplement
-            </label>
-          </div>
+              {customTopicInput.trim() && (
+                <button
+                  type="button"
+                  className="signal-bot-mini-btn"
+                  onClick={() => setCustomTopicInput("")}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          )}
 
           <div className="signal-bot-presets">
             {SIGNAL_BOT_PRESETS.map((preset) => (
@@ -423,9 +459,8 @@ export default function SignalBotModal({
               <h3>Ready to analyze “{effectiveTopic}”</h3>
               <p>
                 {localMatchingCount > 0
-                  ? `${localMatchingCount} Signal ${localMatchingCount === 1 ? "story" : "stories"} match this topic locally${includeLiveSearch ? ", plus optional live Google News lookup if needed" : ""}.`
-                  : `No locally cached stories match “${effectiveTopic}” right now${includeLiveSearch ? " — Signal Bot can fetch fresh coverage from Google News when you ask" : ""}.`}
-                {" "}Signal Bot only calls Microsoft Foundry when you click an analysis preset or ask a question below.
+                  ? `${localMatchingCount} Signal ${localMatchingCount === 1 ? "story matches" : "stories match"} locally${includeLiveSearch ? ", with live Google News fallback if needed" : ""}.`
+                  : `No locally cached stories match “${effectiveTopic}” right now${includeLiveSearch ? " — live Google News fallback is enabled" : ""}.`}
               </p>
               <button
                 type="button"
@@ -473,7 +508,7 @@ export default function SignalBotModal({
                           className="signal-bot-mini-btn"
                           onClick={() => toggleSpeakTurn(turn.id, turn.response!)}
                         >
-                          {speakingTurnId === turn.id ? "⏹ Stop" : "🔊 Read aloud"}
+                          {speakingTurnId === turn.id ? "⏹ Stop" : "🔊 Read"}
                         </button>
                         <button
                           type="button"
@@ -575,52 +610,54 @@ export default function SignalBotModal({
                     {turn.response.citations.length > 0 && (
                       <div className="signal-bot-citations">
                         <h5>Grounded Sources ({turn.response.citations.length})</h5>
-                        {turn.response.citations.map((cite) => {
-                          const citeElementId = `${turn.id}-cite-${cite.index}`;
-                          return (
-                            <div
-                              key={cite.index}
-                              id={citeElementId}
-                              className={`signal-bot-citation-item ${highlightedCitationKey === citeElementId ? "highlighted" : ""}`}
-                            >
-                              <div className="signal-bot-citation-info">
-                                <span className="signal-bot-citation-title">
-                                  <strong>[S{cite.index}]</strong> {cite.title}
-                                </span>
-                                <span className="signal-bot-citation-source">
-                                  {cite.source || "Publisher"}
-                                  {cite.publishedAt ? ` • ${new Date(cite.publishedAt).toLocaleString()}` : ""}
-                                </span>
+                        <div className="signal-bot-citation-list">
+                          {turn.response.citations.map((cite) => {
+                            const citeElementId = `${turn.id}-cite-${cite.index}`;
+                            return (
+                              <div
+                                key={cite.index}
+                                id={citeElementId}
+                                className={`signal-bot-citation-item ${highlightedCitationKey === citeElementId ? "highlighted" : ""}`}
+                              >
+                                <div className="signal-bot-citation-info">
+                                  <span className="signal-bot-citation-title">
+                                    <strong>[S{cite.index}]</strong> {cite.title}
+                                  </span>
+                                  <span className="signal-bot-citation-source">
+                                    {cite.source || "Publisher"}
+                                    {cite.publishedAt ? ` • ${new Date(cite.publishedAt).toLocaleString()}` : ""}
+                                  </span>
+                                </div>
+                                <div className="signal-bot-citation-actions">
+                                  <button
+                                    type="button"
+                                    className="signal-bot-mini-btn"
+                                    onClick={(event) =>
+                                      onOpenArticle(citationToFollowedArticle(cite, turn.topic), event.currentTarget)}
+                                  >
+                                    Read
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="signal-bot-mini-btn"
+                                    onClick={(event) =>
+                                      onListenArticle(citationToFollowedArticle(cite, turn.topic), event.currentTarget)}
+                                  >
+                                    Listen
+                                  </button>
+                                  <a
+                                    href={cite.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="signal-bot-citation-link"
+                                  >
+                                    Open ↗
+                                  </a>
+                                </div>
                               </div>
-                              <div className="signal-bot-citation-actions">
-                                <button
-                                  type="button"
-                                  className="signal-bot-mini-btn"
-                                  onClick={(event) =>
-                                    onOpenArticle(citationToFollowedArticle(cite, turn.topic), event.currentTarget)}
-                                >
-                                  Read
-                                </button>
-                                <button
-                                  type="button"
-                                  className="signal-bot-mini-btn"
-                                  onClick={(event) =>
-                                    onListenArticle(citationToFollowedArticle(cite, turn.topic), event.currentTarget)}
-                                >
-                                  Listen
-                                </button>
-                                <a
-                                  href={cite.url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="signal-bot-citation-link"
-                                >
-                                  Open ↗
-                                </a>
-                              </div>
-                            </div>
-                          );
-                        })}
+                            );
+                          })}
+                        </div>
                       </div>
                     )}
                   </article>
@@ -632,7 +669,7 @@ export default function SignalBotModal({
           {isAnalyzing && (
             <div className="signal-bot-loading" role="status" aria-live="polite">
               <span className="signal-bot-spinner" aria-hidden="true" />
-              <span>Signal Bot is analyzing “{effectiveTopic}” via Microsoft Foundry…</span>
+              <span>Analyzing “{effectiveTopic}” via Microsoft Foundry…</span>
             </div>
           )}
 
@@ -658,12 +695,13 @@ export default function SignalBotModal({
                   void runAnalysis();
                 }
               }}
-              placeholder={`Ask Signal Bot to analyze ${effectiveTopic} (or press Enter for an instant deep dive)…`}
-              rows={2}
+              placeholder={`Ask about ${effectiveTopic}…`}
+              rows={1}
               maxLength={1200}
               disabled={isAnalyzing}
             />
             <VoiceMicButton
+              label="Voice question for Signal Bot"
               onVoiceCommand={(command) => {
                 const spoken = (command.raw || command.query || "").trim();
                 if (!spoken) return;
@@ -679,17 +717,17 @@ export default function SignalBotModal({
             </button>
           </div>
           <div className="signal-bot-composer-footer">
-            <span>Enter to analyze • Shift+Enter for newline</span>
+            <span className="signal-bot-keyboard-hint">Enter to analyze • Shift+Enter for newline</span>
             {turns.length > 0 && (
               <button
                 type="button"
-                className="signal-bot-mini-btn"
+                className="signal-bot-mini-btn signal-bot-clear-btn"
                 onClick={() => {
                   stopSpeech();
                   setTurns([]);
                 }}
               >
-                Clear conversation
+                Clear chat
               </button>
             )}
           </div>
