@@ -503,11 +503,37 @@
   border-color: #2563eb;
 }
 
+.signal-bot-mini-btn.speaking {
+  background: rgba(250, 204, 21, 0.22);
+  border-color: #eab308;
+  color: #854d0e;
+}
+
+[data-theme="dark"] .signal-bot-mini-btn.speaking {
+  background: rgba(250, 204, 21, 0.18);
+  border-color: #facc15;
+  color: #fef08a;
+}
+
+.signal-bot-reading-highlight {
+  background: rgba(250, 204, 21, 0.28) !important;
+  box-shadow: inset 3px 0 0 #eab308;
+  border-radius: 6px;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+[data-theme="dark"] .signal-bot-reading-highlight {
+  background: rgba(250, 204, 21, 0.22) !important;
+  box-shadow: inset 3px 0 0 #facc15;
+}
+
 .signal-bot-headline {
   margin: 0;
   font-size: 1.03rem;
   font-weight: 700;
   line-height: 1.32;
+  padding: 0.2rem 0.4rem;
+  border-radius: 6px;
 }
 
 .signal-bot-market-strip {
@@ -538,6 +564,8 @@
 
 .signal-bot-analysis-paragraphs p {
   margin: 0;
+  padding: 0.2rem 0.4rem;
+  border-radius: 6px;
 }
 
 .signal-bot-cite-tag {
@@ -588,6 +616,11 @@
   gap: 0.3rem;
   font-size: 0.83rem;
   line-height: 1.4;
+}
+
+.signal-bot-pillar li {
+  padding: 0.15rem 0.35rem;
+  border-radius: 4px;
 }
 
 .signal-bot-followups {

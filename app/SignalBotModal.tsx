@@ -1,6 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { openArticleAudioStream } from "./article-audio-stream";
 import { translationLanguages } from "./article-translation";
 import { briefingSpeechLocale } from "./daily-briefing-translation";
+import {
+  audioHeadlineIndex,
+  getUserReadingVoicePreferences,
+} from "./headline-audio";
 import type { FollowedArticle } from "./NewsDashboard";
 import {
   analyzeNewsTopicWithSignalBot,
@@ -117,7 +122,17 @@ export default function SignalBotModal({
   const [copiedTurnId, setCopiedTurnId] = useState<string | null>(null);
   const [shareCopiedTurnId, setShareCopiedTurnId] = useState<string | null>(null);
   const [speakingTurnId, setSpeakingTurnId] = useState<string | null>(null);
+  const [speakingSectionIndex, setSpeakingSectionIndex] = useState<number | null>(null);
+  const [speakingLoading, setSpeakingLoading] = useState<boolean>(false);
   const [highlightedCitationKey, setHighlightedCitationKey] = useState<string | null>(null);
+
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioAbortRef = useRef<AbortController | null>(null);
+  const startsRef = useRef<number[]>([]);
+  const browserSpeakingRef = useRef<{ runId: number; speaking: boolean }>({
+    runId: 0,
+    speaking: false,
+  });
 
   const selectableModels = useMemo(() => {
     if (!status.available) return [];
@@ -150,11 +165,38 @@ export default function SignalBotModal({
   }, [articles, effectiveTopic]);
 
   const stopSpeech = () => {
+    audioAbortRef.current?.abort();
+    audioAbortRef.current = null;
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.removeAttribute("src");
+      audioRef.current.load();
+      audioRef.current = null;
+    }
+    browserSpeakingRef.current.speaking = false;
+    browserSpeakingRef.current.runId++;
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
     }
     setSpeakingTurnId(null);
+    setSpeakingSectionIndex(null);
+    setSpeakingLoading(false);
   };
+
+  useEffect(() => {
+    if (!speakingTurnId || speakingSectionIndex === null) return;
+    const highlight = document.querySelector<HTMLElement>(
+      ".signal-bot-turn-assistant .signal-bot-reading-highlight",
+    );
+    if (highlight) {
+      highlight.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "instant"
+          : "smooth",
+        block: "nearest",
+      });
+    }
+  }, [speakingTurnId, speakingSectionIndex]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -288,26 +330,157 @@ export default function SignalBotModal({
 
   if (!isOpen) return null;
 
-  const toggleSpeakTurn = (turnId: string, response: SignalBotAnalyzeResponse) => {
+  const cleanSpeechText = (raw: string) =>
+    (raw || "")
+      .replace(/\s*\[S\d+\]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const buildSpeechParts = (response: SignalBotAnalyzeResponse) => {
+    const cleanHeadline = cleanSpeechText(response.headline);
+    const cleanParagraphs = response.analysis
+      .split(/\n{2,}/)
+      .map((p) => cleanSpeechText(p))
+      .filter((p) => p.length > 0);
+    const cleanDrivers = response.keyDrivers
+      .map((d) => cleanSpeechText(d))
+      .filter((d) => d.length > 0)
+      .map((d) => `Key driver: ${d}`);
+    const cleanPerspectives = response.perspectives
+      .map((p) => cleanSpeechText(p))
+      .filter((p) => p.length > 0)
+      .map((p) => `Perspective: ${p}`);
+    const cleanWatchNext = response.watchNext
+      .map((w) => cleanSpeechText(w))
+      .filter((w) => w.length > 0)
+      .map((w) => `Watch next: ${w}`);
+
+    return [
+      cleanHeadline || "Signal AI Analysis",
+      ...cleanParagraphs,
+      ...cleanDrivers,
+      ...cleanPerspectives,
+      ...cleanWatchNext,
+    ];
+  };
+
+  const fallbackToBrowserSpeech = (
+    turnId: string,
+    parts: string[],
+    locale: string,
+  ) => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      stopSpeech();
+      return;
+    }
+
+    setSpeakingLoading(false);
+    setSpeakingTurnId(turnId);
+    const runId = ++browserSpeakingRef.current.runId;
+    browserSpeakingRef.current.speaking = true;
+
+    let index = 0;
+    const speakNext = () => {
+      if (!browserSpeakingRef.current.speaking || browserSpeakingRef.current.runId !== runId) {
+        return;
+      }
+      if (index >= parts.length) {
+        stopSpeech();
+        return;
+      }
+
+      const activeIdx = index++;
+      setSpeakingSectionIndex(activeIdx);
+
+      const utterance = new SpeechSynthesisUtterance(parts[activeIdx]);
+      utterance.lang = locale;
+      utterance.onend = () => {
+        if (browserSpeakingRef.current.speaking && browserSpeakingRef.current.runId === runId) {
+          speakNext();
+        }
+      };
+      utterance.onerror = () => {
+        stopSpeech();
+      };
+      window.speechSynthesis.speak(utterance);
+    };
+
+    window.speechSynthesis.cancel();
+    speakNext();
+  };
+
+  const toggleSpeakTurn = async (turnId: string, response: SignalBotAnalyzeResponse) => {
     if (speakingTurnId === turnId) {
       stopSpeech();
       return;
     }
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
 
-    window.speechSynthesis.cancel();
-    const spokenText = [
-      response.headline,
-      response.analysis.replace(/\[S\d+\]/g, ""),
-      response.watchNext.length > 0 ? `What to watch next: ${response.watchNext.join(". ")}` : "",
-    ].filter(Boolean).join(". ");
-
-    const utterance = new SpeechSynthesisUtterance(spokenText);
-    utterance.lang = briefingSpeechLocale(language);
-    utterance.onend = () => setSpeakingTurnId(null);
-    utterance.onerror = () => setSpeakingTurnId(null);
+    stopSpeech();
     setSpeakingTurnId(turnId);
-    window.speechSynthesis.speak(utterance);
+    setSpeakingLoading(true);
+    setSpeakingSectionIndex(0);
+
+    const controller = new AbortController();
+    audioAbortRef.current = controller;
+
+    const parts = buildSpeechParts(response);
+    const locale = briefingSpeechLocale(language);
+    const voicePrefs = getUserReadingVoicePreferences();
+
+    try {
+      startsRef.current = [];
+      const streamUrl = await openArticleAudioStream(
+        parts,
+        locale,
+        voicePrefs,
+        controller.signal,
+        (status) => {
+          if (Array.isArray(status.starts) && status.starts.length > 0) {
+            startsRef.current = status.starts;
+          }
+        },
+      );
+
+      if (controller.signal.aborted) return;
+
+      const audio = new Audio(streamUrl);
+      audioRef.current = audio;
+
+      const updateSectionHighlight = () => {
+        const starts = startsRef.current;
+        if (!starts || starts.length === 0) {
+          setSpeakingSectionIndex(0);
+          return;
+        }
+        const activeIdx = audioHeadlineIndex(starts, audio.currentTime);
+        setSpeakingSectionIndex(activeIdx);
+      };
+
+      audio.addEventListener("playing", () => {
+        setSpeakingLoading(false);
+        updateSectionHighlight();
+      });
+
+      audio.addEventListener("timeupdate", updateSectionHighlight);
+
+      audio.addEventListener("ended", () => {
+        stopSpeech();
+      });
+
+      audio.addEventListener("error", () => {
+        fallbackToBrowserSpeech(turnId, parts, locale);
+      });
+
+      await audio.play().catch(() => {
+        if (!controller.signal.aborted) {
+          fallbackToBrowserSpeech(turnId, parts, locale);
+        }
+      });
+    } catch {
+      if (!controller.signal.aborted) {
+        fallbackToBrowserSpeech(turnId, parts, locale);
+      }
+    }
   };
 
   const copyTurnMarkdown = async (turnId: string, response: SignalBotAnalyzeResponse) => {
@@ -612,10 +785,15 @@ export default function SignalBotModal({
                       <div className="signal-bot-card-actions">
                         <button
                           type="button"
-                          className="signal-bot-mini-btn"
-                          onClick={() => toggleSpeakTurn(turn.id, turn.response!)}
+                          className={`signal-bot-mini-btn ${speakingTurnId === turn.id ? "speaking" : ""}`}
+                          onClick={() => void toggleSpeakTurn(turn.id, turn.response!)}
+                          title={speakingTurnId === turn.id ? "Stop reading" : "Read aloud with Azure speech voice"}
                         >
-                          {speakingTurnId === turn.id ? "⏹ Stop" : "🔊 Read"}
+                          {speakingTurnId === turn.id
+                            ? speakingLoading
+                              ? "⏳ Preparing…"
+                              : "⏹ Stop"
+                            : "🔊 Read"}
                         </button>
                         <button
                           type="button"
@@ -673,76 +851,134 @@ export default function SignalBotModal({
                       </div>
                     )}
 
-                    <h4 className="signal-bot-headline">{turn.response.headline}</h4>
-
-                    {turn.response.marketQuote && (
-                      <div className="signal-bot-market-strip">
-                        <span>
-                          <strong>{turn.response.marketQuote.name}</strong> ({turn.response.marketQuote.symbol}
-                          {turn.response.marketQuote.exchange ? `:${turn.response.marketQuote.exchange}` : ""})
-                        </span>
-                        <span>
-                          <strong>
-                            {turn.response.marketQuote.currency} {turn.response.marketQuote.price.toFixed(2)}
-                          </strong>{" "}
-                          <span
-                            className={`signal-bot-market-delta ${turn.response.marketQuote.change >= 0 ? "up" : "down"}`}
-                          >
-                            {turn.response.marketQuote.change >= 0 ? "+" : ""}
-                            {turn.response.marketQuote.change.toFixed(2)} (
-                            {turn.response.marketQuote.change >= 0 ? "+" : ""}
-                            {turn.response.marketQuote.percentChange.toFixed(2)}%)
-                          </span>
-                        </span>
-                      </div>
-                    )}
-
-                    <div className="signal-bot-analysis-paragraphs">
-                      {turn.response.analysis
+                    {(() => {
+                      const paragraphs = turn.response.analysis
                         .split(/\n{2,}/)
-                        .map((paragraph, pIdx) => (
-                          <p key={pIdx}>
-                            {renderInlineCitations(paragraph, (citeIdx) => jumpToCitation(turn.id, citeIdx))}
-                          </p>
-                        ))}
-                    </div>
+                        .map((p) => p.trim())
+                        .filter((p) => p.length > 0);
+                      const driverBase = 1 + paragraphs.length;
+                      const perspectiveBase = driverBase + turn.response.keyDrivers.length;
+                      const watchNextBase = perspectiveBase + turn.response.perspectives.length;
 
-                    {(turn.response.keyDrivers.length > 0
-                      || turn.response.perspectives.length > 0
-                      || turn.response.watchNext.length > 0) && (
-                      <div className="signal-bot-pillars">
-                        {turn.response.keyDrivers.length > 0 && (
-                          <div className="signal-bot-pillar">
-                            <h5>Key Drivers</h5>
-                            <ul>
-                              {turn.response.keyDrivers.map((item, idx) => (
-                                <li key={idx}>{item}</li>
-                              ))}
-                            </ul>
+                      return (
+                        <>
+                          <h4
+                            className={`signal-bot-headline ${
+                              speakingTurnId === turn.id && speakingSectionIndex === 0
+                                ? "signal-bot-reading-highlight"
+                                : ""
+                            }`}
+                          >
+                            {turn.response.headline}
+                          </h4>
+
+                          {turn.response.marketQuote && (
+                            <div className="signal-bot-market-strip">
+                              <span>
+                                <strong>{turn.response.marketQuote.name}</strong> ({turn.response.marketQuote.symbol}
+                                {turn.response.marketQuote.exchange ? `:${turn.response.marketQuote.exchange}` : ""})
+                              </span>
+                              <span>
+                                <strong>
+                                  {turn.response.marketQuote.currency} {turn.response.marketQuote.price.toFixed(2)}
+                                </strong>{" "}
+                                <span
+                                  className={`signal-bot-market-delta ${turn.response.marketQuote.change >= 0 ? "up" : "down"}`}
+                                >
+                                  {turn.response.marketQuote.change >= 0 ? "+" : ""}
+                                  {turn.response.marketQuote.change.toFixed(2)} (
+                                  {turn.response.marketQuote.change >= 0 ? "+" : ""}
+                                  {turn.response.marketQuote.percentChange.toFixed(2)}%)
+                                </span>
+                              </span>
+                            </div>
+                          )}
+
+                          <div className="signal-bot-analysis-paragraphs">
+                            {paragraphs.map((paragraph, pIdx) => {
+                              const isHighlighted =
+                                speakingTurnId === turn.id &&
+                                speakingSectionIndex === 1 + pIdx;
+                              return (
+                                <p
+                                  key={pIdx}
+                                  className={isHighlighted ? "signal-bot-reading-highlight" : ""}
+                                >
+                                  {renderInlineCitations(paragraph, (citeIdx) => jumpToCitation(turn.id, citeIdx))}
+                                </p>
+                              );
+                            })}
                           </div>
-                        )}
-                        {turn.response.perspectives.length > 0 && (
-                          <div className="signal-bot-pillar">
-                            <h5>Perspectives &amp; Risks</h5>
-                            <ul>
-                              {turn.response.perspectives.map((item, idx) => (
-                                <li key={idx}>{item}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                        {turn.response.watchNext.length > 0 && (
-                          <div className="signal-bot-pillar">
-                            <h5>Watch Next</h5>
-                            <ul>
-                              {turn.response.watchNext.map((item, idx) => (
-                                <li key={idx}>{item}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                      </div>
-                    )}
+
+                          {(turn.response.keyDrivers.length > 0
+                            || turn.response.perspectives.length > 0
+                            || turn.response.watchNext.length > 0) && (
+                            <div className="signal-bot-pillars">
+                              {turn.response.keyDrivers.length > 0 && (
+                                <div className="signal-bot-pillar">
+                                  <h5>Key Drivers</h5>
+                                  <ul>
+                                    {turn.response.keyDrivers.map((item, idx) => {
+                                      const isHighlighted =
+                                        speakingTurnId === turn.id &&
+                                        speakingSectionIndex === driverBase + idx;
+                                      return (
+                                        <li
+                                          key={idx}
+                                          className={isHighlighted ? "signal-bot-reading-highlight" : ""}
+                                        >
+                                          {item}
+                                        </li>
+                                      );
+                                    })}
+                                  </ul>
+                                </div>
+                              )}
+                              {turn.response.perspectives.length > 0 && (
+                                <div className="signal-bot-pillar">
+                                  <h5>Perspectives &amp; Risks</h5>
+                                  <ul>
+                                    {turn.response.perspectives.map((item, idx) => {
+                                      const isHighlighted =
+                                        speakingTurnId === turn.id &&
+                                        speakingSectionIndex === perspectiveBase + idx;
+                                      return (
+                                        <li
+                                          key={idx}
+                                          className={isHighlighted ? "signal-bot-reading-highlight" : ""}
+                                        >
+                                          {item}
+                                        </li>
+                                      );
+                                    })}
+                                  </ul>
+                                </div>
+                              )}
+                              {turn.response.watchNext.length > 0 && (
+                                <div className="signal-bot-pillar">
+                                  <h5>Watch Next</h5>
+                                  <ul>
+                                    {turn.response.watchNext.map((item, idx) => {
+                                      const isHighlighted =
+                                        speakingTurnId === turn.id &&
+                                        speakingSectionIndex === watchNextBase + idx;
+                                      return (
+                                        <li
+                                          key={idx}
+                                          className={isHighlighted ? "signal-bot-reading-highlight" : ""}
+                                        >
+                                          {item}
+                                        </li>
+                                      );
+                                    })}
+                                  </ul>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
 
                     {turn.response.suggestedFollowUps.length > 0 && (
                       <div className="signal-bot-followups">

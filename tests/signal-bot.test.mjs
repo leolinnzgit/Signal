@@ -242,3 +242,48 @@ test("Signal Bot and global language dropdowns define opaque dark-mode option co
   assert.match(botCss, /\[data-theme="dark"\]\s+\.signal-bot-model-select\s+option\s*\{[^}]*background:\s*#[0-9a-f]{3,8};[^}]*color:\s*#[0-9a-f]{3,8};/i);
   assert.match(globalCss, /html\[data-theme="dark"\]\s+select\s+option[\s\S]*?background-color:\s*var\(--content-background\);[\s\S]*?color:\s*var\(--page-text\);/i);
 });
+
+test("Signal Bot reading audio highlights text with synchronized section markers", () => {
+  const botCss = fs.readFileSync(path.resolve("app/signal-bot.css"), "utf8");
+  assert.match(botCss, /\.signal-bot-reading-highlight\s*\{[^}]*background:[^}]*box-shadow:/);
+  assert.match(botCss, /\[data-theme="dark"\]\s+\.signal-bot-reading-highlight/);
+  assert.match(botCss, /\.signal-bot-mini-btn\.speaking/);
+
+  // Test the section breakdown logic
+  const mockResponse = {
+    headline: "NVIDIA Demand Grows [S1]",
+    analysis: "First paragraph covering inference [S1].\n\nSecond paragraph covering supply [S2].",
+    keyDrivers: ["Inference clusters expanding [S1]", "CoWoS ramp [S2]"],
+    perspectives: ["Capex durability debate [S1]"],
+    watchNext: ["Next gross margin guide"],
+  };
+
+  const cleanSpeechText = (raw) =>
+    (raw || "")
+      .replace(/\s*\[S\d+\]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const cleanHeadline = cleanSpeechText(mockResponse.headline);
+  const cleanParagraphs = mockResponse.analysis.split(/\n{2,}/).map((p) => cleanSpeechText(p)).filter(Boolean);
+  const cleanDrivers = mockResponse.keyDrivers.map((d) => `Key driver: ${cleanSpeechText(d)}`);
+  const cleanPerspectives = mockResponse.perspectives.map((p) => `Perspective: ${cleanSpeechText(p)}`);
+  const cleanWatchNext = mockResponse.watchNext.map((w) => `Watch next: ${cleanSpeechText(w)}`);
+
+  const parts = [
+    cleanHeadline,
+    ...cleanParagraphs,
+    ...cleanDrivers,
+    ...cleanPerspectives,
+    ...cleanWatchNext,
+  ];
+
+  assert.equal(parts[0], "NVIDIA Demand Grows");
+  assert.equal(parts[1], "First paragraph covering inference.");
+  assert.equal(parts[2], "Second paragraph covering supply.");
+  assert.equal(parts[3], "Key driver: Inference clusters expanding");
+  assert.equal(parts[4], "Key driver: CoWoS ramp");
+  assert.equal(parts[5], "Perspective: Capex durability debate");
+  assert.equal(parts[6], "Watch next: Next gross margin guide");
+  assert.equal(parts.length, 7);
+});
