@@ -71,6 +71,24 @@ function roundScore(value: number): number {
   return Math.round(Math.min(1, Math.max(0, value)) * 1000) / 1000;
 }
 
+type StoredSentimentMap = Record<string, CompactStoredSentiment | undefined>;
+const storedSentimentMapCache = new WeakMap<Storage, { raw: string; map: StoredSentimentMap }>();
+
+function readStoredSentimentMap(store: Storage): StoredSentimentMap | null {
+  const raw = store.getItem(SENTIMENT_STORAGE_KEY);
+  if (!raw) {
+    storedSentimentMapCache.delete(store);
+    return null;
+  }
+  const cached = storedSentimentMapCache.get(store);
+  if (cached && cached.raw === raw) {
+    return cached.map;
+  }
+  const map = JSON.parse(raw) as StoredSentimentMap;
+  storedSentimentMapCache.set(store, { raw, map });
+  return map;
+}
+
 export function recordArticleSentiment(
   url: string,
   data: ArticleSentimentResponse,
@@ -85,8 +103,8 @@ export function recordArticleSentiment(
     const store = getSafeStorage(storage);
     if (!store) return;
 
-    const raw = store.getItem(SENTIMENT_STORAGE_KEY);
-    const parsed: Record<string, CompactStoredSentiment> = raw ? JSON.parse(raw) : {};
+    const existing = readStoredSentimentMap(store);
+    const parsed: Record<string, CompactStoredSentiment> = existing ? { ...(existing as Record<string, CompactStoredSentiment>) } : {};
     delete parsed[key];
     parsed[key] = [
       data.sentiment,
@@ -103,7 +121,9 @@ export function recordArticleSentiment(
       }
     }
 
-    store.setItem(SENTIMENT_STORAGE_KEY, JSON.stringify(parsed));
+    const serialized = JSON.stringify(parsed);
+    store.setItem(SENTIMENT_STORAGE_KEY, serialized);
+    storedSentimentMapCache.set(store, { raw: serialized, map: parsed });
   } catch {
     // Ignore storage quota errors
   }
@@ -122,9 +142,8 @@ export function getCachedArticleSentiment(
   try {
     const store = getSafeStorage(storage);
     if (!store) return null;
-    const raw = store.getItem(SENTIMENT_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Record<string, CompactStoredSentiment | undefined>;
+    const parsed = readStoredSentimentMap(store);
+    if (!parsed) return null;
     const entry = parsed[key];
     if (!Array.isArray(entry) || entry.length < 4) return null;
 
@@ -146,6 +165,7 @@ export function clearSentimentCache(storage?: Storage): void {
   sentimentCache.clear();
   urlSentimentCache.clear();
   if (storage) {
+    storedSentimentMapCache.delete(storage);
     try {
       storage.removeItem(SENTIMENT_STORAGE_KEY);
     } catch {

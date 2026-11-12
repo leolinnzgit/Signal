@@ -40,9 +40,19 @@ export async function fetchOpenCoverage(
   fetcher: typeof fetch = fetch,
   signal?: AbortSignal,
 ): Promise<OpenCoverageResponse> {
+  const csrf = await fetcher("/api/auth/csrf", { credentials: "same-origin", cache: "no-store", signal });
+  if (!csrf.ok) {
+    throw new Error("Could not verify your session to search open news sources.");
+  }
+  const { token } = (await csrf.json()) as { token?: string };
+  if (!token) {
+    throw new Error("Could not verify your session to search open news sources.");
+  }
+
   const response = await fetcher("/api/article-reader/open-coverage", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json", "X-XSRF-TOKEN": token },
     body: JSON.stringify({
       url: request.url,
       title: request.title,

@@ -1,5 +1,5 @@
 "use client";
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import ArticleAudioPlayer from "./ArticleAudioPlayer";
 import { recordedArticleNarrationSections } from "./headline-audio";
 import { ListeningQueueClient, listeningQueueKey, queueImage } from "./listening-queue";
@@ -8,6 +8,9 @@ import { BrowserQueueAudioStorage, QueueAudioDownloads } from "./offline-queue-a
 import { useReadingVoices } from "./ReadingVoiceSelector";
 import type { PreparedHeadlineAudio } from "./headline-audio";
 const Context = createContext<{ client: ListeningQueueClient | null; audio: QueueAudioDownloads | null; revision: number; offline: boolean }>({ client: null, audio: null, revision: 0, offline: false });
+const ClientContext = createContext<ListeningQueueClient | null>(null);
+const EMPTY_QUEUE_URLS: ReadonlySet<string> = new Set();
+const QueueUrlsContext = createContext<ReadonlySet<string>>(EMPTY_QUEUE_URLS);
 export function ListenLaterProvider({ email, children, syncEnabled = true }: { email: string; children: ReactNode; syncEnabled?: boolean }) {
   const [client, setClient] = useState<ListeningQueueClient | null>(null), [revision, redraw] = useState(0);
   const [audio, setAudio] = useState<QueueAudioDownloads | null>(null);
@@ -33,18 +36,29 @@ export function ListenLaterProvider({ email, children, syncEnabled = true }: { e
     return () => { client.dispose(); audio.dispose(); clearInterval(timer); window.removeEventListener("online", sync); document.removeEventListener("visibilitychange", sync); window.removeEventListener("signal.shared-listening-signout", signout); window.removeEventListener("storage", storage); };
   }, [email, syncEnabled]);
   useEffect(() => { if (audio && client?.progress) void audio.retain(client.saved().items); }, [audio, client, revision]);
-  return <Context.Provider value={{ client, audio, revision, offline: !syncEnabled }}>{children}</Context.Provider>;
+  const queuedUrlKey = client ? client.saved().items.map(item => item.url).join("\n") : "";
+  const queuedUrls = useMemo(
+    () => (queuedUrlKey ? new Set(queuedUrlKey.split("\n")) : EMPTY_QUEUE_URLS),
+    [queuedUrlKey],
+  );
+  const contextValue = useMemo(
+    () => ({ client, audio, revision, offline: !syncEnabled }),
+    [client, audio, revision, syncEnabled],
+  );
+  return <ClientContext.Provider value={client}><QueueUrlsContext.Provider value={queuedUrls}><Context.Provider value={contextValue}>{children}</Context.Provider></QueueUrlsContext.Provider></ClientContext.Provider>;
 }
-export function useListeningQueueClient() { return useContext(Context).client; }
+export function useListeningQueueClient() { return useContext(ClientContext); }
 export function useListenLaterCount() {
   const { client } = useContext(Context); return client ? client.saved().items.length : null;
 }
-export function ListenLaterButton({ url, title, source, imageUrl = "", paragraphs, compact = false }: { url: string; title: string; source: string; imageUrl?: string; paragraphs?: string[]; compact?: boolean }) {
-  const { client } = useContext(Context), [busy, setBusy] = useState(false), [error, setError] = useState("");
+export const ListenLaterButton = memo(function ListenLaterButton({ url, title, source, imageUrl = "", paragraphs, compact = false }: { url: string; title: string; source: string; imageUrl?: string; paragraphs?: string[]; compact?: boolean }) {
+  const client = useContext(ClientContext);
+  const queuedUrls = useContext(QueueUrlsContext);
+  const [busy, setBusy] = useState(false), [error, setError] = useState("");
   const lifetime = useRef<AbortController | null>(null);
   useEffect(() => () => lifetime.current?.abort(), []);
   if (!client) return null;
-  const queued = client.saved().items.some(item => item.url === url);
+  const queued = queuedUrls.has(url);
   async function add() {
     if (!client || busy) return;
     if (queued) { client.remove(url); return; }
@@ -65,7 +79,7 @@ export function ListenLaterButton({ url, title, source, imageUrl = "", paragraph
   }
   return <span className={`listen-later-add${compact ? " listen-later-add-compact" : ""}`}><button type="button" aria-pressed={queued} aria-busy={busy} disabled={busy} onClick={() => void add()} aria-label={`${queued ? "Remove from" : "Add to"} Listen later: ${title}`} title={busy ? "Saving story text…" : queued ? "Remove from Listen later" : "Add to Listen later"}>
     {compact ? <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10M4 12h10M4 18h7" />{queued ? <path d="m15 17 2 2 4-5" /> : <path d="M18 14v7m-3.5-3.5h7" />}</svg> : busy ? "Saving text…" : queued ? "Queued ✓" : "Listen later +"}</button>{error && <span role="status">{error}</span>}</span>;
-}
+});
 export function ListenLater({ beforePlay }: { beforePlay?: () => void }) {
   const { client, audio, offline } = useContext(Context), [story, setStory] = useState<SharedStory | null>(null), [starting, setStarting] = useState(false);
   const [lease, setLease] = useState("");

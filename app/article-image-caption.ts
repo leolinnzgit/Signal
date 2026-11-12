@@ -75,6 +75,24 @@ export function formatFocalObjectPosition(focal?: Partial<ImageFocalPoint> | nul
   return `${pctX}% ${pctY}%`;
 }
 
+type StoredFocalMap = Record<string, [number, number] | undefined>;
+const storedFocalMapCache = new WeakMap<Storage, { raw: string; map: StoredFocalMap }>();
+
+function readStoredFocalMap(store: Storage): StoredFocalMap | null {
+  const raw = store.getItem(FOCAL_POINT_STORAGE_KEY);
+  if (!raw) {
+    storedFocalMapCache.delete(store);
+    return null;
+  }
+  const cached = storedFocalMapCache.get(store);
+  if (cached && cached.raw === raw) {
+    return cached.map;
+  }
+  const map = JSON.parse(raw) as StoredFocalMap;
+  storedFocalMapCache.set(store, { raw, map });
+  return map;
+}
+
 export function saveCachedImageFocalPoint(
   imageUrl: string,
   focal: ImageFocalPoint,
@@ -87,8 +105,8 @@ export function saveCachedImageFocalPoint(
     const store = getSafeStorage(storage);
     if (!store) return;
 
-    const raw = store.getItem(FOCAL_POINT_STORAGE_KEY);
-    const parsed: Record<string, [number, number]> = raw ? JSON.parse(raw) : {};
+    const existing = readStoredFocalMap(store);
+    const parsed: Record<string, [number, number]> = existing ? { ...(existing as Record<string, [number, number]>) } : {};
     // Delete first so re-insertion moves key to end (LRU order)
     delete parsed[cleanUrl];
     parsed[cleanUrl] = [
@@ -104,7 +122,9 @@ export function saveCachedImageFocalPoint(
       }
     }
 
-    store.setItem(FOCAL_POINT_STORAGE_KEY, JSON.stringify(parsed));
+    const serialized = JSON.stringify(parsed);
+    store.setItem(FOCAL_POINT_STORAGE_KEY, serialized);
+    storedFocalMapCache.set(store, { raw: serialized, map: parsed });
   } catch {
     // Ignore storage quota or serialization errors
   }
@@ -128,9 +148,8 @@ export function getCachedImageFocalPoint(
   try {
     const store = getSafeStorage(storage);
     if (!store) return null;
-    const raw = store.getItem(FOCAL_POINT_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Record<string, [number, number] | undefined>;
+    const parsed = readStoredFocalMap(store);
+    if (!parsed) return null;
     const tuple = parsed[cleanUrl];
     if (!Array.isArray(tuple) || tuple.length < 2) return null;
     return {
@@ -158,6 +177,7 @@ export function clearCaptionCache(storage?: Storage): void {
   activeLazyCount = 0;
   lazyDisabledUntil = 0;
   if (storage) {
+    storedFocalMapCache.delete(storage);
     try {
       storage.removeItem(FOCAL_POINT_STORAGE_KEY);
     } catch {

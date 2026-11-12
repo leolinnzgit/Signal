@@ -18,10 +18,9 @@ test('isPaywallReason detects explicit paywall flags and reason messages', () =>
   assert.equal(isPaywallReason(null, false), false);
 });
 
-test('fetchOpenCoverage posts request payload and normalizes open articles response', async () => {
+test('fetchOpenCoverage fetches CSRF token, posts request payload, and normalizes open articles response', async () => {
   const controller = new AbortController();
-  let capturedPath = '';
-  let capturedOptions = null;
+  const calls = [];
 
   const sampleArticle = {
     title: 'Starlux Plans Sydney / Auckland late-March 2027 Debut',
@@ -39,8 +38,10 @@ test('fetchOpenCoverage posts request payload and normalizes open articles respo
   };
 
   const fetcher = async (path, options) => {
-    capturedPath = path;
-    capturedOptions = options;
+    calls.push({ path, options });
+    if (path === '/api/auth/csrf') {
+      return Response.json({ token: 'csrf-token-123' });
+    }
     return Response.json({
       available: true,
       queryUsed: 'Taipei Auckland Starlux flights',
@@ -55,12 +56,21 @@ test('fetchOpenCoverage posts request payload and normalizes open articles respo
     controller.signal
   );
 
-  assert.equal(capturedPath, '/api/article-reader/open-coverage');
-  assert.equal(capturedOptions.method, 'POST');
-  assert.equal(capturedOptions.cache, 'no-store');
-  assert.equal(capturedOptions.signal, controller.signal);
-  assert.equal(capturedOptions.headers['Content-Type'], 'application/json');
-  assert.deepEqual(JSON.parse(capturedOptions.body), {
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].path, '/api/auth/csrf');
+  assert.equal(calls[0].options.credentials, 'same-origin');
+  assert.equal(calls[0].options.cache, 'no-store');
+  assert.equal(calls[0].options.signal, controller.signal);
+
+  const postCall = calls[1];
+  assert.equal(postCall.path, '/api/article-reader/open-coverage');
+  assert.equal(postCall.options.method, 'POST');
+  assert.equal(postCall.options.credentials, 'same-origin');
+  assert.equal(postCall.options.cache, 'no-store');
+  assert.equal(postCall.options.signal, controller.signal);
+  assert.equal(postCall.options.headers['Content-Type'], 'application/json');
+  assert.equal(postCall.options.headers['X-XSRF-TOKEN'], 'csrf-token-123');
+  assert.deepEqual(JSON.parse(postCall.options.body), {
     url: 'https://www.nzherald.co.nz/premium/123',
     title: 'New Taipei-Auckland flights confirmed',
     source: ''
@@ -71,11 +81,23 @@ test('fetchOpenCoverage posts request payload and normalizes open articles respo
   assert.equal(result.articles[0].source, 'aeroroutes.com');
 });
 
-test('fetchOpenCoverage surfaces server validation message or falls back on invalid JSON error', async () => {
+test('fetchOpenCoverage surfaces CSRF errors, server validation message, or falls back on invalid JSON error', async () => {
+  await assert.rejects(
+    () => fetchOpenCoverage(
+      { url: 'https://example.com/story', title: 'CSRF failure' },
+      async path => path === '/api/auth/csrf'
+        ? new Response('forbidden', { status: 403 })
+        : Response.json({})
+    ),
+    /Could not verify your session to search open news sources\./
+  );
+
   await assert.rejects(
     () => fetchOpenCoverage(
       { url: 'https://localhost/story', title: 'Bad URL' },
-      async () => Response.json({ message: 'Private addresses are not allowed.' }, { status: 400 })
+      async path => path === '/api/auth/csrf'
+        ? Response.json({ token: 'csrf-token' })
+        : Response.json({ message: 'Private addresses are not allowed.' }, { status: 400 })
     ),
     /Private addresses are not allowed\./
   );
@@ -83,7 +105,9 @@ test('fetchOpenCoverage surfaces server validation message or falls back on inva
   await assert.rejects(
     () => fetchOpenCoverage(
       { url: 'https://example.com/story', title: 'Gateway failure' },
-      async () => new Response('<html>502 Bad Gateway</html>', { status: 502 })
+      async path => path === '/api/auth/csrf'
+        ? Response.json({ token: 'csrf-token' })
+        : new Response('<html>502 Bad Gateway</html>', { status: 502 })
     ),
     /Could not search open news sources right now\./
   );

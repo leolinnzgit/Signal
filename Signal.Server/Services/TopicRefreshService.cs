@@ -621,6 +621,7 @@ public sealed class TopicRefreshService(
             .Take(take)
             .ToArrayAsync(cancellationToken);
         var currentTopics = topics.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var hasRssFeeds = DeserializeList(preferences.RssFeedsJson).Length > 0;
         var rawCandidates = stored
             .Select(item => new
             {
@@ -628,7 +629,7 @@ public sealed class TopicRefreshService(
                 Topics = DeserializeList(item.TopicsJson).Where(currentTopics.Contains).ToArray(),
                 Providers = DeserializeList(item.ProvidersJson),
             })
-            .Where(item => item.Topics.Length > 0 && item.Providers.Any(provider => ProviderEnabled(provider, preferences)))
+            .Where(item => item.Topics.Length > 0 && item.Providers.Any(provider => ProviderEnabled(provider, preferences, hasRssFeeds)))
             .ToArray();
 
         var candidates = ArticleIdentity.GroupDuplicates(
@@ -781,11 +782,11 @@ public sealed class TopicRefreshService(
         }
     }
 
-    private static bool ProviderEnabled(string provider, UserNewsPreferences preferences) =>
+    private static bool ProviderEnabled(string provider, UserNewsPreferences preferences, bool hasRssFeeds) =>
         (provider.Equals("Google News", StringComparison.OrdinalIgnoreCase) && preferences.GoogleEnabled)
         || (provider.Equals("GDELT", StringComparison.OrdinalIgnoreCase) && preferences.GdeltEnabled)
-        || (provider.StartsWith("RSS /", StringComparison.OrdinalIgnoreCase)
-            && DeserializeList(preferences.RssFeedsJson).Length > 0);
+        || (hasRssFeeds && provider.StartsWith("RSS /", StringComparison.OrdinalIgnoreCase));
+
 
     private static string FeedLabel(string value)
     {

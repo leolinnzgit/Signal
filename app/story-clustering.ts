@@ -83,53 +83,65 @@ export function computeJaccardSimilarity(setA: Set<string>, setB: Set<string>): 
   return union > 0 ? shared / union : 0;
 }
 
+const MAX_CLUSTER_GAP_HOURS = 60;
+const MS_PER_HOUR = 1000 * 60 * 60;
+
+function parsePublishedMs(publishedAt?: string): number {
+  return publishedAt ? new Date(publishedAt).getTime() : Number.NaN;
+}
+
+function areTokenSetsSimilar(
+  tokensA: ReadonlySet<string>,
+  timeA: number,
+  tokensB: ReadonlySet<string>,
+  timeB: number,
+): boolean {
+  if (!Number.isNaN(timeA) && !Number.isNaN(timeB)) {
+    const diffHours = Math.abs(timeA - timeB) / MS_PER_HOUR;
+    if (diffHours > MAX_CLUSTER_GAP_HOURS) return false;
+  }
+
+  if (tokensA.size === 0 || tokensB.size === 0) return false;
+
+  const [smaller, larger] = tokensA.size <= tokensB.size ? [tokensA, tokensB] : [tokensB, tokensA];
+  let sharedCount = 0;
+  let hasSharedNumber = false;
+  for (const token of smaller) {
+    if (larger.has(token)) {
+      sharedCount++;
+      if (!hasSharedNumber && /\d/.test(token)) {
+        hasSharedNumber = true;
+      }
+    }
+  }
+
+  if (sharedCount === 0) return false;
+  if (sharedCount >= 3) return true;
+
+  const union = tokensA.size + tokensB.size - sharedCount;
+  const jaccard = union > 0 ? sharedCount / union : 0;
+
+  if (jaccard >= 0.35) return true;
+  if (jaccard >= 0.14 && hasSharedNumber && sharedCount >= 2) return true;
+
+  return false;
+}
+
 /**
  * Determines whether two articles are reporting on the same event based on
- * headline content token overlap and publication recency (within 48 hours).
+ * headline content token overlap and publication recency (within 60 hours).
  */
 export function areArticlesSimilar(
   a: { title: string; publishedAt?: string },
   b: { title: string; publishedAt?: string },
 ): boolean {
   if (!a.title || !b.title) return false;
-
-  // Check publication timestamp window if both are valid
-  if (a.publishedAt && b.publishedAt) {
-    const timeA = new Date(a.publishedAt).getTime();
-    const timeB = new Date(b.publishedAt).getTime();
-    if (!isNaN(timeA) && !isNaN(timeB)) {
-      const diffHours = Math.abs(timeA - timeB) / (1000 * 60 * 60);
-      if (diffHours > 60) return false;
-    }
-  }
-
-  const tokensA = extractContentTokens(a.title);
-  const tokensB = extractContentTokens(b.title);
-  if (tokensA.size === 0 || tokensB.size === 0) return false;
-
-  let sharedCount = 0;
-  let hasSharedNumber = false;
-  for (const token of tokensA) {
-    if (tokensB.has(token)) {
-      sharedCount++;
-      if (/\d/.test(token)) {
-        hasSharedNumber = true;
-      }
-    }
-  }
-
-  const jaccard = computeJaccardSimilarity(tokensA, tokensB);
-
-  // High word overlap (e.g. 35%+ token match)
-  if (jaccard >= 0.35) return true;
-
-  // Moderate overlap with specific numbers/data points (e.g. 4.25%, 50bps, 7.1)
-  if (jaccard >= 0.14 && hasSharedNumber && sharedCount >= 2) return true;
-
-  // 3 or more substantial shared content words
-  if (sharedCount >= 3) return true;
-
-  return false;
+  return areTokenSetsSimilar(
+    extractContentTokens(a.title),
+    parsePublishedMs(a.publishedAt),
+    extractContentTokens(b.title),
+    parsePublishedMs(b.publishedAt),
+  );
 }
 
 /**
@@ -141,27 +153,63 @@ export function clusterArticles(articles: readonly FollowedArticle[]): Clustered
   if (!articles || articles.length === 0) return [];
 
   const clusters: StoryCluster[] = [];
+  const clusterMembers: { tokens: Set<string>; publishedMs: number }[][] = [];
+  const tokenToClusters = new Map<string, Set<number>>();
   const assignedCluster = new Map<string, StoryCluster>();
 
-  // Cluster assignment pass
+  // Cluster assignment pass (indexed by content token so we only compare against sharing clusters)
   for (const article of articles) {
     if (!article.url || assignedCluster.has(article.url)) continue;
 
-    let matchedCluster: StoryCluster | undefined;
-    for (const cluster of clusters) {
-      if (cluster.articles.some((existing) => areArticlesSimilar(existing, article))) {
-        matchedCluster = cluster;
-        break;
+    const tokens = article.title ? extractContentTokens(article.title) : new Set<string>();
+    const publishedMs = parsePublishedMs(article.publishedAt);
+
+    let matchedIdx = -1;
+    if (tokens.size > 0) {
+      const candidateIndices = new Set<number>();
+      for (const token of tokens) {
+        const bucket = tokenToClusters.get(token);
+        if (bucket) {
+          for (const clusterIdx of bucket) {
+            candidateIndices.add(clusterIdx);
+          }
+        }
+      }
+
+      if (candidateIndices.size > 0) {
+        const orderedCandidates =
+          candidateIndices.size === 1
+            ? candidateIndices
+            : Array.from(candidateIndices).sort((a, b) => a - b);
+
+        for (const clusterIdx of orderedCandidates) {
+          const members = clusterMembers[clusterIdx];
+          if (members.some((m) => areTokenSetsSimilar(m.tokens, m.publishedMs, tokens, publishedMs))) {
+            matchedIdx = clusterIdx;
+            break;
+          }
+        }
       }
     }
 
-    if (matchedCluster) {
+    if (matchedIdx >= 0) {
+      const matchedCluster = clusters[matchedIdx];
       matchedCluster.articles.push(article);
       if (!matchedCluster.sources.includes(article.source)) {
         matchedCluster.sources.push(article.source);
       }
+      clusterMembers[matchedIdx].push({ tokens, publishedMs });
+      for (const token of tokens) {
+        let bucket = tokenToClusters.get(token);
+        if (!bucket) {
+          bucket = new Set<number>();
+          tokenToClusters.set(token, bucket);
+        }
+        bucket.add(matchedIdx);
+      }
       assignedCluster.set(article.url, matchedCluster);
     } else {
+      const newIdx = clusters.length;
       const newCluster: StoryCluster = {
         id: `cluster-${article.url}`,
         leadArticle: article,
@@ -171,6 +219,15 @@ export function clusterArticles(articles: readonly FollowedArticle[]): Clustered
         toneBreakdown: { positive: 0, neutral: 0, negative: 0, mixed: 0 },
       };
       clusters.push(newCluster);
+      clusterMembers.push([{ tokens, publishedMs }]);
+      for (const token of tokens) {
+        let bucket = tokenToClusters.get(token);
+        if (!bucket) {
+          bucket = new Set<number>();
+          tokenToClusters.set(token, bucket);
+        }
+        bucket.add(newIdx);
+      }
       assignedCluster.set(article.url, newCluster);
     }
   }

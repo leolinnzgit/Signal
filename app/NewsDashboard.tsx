@@ -5,7 +5,8 @@ import ListeningLibrary from "./ListeningLibrary";
 import WatchListeningHandoff from "./WatchListeningHandoff";
 import { clearPendingWatchHandoff, pendingWatchHandoff } from "./listening-handoff";
 
-import { type CSSProperties, type ReactNode, FormEvent, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type ReactNode, FormEvent, Suspense, lazy, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import "./feed-performance.css";
 
 import { startWeatherLocationRefresh } from "./weather-location";
 import { resolveWeatherLocationName } from "./weather-location-name";
@@ -536,6 +537,340 @@ function formatAge(value: string) {
   if (hours < 24) return `${hours}h ago`;
   return `${Math.round(hours / 24)}d ago`;
 }
+
+const FEED_BATCH_SIZE = 60;
+
+function areArticlesSnapshotEqual(a: readonly FollowedArticle[], b: readonly FollowedArticle[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    const left = a[i];
+    const right = b[i];
+    if (
+      left.url !== right.url
+      || left.isRead !== right.isRead
+      || left.isBookmarked !== right.isBookmarked
+      || left.title !== right.title
+      || left.publishedAt !== right.publishedAt
+      || left.providers.length !== right.providers.length
+      || left.topics.length !== right.topics.length
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function areTopicStatesEqual(a: readonly TopicRefreshStatus[], b: readonly TopicRefreshStatus[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    const left = a[i];
+    const right = b[i];
+    if (
+      left.topic !== right.topic
+      || left.hasUnread !== right.hasUnread
+      || left.lastError !== right.lastError
+      || left.lastSuccessfulAt !== right.lastSuccessfulAt
+      || left.nextRefreshAt !== right.nextRefreshAt
+      || left.lastViewedAt !== right.lastViewedAt
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+const HeroClocks = memo(function HeroClocks({
+  clockTimeZone,
+  secondaryTimeZone,
+  onEditSecondaryTimeZone,
+}: {
+  clockTimeZone: string;
+  secondaryTimeZone: SecondaryTimeZonePreference | null;
+  onEditSecondaryTimeZone: () => void;
+}) {
+  const [minuteBucket, setMinuteBucket] = useState<number>(() => Math.floor(Date.now() / 60_000));
+
+  useEffect(() => {
+    const updateMinute = () => {
+      const next = Math.floor(Date.now() / 60_000);
+      setMinuteBucket((prev) => (prev === next ? prev : next));
+    };
+    updateMinute();
+    const clock = window.setInterval(updateMinute, 30_000);
+    return () => window.clearInterval(clock);
+  }, []);
+
+  const currentTime = useMemo(() => new Date(minuteBucket * 60_000), [minuteBucket]);
+  const currentTimeLabel = currentTime.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: clockTimeZone,
+  });
+  const currentDateLabel = currentTime.toLocaleDateString(undefined, {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    timeZone: clockTimeZone,
+  });
+  const secondaryTimeLabel = secondaryTimeZone
+    ? currentTime.toLocaleTimeString(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+      timeZone: secondaryTimeZone.timeZone,
+    })
+    : "--:--";
+  const secondaryDateLabel = secondaryTimeZone
+    ? currentTime.toLocaleDateString(undefined, {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      timeZone: secondaryTimeZone.timeZone,
+    })
+    : "";
+
+  return (
+    <div className="hero-clocks">
+      <div className="hero-clock">
+        <div className="hero-local-time-row">
+          <time className="hero-time" dateTime={currentTime.toISOString()}>{currentTimeLabel}</time>
+          <span className="hero-clock-label">Local</span>
+        </div>
+        <span className="hero-date">{currentDateLabel}</span>
+      </div>
+      {secondaryTimeZone ? (
+        <button
+          type="button"
+          className="hero-secondary-clock"
+          onClick={onEditSecondaryTimeZone}
+          aria-label={`Additional clock for ${secondaryTimeZone.name}. Change or remove time zone.`}
+        >
+          <time dateTime={currentTime.toISOString()}>{secondaryTimeLabel}</time>
+          <span>{secondaryTimeZone.name}<small>{secondaryDateLabel}</small></span>
+        </button>
+      ) : (
+        <button type="button" className="hero-time-zone-add" onClick={onEditSecondaryTimeZone}>
+          <span aria-hidden="true">+</span> Time zone
+        </button>
+      )}
+    </div>
+  );
+});
+
+const FloatingBackToTopLink = memo(function FloatingBackToTopLink() {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const updateVisibility = () => {
+      const next = window.scrollY > 80;
+      setVisible((prev) => (prev === next ? prev : next));
+    };
+    updateVisibility();
+    window.addEventListener("scroll", updateVisibility, { passive: true });
+    return () => window.removeEventListener("scroll", updateVisibility);
+  }, []);
+
+  if (!visible) return null;
+  return (
+    <a
+      className="floating-back-to-top"
+      href="#top"
+      aria-label="Back to top"
+      title="Back to top"
+    >
+      <span aria-hidden="true">&#8593;</span>
+    </a>
+  );
+});
+
+type StoryFeedItemProps = {
+  article: FollowedArticle;
+  cluster?: StoryCluster;
+  index: number;
+  watchMatch: boolean;
+  isStaged: boolean;
+  isSharing: boolean;
+  isBookmarking: boolean;
+  canDiscuss: boolean;
+  canBookmark: boolean;
+  onOpenReader: (article: FollowedArticle, trigger: HTMLElement, listen: boolean) => void;
+  onInterrogate: (article: FollowedArticle) => void;
+  onOpenAudiogram: (article: FollowedArticle) => void;
+  onToggleDossier: (article: FollowedArticle) => void;
+  onOpenDiscussion: (article: FollowedArticle) => void;
+  onOpenShare: (article: FollowedArticle, trigger: HTMLButtonElement) => void;
+  onCompareCluster: (cluster: StoryCluster) => void;
+  onToggleBookmark: (article: FollowedArticle) => void;
+};
+
+const StoryFeedItem = memo(function StoryFeedItem({
+  article,
+  cluster,
+  index,
+  watchMatch,
+  isStaged,
+  isSharing,
+  isBookmarking,
+  canDiscuss,
+  canBookmark,
+  onOpenReader,
+  onInterrogate,
+  onOpenAudiogram,
+  onToggleDossier,
+  onOpenDiscussion,
+  onOpenShare,
+  onCompareCluster,
+  onToggleBookmark,
+}: StoryFeedItemProps) {
+  return (
+    <li>
+      <a
+        href={article.url}
+        className={article.imageUrl ? "story-link has-image" : "story-link"}
+        onClick={(event) => {
+          event.preventDefault();
+          onOpenReader(article, event.currentTarget, false);
+        }}
+      >
+        <span className="story-number">{String(index + 1).padStart(2, "0")}</span>
+        <article>
+          <div className="story-meta">
+            <span className="story-topic">{article.topics.join(" + ")}</span>
+            <span className="story-provider">{article.providers.join(" + ")}</span>
+            <span>{article.source}</span>
+            <span>{formatAge(article.publishedAt)}</span>
+            {watchMatch && (
+              <span className="story-watchlist-match-badge" title="Watchlist keyword match">
+                ⭐ Watchlist
+              </span>
+            )}
+            {cluster && cluster.articles.length > 1 && (
+              <button
+                type="button"
+                className="story-cluster-badge"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onCompareCluster(cluster);
+                }}
+                title={`Compare coverage from ${cluster.articles.length} sources: ${cluster.sources.join(", ")}`}
+              >
+                +{cluster.articles.length - 1} {cluster.articles.length - 1 === 1 ? "source" : "sources"} ⚖️
+              </button>
+            )}
+          </div>
+          <h3>{article.title}</h3>{article.summary && <p>{article.summary}</p>}
+        </article>
+        {article.imageUrl && (
+          <SmartFocalImage
+            className="story-image"
+            src={article.imageUrl}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            referrerPolicy="no-referrer"
+            onError={(event) => { event.currentTarget.hidden = true; }}
+          />
+        )}
+      </a>
+      <div className="story-actions">
+        <button
+          type="button"
+          className="open-story-button"
+          onClick={(event) => onOpenReader(article, event.currentTarget, false)}
+          aria-label={`Read ${article.title} in Signal`}
+          title="Read in Signal"
+        >
+          <ArrowIcon />
+        </button>
+        <button
+          type="button"
+          className="listen-story-button"
+          onClick={(event) => onOpenReader(article, event.currentTarget, true)}
+          aria-label={`Listen to ${article.title}`}
+          title="Listen to this news"
+        >
+          <SpeakerIcon />
+        </button>
+        <button
+          type="button"
+          className="interrogate-story-button"
+          onClick={() => onInterrogate(article)}
+          aria-label={`Interrogate story: ${article.title}`}
+          title="Socratic Fact-Check & Interrogation"
+        >
+          ⚖️
+        </button>
+        <button
+          type="button"
+          className="audiogram-story-button"
+          onClick={() => onOpenAudiogram(article)}
+          aria-label={`Clip soundbite audiogram for ${article.title}`}
+          title="Clip Social Soundbite & Audiogram"
+        >
+          🎙️
+        </button>
+        <button
+          type="button"
+          className={`dossier-stage-button ${isStaged ? "is-staged" : ""}`}
+          onClick={() => onToggleDossier(article)}
+          aria-label={`Toggle staging ${article.title} for executive dossier`}
+          title={isStaged ? "Remove from Executive Dossier" : "Add to Executive Dossier Binder"}
+        >
+          📁
+        </button>
+        {canDiscuss && (
+          <button
+            type="button"
+            className="comment-button"
+            onClick={() => onOpenDiscussion(article)}
+            aria-label={`Discuss ${article.title}`}
+            title="Comments"
+          >
+            <CommentIcon />
+          </button>
+        )}
+        <button
+          type="button"
+          className="share-button"
+          onClick={(event) => onOpenShare(article, event.currentTarget)}
+          disabled={isSharing}
+          aria-busy={isSharing}
+          aria-label={`Share ${article.title}`}
+          title={isSharing ? "Resolving publisher link" : "Share story"}
+        >
+          <ShareIcon />
+        </button>
+        {cluster && cluster.articles.length > 1 && (
+          <button
+            type="button"
+            className="compare-coverage-action-btn"
+            onClick={() => onCompareCluster(cluster)}
+            aria-label={`Compare coverage across ${cluster.articles.length} sources for ${article.title}`}
+            title="Compare Coverage ⚖️"
+          >
+            ⚖️
+          </button>
+        )}
+        <ListenLaterButton compact url={article.url} title={article.title} source={article.source} imageUrl={article.imageUrl} />
+        {canBookmark && (
+          <button
+            type="button"
+            className={article.isBookmarked ? "bookmark-button active" : "bookmark-button"}
+            onClick={() => onToggleBookmark(article)}
+            disabled={isBookmarking}
+            aria-pressed={article.isBookmarked === true}
+            aria-label={article.isBookmarked ? `Remove bookmark from ${article.title}` : `Bookmark ${article.title}`}
+            title={article.isBookmarked ? "Remove bookmark" : "Keep forever"}
+          >
+            <span aria-hidden="true">{article.isBookmarked ? "\u2605" : "\u2606"}</span>
+          </button>
+        )}
+      </div>
+    </li>
+  );
+});
 
 function formatUntil(value: string) {
   const difference = timestampValue(value) - Date.now();
@@ -1083,7 +1418,14 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [controlsExpanded, setControlsExpanded] = useState(false);
   const [controlsHidden, setControlsHidden] = useState(false);
   const [followingTopicsExpanded, setFollowingTopicsExpanded] = useState(false);
-  const [backToTopVisible, setBackToTopVisible] = useState(false);
+  const [visibleFeedCount, setVisibleFeedCount] = useState(FEED_BATCH_SIZE);
+  const feedSentinelElement = useRef<HTMLDivElement>(null);
+  const latestArticlesRef = useRef<FollowedArticle[]>(articles);
+  const latestTopicStatesRef = useRef<TopicRefreshStatus[]>(topicRefreshStates);
+  const latestTotalsRef = useRef({ historyTotal, bookmarkTotal });
+  latestArticlesRef.current = articles;
+  latestTopicStatesRef.current = topicRefreshStates;
+  latestTotalsRef.current = { historyTotal, bookmarkTotal };
   const [floatingNavigationSide, setFloatingNavigationSide] = useState<"left" | "right">("left");
   const [watchHandoffId, setWatchHandoffId] = useState(() => typeof window === "undefined" ? null : pendingWatchHandoff(window.location.search));
   const [readerArticle, setReaderArticle] = useState<FollowedArticle | null>(null);
@@ -1783,7 +2125,9 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
 
   useEffect(() => {
     setCurrentTime(new Date());
-    const clock = window.setInterval(() => setCurrentTime(new Date()), 30_000);
+    const clock = window.setInterval(() => {
+      if (document.visibilityState === "visible") setCurrentTime(new Date());
+    }, 5 * 60_000);
     return () => window.clearInterval(clock);
   }, []);
 
@@ -2057,13 +2401,21 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           ? await refreshStore.refresh()
           : await refreshStore.load(options.topic);
         if (runId !== requestSequence.current) return;
-        setArticles((current) => options.topic
-          ? mergeTopicBriefingArticles(current, briefing.articles, options.topic)
-          : briefing.articles);
-        setTopicRefreshStates(briefing.topics);
-        setFetchedAt(briefing.refreshedAt ?? "");
-        setHistoryTotal(briefing.historyTotal);
-        setBookmarkTotal(briefing.bookmarkTotal);
+        const snapshotUnchanged = !options.topic
+          && !options.forceRefresh
+          && areArticlesSnapshotEqual(latestArticlesRef.current, briefing.articles)
+          && areTopicStatesEqual(latestTopicStatesRef.current, briefing.topics)
+          && latestTotalsRef.current.historyTotal === briefing.historyTotal
+          && latestTotalsRef.current.bookmarkTotal === briefing.bookmarkTotal;
+        if (!snapshotUnchanged) {
+          setArticles((current) => options.topic
+            ? mergeTopicBriefingArticles(current, briefing.articles, options.topic)
+            : briefing.articles);
+          setTopicRefreshStates(briefing.topics);
+          setFetchedAt(briefing.refreshedAt ?? "");
+          setHistoryTotal(briefing.historyTotal);
+          setBookmarkTotal(briefing.bookmarkTotal);
+        }
         if (options.forceRefresh) {
           const partialCount = briefing.topics.filter((state) => state.lastError).length;
           setNotice(partialCount > 0
@@ -2303,7 +2655,11 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     if (!ready || preferences.topics.length === 0 || enabledSourceCount === 0) return;
     if (refreshStore) {
       const interval = window.setInterval(
-        () => { if (!foregroundHeadlinePlayback.current) void loadNews(preferences, { quiet: true }); },
+        () => {
+          if (document.visibilityState === "visible" && !foregroundHeadlinePlayback.current) {
+            void loadNews(preferences, { quiet: true });
+          }
+        },
         30_000,
       );
       return () => window.clearInterval(interval);
@@ -2446,6 +2802,98 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     () => clusterArticles(noiseFilteredArticles),
     [noiseFilteredArticles],
   );
+
+  useEffect(() => {
+    setVisibleFeedCount(FEED_BATCH_SIZE);
+  }, [selectedTopic, selectedProvider, feedView, historySearch]);
+
+  const visibleFeedItems = useMemo(
+    () => clusteredFeedItems.slice(0, visibleFeedCount),
+    [clusteredFeedItems, visibleFeedCount],
+  );
+
+  const hasMoreFeedItems = visibleFeedItems.length < clusteredFeedItems.length;
+
+  useEffect(() => {
+    if (!hasMoreFeedItems || typeof IntersectionObserver === "undefined") return;
+    const sentinel = feedSentinelElement.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setVisibleFeedCount((count) => Math.min(clusteredFeedItems.length, count + FEED_BATCH_SIZE));
+        }
+      },
+      { rootMargin: "900px 0px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMoreFeedItems, clusteredFeedItems.length]);
+
+  const stagedUrlSet = useMemo(
+    () => new Set(stagedDossierArticles.map((article) => article.url)),
+    [stagedDossierArticles],
+  );
+
+  const watchMatchUrlSet = useMemo(() => {
+    const matched = new Set<string>();
+    for (const { article } of visibleFeedItems) {
+      if (isArticleWatchMatch(article, keywordRules)) {
+        matched.add(article.url);
+      }
+    }
+    return matched;
+  }, [visibleFeedItems, keywordRules]);
+
+  const storyActionsRef = useRef<{
+    openArticleReader: (article: FollowedArticle, trigger: HTMLElement, listen?: boolean) => void;
+    openStoryShare: (article: FollowedArticle, trigger: HTMLButtonElement) => Promise<void>;
+    toggleBookmark: (article: FollowedArticle) => Promise<boolean>;
+    onOpenDiscussion?: (article: FollowedArticle) => void;
+    openSecondaryTimeZoneEditor: () => void;
+  }>({
+    openArticleReader: () => {},
+    openStoryShare: async () => {},
+    toggleBookmark: async () => false,
+    onOpenDiscussion,
+    openSecondaryTimeZoneEditor: () => {},
+  });
+
+  const handleOpenStoryReader = useCallback((article: FollowedArticle, trigger: HTMLElement, listen: boolean) => {
+    storyActionsRef.current.openArticleReader(article, trigger, listen);
+  }, []);
+  const handleInterrogateStory = useCallback((article: FollowedArticle) => {
+    setInterrogateArticle(article);
+  }, []);
+  const handleOpenAudiogram = useCallback((article: FollowedArticle) => {
+    setAudiogramTarget({
+      title: article.title,
+      excerpt: article.summary,
+      source: article.source,
+      url: article.url,
+    });
+  }, []);
+  const handleToggleDossier = useCallback((article: FollowedArticle) => {
+    setStagedDossierArticles((prev) => {
+      const exists = prev.some((a) => a.url === article.url);
+      return exists ? prev.filter((a) => a.url !== article.url) : [...prev, article];
+    });
+  }, []);
+  const handleOpenStoryDiscussion = useCallback((article: FollowedArticle) => {
+    storyActionsRef.current.onOpenDiscussion?.(article);
+  }, []);
+  const handleOpenStoryShare = useCallback((article: FollowedArticle, trigger: HTMLButtonElement) => {
+    void storyActionsRef.current.openStoryShare(article, trigger);
+  }, []);
+  const handleCompareCluster = useCallback((cluster: StoryCluster) => {
+    setActiveCompareCluster(cluster);
+  }, []);
+  const handleToggleStoryBookmark = useCallback((article: FollowedArticle) => {
+    void storyActionsRef.current.toggleBookmark(article);
+  }, []);
+  const handleEditSecondaryTimeZone = useCallback(() => {
+    storyActionsRef.current.openSecondaryTimeZoneEditor();
+  }, []);
 
   const topicCounts = useMemo(
     () => feedView === "latest"
@@ -2594,21 +3042,16 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   }, [availableProviders, selectedProvider]);
 
   useEffect(() => {
-    const updateBackToTopVisibility = () => {
-      setBackToTopVisible(window.scrollY > 80);
-    };
-
-    updateBackToTopVisibility();
-    window.addEventListener("scroll", updateBackToTopVisibility, { passive: true });
-    return () => window.removeEventListener("scroll", updateBackToTopVisibility);
-  }, []);
-
-  useEffect(() => {
     const header = headerElement.current;
     const dashboard = header?.parentElement;
     if (!header || !dashboard) return;
+    let lastHeaderHeight = -1;
     const updateHeaderOffset = () => {
-      dashboard.style.setProperty("--site-header-offset", `${Math.ceil(header.getBoundingClientRect().height)}px`);
+      const nextHeight = Math.ceil(header.getBoundingClientRect().height);
+      if (nextHeight !== lastHeaderHeight) {
+        lastHeaderHeight = nextHeight;
+        dashboard.style.setProperty("--site-header-offset", `${nextHeight}px`);
+      }
     };
     updateHeaderOffset();
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateHeaderOffset);
@@ -2623,15 +3066,26 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
 
   useEffect(() => {
     let frame = 0;
+    let lastStickyTop = -1;
+    let lastPinned: boolean | null = null;
     const updatePinnedFilters = () => {
       window.cancelAnimationFrame(frame);
       frame = window.requestAnimationFrame(() => {
         const filterStack = filterStackElement.current;
         if (!filterStack) return;
         const heroBottom = Math.max(0, heroElement.current?.getBoundingClientRect().bottom ?? 0);
-        filterStack.style.setProperty("--filter-sticky-top", `${Math.round(heroBottom)}px`);
-        const pinned = filterStack.getBoundingClientRect().top <= heroBottom + 1 && window.scrollY > 0;
-        filterStack.classList.toggle("pinned", pinned);
+        const filterTop = filterStack.getBoundingClientRect().top;
+        const scrollY = window.scrollY;
+        const nextStickyTop = Math.round(heroBottom);
+        const pinned = filterTop <= heroBottom + 1 && scrollY > 0;
+        if (nextStickyTop !== lastStickyTop) {
+          lastStickyTop = nextStickyTop;
+          filterStack.style.setProperty("--filter-sticky-top", `${nextStickyTop}px`);
+        }
+        if (pinned !== lastPinned) {
+          lastPinned = pinned;
+          filterStack.classList.toggle("pinned", pinned);
+        }
       });
     };
 
@@ -4030,35 +4484,16 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
       ? "Article history"
       : selectedTopic === ALL_TOPICS ? "All followed topics" : selectedTopic;
   const clockTimeZone = localWeather?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const currentTimeLabel = currentTime
-    ? currentTime.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", timeZone: clockTimeZone })
-    : "--:--";
-  const currentDateLabel = currentTime
-    ? currentTime.toLocaleDateString(undefined, {
-      weekday: "long",
-      day: "numeric",
-      month: "long",
-      timeZone: clockTimeZone,
-    })
-    : "Local date";
-  const secondaryTimeLabel = currentTime && preferences.secondaryTimeZone
-    ? currentTime.toLocaleTimeString(undefined, {
-      hour: "numeric",
-      minute: "2-digit",
-      timeZone: preferences.secondaryTimeZone.timeZone,
-    })
-    : "--:--";
-  const secondaryDateLabel = currentTime && preferences.secondaryTimeZone
-    ? currentTime.toLocaleDateString(undefined, {
-      weekday: "short",
-      day: "numeric",
-      month: "short",
-      timeZone: preferences.secondaryTimeZone.timeZone,
-    })
-    : "";
   const readerOriginalUrl = readerContent.status === "ready"
     ? readerContent.article.finalUrl
     : readerArticle?.url ?? "";
+  storyActionsRef.current = {
+    openArticleReader,
+    openStoryShare,
+    toggleBookmark,
+    onOpenDiscussion,
+    openSecondaryTimeZoneEditor,
+  };
 
   async function bookmarkWithHand(article: FollowedArticle) {
     const current = articles.find((item) => item.url === article.url)
@@ -4551,30 +4986,11 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           <p className="lede">One focused briefing across multiple news networks and the publishers you trust.</p>
         </div>
         <aside className="hero-context" aria-label="Topics, local date, time, and weather" aria-live="polite">
-          <div className="hero-clocks">
-            <div className="hero-clock">
-              <div className="hero-local-time-row">
-                <time className="hero-time" dateTime={currentTime?.toISOString()}>{currentTimeLabel}</time>
-                <span className="hero-clock-label">Local</span>
-              </div>
-              <span className="hero-date">{currentDateLabel}</span>
-            </div>
-            {preferences.secondaryTimeZone ? (
-              <button
-                type="button"
-                className="hero-secondary-clock"
-                onClick={openSecondaryTimeZoneEditor}
-                aria-label={`Additional clock for ${preferences.secondaryTimeZone.name}. Change or remove time zone.`}
-              >
-                <time dateTime={currentTime?.toISOString()}>{secondaryTimeLabel}</time>
-                <span>{preferences.secondaryTimeZone.name}<small>{secondaryDateLabel}</small></span>
-              </button>
-            ) : (
-              <button type="button" className="hero-time-zone-add" onClick={openSecondaryTimeZoneEditor}>
-                <span aria-hidden="true">+</span> Time zone
-              </button>
-            )}
-          </div>
+          <HeroClocks
+            clockTimeZone={clockTimeZone}
+            secondaryTimeZone={preferences.secondaryTimeZone}
+            onEditSecondaryTimeZone={handleEditSecondaryTimeZone}
+          />
           {weatherStatus === "ready" && localWeather ? (
             <button
               type="button"
@@ -5653,164 +6069,39 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         ) : (
           <>
             <ol className="story-list" ref={storyListElement}>
-              {clusteredFeedItems.map(({ article, cluster }, index) => (
-                <li key={article.url}>
-                <a
-                  href={article.url}
-                  className={article.imageUrl ? "story-link has-image" : "story-link"}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    openArticleReader(article, event.currentTarget);
-                  }}
-                >
-                  <span className="story-number">{String(index + 1).padStart(2, "0")}</span>
-                  <article>
-                    <div className="story-meta">
-                      <span className="story-topic">{article.topics.join(" + ")}</span>
-                      <span className="story-provider">{article.providers.join(" + ")}</span>
-                      <span>{article.source}</span>
-                      <span>{formatAge(article.publishedAt)}</span>
-                      {isArticleWatchMatch(article, keywordRules) && (
-                        <span className="story-watchlist-match-badge" title="Watchlist keyword match">
-                          ⭐ Watchlist
-                        </span>
-                      )}
-                      {cluster && cluster.articles.length > 1 && (
-                        <button
-                          type="button"
-                          className="story-cluster-badge"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setActiveCompareCluster(cluster);
-                          }}
-                          title={`Compare coverage from ${cluster.articles.length} sources: ${cluster.sources.join(", ")}`}
-                        >
-                          +{cluster.articles.length - 1} {cluster.articles.length - 1 === 1 ? "source" : "sources"} ⚖️
-                        </button>
-                      )}
-                    </div>
-                    <h3>{article.title}</h3>{article.summary && <p>{article.summary}</p>}
-                  </article>
-                  {article.imageUrl && (
-                    <SmartFocalImage
-                      className="story-image"
-                      src={article.imageUrl}
-                      alt=""
-                      loading="lazy"
-                      decoding="async"
-                      referrerPolicy="no-referrer"
-                      onError={(event) => { event.currentTarget.hidden = true; }}
-                    />
-                  )}
-                </a>
-                <div className="story-actions">
-                  <button
-                    type="button"
-                    className="open-story-button"
-                    onClick={(event) => openArticleReader(article, event.currentTarget)}
-                    aria-label={`Read ${article.title} in Signal`}
-                    title="Read in Signal"
-                  >
-                    <ArrowIcon />
-                  </button>
-                  <button
-                    type="button"
-                    className="listen-story-button"
-                    onClick={(event) => openArticleReader(article, event.currentTarget, true)}
-                    aria-label={`Listen to ${article.title}`}
-                    title="Listen to this news"
-                  >
-                    <SpeakerIcon />
-                  </button>
-                  <button
-                    type="button"
-                    className="interrogate-story-button"
-                    onClick={() => setInterrogateArticle(article)}
-                    aria-label={`Interrogate story: ${article.title}`}
-                    title="Socratic Fact-Check & Interrogation"
-                  >
-                    ⚖️
-                  </button>
-                  <button
-                    type="button"
-                    className="audiogram-story-button"
-                    onClick={() => setAudiogramTarget({
-                      title: article.title,
-                      excerpt: article.summary,
-                      source: article.source,
-                      url: article.url,
-                    })}
-                    aria-label={`Clip soundbite audiogram for ${article.title}`}
-                    title="Clip Social Soundbite & Audiogram"
-                  >
-                    🎙️
-                  </button>
-                  <button
-                    type="button"
-                    className={`dossier-stage-button ${stagedDossierArticles.some((a) => a.url === article.url) ? "is-staged" : ""}`}
-                    onClick={() => {
-                      setStagedDossierArticles((prev) => {
-                        const exists = prev.some((a) => a.url === article.url);
-                        return exists ? prev.filter((a) => a.url !== article.url) : [...prev, article];
-                      });
-                    }}
-                    aria-label={`Toggle staging ${article.title} for executive dossier`}
-                    title={stagedDossierArticles.some((a) => a.url === article.url) ? "Remove from Executive Dossier" : "Add to Executive Dossier Binder"}
-                  >
-                    📁
-                  </button>
-                  {onOpenDiscussion && (
-                    <button
-                      type="button"
-                      className="comment-button"
-                      onClick={() => onOpenDiscussion(article)}
-                      aria-label={`Discuss ${article.title}`}
-                      title="Comments"
-                    >
-                      <CommentIcon />
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="share-button"
-                    onClick={(event) => void openStoryShare(article, event.currentTarget)}
-                    disabled={sharingUrls.has(article.url)}
-                    aria-busy={sharingUrls.has(article.url)}
-                    aria-label={`Share ${article.title}`}
-                    title={sharingUrls.has(article.url) ? "Resolving publisher link" : "Share story"}
-                  >
-                    <ShareIcon />
-                  </button>
-                  {cluster && cluster.articles.length > 1 && (
-                    <button
-                      type="button"
-                      className="compare-coverage-action-btn"
-                      onClick={() => setActiveCompareCluster(cluster)}
-                      aria-label={`Compare coverage across ${cluster.articles.length} sources for ${article.title}`}
-                      title="Compare Coverage ⚖️"
-                    >
-                      ⚖️
-                    </button>
-                  )}
-                  <ListenLaterButton compact url={article.url} title={article.title} source={article.source} imageUrl={article.imageUrl} />
-                  {articleStore && (
-                    <button
-                      type="button"
-                      className={article.isBookmarked ? "bookmark-button active" : "bookmark-button"}
-                      onClick={() => void toggleBookmark(article)}
-                      disabled={bookmarkingUrls.has(article.url)}
-                      aria-pressed={article.isBookmarked === true}
-                      aria-label={article.isBookmarked ? `Remove bookmark from ${article.title}` : `Bookmark ${article.title}`}
-                      title={article.isBookmarked ? "Remove bookmark" : "Keep forever"}
-                    >
-                      <span aria-hidden="true">{article.isBookmarked ? "\u2605" : "\u2606"}</span>
-                    </button>
-                  )}
-                </div>
-                </li>
+              {visibleFeedItems.map(({ article, cluster }, index) => (
+                <StoryFeedItem
+                  key={article.url}
+                  article={article}
+                  cluster={cluster}
+                  index={index}
+                  watchMatch={watchMatchUrlSet.has(article.url)}
+                  isStaged={stagedUrlSet.has(article.url)}
+                  isSharing={sharingUrls.has(article.url)}
+                  isBookmarking={bookmarkingUrls.has(article.url)}
+                  canDiscuss={Boolean(onOpenDiscussion)}
+                  canBookmark={Boolean(articleStore)}
+                  onOpenReader={handleOpenStoryReader}
+                  onInterrogate={handleInterrogateStory}
+                  onOpenAudiogram={handleOpenAudiogram}
+                  onToggleDossier={handleToggleDossier}
+                  onOpenDiscussion={handleOpenStoryDiscussion}
+                  onOpenShare={handleOpenStoryShare}
+                  onCompareCluster={handleCompareCluster}
+                  onToggleBookmark={handleToggleStoryBookmark}
+                />
               ))}
             </ol>
+            {hasMoreFeedItems && (
+              <div ref={feedSentinelElement} className="feed-load-more">
+                <button
+                  type="button"
+                  onClick={() => setVisibleFeedCount((count) => Math.min(clusteredFeedItems.length, count + FEED_BATCH_SIZE))}
+                >
+                  Show {Math.min(FEED_BATCH_SIZE, clusteredFeedItems.length - visibleFeedItems.length)} more ({clusteredFeedItems.length - visibleFeedItems.length} remaining)
+                </button>
+              </div>
+            )}
             {feedView !== "latest" && historyHasMore && (
               <div className="history-load-more">
                 <button
@@ -6628,16 +6919,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
               <span aria-hidden="true">&#8594;</span>
             </button>
           )}
-          {backToTopVisible && (
-            <a
-              className="floating-back-to-top"
-              href="#top"
-              aria-label="Back to top"
-              title="Back to top"
-            >
-              <span aria-hidden="true">&#8593;</span>
-            </a>
-          )}
+          <FloatingBackToTopLink />
           <button
             type="button"
             className="floating-switch-side"
