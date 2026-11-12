@@ -262,6 +262,7 @@ builder.Services.AddHttpClient<ArticleReaderService>(client =>
 });
 builder.Services.AddScoped<TripwireEvaluatorService>();
 builder.Services.AddScoped<TopicRefreshService>();
+builder.Services.AddScoped<OpenCoverageService>();
 builder.Services.Configure<MicrosoftFoundryOptions>(options =>
     MicrosoftFoundryOptions.BindConfiguration(options, builder.Configuration));
 builder.Services.AddHttpClient(MicrosoftFoundryService.HttpClientName, client =>

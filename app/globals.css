@@ -4246,6 +4246,190 @@ button.local-weather {
   text-transform: uppercase;
 }
 
+.article-reader-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+
+.article-reader-state-actions a,
+.article-reader-open-coverage-btn {
+  border: 1px solid var(--line);
+  background: var(--card-background);
+  color: var(--page-text);
+  padding: 0.8rem 1rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.article-reader-open-coverage-btn {
+  border-color: var(--red);
+  background: var(--red);
+  color: #ffffff;
+}
+
+.article-reader-open-coverage-btn:hover:not(:disabled) {
+  filter: brightness(0.94);
+}
+
+.article-reader-open-coverage-btn:disabled {
+  opacity: 0.65;
+  cursor: progress;
+}
+
+.article-reader-state-actions a:hover {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+.article-reader-open-coverage {
+  width: min(44rem, 100%);
+  margin-top: 1.75rem;
+  border-top: 1px solid var(--line);
+  padding-top: 1.35rem;
+  text-align: left;
+}
+
+.article-reader-open-coverage-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.article-reader-loader.small {
+  width: 1.15rem;
+  height: 1.15rem;
+  flex: none;
+}
+
+.article-reader-open-coverage-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.article-reader-open-coverage-header h3 {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--page-text);
+}
+
+.article-reader-open-coverage-query {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.article-reader-open-coverage-note {
+  margin: 0.35rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.article-reader-open-coverage-list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.85rem;
+}
+
+.article-reader-open-coverage-item {
+  border: 1px solid var(--line);
+  background: var(--card-background);
+  padding: 1rem 1.1rem;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.article-reader-open-coverage-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.75rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.article-reader-open-coverage-meta strong {
+  margin-top: 0;
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--red);
+}
+
+.article-reader-open-coverage-item h4 {
+  margin: 0;
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: 1.08rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--page-text);
+}
+
+.article-reader-open-coverage-item p {
+  margin: 0;
+  max-width: none;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+.article-reader-open-coverage-item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 0.2rem;
+}
+
+.article-reader-open-coverage-item-actions button,
+.article-reader-open-coverage-item-actions a {
+  border: 1px solid var(--line);
+  background: var(--paper-deep);
+  color: var(--page-text);
+  padding: 0.48rem 0.78rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.article-reader-open-coverage-item-actions button.primary {
+  border-color: var(--red);
+  background: var(--red);
+  color: #ffffff;
+}
+
+.article-reader-open-coverage-item-actions button:hover,
+.article-reader-open-coverage-item-actions a:hover {
+  border-color: var(--red);
+}
+
+.article-reader-open-coverage-item-actions button.primary:hover {
+  filter: brightness(0.94);
+}
+
 .loading-list { padding-top: 1rem; }
 .loading-row { height: 8.6rem; border-bottom: 1px solid var(--line); position: relative; overflow: hidden; }
 .loading-row::after { content: ""; position: absolute; inset: 1.8rem 0; width: 65%; background: linear-gradient(90deg, var(--paper-deep), var(--shimmer-middle), var(--paper-deep)); background-size: 200% 100%; animation: shimmer 1.4s infinite; }

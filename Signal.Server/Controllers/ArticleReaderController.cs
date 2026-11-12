@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -12,7 +13,8 @@ namespace Signal.Server.Controllers;
 [ResponseCache(Location = ResponseCacheLocation.None, NoStore = true)]
 public sealed class ArticleReaderController(
     ArticleReaderService articleReader,
-    ILogger<ArticleReaderController> logger) : ControllerBase
+    ILogger<ArticleReaderController> logger,
+    OpenCoverageService? openCoverage = null) : ControllerBase
 {
     [HttpGet("resolve")]
     public async Task<IActionResult> Resolve([FromQuery] string url, CancellationToken cancellationToken)
@@ -60,6 +62,41 @@ public sealed class ArticleReaderController(
                 available = false,
                 reason = "The publisher blocked extraction or the article is temporarily unavailable.",
             });
+        }
+    }
+
+    [HttpPost("open-coverage")]
+    [RequestSizeLimit(16_384)]
+    public async Task<IActionResult> FindOpenCoverage(
+        [FromBody] OpenCoverageRequest? request,
+        CancellationToken cancellationToken)
+    {
+        if (openCoverage is null)
+        {
+            return Ok(new OpenCoverageResponse(false, "", "Open coverage search is temporarily unavailable.", []));
+        }
+
+        try
+        {
+            var userId = User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? "";
+            var result = await openCoverage.FindOpenCoverageAsync(
+                userId,
+                request ?? new OpenCoverageRequest(null, null, null),
+                cancellationToken);
+            return Ok(result);
+        }
+        catch (ArgumentException exception)
+        {
+            return BadRequest(new OpenCoverageResponse(false, "", exception.Message, []));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Open coverage search failed for {Title}.", request?.Title);
+            return Ok(new OpenCoverageResponse(false, "", "Could not search open news sources right now.", []));
         }
     }
 

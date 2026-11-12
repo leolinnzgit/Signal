@@ -17,7 +17,7 @@ public sealed record ReaderArticle(
     string PublishedAt,
     IReadOnlyList<string> Paragraphs);
 
-public sealed record ArticleReaderResult(bool Available, string Reason, ReaderArticle? Article);
+public sealed record ArticleReaderResult(bool Available, string Reason, ReaderArticle? Article, bool Paywalled = false);
 
 public sealed class ArticleReaderService(
     HttpClient httpClient,
@@ -104,6 +104,35 @@ public sealed class ArticleReaderService(
             result.Available ? TimeSpan.FromMinutes(30) : TimeSpan.FromMinutes(5));
         await StoreSearchTextAsync(value, result, cancellationToken);
         return result;
+    }
+
+    public string? GetCachedResolvedUrl(string value)
+    {
+        if (Uri.TryCreate(value, UriKind.Absolute, out var uri)
+            && cache.TryGetValue($"article-url:{uri.AbsoluteUri}", out string? resolved)
+            && !string.IsNullOrWhiteSpace(resolved))
+        {
+            return resolved;
+        }
+        return null;
+    }
+
+    public string? GetCachedPublicHeadline(string value)
+    {
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri)) return null;
+        if (cache.TryGetValue($"article-headline:{uri.AbsoluteUri}", out string? headline)
+            && !string.IsNullOrWhiteSpace(headline))
+        {
+            return headline;
+        }
+        var resolved = GetCachedResolvedUrl(uri.AbsoluteUri);
+        if (resolved is not null
+            && cache.TryGetValue($"article-headline:{resolved}", out headline)
+            && !string.IsNullOrWhiteSpace(headline))
+        {
+            return headline;
+        }
+        return null;
     }
 
     private async Task StoreSearchTextAsync(string url, ArticleReaderResult result, CancellationToken token)
@@ -204,7 +233,7 @@ public sealed class ArticleReaderService(
 
             if (response.StatusCode is HttpStatusCode.PaymentRequired or HttpStatusCode.Unauthorized)
             {
-                return Unavailable("This publisher requires a subscription or direct access.");
+                return Unavailable("This publisher requires a subscription or direct access.", paywalled: true);
             }
 
             if (!response.IsSuccessStatusCode)
@@ -227,6 +256,10 @@ public sealed class ArticleReaderService(
                 continue;
             }
             var extracted = ExtractArticle(html, currentUri);
+            if (!extracted.Available)
+            {
+                CachePublicHeadline(initialUri, currentUri, html);
+            }
             if (!extracted.Available && extracted.Reason == InsufficientTextReason
                 && StuffArticleApiUri(currentUri) is { } stuffApiUri)
             {
@@ -288,7 +321,7 @@ public sealed class ArticleReaderService(
             var access = JsonString(story, "contentAccess");
             if (access.Length == 0) return null;
             if (!access.Equals("open", StringComparison.OrdinalIgnoreCase))
-                return Unavailable("This story appears to require a subscription or publisher login.");
+                return Unavailable("This story appears to require a subscription or publisher login.", paywalled: true);
             if (!story.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Object
                 || !content.TryGetProperty("contentBody", out var body) || body.ValueKind != JsonValueKind.Object)
                 return null;
@@ -341,7 +374,7 @@ public sealed class ArticleReaderService(
             var structured = ExtractStructuredArticle(html);
             // Paid metadata is authoritative even if hidden text is present in the HTML.
             if (structured.IsPaywalled)
-                return Unavailable("This story appears to require a subscription or publisher login.");
+                return Unavailable("This story appears to require a subscription or publisher login.", paywalled: true);
 
             var readable = ExtractReadableArticle(html, finalUri);
             var paragraphs = structured.Paragraphs.Sum(paragraph => paragraph.Length)
@@ -375,7 +408,7 @@ public sealed class ArticleReaderService(
                 || PaywallMarkers.Any(marker => cleanedHtml.Contains(marker, StringComparison.OrdinalIgnoreCase));
 
             if (structured.IsPaywalled || (paywallDetected && textLength < 1_200))
-                return Unavailable("This story appears to require a subscription or publisher login.");
+                return Unavailable("This story appears to require a subscription or publisher login.", paywalled: true);
 
             if (paragraphs.Count == 0 || textLength < 300)
                 return Unavailable(InsufficientTextReason);
@@ -832,8 +865,68 @@ public sealed class ArticleReaderService(
             or HttpStatusCode.TemporaryRedirect
             or HttpStatusCode.PermanentRedirect;
 
-    private static ArticleReaderResult Unavailable(string reason) =>
-        new(false, reason, null);
+    private static ArticleReaderResult Unavailable(string reason, bool paywalled = false) =>
+        new(false, reason, null, paywalled);
+
+    private void CachePublicHeadline(Uri initialUri, Uri currentUri, string html)
+    {
+        var headline = ExtractPublicHeadline(html);
+        if (string.IsNullOrWhiteSpace(headline)) return;
+        cache.Set($"article-headline:{currentUri.AbsoluteUri}", headline, TimeSpan.FromMinutes(30));
+        if (!string.Equals(initialUri.AbsoluteUri, currentUri.AbsoluteUri, StringComparison.Ordinal))
+        {
+            cache.Set($"article-headline:{initialUri.AbsoluteUri}", headline, TimeSpan.FromMinutes(30));
+        }
+    }
+
+    internal static string ExtractPublicHeadline(string html)
+    {
+        try
+        {
+            foreach (Match match in JsonLdBlock.Matches(html))
+            {
+                var json = match.Groups[1].Value.Trim();
+                if (string.IsNullOrWhiteSpace(json)) continue;
+                try
+                {
+                    using var doc = JsonDocument.Parse(json);
+                    var found = "";
+                    VisitJson(doc.RootElement, el =>
+                    {
+                        if (found.Length > 0 || !IsArticle(el)) return;
+                        var candidate = JsonString(el, "headline");
+                        if (!string.IsNullOrWhiteSpace(candidate))
+                            found = WhiteSpace.Replace(WebUtility.HtmlDecode(candidate), " ").Trim();
+                    });
+                    if (found.Length >= 8) return found;
+                }
+                catch (JsonException) { }
+            }
+
+            var document = new HtmlParser().ParseDocument(html);
+            var ogTitle = document.QuerySelector("meta[property='og:title'], meta[name='og:title']")?.GetAttribute("content");
+            var raw = !string.IsNullOrWhiteSpace(ogTitle) ? ogTitle : document.Title;
+            if (string.IsNullOrWhiteSpace(raw)) return "";
+            var cleaned = WhiteSpace.Replace(WebUtility.HtmlDecode(raw), " ").Trim();
+            if (cleaned.Equals("Attention Required! | Cloudflare", StringComparison.OrdinalIgnoreCase)
+                || cleaned.Equals("Just a moment...", StringComparison.OrdinalIgnoreCase))
+                return "";
+            foreach (var sep in new[] { " - ", " | " })
+            {
+                var idx = cleaned.LastIndexOf(sep, StringComparison.Ordinal);
+                if (idx >= 12 && cleaned.Length - idx <= 35)
+                {
+                    cleaned = cleaned[..idx].Trim();
+                    break;
+                }
+            }
+            return cleaned;
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            return "";
+        }
+    }
 
     private sealed class StructuredArticle
     {

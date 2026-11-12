@@ -95,7 +95,13 @@ import {
   type BriefingVisitCheckpoint,
   type SituationRadarSummary,
 } from "./daily-briefing-radar";
-import { clusterArticles, type StoryCluster } from "./story-clustering";
+import { areArticlesSimilar, clusterArticles, type StoryCluster } from "./story-clustering";
+import {
+  fetchOpenCoverage,
+  isPaywallReason,
+  type OpenCoverageArticle,
+  type OpenCoverageState,
+} from "./open-coverage";
 import { getEntityIcon } from "./article-entities";
 import { getSuggestedTopics, type SuggestedTopic } from "./suggested-topics";
 import ArticleReadingText from "./ArticleReadingText";
@@ -143,12 +149,13 @@ type ExtractedReaderArticle = {
 
 type ReaderContent =
   | { status: "idle" | "loading" }
-  | { status: "unavailable"; reason: string }
+  | { status: "unavailable"; reason: string; paywalled?: boolean }
   | { status: "ready"; article: ExtractedReaderArticle };
 
 type ArticleReaderResponse = {
   available: boolean;
   reason?: string;
+  paywalled?: boolean;
   article?: ExtractedReaderArticle;
 };
 
@@ -1107,6 +1114,9 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const foregroundHeadlinePlayback = useRef(false);
   const headlineFullscreenRequested = useRef(false);
   const [readerContent, setReaderContent] = useState<ReaderContent>({ status: "idle" });
+  const [openCoverage, setOpenCoverage] = useState<OpenCoverageState>({ status: "idle" });
+  const openCoverageAbort = useRef<AbortController | null>(null);
+  const openCoverageSequence = useRef(0);
   const [topicPendingRemoval, setTopicPendingRemoval] = useState<string | null>(null);
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [installHelpOpen, setInstallHelpOpen] = useState(false);
@@ -3573,8 +3583,99 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const readerSummaryParagraphs = useMemo(() => [readerArticle?.summary || readerArticle?.title || ""],
     [readerArticle?.summary, readerArticle?.title]);
 
+  const localSimilarArticles = useMemo(() => {
+    if (readerContent.status !== "unavailable" || !readerArticle) return [];
+    const seenUrls = new Set<string>([readerArticle.url]);
+    if (openCoverage.status === "ready") {
+      for (const item of openCoverage.articles) seenUrls.add(item.url);
+    }
+    const matches: FollowedArticle[] = [];
+    for (const candidate of [...articles, ...historyArticles]) {
+      if (!candidate.url || seenUrls.has(candidate.url)) continue;
+      if (!areArticlesSimilar(readerArticle, candidate)) continue;
+      seenUrls.add(candidate.url);
+      matches.push(candidate);
+      if (matches.length >= 3) break;
+    }
+    return matches;
+  }, [articles, historyArticles, openCoverage, readerArticle, readerContent.status]);
+
+  function resetOpenCoverage() {
+    openCoverageSequence.current += 1;
+    openCoverageAbort.current?.abort();
+    openCoverageAbort.current = null;
+    setOpenCoverage({ status: "idle" });
+  }
+
+  async function searchOpenCoverage(article: FollowedArticle) {
+    const requestId = ++openCoverageSequence.current;
+    openCoverageAbort.current?.abort();
+    const controller = new AbortController();
+    openCoverageAbort.current = controller;
+    setOpenCoverage({ status: "loading" });
+    try {
+      const result = await fetchOpenCoverage(
+        { url: article.url, title: article.title, source: article.source },
+        fetch,
+        controller.signal,
+      );
+      if (requestId !== openCoverageSequence.current) return;
+      if (result.available && result.articles.length > 0) {
+        setOpenCoverage({
+          status: "ready",
+          queryUsed: result.queryUsed ?? "",
+          message: result.message,
+          articles: result.articles,
+        });
+      } else {
+        setOpenCoverage({
+          status: "empty",
+          queryUsed: result.queryUsed ?? "",
+          message: result.message,
+        });
+      }
+    } catch (error) {
+      if (controller.signal.aborted || requestId !== openCoverageSequence.current) return;
+      setOpenCoverage({
+        status: "error",
+        message: error instanceof Error ? error.message : "Could not search open news sources right now.",
+      });
+    }
+  }
+
+  function openCoverageArticleInReader(candidate: OpenCoverageArticle, listen = false) {
+    readerRequestSequence.current += 1;
+    resetOpenCoverage();
+    const replacement: FollowedArticle = {
+      title: candidate.title,
+      url: candidate.url,
+      source: candidate.source,
+      publishedAt: candidate.publishedAt,
+      summary: candidate.snippet,
+      topics: readerArticle?.topics ?? [],
+      providers: ["Open coverage"],
+    };
+    setReaderMinimized(false);
+    setReaderArticle(replacement);
+    setReaderTranslation(null);
+    setReaderAudioRequested(listen);
+    setReaderReading({ section: null, playing: false });
+    setFollowReading(true);
+    setReaderContent({ status: "ready", article: candidate.readerArticle });
+    saveOfflineArticleContent(replacement.url, {
+      title: replacement.title,
+      byline: candidate.readerArticle.byline,
+      siteName: candidate.readerArticle.siteName,
+      publishedAt: candidate.readerArticle.publishedAt,
+      paragraphs: candidate.readerArticle.paragraphs,
+      finalUrl: candidate.readerArticle.finalUrl,
+    });
+    readerScrollBody.current?.scrollTo({ top: 0, behavior: "instant" });
+  }
+
   function openArticleReader(article: FollowedArticle, trigger: HTMLElement, listen = false, stayInSignal = false) {
     weatherAudio.stop();
+    resetOpenCoverage();
     setReaderMinimized(false);
     readerTrigger.current = trigger;
     if (!stayInSignal || articles.some((item) => item.url === article.url) || historyArticles.some((item) => item.url === article.url)) markArticleRead(article);
@@ -3630,7 +3731,15 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           });
           return;
         }
-        if (listen || stayInSignal) setReaderContent({ status: "unavailable", reason: data.reason || "The publisher did not provide the full article text to Signal." });
+        const paywalled = isPaywallReason(data.reason, data.paywalled);
+        if (listen || stayInSignal || paywalled) {
+          setReaderContent({
+            status: "unavailable",
+            reason: data.reason || "The publisher did not provide the full article text to Signal.",
+            paywalled,
+          });
+          if (paywalled) void searchOpenCoverage(article);
+        }
         else openOriginalAfterReaderFailure(article.url, requestId);
       })
       .catch(() => {
@@ -3738,6 +3847,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
 
   function openOriginalAfterReaderFailure(url: string, requestId: number) {
     if (requestId !== readerRequestSequence.current) return;
+    resetOpenCoverage();
     const opened = window.open(url, "_blank");
     if (opened) opened.opener = null;
     readerRequestSequence.current += 1;
@@ -3748,6 +3858,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
 
   function closeArticleReader() {
     setReaderMinimized(false);
+    resetOpenCoverage();
     readerRequestSequence.current += 1;
     setReaderArticle(null);
     setReaderTranslation(null);
@@ -6117,7 +6228,94 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                 {readerSummaryParagraphs.map((paragraph, index) => <p key={index} className="article-reader-summary">
                   <ArticleReadingText text={paragraph} paragraphIndex={index} section={readerReading.section} />
                 </p>)}
-                <a href={readerOriginalUrl} target="_blank" rel="noreferrer">Read on the publisher’s website &#8599;</a>
+                <div className="article-reader-state-actions">
+                  <button
+                    type="button"
+                    className="article-reader-open-coverage-btn"
+                    disabled={openCoverage.status === "loading"}
+                    onClick={() => void searchOpenCoverage(readerArticle)}
+                  >
+                    {openCoverage.status === "loading"
+                      ? "Searching open coverage…"
+                      : openCoverage.status === "ready" || openCoverage.status === "empty" || openCoverage.status === "error"
+                        ? "Search open coverage again"
+                        : "Find open coverage"}
+                  </button>
+                  <a href={readerOriginalUrl} target="_blank" rel="noreferrer">Read on the publisher’s website &#8599;</a>
+                </div>
+                {openCoverage.status === "loading" && (
+                  <div className="article-reader-open-coverage" aria-live="polite">
+                    <div className="article-reader-open-coverage-loading">
+                      <span className="article-reader-loader small" aria-hidden="true" />
+                      <span>Searching open news sources for readable coverage…</span>
+                    </div>
+                  </div>
+                )}
+                {openCoverage.status === "ready" && (
+                  <div className="article-reader-open-coverage" aria-live="polite">
+                    <div className="article-reader-open-coverage-header">
+                      <h3>Open coverage found</h3>
+                      {openCoverage.queryUsed && <span className="article-reader-open-coverage-query">{openCoverage.queryUsed}</span>}
+                    </div>
+                    <p className="article-reader-open-coverage-note">{openCoverage.message}</p>
+                    <ul className="article-reader-open-coverage-list">
+                      {openCoverage.articles.map((item) => (
+                        <li key={item.url} className="article-reader-open-coverage-item">
+                          <div className="article-reader-open-coverage-meta">
+                            <span>{item.source}</span>
+                            {item.publishedAt && <span>{formatAge(item.publishedAt)}</span>}
+                          </div>
+                          <h4>{item.title}</h4>
+                          {item.snippet && <p>{item.snippet}</p>}
+                          <div className="article-reader-open-coverage-item-actions">
+                            <button type="button" className="primary" onClick={() => openCoverageArticleInReader(item, false)}>
+                              Read in Signal
+                            </button>
+                            <button type="button" onClick={() => openCoverageArticleInReader(item, true)}>
+                              Listen
+                            </button>
+                            <a href={item.url} target="_blank" rel="noreferrer">
+                              Open link &#8599;
+                            </a>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {(openCoverage.status === "empty" || openCoverage.status === "error") && (
+                  <div className="article-reader-open-coverage" aria-live="polite">
+                    <p className="article-reader-open-coverage-note">{openCoverage.message}</p>
+                  </div>
+                )}
+                {localSimilarArticles.length > 0 && (
+                  <div className="article-reader-open-coverage">
+                    <div className="article-reader-open-coverage-header">
+                      <h3>Related coverage in your feed</h3>
+                    </div>
+                    <ul className="article-reader-open-coverage-list">
+                      {localSimilarArticles.map((item) => (
+                        <li key={item.url} className="article-reader-open-coverage-item">
+                          <div className="article-reader-open-coverage-meta">
+                            <span>{item.source}</span>
+                            {item.publishedAt && <span>{formatAge(item.publishedAt)}</span>}
+                          </div>
+                          <h4>{item.title}</h4>
+                          {item.summary && <p>{item.summary}</p>}
+                          <div className="article-reader-open-coverage-item-actions">
+                            <button
+                              type="button"
+                              className="primary"
+                              onClick={() => openArticleReader(item, readerCloseButton.current ?? document.body, false, true)}
+                            >
+                              Try in Signal
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>}
               {readerContent.status === "loading" && (
                 <div className="article-reader-state" role="status">

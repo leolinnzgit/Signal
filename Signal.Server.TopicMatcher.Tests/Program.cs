@@ -92,6 +92,7 @@ if (args.Contains("--article-reader-browser"))
     return;
 }
 await ArticleReaderChecks.RunAsync();
+await OpenCoverageChecks.RunAsync();
 if (args.Contains("--article-reader-only")) return;
 
 await HeadlineAudioChecks.RunAsync();

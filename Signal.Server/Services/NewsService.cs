@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
+using Microsoft.AspNetCore.WebUtilities;
 using Signal.Server.Models;
 
 namespace Signal.Server.Services;
@@ -12,6 +13,7 @@ namespace Signal.Server.Services;
 public sealed class NewsService(HttpClient httpClient)
 {
     private const string GoogleNewsRss = "https://news.google.com/rss/search";
+    private const string BingNewsRss = "https://www.bing.com/news/search";
     private const string GdeltDocApi = "https://api.gdeltproject.org/api/v2/doc/doc";
     private const int MaxFeedBytes = 1_500_000;
 
@@ -32,6 +34,44 @@ public sealed class NewsService(HttpClient httpClient)
         var xml = await response.Content.ReadAsStringAsync(cancellationToken);
         var articles = ParseGoogleFeed(xml, topic).Take(limit).ToArray();
         return new NewsResult(topic, "Google News", DateTimeOffset.UtcNow, articles);
+    }
+
+    public async Task<IReadOnlyList<NewsArticle>> SearchGoogleNewsKeywordsAsync(
+        string keywords,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        var trimmed = (keywords ?? "").Trim();
+        if (trimmed.Length == 0) return [];
+        var query = BuildQuery(new Dictionary<string, string?>
+        {
+            ["q"] = trimmed,
+            ["hl"] = "en-NZ",
+            ["gl"] = "NZ",
+            ["ceid"] = "NZ:en",
+        });
+        using var response = await httpClient.GetAsync($"{GoogleNewsRss}?{query}", HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var xml = await ReadLimitedTextAsync(response.Content, cancellationToken);
+        return ParseGoogleFeedItems(xml).Take(Math.Max(1, limit)).ToArray();
+    }
+
+    public async Task<IReadOnlyList<NewsArticle>> SearchBingNewsKeywordsAsync(
+        string keywords,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        var trimmed = (keywords ?? "").Trim();
+        if (trimmed.Length == 0) return [];
+        var query = BuildQuery(new Dictionary<string, string?>
+        {
+            ["q"] = trimmed,
+            ["format"] = "rss",
+        });
+        using var response = await httpClient.GetAsync($"{BingNewsRss}?{query}", HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var xml = await ReadLimitedTextAsync(response.Content, cancellationToken);
+        return ParseBingFeedItems(xml).Take(Math.Max(1, limit)).ToArray();
     }
 
     public async Task<NewsResult> GetGdeltNewsAsync(
@@ -296,7 +336,10 @@ public sealed class NewsService(HttpClient httpClient)
         throw new InvalidOperationException("Publisher feed redirected too many times.");
     }
 
-    private static IEnumerable<NewsArticle> ParseGoogleFeed(string xml, string topic)
+    private static IEnumerable<NewsArticle> ParseGoogleFeed(string xml, string topic) =>
+        ParseGoogleFeedItems(xml).Where(article => TopicMatcher.Matches(article, topic));
+
+    internal static IEnumerable<NewsArticle> ParseGoogleFeedItems(string xml)
     {
         var document = XDocument.Parse(xml, LoadOptions.None);
         foreach (var item in document.Descendants().Where(element => element.Name.LocalName == "item"))
@@ -311,15 +354,60 @@ public sealed class NewsService(HttpClient httpClient)
             var normalizedUrl = ArticleIdentity.NormalizeUrl(Value(item, "link"));
             if (string.IsNullOrWhiteSpace(title) || normalizedUrl is null) continue;
             var articleUrl = new Uri(normalizedUrl);
-            var article = new NewsArticle(
+            yield return new NewsArticle(
                 title,
                 normalizedUrl,
                 source,
                 ParseDate(Value(item, "pubDate")),
                 "",
                 ImageUrl: ExtractFeedImage(item, articleUrl));
-            if (TopicMatcher.Matches(article, topic)) yield return article;
         }
+    }
+
+    internal static IEnumerable<NewsArticle> ParseBingFeedItems(string xml)
+    {
+        var document = XDocument.Parse(xml, LoadOptions.None);
+        foreach (var item in document.Descendants().Where(element => element.Name.LocalName == "item"))
+        {
+            var title = StripHtml(Value(item, "title"));
+            var rawLink = Value(item, "link");
+            var unwrapped = UnwrapBingNewsUrl(rawLink);
+            var normalizedUrl = ArticleIdentity.NormalizeUrl(unwrapped);
+            if (string.IsNullOrWhiteSpace(title) || normalizedUrl is null) continue;
+
+            var uri = new Uri(normalizedUrl);
+            if (uri.Scheme != Uri.UriSchemeHttps) continue;
+
+            var source = StripHtml(Value(item, "Source") ?? Value(item, "source"));
+            if (source.StartsWith("www.", StringComparison.OrdinalIgnoreCase))
+                source = source[4..];
+            if (string.IsNullOrWhiteSpace(source))
+                source = uri.DnsSafeHost.Replace("www.", "", StringComparison.OrdinalIgnoreCase);
+
+            var summary = StripHtml(Value(item, "description") ?? "");
+            if (summary.Length > 240) summary = summary[..240];
+
+            yield return new NewsArticle(
+                title,
+                normalizedUrl,
+                source,
+                ParseDate(Value(item, "pubDate")),
+                summary);
+        }
+    }
+
+    internal static string? UnwrapBingNewsUrl(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        if (!Uri.TryCreate(value.Trim(), UriKind.Absolute, out var uri)) return null;
+        if (uri.DnsSafeHost.EndsWith("bing.com", StringComparison.OrdinalIgnoreCase)
+            && uri.AbsolutePath.Contains("apiclick.aspx", StringComparison.OrdinalIgnoreCase))
+        {
+            var query = QueryHelpers.ParseQuery(uri.Query);
+            if (query.TryGetValue("url", out var target) && !string.IsNullOrWhiteSpace(target.ToString()))
+                return target.ToString().Trim();
+        }
+        return uri.AbsoluteUri;
     }
 
     internal static IEnumerable<NewsArticle> ParsePublisherFeed(
