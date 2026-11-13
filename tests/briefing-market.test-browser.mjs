@@ -93,7 +93,8 @@ try {
       } else if (scenario !== "dashboard") await advance(1);
       if (scenario === "selected") {
         await page.waitForFunction(() => document.querySelector(".headline-player-title")?.textContent.includes("Microsoft"));
-        assert.match(await market.innerText(), /NVDA/);
+        await page.waitForFunction(() => document.querySelector(".briefing-market-price")?.textContent.includes("522.48"));
+        assert.match(await market.innerText(), /MSFT/);
       } else if (scenario !== "dashboard") {
         if (scenario !== "stale") await page.waitForFunction(() => document.querySelector(".briefing-market-price")?.textContent.includes("522.48"));
         else await page.waitForFunction(() => document.querySelector(".headline-player-title")?.textContent.includes("Microsoft"));

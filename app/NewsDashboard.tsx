@@ -6815,7 +6815,12 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
       {headlineQueue && (
         <HeadlinePlayer
           articles={headlineQueue}
-          marketTopic={selectedTopic === ALL_TOPICS ? undefined : selectedTopic}
+          marketTopic={
+            selectedTopic !== ALL_TOPICS
+            && headlineQueue.every((item) => item.topics.some((topic) => topic.toLowerCase() === selectedTopic.toLowerCase()))
+              ? selectedTopic
+              : undefined
+          }
           tickerOverrides={preferences.tickerOverrides}
           randomized={headlineQueueRandomized}
           minimized={headlinesMinimized}

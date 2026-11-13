@@ -65,7 +65,12 @@ export default function HeadlinePlayer({ articles, marketTopic, tickerOverrides 
   const readUrls = useRef(new Set<string>());
   const completed = index >= articles.length;
   const article = articles[index];
-  const marketQuote = useBriefingMarketQuote(article?.topics ?? [], article ? marketTopic : undefined, tickerOverrides);
+  const marketQuote = useBriefingMarketQuote(
+    article?.topics ?? [],
+    article ? marketTopic : undefined,
+    tickerOverrides,
+    article?.title,
+  );
   const title = completed && articles.length ? BRIEFING_COMPLETE_MESSAGE : article?.title;
   const speechLanguage = headlineSpeechLanguage(title ?? "", navigator.language);
   const languageKey = speechLanguage.split("-")[0].toLowerCase();
