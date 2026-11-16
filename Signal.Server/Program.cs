@@ -271,6 +271,7 @@ builder.Services.AddHttpClient(MicrosoftFoundryService.HttpClientName, client =>
 }).ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
 builder.Services.AddSingleton<MicrosoftFoundryService>();
 builder.Services.AddScoped<SignalBotService>();
+builder.Services.AddScoped<ProductWatchService>();
 builder.Services.AddScoped<ExecutiveBriefingDeliveryService>();
 builder.Services.AddSingleton<VapidKeyStore>();
 builder.Services.AddScoped<PushNotificationService>();
@@ -285,6 +286,7 @@ builder.Services.AddSingleton<DisasterAlertFeed>();
 builder.Services.AddHostedService<EarthquakeMonitor>();
 builder.Services.AddHostedService<TopicRefreshBackgroundService>();
 builder.Services.AddHostedService<ExecutiveBriefingBackgroundService>();
+builder.Services.AddHostedService<ProductWatchBackgroundService>();
 
 var app = builder.Build();
 
@@ -592,6 +594,45 @@ await using (var scope = app.Services.CreateAsyncScope())
         """);
     await database.Database.ExecuteSqlRawAsync(
         "CREATE UNIQUE INDEX IF NOT EXISTS \"IX_SharedAiAnalyses_UserId_ContentHash\" ON \"SharedAiAnalyses\" (\"UserId\", \"ContentHash\");");
+
+    await database.Database.ExecuteSqlRawAsync(
+        """
+        CREATE TABLE IF NOT EXISTS "ProductWatches" (
+            "Id" TEXT NOT NULL CONSTRAINT "PK_ProductWatches" PRIMARY KEY,
+            "UserId" TEXT NOT NULL,
+            "ProductName" TEXT NOT NULL,
+            "ModelOrSku" TEXT NOT NULL,
+            "Frequency" TEXT NOT NULL DEFAULT 'daily',
+            "Currency" TEXT NOT NULL DEFAULT 'NZD',
+            "TargetPrice" TEXT NULL,
+            "Enabled" INTEGER NOT NULL DEFAULT 1,
+            "NotifyOnPriceDrop" INTEGER NOT NULL DEFAULT 1,
+            "BestPrice" TEXT NULL,
+            "RegularPrice" TEXT NULL,
+            "LowestPriceEver" TEXT NULL,
+            "PreviousBestPrice" TEXT NULL,
+            "BestRetailer" TEXT NOT NULL DEFAULT '',
+            "BestOfferUrl" TEXT NOT NULL DEFAULT '',
+            "PriceVerdict" TEXT NOT NULL DEFAULT '',
+            "Summary" TEXT NOT NULL DEFAULT '',
+            "BuyingTip" TEXT NOT NULL DEFAULT '',
+            "OffersJson" TEXT NOT NULL DEFAULT '[]',
+            "PriceHistoryJson" TEXT NOT NULL DEFAULT '[]',
+            "ModelUsed" TEXT NOT NULL DEFAULT 'gpt-6.1-sol',
+            "CheckCount" INTEGER NOT NULL DEFAULT 0,
+            "LastCheckedAtUtc" TEXT NULL,
+            "NextCheckAtUtc" TEXT NULL,
+            "LastError" TEXT NOT NULL DEFAULT '',
+            "CreatedAtUtc" TEXT NOT NULL,
+            "UpdatedAtUtc" TEXT NOT NULL,
+            CONSTRAINT "FK_ProductWatches_AspNetUsers_UserId"
+                FOREIGN KEY ("UserId") REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE
+        );
+        """);
+    await database.Database.ExecuteSqlRawAsync(
+        "CREATE INDEX IF NOT EXISTS \"IX_ProductWatches_UserId_Enabled\" ON \"ProductWatches\" (\"UserId\", \"Enabled\");");
+    await database.Database.ExecuteSqlRawAsync(
+        "CREATE INDEX IF NOT EXISTS \"IX_ProductWatches_Enabled_NextCheckAtUtc\" ON \"ProductWatches\" (\"Enabled\", \"NextCheckAtUtc\");");
 
     await database.Database.OpenConnectionAsync();
     try

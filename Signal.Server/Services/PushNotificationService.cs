@@ -209,6 +209,34 @@ public sealed class PushNotificationService(
         return SendAsync(userId, messages, cancellationToken, watchBriefing: messages[0]);
     }
 
+    public Task<int> SendProductWatchAlertAsync(
+        string userId,
+        string watchId,
+        string productName,
+        string modelOrSku,
+        string currency,
+        decimal bestPrice,
+        string retailer,
+        string summary,
+        CancellationToken cancellationToken)
+    {
+        var label = !string.IsNullOrWhiteSpace(productName) ? productName : modelOrSku;
+        var retailerSuffix = !string.IsNullOrWhiteSpace(retailer) ? $" at {retailer}" : "";
+        var title = ShortPreview($"Price Alert: {label} — {currency} {bestPrice:F2}{retailerSuffix}", 110);
+        var body = ShortPreview(
+            !string.IsNullOrWhiteSpace(summary)
+                ? summary
+                : $"Best price for {modelOrSku} is now {currency} {bestPrice:F2}{retailerSuffix}.",
+            200);
+        var message = new PushMessage(
+            title,
+            body,
+            "/?suite=product-watch",
+            0,
+            $"signal-product-watch-{watchId}");
+        return SendAsync(userId, [message], cancellationToken, watchBriefing: message);
+    }
+
     internal static PushMessage DisasterMessage(DisasterAlertEvent report) => new(
         report.Kind == "earthquake" ? $"Earthquake: magnitude {report.Magnitude:F1}"
             : $"{DisasterAlertFeed.Label(report.Kind)}: {report.AlertLevel} alert",

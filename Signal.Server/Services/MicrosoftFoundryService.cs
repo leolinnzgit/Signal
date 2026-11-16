@@ -12,7 +12,7 @@ public sealed class MicrosoftFoundryOptions
     public const string SecondarySectionName = "MicrosoftFoundry";
     public const string DefaultApiVersion = "2024-10-21";
 
-    private static readonly string[] BuiltInSelectableModels = ["gpt-4.1-mini", "gpt-5-mini"];
+    private static readonly string[] BuiltInSelectableModels = ["gpt-4.1-mini", "gpt-5-mini", "gpt-6.1-sol"];
 
     internal static readonly Regex DeploymentNameRegex = new(
         @"^[A-Za-z0-9._-]+$",
@@ -197,6 +197,7 @@ public sealed class MicrosoftFoundryService(
     {
         var normalized = (deployment ?? "").Trim().ToLowerInvariant();
         return normalized.StartsWith("gpt-5", StringComparison.Ordinal)
+            || normalized.StartsWith("gpt-6", StringComparison.Ordinal)
             || normalized.StartsWith("o1", StringComparison.Ordinal)
             || normalized.StartsWith("o3", StringComparison.Ordinal)
             || normalized.StartsWith("o4", StringComparison.Ordinal);

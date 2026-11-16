@@ -56,6 +56,7 @@ import {
 import type { OfflinePackDownloadStatus } from "./DailyBriefingModal";
 const DailyBriefingModal = lazy(() => import("./DailyBriefingModal"));
 const SignalBotModal = lazy(() => import("./SignalBotModal"));
+const ProductWatchModal = lazy(() => import("./ProductWatchModal"));
 import ErrorBoundary from "./ErrorBoundary";
 import {
   buildDailyBriefing,
@@ -1289,6 +1290,8 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [signalBotOpen, setSignalBotOpen] = useState(false);
   const [signalBotTopic, setSignalBotTopic] = useState("");
   const [signalBotAutoPrompt, setSignalBotAutoPrompt] = useState("");
+  const [productWatchOpen, setProductWatchOpen] = useState(false);
+  const [productWatchCount, setProductWatchCount] = useState(0);
   const [dailyCastOpen, setDailyCastOpen] = useState(false);
   const [sovereignRiskOpen, setSovereignRiskOpen] = useState(false);
   const [preMortemOpen, setPreMortemOpen] = useState(false);
@@ -1326,6 +1329,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     else if (normalized === "signal-cortex") setSignalCortexOpen(true);
     else if (normalized === "daily-cast") setDailyCastOpen(true);
     else if (normalized === "tripwires") setTripwiresOpen(true);
+    else if (normalized === "product-watch") setProductWatchOpen(true);
   }, []);
 
   useEffect(() => {
@@ -4652,6 +4656,16 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           >
             🤖 Signal Bot
           </button>
+          <button
+            type="button"
+            className="product-watch-trigger"
+            onClick={() => setProductWatchOpen(true)}
+            title="Watch product models & SKUs and check best prices with gpt-6.1-sol"
+            aria-label="Open Product Watch Best Price Monitor"
+          >
+            🏷️ Product Watch
+            {productWatchCount > 0 && <span className="product-watch-count-badge">{productWatchCount}</span>}
+          </button>
           <ExecutiveCommandCenter
             onOpenRadar={() => openSuiteById("radar")}
             onOpenCrisisWarRoom={() => openSuiteById("crisis-war-room")}
@@ -7138,6 +7152,17 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
               defaultLanguage={briefingLanguage}
               onOpenArticle={(art, trigger) => openArticleReader(art, trigger)}
               onListenArticle={(art, trigger) => openArticleReader(art, trigger, true)}
+            />
+          </Suspense>
+        </ErrorBoundary>
+      )}
+      {productWatchOpen && (
+        <ErrorBoundary name="Product Watch">
+          <Suspense fallback={null}>
+            <ProductWatchModal
+              isOpen={productWatchOpen}
+              onClose={() => setProductWatchOpen(false)}
+              onWatchCountChange={setProductWatchCount}
             />
           </Suspense>
         </ErrorBoundary>

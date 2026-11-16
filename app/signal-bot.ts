@@ -202,6 +202,7 @@ const SIGNAL_BOT_MODEL_STORAGE_KEY = "signal:signal-bot-model:v1";
 export function getModelDisplayLabel(model: string): string {
   const clean = (model || "").trim();
   if (!clean) return "Microsoft Foundry";
+  if (clean.toLowerCase() === "gpt-6.1-sol") return "GPT-6.1 Sol";
   if (clean.toLowerCase() === "gpt-5-mini") return "GPT-5 mini";
   if (clean.toLowerCase() === "gpt-4.1-mini") return "GPT-4.1 mini";
   return clean;

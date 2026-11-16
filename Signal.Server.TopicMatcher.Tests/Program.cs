@@ -635,6 +635,7 @@ await using (var scheduleDatabase = new SignalDbContext(scheduleOptions))
 Console.WriteLine("Per-topic refresh state, cross-device unread cursors and Latest filtering passed independent scheduling checks.");
 
 await SignalBotChecks.RunAsync();
+await ProductWatchChecks.RunAsync();
 
 static StoredNewsArticle HistoryArticle(
     string title,

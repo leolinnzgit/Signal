@@ -1,0 +1,564 @@
+.product-watch-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10055;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(0.6rem, 2vw, 1.35rem);
+  background: var(--overlay, rgba(16, 17, 15, 0.68));
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  animation: productWatchFadeIn 150ms ease-out;
+}
+
+@keyframes productWatchFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.product-watch-modal {
+  width: min(980px, 100%);
+  max-height: min(90vh, 880px);
+  display: flex;
+  flex-direction: column;
+  background: var(--content-background, #faf8f2);
+  color: var(--page-text, #171815);
+  border: 1px solid var(--line, rgba(23, 24, 21, 0.18));
+  border-radius: 16px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+.product-watch-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.88rem 1.15rem;
+  border-bottom: 1px solid var(--line, rgba(23, 24, 21, 0.18));
+  background: var(--content-background, #faf8f2);
+  background-image: linear-gradient(135deg, rgba(16, 185, 129, 0.09), rgba(37, 99, 235, 0.08));
+  flex-shrink: 0;
+}
+
+.product-watch-header-title {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.product-watch-avatar {
+  width: 2.15rem;
+  height: 2.15rem;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  background: linear-gradient(135deg, #059669, #2563eb);
+  color: #ffffff;
+  flex-shrink: 0;
+}
+
+.product-watch-header-title h2 {
+  margin: 0;
+  font-size: 1.06rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+
+.product-watch-header-title p {
+  margin: 0.12rem 0 0;
+  font-size: 0.78rem;
+  color: var(--text-muted, rgba(23, 24, 21, 0.62));
+}
+
+.product-watch-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.product-watch-model-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.22rem 0.62rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  background: rgba(16, 185, 129, 0.14);
+  color: #047857;
+  border: 1px solid rgba(16, 185, 129, 0.32);
+  white-space: nowrap;
+}
+
+[data-theme="dark"] .product-watch-model-pill {
+  background: rgba(16, 185, 129, 0.18);
+  color: #6ee7b7;
+  border-color: rgba(52, 211, 153, 0.35);
+}
+
+.product-watch-close-btn {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 8px;
+  border: 1px solid var(--line, rgba(23, 24, 21, 0.18));
+  background: transparent;
+  color: var(--page-text, #171815);
+  font-size: 1rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.product-watch-close-btn:hover {
+  background: rgba(128, 128, 128, 0.12);
+}
+
+.product-watch-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 1rem 1.15rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.product-watch-status-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+  padding: 0.55rem 0.8rem;
+  border-radius: 10px;
+  border: 1px solid var(--line, rgba(23, 24, 21, 0.16));
+  background: rgba(128, 128, 128, 0.05);
+  font-size: 0.78rem;
+}
+
+.product-watch-status-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.product-watch-btn {
+  padding: 0.42rem 0.8rem;
+  border-radius: 8px;
+  border: 1px solid var(--line, rgba(23, 24, 21, 0.22));
+  background: var(--content-background, #faf8f2);
+  color: var(--page-text, #171815);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+
+.product-watch-btn:hover:not(:disabled) {
+  border-color: #059669;
+  background: rgba(16, 185, 129, 0.09);
+}
+
+.product-watch-btn.primary {
+  background: linear-gradient(135deg, #059669, #2563eb);
+  border-color: transparent;
+  color: #ffffff;
+}
+
+.product-watch-btn.primary:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.product-watch-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.product-watch-form-card {
+  border: 1px solid var(--line, rgba(23, 24, 21, 0.18));
+  border-radius: 12px;
+  padding: 0.9rem 1rem;
+  background: rgba(128, 128, 128, 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.product-watch-form-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.product-watch-form-header h3 {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.product-watch-presets {
+  display: flex;
+  align-items: center;
+  gap: 0.38rem;
+  flex-wrap: wrap;
+}
+
+.product-watch-preset-chip {
+  padding: 0.24rem 0.58rem;
+  border-radius: 999px;
+  border: 1px solid var(--line, rgba(23, 24, 21, 0.2));
+  background: var(--content-background, #faf8f2);
+  color: var(--page-text, #171815);
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.product-watch-preset-chip:hover {
+  border-color: #059669;
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.product-watch-form-grid {
+  display: grid;
+  grid-template-columns: 1.3fr 1.3fr 1fr 0.75fr 0.85fr;
+  gap: 0.65rem;
+  align-items: end;
+}
+
+.product-watch-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+}
+
+.product-watch-field label {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--text-muted, rgba(23, 24, 21, 0.7));
+}
+
+.product-watch-field input,
+.product-watch-field select,
+.product-watch-inline-select {
+  height: 2.3rem;
+  padding: 0 0.65rem;
+  border-radius: 8px;
+  border: 1px solid var(--line, rgba(23, 24, 21, 0.22));
+  background: var(--input-background, #ffffff);
+  color: var(--page-text, #171815);
+  font-family: inherit;
+  font-size: 0.83rem;
+}
+
+[data-theme="dark"] .product-watch-field input,
+[data-theme="dark"] .product-watch-field select,
+[data-theme="dark"] .product-watch-inline-select {
+  background: #1e201c;
+  color: #f3f1ea;
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+[data-theme="dark"] .product-watch-field select option,
+[data-theme="dark"] .product-watch-inline-select option {
+  background: #1e201c;
+  color: #f3f1ea;
+}
+
+.product-watch-form-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.product-watch-toggles {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  font-size: 0.78rem;
+}
+
+.product-watch-toggles label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  cursor: pointer;
+}
+
+.product-watch-error {
+  padding: 0.55rem 0.8rem;
+  border-radius: 8px;
+  background: rgba(185, 28, 28, 0.1);
+  border: 1px solid rgba(185, 28, 28, 0.28);
+  color: var(--red, #c83f32);
+  font-size: 0.8rem;
+}
+
+.product-watch-empty {
+  text-align: center;
+  padding: 2rem 1rem;
+  border: 1px dashed var(--line, rgba(23, 24, 21, 0.22));
+  border-radius: 12px;
+  color: var(--text-muted, rgba(23, 24, 21, 0.65));
+}
+
+.product-watch-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.product-watch-card {
+  border: 1px solid var(--line, rgba(23, 24, 21, 0.18));
+  border-radius: 12px;
+  padding: 0.95rem 1.05rem;
+  background: var(--content-background, #faf8f2);
+  display: flex;
+  flex-direction: column;
+  gap: 0.72rem;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04);
+}
+
+.product-watch-card.paused {
+  opacity: 0.72;
+}
+
+.product-watch-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.product-watch-card-title {
+  display: flex;
+  flex-direction: column;
+  gap: 0.24rem;
+}
+
+.product-watch-card-title h4 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.product-watch-sku-badge {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.73rem;
+  font-weight: 600;
+  padding: 0.14rem 0.48rem;
+  border-radius: 6px;
+  background: rgba(37, 99, 235, 0.11);
+  color: #1d4ed8;
+  border: 1px solid rgba(37, 99, 235, 0.24);
+}
+
+[data-theme="dark"] .product-watch-sku-badge {
+  background: rgba(59, 130, 246, 0.16);
+  color: #93c5fd;
+  border-color: rgba(96, 165, 250, 0.3);
+}
+
+.product-watch-card-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.42rem;
+  flex-wrap: wrap;
+}
+
+.product-watch-price-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+  padding: 0.7rem 0.88rem;
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.08), rgba(37, 99, 235, 0.06));
+  border: 1px solid rgba(16, 185, 129, 0.22);
+}
+
+.product-watch-best-price-main {
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.product-watch-best-price-value {
+  font-size: 1.38rem;
+  font-weight: 800;
+  color: #047857;
+  letter-spacing: -0.02em;
+}
+
+[data-theme="dark"] .product-watch-best-price-value {
+  color: #34d399;
+}
+
+.product-watch-regular-price {
+  font-size: 0.82rem;
+  color: var(--text-muted, rgba(23, 24, 21, 0.58));
+  text-decoration: line-through;
+}
+
+.product-watch-savings-pill {
+  font-size: 0.73rem;
+  font-weight: 700;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.16);
+  color: #047857;
+}
+
+[data-theme="dark"] .product-watch-savings-pill {
+  background: rgba(16, 185, 129, 0.22);
+  color: #6ee7b7;
+}
+
+.product-watch-verdict-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.22rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.product-watch-verdict-badge.verdict-great {
+  background: rgba(16, 185, 129, 0.18);
+  color: #047857;
+}
+[data-theme="dark"] .product-watch-verdict-badge.verdict-great {
+  color: #6ee7b7;
+}
+
+.product-watch-verdict-badge.verdict-good {
+  background: rgba(37, 99, 235, 0.15);
+  color: #1d4ed8;
+}
+[data-theme="dark"] .product-watch-verdict-badge.verdict-good {
+  color: #93c5fd;
+}
+
+.product-watch-verdict-badge.verdict-fair {
+  background: rgba(245, 158, 11, 0.16);
+  color: #b45309;
+}
+[data-theme="dark"] .product-watch-verdict-badge.verdict-fair {
+  color: #fcd34d;
+}
+
+.product-watch-verdict-badge.verdict-wait,
+.product-watch-verdict-badge.verdict-pending {
+  background: rgba(128, 128, 128, 0.15);
+  color: var(--page-text, #171815);
+}
+
+.product-watch-summary {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.48;
+}
+
+.product-watch-tip {
+  margin: 0;
+  padding: 0.45rem 0.68rem;
+  border-radius: 8px;
+  background: rgba(37, 99, 235, 0.07);
+  border-left: 3px solid #2563eb;
+  font-size: 0.79rem;
+}
+
+.product-watch-offers-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 0.5rem;
+}
+
+.product-watch-offer-item {
+  padding: 0.52rem 0.68rem;
+  border-radius: 8px;
+  border: 1px solid var(--line, rgba(23, 24, 21, 0.15));
+  background: rgba(128, 128, 128, 0.03);
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+  font-size: 0.78rem;
+}
+
+.product-watch-offer-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  font-weight: 700;
+}
+
+.product-watch-offer-note {
+  font-size: 0.72rem;
+  color: var(--text-muted, rgba(23, 24, 21, 0.62));
+}
+
+.product-watch-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  font-size: 0.73rem;
+  color: var(--text-muted, rgba(23, 24, 21, 0.6));
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--line, rgba(23, 24, 21, 0.1));
+}
+
+.product-watch-history-strip {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  font-size: 0.72rem;
+}
+
+.product-watch-history-pill {
+  padding: 0.14rem 0.46rem;
+  border-radius: 6px;
+  background: rgba(128, 128, 128, 0.1);
+}
+
+@media (max-width: 820px) {
+  .product-watch-form-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 540px) {
+  .product-watch-form-grid {
+    grid-template-columns: 1fr;
+  }
+  .product-watch-modal {
+    height: calc(100dvh - 0.8rem);
+    max-height: calc(100dvh - 0.8rem);
+  }
+}

@@ -32,6 +32,8 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
 
     public DbSet<ExecutiveTripwire> ExecutiveTripwires => Set<ExecutiveTripwire>();
 
+    public DbSet<ProductWatchItem> ProductWatches => Set<ProductWatchItem>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
@@ -231,6 +233,33 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
             tripwire.Property(item => item.LastMatchedUrl).HasMaxLength(2048).IsRequired();
             tripwire.HasIndex(item => new { item.UserId, item.Enabled });
             tripwire.HasOne(item => item.User)
+                .WithMany()
+                .HasForeignKey(item => item.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<ProductWatchItem>(watch =>
+        {
+            watch.ToTable("ProductWatches");
+            watch.HasKey(item => item.Id);
+            watch.Property(item => item.Id).HasMaxLength(64);
+            watch.Property(item => item.UserId).HasMaxLength(450).IsRequired();
+            watch.Property(item => item.ProductName).HasMaxLength(200).IsRequired();
+            watch.Property(item => item.ModelOrSku).HasMaxLength(120).IsRequired();
+            watch.Property(item => item.Frequency).HasMaxLength(24).IsRequired();
+            watch.Property(item => item.Currency).HasMaxLength(12).IsRequired();
+            watch.Property(item => item.BestRetailer).HasMaxLength(160).IsRequired();
+            watch.Property(item => item.BestOfferUrl).HasMaxLength(2048).IsRequired();
+            watch.Property(item => item.PriceVerdict).HasMaxLength(32).IsRequired();
+            watch.Property(item => item.Summary).HasMaxLength(2000).IsRequired();
+            watch.Property(item => item.BuyingTip).HasMaxLength(600).IsRequired();
+            watch.Property(item => item.OffersJson).IsRequired();
+            watch.Property(item => item.PriceHistoryJson).IsRequired();
+            watch.Property(item => item.ModelUsed).HasMaxLength(128).IsRequired();
+            watch.Property(item => item.LastError).HasMaxLength(500).IsRequired();
+            watch.HasIndex(item => new { item.UserId, item.Enabled });
+            watch.HasIndex(item => new { item.Enabled, item.NextCheckAtUtc });
+            watch.HasOne(item => item.User)
                 .WithMany()
                 .HasForeignKey(item => item.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
