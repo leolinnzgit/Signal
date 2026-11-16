@@ -212,12 +212,12 @@ export default function BrowserArticleAudioPlayer({ queueTransfer, onPlaybackCom
       snapshot={() => !completed && parts.length ? { parts, partIndex: index, session: JSON.stringify(preferences) } : null}
       pause={() => { playback.current?.setPaused(true); setPaused(true); setStarted(false); }}
       onLockChange={value => { transferLock.current = value; setTransferLocked(value); onTransferLockChange?.(value); }} />}
-    <div inert={transferLocked}>
+    <div className="article-audio-player-body" inert={transferLocked}>
     <div className="article-browser-transport">
       <button type="button" onClick={togglePlayback} disabled={!parts.length}>{completed ? "Read again" : paused ? "Play" : "Pause"}</button>
-      <button type="button" onClick={stop}>Stop</button>
-      <button type="button" disabled={index === 0} onClick={() => moveTo(index - 1)}>Previous section</button>
-      <button type="button" disabled={completed} onClick={() => moveTo(index + 1)}>Next section</button>
+      <button type="button" className="article-audio-secondary" onClick={stop}>Stop</button>
+      <button type="button" className="article-audio-secondary" disabled={index === 0} onClick={() => moveTo(index - 1)}>Previous section</button>
+      <button type="button" className="article-audio-secondary" disabled={completed} onClick={() => moveTo(index + 1)}>Next section</button>
     </div>
     <details className="reading-voice-disclosure">
       <summary>Reading voice <span className="reading-voice-show">Show</span><span className="reading-voice-hide">Hide</span></summary>

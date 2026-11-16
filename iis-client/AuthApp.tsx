@@ -605,7 +605,7 @@ export default function AuthApp() {
         <NewsDashboard
           user={{ displayName: user.displayName, email: user.email, fullName: null, isLocalPreview: false, profilePhotoUrl: user.profilePhotoUrl }}
           articleToOpen={articleToOpen}
-          renderArticleComments={(article, closeReader) => <ArticleComments key={article.url} article={article} composerLast
+          renderArticleComments={(article, closeReader, options) => <ArticleComments key={article.url} article={article} composerLast onTotalChange={options?.onTotalChange}
             onOpenCommunity={() => { closeReader(); setCommunityOpen(true); }} />}
           onSignOut={() => void signOut()}
           onManageAccount={() => { setCommunityOpen(false); setLatestCommentsOpen(false); setDiscussionArticle(null); setAccountOpen(true); }}
@@ -1363,13 +1363,15 @@ function DiscussionPanel({
   );
 }
 
-function ArticleComments({ article, onOpenCommunity, composerLast = false }: {
+function ArticleComments({ article, onOpenCommunity, composerLast = false, onTotalChange }: {
   article: DiscussionArticle;
   onOpenCommunity: () => void;
   composerLast?: boolean;
+  onTotalChange?: (total: number) => void;
 }) {
   const [comments, setComments] = useState<NewsComment[]>([]);
   const [total, setTotal] = useState(0);
+  useEffect(() => { onTotalChange?.(total); }, [total, onTotalChange]);
   const commentInputId = useId();
   const hasMore = total > comments.length;
   const [body, setBody] = useState("");

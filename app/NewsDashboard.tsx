@@ -1205,7 +1205,7 @@ type NewsDashboardProps = {
     profilePhotoUrl?: string | null;
   };
   articleToOpen?: SignalArticleLink | null;
-  renderArticleComments?: (article: FollowedArticle, closeReader: () => void) => ReactNode;
+  renderArticleComments?: (article: FollowedArticle, closeReader: () => void, options?: { onTotalChange?: (total: number) => void }) => ReactNode;
   signOutPath?: string | null;
   onSignOut?: () => void;
   onManageAccount?: () => void;
@@ -1440,6 +1440,9 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [readerReading, setReaderReading] = useState<{ section: ArticleNarrationSection | null; playing: boolean }>({ section: null, playing: false });
   const [followReading, setFollowReading] = useState(true);
   const readerScrollBody = useRef<HTMLDivElement>(null);
+  const readerCommentsSection = useRef<HTMLElement>(null);
+  const [readerCommentTotal, setReaderCommentTotal] = useState(0);
+  const [readerCommentsInView, setReaderCommentsInView] = useState(false);
   const updateReaderReading = useCallback((section: ArticleNarrationSection | null, playing: boolean) => {
     setReaderReading((current) => current.section === section && current.playing === playing ? current : { section, playing });
   }, []);
@@ -1447,6 +1450,27 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     setReaderTranslation(translation);
     setReaderReading({ section: null, playing: false });
   }, []);
+  const readerArticleUrl = readerArticle?.url;
+  useEffect(() => {
+    setReaderCommentsInView(false);
+    const section = readerCommentsSection.current;
+    const root = readerScrollBody.current;
+    if (!readerArticleUrl || !section || !root || typeof IntersectionObserver === "undefined") return;
+    // Hide the quick-access button once the discussion itself is on screen.
+    const observer = new IntersectionObserver(([entry]) => setReaderCommentsInView(entry.isIntersecting), { root, threshold: 0.05 });
+    observer.observe(section);
+    return () => observer.disconnect();
+  }, [readerArticleUrl, readerMinimized]);
+  const jumpToReaderComments = useCallback(() => {
+    const section = readerCommentsSection.current;
+    if (!section) return;
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    section.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+    const composer = section.querySelector<HTMLTextAreaElement>(".comment-composer textarea");
+    // With no discussion yet, take the reader straight to the composer.
+    if (readerCommentTotal === 0 && composer) composer.focus({ preventScroll: true });
+    else section.querySelector<HTMLElement>("#reader-comments-title")?.focus({ preventScroll: true });
+  }, [readerCommentTotal]);
   const [headlineQueue, setHeadlineQueue] = useState<FollowedArticle[] | null>(null);
   const [headlinesMinimized, setHeadlinesMinimized] = useState(false);
   const [headlineQueueRandomized, setHeadlineQueueRandomized] = useState(false);
@@ -6676,12 +6700,30 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                 </article>
               )}
               {renderArticleComments && (
-                <section className="article-reader-comments" aria-labelledby="reader-comments-title">
-                  <h3 id="reader-comments-title">Comments</h3>
-                  {renderArticleComments(readerArticle, closeArticleReader)}
+                <section ref={readerCommentsSection} className="article-reader-comments" aria-labelledby="reader-comments-title">
+                  <h3 id="reader-comments-title" tabIndex={-1}>Comments</h3>
+                  {renderArticleComments(readerArticle, closeArticleReader, { onTotalChange: setReaderCommentTotal })}
                 </section>
               )}
             </div>
+            {renderArticleComments && (
+              <button
+                type="button"
+                className="article-reader-comments-jump"
+                data-hidden={readerCommentsInView || undefined}
+                tabIndex={readerCommentsInView ? -1 : undefined}
+                aria-hidden={readerCommentsInView || undefined}
+                onClick={jumpToReaderComments}
+                aria-label={readerCommentTotal > 0
+                  ? `View ${readerCommentTotal} ${readerCommentTotal === 1 ? "comment" : "comments"} or add your own`
+                  : "Add a comment"}
+                title={readerCommentTotal > 0 ? "View or add comments" : "Add a comment"}
+              >
+                <CommentIcon />
+                <span className="article-reader-comments-jump-label">{readerCommentTotal > 0 ? "Comments" : "Comment"}</span>
+                {readerCommentTotal > 0 && <span className="article-reader-comments-jump-count" aria-hidden="true">{readerCommentTotal > 99 ? "99+" : readerCommentTotal}</span>}
+              </button>
+            )}
           </section>
         </div>
       )}

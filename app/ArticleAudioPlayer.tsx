@@ -24,6 +24,7 @@ export default function ArticleAudioPlayer(props: ArticleAudioPlayerProps) {
   function lockChange(locked: boolean) { setTransferLocked(locked); props.onTransferLockChange?.(locked); }
   return <div className="article-narration">
     <div className="article-audio-mode" role="group" aria-label="Article audio mode">
+      <span className="article-audio-mode-label" aria-hidden="true">Voice</span>
       <button type="button" aria-pressed={mode === "browser"} disabled={!speechSupported || transferLocked} onClick={() => changeMode("browser")}>Browser voice</button>
       <button type="button" aria-pressed={mode === "recorded"} disabled={transferLocked} onClick={() => changeMode("recorded")}>Recorded audio</button>
     </div>
@@ -249,14 +250,14 @@ function RecordedArticleAudioPlayer({ downloadedAudio, queueTransfer, onPlayback
       snapshot={() => audio.current && url && starts.length && parts && !audio.current.ended ? { parts, partIndex: audioHeadlineIndex(starts, audio.current.currentTime), session: recordingKey.current } : null}
       pause={() => { resumePlayback.current = false; audio.current?.pause(); setPlaying(false); updatePosition(); }}
       onLockChange={value => { transferLock.current = value; setTransferLocked(value); onTransferLockChange?.(value); }} />}
-    <div inert={transferLocked}>
+    <div className="article-audio-player-body" inert={transferLocked}>
     {downloadedAudio ? <p>Downloaded audio · saved recorded voice</p> : <ReadingVoiceSelector {...readingVoices} selectVoice={selectVoice} active={attempt > 0} playbackActive={playing}
       onPreviewStart={() => { resumePlayback.current = false; audio.current?.pause(); setPlaying(false); }} />}
     {!url && !preparing && <button type="button" onClick={() => { resumePlayback.current = true; setAttempt((current) => current + 1); }}>{error ? "Try audio again" : summaryOnly ? "Read headline and summary aloud" : "Read full news aloud"}</button>}
     {preparing && <>
       <p role="status">{streaming ? "Opening audio stream…" : `Preparing ${summaryOnly ? "summary" : "full article"} audio… ${progress}%`}</p>
       <p>{streaming ? "Playback can begin while the rest of the audio is generated." : "Keep Signal open until the recording is ready."}</p>
-      <button type="button" onClick={cancelPreparation}>Cancel audio preparation</button>
+      <button type="button" className="article-audio-secondary" onClick={cancelPreparation}>Cancel audio preparation</button>
     </>}
     {url && <>
       <audio ref={audio} src={url} controls preload="auto" aria-label={`Read ${title} aloud`}
@@ -270,11 +271,13 @@ function RecordedArticleAudioPlayer({ downloadedAudio, queueTransfer, onPlayback
         onTimeUpdate={updatePosition} onSeeking={updatePosition}
         onEnded={() => { shared.complete(); onPlaybackComplete?.(); updatePlayback(false); setReadingSection(null); setMessage(summaryOnly ? "Finished reading the summary." : "Finished reading this article."); }}
         onError={() => { setError("The recording could not be played. Try preparing the audio again."); setPlaying(false); setReadingSection(null); setUrl(""); }} />
-      <label>Speaking speed <select value={rate} onChange={(event) => setRate(Number(event.target.value))}>{[0.8, 1, 1.1, 1.2].map((value) => <option key={value} value={value}>{value}×</option>)}</select></label>
-      <p role="status">{message}</p>
+      <div className="article-audio-meta">
+        <label>Speaking speed <select value={rate} onChange={(event) => setRate(Number(event.target.value))}>{[0.8, 1, 1.1, 1.2].map((value) => <option key={value} value={value}>{value}×</option>)}</select></label>
+        <p role="status">{message}</p>
+      </div>
       {streaming && !streamComplete && !error && <p role="status">Streaming audio — {progress}% generated. You can keep listening.</p>}
     </>}
-    {readingVoices.streaming && attempt > 0 && <button type="button" onClick={() => {
+    {readingVoices.streaming && attempt > 0 && <button type="button" className="article-audio-secondary" onClick={() => {
       if (audio.current) {
         resumePart.current = audio.current.ended ? 0 : audioHeadlineIndex(starts, audio.current.currentTime);
         resumePlayback.current = !audio.current.paused;

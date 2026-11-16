@@ -49,6 +49,7 @@ export default function ArticleSummaryPlayer({ url, title, source, paragraphs, s
         <ArticleReadingText text={text} paragraphIndex={index} section={scope === "summary" ? reading : null} />
       </p>)}
       <div className="article-audio-mode" role="group" aria-label="Listen to">
+        <span className="article-audio-mode-label" aria-hidden="true">Listen</span>
         <button type="button" aria-pressed={scope === "summary"} onClick={() => selectScope("summary")}>Listen to summary</button>
         <button type="button" aria-pressed={scope === "article"} onClick={() => selectScope("article")}>Read full article</button>
       </div>
