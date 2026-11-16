@@ -4,10 +4,14 @@ import {
   PRODUCT_WATCH_FREQUENCIES,
   PRODUCT_WATCH_MODEL,
   PRODUCT_WATCH_PRESETS,
+  PRODUCT_WATCH_QUICK_QUESTIONS,
+  type ProductWatchAskResponse,
   type ProductWatchFrequency,
   type ProductWatchFrequencyOption,
   type ProductWatchItem,
   type ProductWatchPreset,
+  askCurrentProductQuestion,
+  askWatchedProductQuestion,
   checkProductInstantPrice,
   checkProductWatchPriceNow,
   deleteProductWatchItem,
@@ -65,8 +69,21 @@ export default function ProductWatchModal({
   const [frequency, setFrequency] = useState<ProductWatchFrequency>("daily");
   const [currency, setCurrency] = useState("NZD");
   const [targetPriceText, setTargetPriceText] = useState("");
+  const [customPrompt, setCustomPrompt] = useState("");
   const [checkImmediately, setCheckImmediately] = useState(true);
   const [notifyOnPriceDrop, setNotifyOnPriceDrop] = useState(true);
+
+  // One-off prompt for current product in the top form
+  const [currentProductQuestion, setCurrentProductQuestion] = useState("");
+  const [askingCurrentProduct, setAskingCurrentProduct] = useState(false);
+  const [currentProductAnswer, setCurrentProductAnswer] =
+    useState<ProductWatchAskResponse | null>(null);
+
+  // Per-card editing & one-off question states
+  const [editingPromptId, setEditingPromptId] = useState<string | null>(null);
+  const [editingPromptDrafts, setEditingPromptDrafts] = useState<Record<string, string>>({});
+  const [cardQuestionDrafts, setCardQuestionDrafts] = useState<Record<string, string>>({});
+  const [askingCardIds, setAskingCardIds] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     onWatchCountChange?.(items.filter((i) => i.enabled).length);
@@ -116,12 +133,21 @@ export default function ProductWatchModal({
     });
   };
 
-  const handleCheckSingle = async (item: ProductWatchItem) => {
+  const markAskingCard = (id: string, busy: boolean) => {
+    setAskingCardIds((prev) => {
+      const next = new Set(prev);
+      if (busy) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
+
+  const handleCheckSingle = async (item: ProductWatchItem, oneOffPrompt?: string) => {
     markChecking(item.id, true);
     setErrorMsg("");
     try {
       if (authenticated) {
-        const updated = await checkProductWatchPriceNow(item.id, true);
+        const updated = await checkProductWatchPriceNow(item.id, true, fetch, oneOffPrompt);
         setItems((prev) => prev.map((w) => (w.id === item.id ? updated : w)));
       } else {
         const instant = await checkProductInstantPrice({
@@ -129,8 +155,23 @@ export default function ProductWatchModal({
           productName: item.productName,
           currency: item.currency,
           targetPrice: item.targetPrice,
+          customPrompt: item.customPrompt,
+          oneOffPrompt,
         });
         const nowIso = new Date().toISOString();
+        const updatedQa =
+          oneOffPrompt && instant.promptAnswer
+            ? [
+                ...(item.qaHistory || []),
+                {
+                  id: `qa-local-${Date.now()}`,
+                  question: oneOffPrompt,
+                  answer: instant.promptAnswer,
+                  model: instant.model || PRODUCT_WATCH_MODEL,
+                  askedAtUtc: nowIso,
+                },
+              ].slice(-15)
+            : item.qaHistory || [];
         const updated: ProductWatchItem = {
           ...item,
           productName: instant.productName || item.productName,
@@ -152,6 +193,8 @@ export default function ProductWatchModal({
           priceVerdict: instant.priceVerdict,
           summary: instant.summary,
           buyingTip: instant.buyingTip,
+          customPromptAnswer: instant.promptAnswer || item.customPromptAnswer,
+          qaHistory: updatedQa,
           offers: instant.offers,
           modelUsed: instant.model || PRODUCT_WATCH_MODEL,
           checkCount: item.checkCount + 1,
@@ -227,6 +270,7 @@ export default function ProductWatchModal({
           frequency,
           currency,
           targetPrice: parsedTarget,
+          customPrompt: customPrompt.trim(),
           enabled: true,
           notifyOnPriceDrop,
           checkNow: false,
@@ -238,6 +282,7 @@ export default function ProductWatchModal({
       setModelOrSku("");
       setProductName("");
       setTargetPriceText("");
+      setCustomPrompt("");
 
       if (checkImmediately) {
         await handleCheckSingle(saved);
@@ -251,12 +296,166 @@ export default function ProductWatchModal({
     }
   };
 
+  const handleAskCurrentProduct = async (questionOverride?: string) => {
+    const q = (questionOverride ?? currentProductQuestion).trim();
+    const fallbackItem = items[0];
+    const targetSku = modelOrSku.trim() || productName.trim() || fallbackItem?.modelOrSku || "";
+    const targetName =
+      productName.trim() || modelOrSku.trim() || fallbackItem?.productName || targetSku;
+    const targetCurrency = modelOrSku.trim()
+      ? currency
+      : (fallbackItem?.currency ?? currency);
+    const targetCustomPrompt = modelOrSku.trim()
+      ? customPrompt.trim()
+      : (fallbackItem?.customPrompt ?? customPrompt.trim());
+
+    if (targetSku.length < 2) {
+      setErrorMsg(
+        "Enter a product model/SKU in the form above (or choose a quick-fill preset) to ask a one-off question.",
+      );
+      return;
+    }
+    if (q.length < 2) {
+      setErrorMsg("Enter a question or select a quick prompt to ask gpt-6.1-sol.");
+      return;
+    }
+
+    setAskingCurrentProduct(true);
+    setErrorMsg("");
+    if (questionOverride) {
+      setCurrentProductQuestion(questionOverride);
+    }
+
+    try {
+      const response = await askCurrentProductQuestion({
+        question: q,
+        modelOrSku: targetSku,
+        productName: targetName,
+        currency: targetCurrency,
+        customPrompt: targetCustomPrompt,
+        bestPrice: !modelOrSku.trim() ? fallbackItem?.bestPrice : null,
+        bestRetailer: !modelOrSku.trim() ? fallbackItem?.bestRetailer : undefined,
+      });
+      setCurrentProductAnswer(response);
+      if (!questionOverride) {
+        setCurrentProductQuestion("");
+      }
+    } catch (err) {
+      setErrorMsg(
+        err instanceof Error
+          ? err.message
+          : "Could not answer your one-off product question right now.",
+      );
+    } finally {
+      setAskingCurrentProduct(false);
+    }
+  };
+
+  const handleAskCardQuestion = async (
+    item: ProductWatchItem,
+    questionOverride?: string,
+  ) => {
+    const q = (questionOverride ?? cardQuestionDrafts[item.id] ?? "").trim();
+    if (q.length < 2) {
+      setErrorMsg("Enter a question about this product first.");
+      return;
+    }
+
+    markAskingCard(item.id, true);
+    setErrorMsg("");
+    try {
+      if (authenticated) {
+        const res = await askWatchedProductQuestion(item.id, q, true);
+        if (res.watchItem) {
+          setItems((prev) =>
+            prev.map((w) => (w.id === item.id ? res.watchItem! : w)),
+          );
+        }
+      } else {
+        const res = await askCurrentProductQuestion({
+          question: q,
+          modelOrSku: item.modelOrSku,
+          productName: item.productName,
+          currency: item.currency,
+          customPrompt: item.customPrompt,
+          bestPrice: item.bestPrice,
+          bestRetailer: item.bestRetailer,
+        });
+        const newTurn = {
+          id: `qa-local-${Date.now()}`,
+          question: q,
+          answer: res.answer,
+          model: res.model || PRODUCT_WATCH_MODEL,
+          askedAtUtc: res.askedAtUtc || new Date().toISOString(),
+        };
+        setItems((prev) => {
+          const next = prev.map((w) =>
+            w.id === item.id
+              ? {
+                  ...w,
+                  qaHistory: [...(w.qaHistory || []), newTurn].slice(-15),
+                }
+              : w,
+          );
+          saveLocalProductWatches(next);
+          return next;
+        });
+      }
+      setCardQuestionDrafts((prev) => ({ ...prev, [item.id]: "" }));
+    } catch (err) {
+      setErrorMsg(
+        err instanceof Error
+          ? err.message
+          : "Could not answer your question right now.",
+      );
+    } finally {
+      markAskingCard(item.id, false);
+    }
+  };
+
+  const handleSaveCardCustomPrompt = async (
+    item: ProductWatchItem,
+    recheckNow: boolean,
+  ) => {
+    const nextPrompt = (editingPromptDrafts[item.id] ?? item.customPrompt ?? "").trim();
+    setErrorMsg("");
+    try {
+      const updated = await saveProductWatchItem(
+        {
+          id: item.id,
+          productName: item.productName,
+          modelOrSku: item.modelOrSku,
+          frequency: item.frequency,
+          currency: item.currency,
+          targetPrice: item.targetPrice,
+          customPrompt: nextPrompt,
+          enabled: item.enabled,
+          notifyOnPriceDrop: item.notifyOnPriceDrop,
+          checkNow: false,
+        },
+        authenticated,
+      );
+      setItems((prev) => prev.map((w) => (w.id === item.id ? updated : w)));
+      setEditingPromptId(null);
+      if (recheckNow) {
+        await handleCheckSingle(updated);
+      }
+    } catch (err) {
+      setErrorMsg(
+        err instanceof Error
+          ? err.message
+          : "Could not save monitoring prompt.",
+      );
+    }
+  };
+
   const handleApplyPreset = (preset: ProductWatchPreset) => {
     setModelOrSku(preset.modelOrSku);
     setProductName(preset.productName);
     setFrequency(preset.defaultFrequency);
     setCurrency(preset.currency);
     setTargetPriceText(preset.targetPrice ? String(preset.targetPrice) : "");
+    setCustomPrompt(preset.defaultPrompt ?? "");
   };
 
   const handleUpdateFrequency = async (
@@ -274,6 +473,7 @@ export default function ProductWatchModal({
           frequency: normalized,
           currency: item.currency,
           targetPrice: item.targetPrice,
+          customPrompt: item.customPrompt,
           enabled: item.enabled,
           notifyOnPriceDrop: item.notifyOnPriceDrop,
           checkNow: false,
@@ -299,6 +499,7 @@ export default function ProductWatchModal({
           frequency: item.frequency,
           currency: item.currency,
           targetPrice: item.targetPrice,
+          customPrompt: item.customPrompt,
           enabled: !item.enabled,
           notifyOnPriceDrop: item.notifyOnPriceDrop,
           checkNow: false,
@@ -353,12 +554,12 @@ export default function ProductWatchModal({
             </span>
             <div>
               <h2 id="product-watch-modal-title">
-                Product Watch — Best Price Monitor
+                Product Watch — Best Price Monitor &amp; AI Product Q&amp;A
               </h2>
               <p>
                 Track any product model or SKU on your chosen schedule (daily,
-                weekly, monthly) and check the best price at the moment using{" "}
-                <strong>{activeModel}</strong>
+                weekly, monthly), attach custom monitoring instructions, or ask
+                one-off questions using <strong>{activeModel}</strong>
               </p>
             </div>
           </div>
@@ -507,6 +708,26 @@ export default function ProductWatchModal({
               </div>
             </div>
 
+            <div className="product-watch-prompt-row">
+              <div className="product-watch-field">
+                <label htmlFor="pw-custom-prompt">
+                  Additional Monitoring Prompt / Custom Instructions{" "}
+                  <small>
+                    (optional — evaluated on every scheduled &amp; manual price
+                    check)
+                  </small>
+                </label>
+                <input
+                  id="pw-custom-prompt"
+                  type="text"
+                  maxLength={800}
+                  placeholder="e.g. Only authorised NZ retailers (PB Tech, Noel Leeming, JB Hi-Fi); check for bundle bonuses or student discounts"
+                  value={customPrompt}
+                  onChange={(e) => setCustomPrompt(e.target.value)}
+                />
+              </div>
+            </div>
+
             <div className="product-watch-form-footer">
               <div className="product-watch-toggles">
                 <label>
@@ -542,6 +763,132 @@ export default function ProductWatchModal({
                     : "➕ Add to Product Watch"}
               </button>
             </div>
+
+            <div className="product-watch-instant-ask-bar">
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: "0.5rem",
+                  flexWrap: "wrap",
+                }}
+              >
+                <strong style={{ fontSize: "0.8rem" }}>
+                  💬 Ask a One-Off Question about Current Product (
+                  {modelOrSku.trim() ||
+                    productName.trim() ||
+                    items[0]?.productName ||
+                    "Enter SKU above"}
+                  )
+                </strong>
+                <div className="product-watch-presets">
+                  {PRODUCT_WATCH_QUICK_QUESTIONS.map((q) => (
+                    <button
+                      key={q}
+                      type="button"
+                      className="product-watch-preset-chip"
+                      disabled={askingCurrentProduct}
+                      onClick={() => void handleAskCurrentProduct(q)}
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="product-watch-instant-ask-input-row">
+                <input
+                  type="text"
+                  maxLength={800}
+                  placeholder="Ask a one-off question about the current product (e.g. Should I wait for Black Friday? Does PB Tech price match?)"
+                  aria-label="One-off question for current product"
+                  value={currentProductQuestion}
+                  onChange={(e) => setCurrentProductQuestion(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void handleAskCurrentProduct();
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  className="product-watch-btn primary"
+                  disabled={
+                    askingCurrentProduct ||
+                    currentProductQuestion.trim().length < 2
+                  }
+                  onClick={() => void handleAskCurrentProduct()}
+                >
+                  {askingCurrentProduct
+                    ? `Asking ${activeModel}…`
+                    : `💬 Ask ${activeModel}`}
+                </button>
+              </div>
+              {currentProductAnswer && (
+                <div
+                  className="product-watch-instant-answer-card"
+                  role="region"
+                  aria-label="One-off product answer"
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: "0.5rem",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <strong>
+                      🤖 {currentProductAnswer.productName} (
+                      {currentProductAnswer.modelOrSku}) — Q:{" "}
+                      {currentProductAnswer.question}
+                    </strong>
+                    <button
+                      type="button"
+                      className="product-watch-btn"
+                      onClick={() => setCurrentProductAnswer(null)}
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                  <p style={{ margin: 0, lineHeight: 1.45 }}>
+                    {currentProductAnswer.answer}
+                  </p>
+                  {(currentProductAnswer.bestPrice !== null ||
+                    currentProductAnswer.buyingTip) && (
+                    <div
+                      style={{
+                        fontSize: "0.77rem",
+                        opacity: 0.9,
+                        display: "flex",
+                        gap: "0.75rem",
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      {currentProductAnswer.bestPrice !== null && (
+                        <span>
+                          <strong>Best Price:</strong>{" "}
+                          {formatProductPrice(
+                            currentProductAnswer.bestPrice,
+                            currentProductAnswer.currency,
+                          )}
+                          {currentProductAnswer.bestRetailer
+                            ? ` at ${currentProductAnswer.bestRetailer}`
+                            : ""}
+                        </span>
+                      )}
+                      {currentProductAnswer.buyingTip && (
+                        <span>
+                          <strong>Tip:</strong> {currentProductAnswer.buyingTip}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </form>
 
           {errorMsg && (
@@ -558,16 +905,18 @@ export default function ProductWatchModal({
             <div className="product-watch-empty">
               <strong>No products watched yet.</strong>
               <p style={{ margin: "0.35rem 0 0" }}>
-                Enter a product model or SKU above (or click a quick-fill chip)
-                and choose a check frequency (daily, weekly, monthly, etc.) to
-                monitor the best price at the moment with{" "}
-                <strong>{activeModel}</strong>.
+                Enter a product model or SKU above (or click a quick-fill chip),
+                set an optional monitoring prompt, and choose a check frequency
+                (daily, weekly, monthly, etc.) to monitor the best price at the
+                moment with <strong>{activeModel}</strong>.
               </p>
             </div>
           ) : (
             <div className="product-watch-list" role="list">
               {items.map((item) => {
                 const isChecking = checkingIds.has(item.id);
+                const isAskingCard = askingCardIds.has(item.id);
+                const isEditingPrompt = editingPromptId === item.id;
                 const verdictMeta = priceVerdictBadgeMeta(item.priceVerdict);
                 return (
                   <article
@@ -623,6 +972,26 @@ export default function ProductWatchModal({
 
                         <button
                           type="button"
+                          className="product-watch-btn"
+                          onClick={() => {
+                            if (isEditingPrompt) {
+                              setEditingPromptId(null);
+                            } else {
+                              setEditingPromptDrafts((prev) => ({
+                                ...prev,
+                                [item.id]: item.customPrompt || "",
+                              }));
+                              setEditingPromptId(item.id);
+                            }
+                          }}
+                        >
+                          {item.customPrompt
+                            ? "✏️ Edit Monitoring Prompt"
+                            : "➕ Add Monitoring Prompt"}
+                        </button>
+
+                        <button
+                          type="button"
                           className="product-watch-btn primary"
                           disabled={isChecking}
                           onClick={() => void handleCheckSingle(item)}
@@ -650,6 +1019,67 @@ export default function ProductWatchModal({
                         </button>
                       </div>
                     </div>
+
+                    {isEditingPrompt && (
+                      <div className="product-watch-prompt-editor-row">
+                        <input
+                          type="text"
+                          maxLength={800}
+                          aria-label={`Monitoring prompt for ${item.productName}`}
+                          placeholder="Enter persistent monitoring instructions for this product (e.g. Only NZ retailers with local warranty; check bundle offers)"
+                          value={editingPromptDrafts[item.id] ?? ""}
+                          onChange={(e) =>
+                            setEditingPromptDrafts((prev) => ({
+                              ...prev,
+                              [item.id]: e.target.value,
+                            }))
+                          }
+                        />
+                        <button
+                          type="button"
+                          className="product-watch-btn"
+                          onClick={() =>
+                            void handleSaveCardCustomPrompt(item, false)
+                          }
+                        >
+                          💾 Save Prompt
+                        </button>
+                        <button
+                          type="button"
+                          className="product-watch-btn primary"
+                          disabled={isChecking}
+                          onClick={() =>
+                            void handleSaveCardCustomPrompt(item, true)
+                          }
+                        >
+                          💾 Save &amp; Check Now
+                        </button>
+                        <button
+                          type="button"
+                          className="product-watch-btn"
+                          onClick={() => setEditingPromptId(null)}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    )}
+
+                    {(item.customPrompt || item.customPromptAnswer) && (
+                      <div className="product-watch-custom-prompt-box">
+                        {item.customPrompt && (
+                          <div>
+                            <strong>🎯 Monitoring Prompt:</strong>{" "}
+                            <span>{item.customPrompt}</span>
+                          </div>
+                        )}
+                        {item.customPromptAnswer && (
+                          <div>
+                            <strong>🤖 Prompt Insight ({activeModel}):</strong>{" "}
+                            <span>{item.customPromptAnswer}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     <div className="product-watch-price-banner">
                       <div className="product-watch-best-price-main">
@@ -782,6 +1212,98 @@ export default function ProductWatchModal({
                       </div>
                     )}
 
+                    <div className="product-watch-qa-section">
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: "0.4rem",
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <strong style={{ fontSize: "0.78rem" }}>
+                          💬 Ask a One-Off Question about {item.productName}
+                        </strong>
+                        <div className="product-watch-presets">
+                          {PRODUCT_WATCH_QUICK_QUESTIONS.map((q) => (
+                            <button
+                              key={q}
+                              type="button"
+                              className="product-watch-preset-chip"
+                              disabled={isAskingCard}
+                              onClick={() => void handleAskCardQuestion(item, q)}
+                            >
+                              {q}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="product-watch-card-ask-row">
+                        <input
+                          type="text"
+                          maxLength={800}
+                          aria-label={`Ask a one-off question about ${item.productName}`}
+                          placeholder={`Ask ${activeModel} a one-off question about ${item.modelOrSku}…`}
+                          value={cardQuestionDrafts[item.id] ?? ""}
+                          onChange={(e) =>
+                            setCardQuestionDrafts((prev) => ({
+                              ...prev,
+                              [item.id]: e.target.value,
+                            }))
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              void handleAskCardQuestion(item);
+                            }
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="product-watch-btn primary"
+                          disabled={
+                            isAskingCard ||
+                            (cardQuestionDrafts[item.id] ?? "").trim().length < 2
+                          }
+                          onClick={() => void handleAskCardQuestion(item)}
+                        >
+                          {isAskingCard
+                            ? `Asking ${activeModel}…`
+                            : "💬 Ask Question"}
+                        </button>
+                      </div>
+
+                      {item.qaHistory && item.qaHistory.length > 0 && (
+                        <div
+                          className="product-watch-qa-thread"
+                          aria-label={`Q&A history for ${item.productName}`}
+                        >
+                          {item.qaHistory
+                            .slice()
+                            .reverse()
+                            .map((turn) => (
+                              <div
+                                key={turn.id}
+                                className="product-watch-qa-turn"
+                              >
+                                <div className="product-watch-qa-question">
+                                  <span>Q: {turn.question}</span>
+                                  <small style={{ fontWeight: 400, opacity: 0.7 }}>
+                                    {formatShortTimestamp(turn.askedAtUtc)} •{" "}
+                                    {turn.model || activeModel}
+                                  </small>
+                                </div>
+                                <p className="product-watch-qa-answer">
+                                  {turn.answer}
+                                </p>
+                              </div>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+
                     {item.priceHistory && item.priceHistory.length > 1 && (
                       <div className="product-watch-history-strip">
                         <strong>Recent Price History:</strong>
@@ -791,7 +1313,7 @@ export default function ProductWatchModal({
                             className="product-watch-history-pill"
                           >
                             {formatProductPrice(pt.bestPrice, pt.currency)} (
-                            {pt.retailer || "Retail"}, {" "}
+                            {pt.retailer || "Retail"},{" "}
                             {formatShortTimestamp(pt.checkedAtUtc)})
                           </span>
                         ))}

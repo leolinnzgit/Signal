@@ -29,6 +29,14 @@ export interface ProductPriceHistoryPoint {
   currency: string;
 }
 
+export interface ProductWatchQaTurn {
+  id: string;
+  question: string;
+  answer: string;
+  model: string;
+  askedAtUtc: string;
+}
+
 export interface ProductPriceCheckResult {
   productName: string;
   modelOrSku: string;
@@ -45,6 +53,7 @@ export interface ProductPriceCheckResult {
   offers: ProductWatchOffer[];
   model: string;
   checkedAtUtc: string;
+  promptAnswer?: string;
 }
 
 export interface ProductWatchItem {
@@ -70,6 +79,9 @@ export interface ProductWatchItem {
   priceVerdict: string;
   summary: string;
   buyingTip: string;
+  customPrompt: string;
+  customPromptAnswer: string;
+  qaHistory: ProductWatchQaTurn[];
   offers: ProductWatchOffer[];
   priceHistory: ProductPriceHistoryPoint[];
   modelUsed: string;
@@ -88,9 +100,35 @@ export interface ProductWatchUpsertInput {
   frequency?: ProductWatchFrequency | string;
   currency?: string;
   targetPrice?: number | null;
+  customPrompt?: string;
   enabled?: boolean;
   notifyOnPriceDrop?: boolean;
   checkNow?: boolean;
+}
+
+export interface ProductWatchAskRequest {
+  question: string;
+  modelOrSku?: string;
+  productName?: string;
+  currency?: string;
+  customPrompt?: string;
+  bestPrice?: number | null;
+  bestRetailer?: string;
+}
+
+export interface ProductWatchAskResponse {
+  productName: string;
+  modelOrSku: string;
+  currency: string;
+  question: string;
+  answer: string;
+  bestPrice: number | null;
+  regularPrice: number | null;
+  bestRetailer: string;
+  buyingTip: string;
+  model: string;
+  askedAtUtc: string;
+  watchItem?: ProductWatchItem | null;
 }
 
 export interface ProductWatchStateResponse {
@@ -109,6 +147,7 @@ export interface ProductWatchPreset {
   defaultFrequency: ProductWatchFrequency;
   currency: string;
   targetPrice?: number;
+  defaultPrompt?: string;
 }
 
 export const PRODUCT_WATCH_MODEL = "gpt-6.1-sol";
@@ -134,6 +173,13 @@ export const PRODUCT_WATCH_CURRENCIES: readonly string[] = [
   "JPY",
 ];
 
+export const PRODUCT_WATCH_QUICK_QUESTIONS: readonly string[] = [
+  "Is this a good time to buy or wait for a bigger sale?",
+  "Which retailers offer price-matching or bundle bonuses on this SKU?",
+  "How does this model compare to its newer or main rival alternative?",
+  "Are there any warranty, regional SKU, or parallel-import caveats?",
+];
+
 export const PRODUCT_WATCH_PRESETS: readonly ProductWatchPreset[] = [
   {
     id: "sony-xm5",
@@ -142,6 +188,7 @@ export const PRODUCT_WATCH_PRESETS: readonly ProductWatchPreset[] = [
     defaultFrequency: "daily",
     currency: "NZD",
     targetPrice: 480,
+    defaultPrompt: "Check authorised NZ retailers (PB Tech, Noel Leeming, JB Hi-Fi) and note any colour-specific discounts.",
   },
   {
     id: "macbook-air-m3",
@@ -150,6 +197,7 @@ export const PRODUCT_WATCH_PRESETS: readonly ProductWatchPreset[] = [
     defaultFrequency: "weekly",
     currency: "NZD",
     targetPrice: 1699,
+    defaultPrompt: "Verify 16GB unified memory configuration and check education or trade-in promotions.",
   },
   {
     id: "lg-c4-65",
@@ -158,6 +206,7 @@ export const PRODUCT_WATCH_PRESETS: readonly ProductWatchPreset[] = [
     defaultFrequency: "weekly",
     currency: "NZD",
     targetPrice: 2999,
+    defaultPrompt: "Include delivery cost notes and check for bonus soundbar or gift card bundles.",
   },
   {
     id: "samsung-s25-ultra",
@@ -166,6 +215,7 @@ export const PRODUCT_WATCH_PRESETS: readonly ProductWatchPreset[] = [
     defaultFrequency: "daily",
     currency: "NZD",
     targetPrice: 1899,
+    defaultPrompt: "Only brand-new NZ warranty stock; check trade-in bonus or storage upgrade offers.",
   },
 ];
 
@@ -267,10 +317,17 @@ export function loadLocalProductWatches(
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (item): item is ProductWatchItem =>
-        Boolean(item && typeof item.id === "string" && typeof item.modelOrSku === "string"),
-    );
+    return parsed
+      .filter(
+        (item): item is ProductWatchItem =>
+          Boolean(item && typeof item.id === "string" && typeof item.modelOrSku === "string"),
+      )
+      .map((item) => ({
+        ...item,
+        customPrompt: item.customPrompt ?? "",
+        customPromptAnswer: item.customPromptAnswer ?? "",
+        qaHistory: Array.isArray(item.qaHistory) ? item.qaHistory : [],
+      }));
   } catch {
     return [];
   }
@@ -328,7 +385,14 @@ export async function fetchProductWatchState(
       model: payload.model || PRODUCT_WATCH_MODEL,
       frequencies: payload.frequencies?.length ? payload.frequencies : [...PRODUCT_WATCH_FREQUENCIES],
       currencies: payload.currencies?.length ? payload.currencies : [...PRODUCT_WATCH_CURRENCIES],
-      items: Array.isArray(payload.items) ? payload.items : [],
+      items: Array.isArray(payload.items)
+        ? payload.items.map((item) => ({
+            ...item,
+            customPrompt: item.customPrompt ?? "",
+            customPromptAnswer: item.customPromptAnswer ?? "",
+            qaHistory: Array.isArray(item.qaHistory) ? item.qaHistory : [],
+          }))
+        : [],
     };
   } catch {
     return {
@@ -356,6 +420,8 @@ export async function saveProductWatchItem(
 
   const frequency = normalizeWatchFrequency(input.frequency);
   const currency = normalizeWatchCurrency(input.currency);
+  const customPrompt =
+    input.customPrompt !== undefined ? input.customPrompt.trim().slice(0, 800) : undefined;
   const targetPrice =
     typeof input.targetPrice === "number" && Number.isFinite(input.targetPrice) && input.targetPrice > 0
       ? Math.round(input.targetPrice * 100) / 100
@@ -378,13 +444,20 @@ export async function saveProductWatchItem(
         frequency,
         currency,
         targetPrice,
+        ...(customPrompt !== undefined ? { customPrompt } : {}),
         enabled: input.enabled ?? true,
         notifyOnPriceDrop: input.notifyOnPriceDrop ?? true,
         checkNow: input.checkNow ?? false,
       }),
     });
     if (res.ok) {
-      return (await res.json()) as ProductWatchItem;
+      const data = (await res.json()) as ProductWatchItem;
+      return {
+        ...data,
+        customPrompt: data.customPrompt ?? "",
+        customPromptAnswer: data.customPromptAnswer ?? "",
+        qaHistory: Array.isArray(data.qaHistory) ? data.qaHistory : [],
+      };
     }
     if (res.status !== 401) {
       const errBody = await res.json().catch(() => ({} as { error?: string }));
@@ -398,6 +471,7 @@ export async function saveProductWatchItem(
   const id = input.id && input.id.trim().length > 0 ? input.id.trim() : `pw-local-${Date.now()}`;
   const prev = existing.find((w) => w.id === id);
   const enabled = input.enabled ?? prev?.enabled ?? true;
+  const resolvedPrompt = customPrompt !== undefined ? customPrompt : (prev?.customPrompt ?? "");
   const saved: ProductWatchItem = {
     id,
     productName,
@@ -425,6 +499,9 @@ export async function saveProductWatchItem(
     priceVerdict: prev?.priceVerdict ?? "",
     summary: prev?.summary ?? "",
     buyingTip: prev?.buyingTip ?? "",
+    customPrompt: resolvedPrompt,
+    customPromptAnswer: resolvedPrompt ? (prev?.customPromptAnswer ?? "") : "",
+    qaHistory: prev?.qaHistory ?? [],
     offers: prev?.offers ?? [],
     priceHistory: prev?.priceHistory ?? [],
     modelUsed: prev?.modelUsed ?? PRODUCT_WATCH_MODEL,
@@ -445,6 +522,7 @@ export async function checkProductWatchPriceNow(
   id: string,
   authenticated: boolean,
   fetcher: typeof fetch = fetch,
+  oneOffPrompt?: string,
 ): Promise<ProductWatchItem> {
   if (!authenticated) {
     throw new Error("Sign in to check live product prices with gpt-6.1-sol.");
@@ -459,7 +537,9 @@ export async function checkProductWatchPriceNow(
       Accept: "application/json",
       ...(token ? { "X-XSRF-TOKEN": token } : {}),
     },
-    body: JSON.stringify({}),
+    body: JSON.stringify(
+      oneOffPrompt && oneOffPrompt.trim() ? { oneOffPrompt: oneOffPrompt.trim() } : {},
+    ),
   });
 
   if (!res.ok) {
@@ -467,7 +547,84 @@ export async function checkProductWatchPriceNow(
     throw new Error(errBody.error || `Could not check best price right now (HTTP ${res.status}).`);
   }
 
-  return (await res.json()) as ProductWatchItem;
+  const data = (await res.json()) as ProductWatchItem;
+  return {
+    ...data,
+    customPrompt: data.customPrompt ?? "",
+    customPromptAnswer: data.customPromptAnswer ?? "",
+    qaHistory: Array.isArray(data.qaHistory) ? data.qaHistory : [],
+  };
+}
+
+export async function askWatchedProductQuestion(
+  id: string,
+  question: string,
+  authenticated: boolean,
+  fetcher: typeof fetch = fetch,
+): Promise<ProductWatchAskResponse> {
+  const cleanQuestion = (question || "").trim();
+  if (cleanQuestion.length < 2) {
+    throw new Error("Enter a question or prompt about this product (at least 2 characters).");
+  }
+  if (!authenticated) {
+    throw new Error("Sign in to ask gpt-6.1-sol questions about your watched products.");
+  }
+
+  const token = await getCsrfToken(fetcher);
+  const res = await fetcher(`/api/product-watch/${encodeURIComponent(id)}/ask`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      ...(token ? { "X-XSRF-TOKEN": token } : {}),
+    },
+    body: JSON.stringify({ question: cleanQuestion }),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({} as { error?: string }));
+    throw new Error(errBody.error || `Could not answer your question right now (HTTP ${res.status}).`);
+  }
+
+  return (await res.json()) as ProductWatchAskResponse;
+}
+
+export async function askCurrentProductQuestion(
+  request: ProductWatchAskRequest,
+  fetcher: typeof fetch = fetch,
+): Promise<ProductWatchAskResponse> {
+  const cleanQuestion = (request.question || "").trim();
+  const cleanSku = (request.modelOrSku || request.productName || "").trim();
+  if (cleanSku.length < 2) {
+    throw new Error("Enter a product model or SKU first.");
+  }
+  if (cleanQuestion.length < 2) {
+    throw new Error("Enter a question or one-off prompt to ask gpt-6.1-sol.");
+  }
+
+  const token = await getCsrfToken(fetcher);
+  const res = await fetcher("/api/product-watch/ask", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      ...(token ? { "X-XSRF-TOKEN": token } : {}),
+    },
+    body: JSON.stringify({
+      ...request,
+      question: cleanQuestion,
+      modelOrSku: cleanSku,
+    }),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({} as { error?: string }));
+    throw new Error(errBody.error || `Could not answer your product question right now (HTTP ${res.status}).`);
+  }
+
+  return (await res.json()) as ProductWatchAskResponse;
 }
 
 export async function checkProductInstantPrice(
@@ -476,6 +633,8 @@ export async function checkProductInstantPrice(
     productName?: string;
     currency?: string;
     targetPrice?: number | null;
+    customPrompt?: string;
+    oneOffPrompt?: string;
   },
   fetcher: typeof fetch = fetch,
 ): Promise<ProductPriceCheckResult> {
@@ -543,6 +702,9 @@ export function formatProductWatchMarkdown(items: ReadonlyArray<ProductWatchItem
     lines.push(
       `- **Schedule:** ${item.frequencyLabel} (${item.enabled ? "Active" : "Paused"})`,
     );
+    if (item.customPrompt) {
+      lines.push(`- **Monitoring Prompt:** ${item.customPrompt}`);
+    }
     if (item.bestPrice !== null) {
       const reg =
         item.regularPrice && item.regularPrice > item.bestPrice
@@ -562,6 +724,9 @@ export function formatProductWatchMarkdown(items: ReadonlyArray<ProductWatchItem
     if (item.summary) {
       lines.push(`- **Analysis:** ${item.summary}`);
     }
+    if (item.customPromptAnswer) {
+      lines.push(`- **Custom Prompt Insight:** ${item.customPromptAnswer}`);
+    }
     if (item.buyingTip) {
       lines.push(`- **Buying Tip:** ${item.buyingTip}`);
     }
@@ -573,6 +738,13 @@ export function formatProductWatchMarkdown(items: ReadonlyArray<ProductWatchItem
         lines.push(
           `  - **${offer.retailer}**: ${formatProductPrice(offer.price, offer.currency)} (${offer.availability})${notePart}${linkPart}`,
         );
+      }
+    }
+    if (item.qaHistory && item.qaHistory.length > 0) {
+      lines.push("- **Product Q&A:**");
+      for (const qa of item.qaHistory) {
+        lines.push(`  - **Q:** ${qa.question}`);
+        lines.push(`    **A:** ${qa.answer}`);
       }
     }
     lines.push("");

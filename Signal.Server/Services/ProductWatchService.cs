@@ -28,6 +28,13 @@ public sealed record ProductPriceHistoryPointDto(
     [property: JsonPropertyName("retailer")] string Retailer,
     [property: JsonPropertyName("currency")] string Currency);
 
+public sealed record ProductWatchQaTurnDto(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("question")] string Question,
+    [property: JsonPropertyName("answer")] string Answer,
+    [property: JsonPropertyName("model")] string Model,
+    [property: JsonPropertyName("askedAtUtc")] DateTime AskedAtUtc);
+
 public sealed record ProductPriceCheckResultDto(
     [property: JsonPropertyName("productName")] string ProductName,
     [property: JsonPropertyName("modelOrSku")] string ModelOrSku,
@@ -43,7 +50,8 @@ public sealed record ProductPriceCheckResultDto(
     [property: JsonPropertyName("buyingTip")] string BuyingTip,
     [property: JsonPropertyName("offers")] ProductWatchOfferDto[] Offers,
     [property: JsonPropertyName("model")] string Model,
-    [property: JsonPropertyName("checkedAtUtc")] DateTime CheckedAtUtc);
+    [property: JsonPropertyName("checkedAtUtc")] DateTime CheckedAtUtc,
+    [property: JsonPropertyName("promptAnswer")] string PromptAnswer = "");
 
 public sealed record ProductWatchItemDto(
     [property: JsonPropertyName("id")] string Id,
@@ -68,6 +76,9 @@ public sealed record ProductWatchItemDto(
     [property: JsonPropertyName("priceVerdict")] string PriceVerdict,
     [property: JsonPropertyName("summary")] string Summary,
     [property: JsonPropertyName("buyingTip")] string BuyingTip,
+    [property: JsonPropertyName("customPrompt")] string CustomPrompt,
+    [property: JsonPropertyName("customPromptAnswer")] string CustomPromptAnswer,
+    [property: JsonPropertyName("qaHistory")] ProductWatchQaTurnDto[] QaHistory,
     [property: JsonPropertyName("offers")] ProductWatchOfferDto[] Offers,
     [property: JsonPropertyName("priceHistory")] ProductPriceHistoryPointDto[] PriceHistory,
     [property: JsonPropertyName("modelUsed")] string ModelUsed,
@@ -82,7 +93,32 @@ public sealed record ProductWatchInstantCheckRequest(
     [property: JsonPropertyName("modelOrSku")] string? ModelOrSku,
     [property: JsonPropertyName("productName")] string? ProductName = null,
     [property: JsonPropertyName("currency")] string? Currency = "NZD",
-    [property: JsonPropertyName("targetPrice")] decimal? TargetPrice = null);
+    [property: JsonPropertyName("targetPrice")] decimal? TargetPrice = null,
+    [property: JsonPropertyName("customPrompt")] string? CustomPrompt = null,
+    [property: JsonPropertyName("oneOffPrompt")] string? OneOffPrompt = null);
+
+public sealed record ProductWatchAskRequest(
+    [property: JsonPropertyName("question")] string? Question,
+    [property: JsonPropertyName("modelOrSku")] string? ModelOrSku = null,
+    [property: JsonPropertyName("productName")] string? ProductName = null,
+    [property: JsonPropertyName("currency")] string? Currency = "NZD",
+    [property: JsonPropertyName("customPrompt")] string? CustomPrompt = null,
+    [property: JsonPropertyName("bestPrice")] decimal? BestPrice = null,
+    [property: JsonPropertyName("bestRetailer")] string? BestRetailer = null);
+
+public sealed record ProductWatchAskResponse(
+    [property: JsonPropertyName("productName")] string ProductName,
+    [property: JsonPropertyName("modelOrSku")] string ModelOrSku,
+    [property: JsonPropertyName("currency")] string Currency,
+    [property: JsonPropertyName("question")] string Question,
+    [property: JsonPropertyName("answer")] string Answer,
+    [property: JsonPropertyName("bestPrice")] decimal? BestPrice,
+    [property: JsonPropertyName("regularPrice")] decimal? RegularPrice,
+    [property: JsonPropertyName("bestRetailer")] string BestRetailer,
+    [property: JsonPropertyName("buyingTip")] string BuyingTip,
+    [property: JsonPropertyName("model")] string Model,
+    [property: JsonPropertyName("askedAtUtc")] DateTime AskedAtUtc,
+    [property: JsonPropertyName("watchItem")] ProductWatchItemDto? WatchItem = null);
 
 public sealed class ProductWatchService(
     MicrosoftFoundryService foundry,
@@ -94,6 +130,7 @@ public sealed class ProductWatchService(
     public const string DefaultModel = "gpt-6.1-sol";
     public const int MaxWatchedProductsPerUser = 30;
     private const int MaxHistoryPoints = 30;
+    private const int MaxQaHistoryTurns = 15;
 
     public static readonly IReadOnlyList<ProductWatchFrequencyOption> SupportedFrequencies =
     [
@@ -195,7 +232,9 @@ public sealed class ProductWatchService(
         string? productName,
         string? currency,
         decimal? targetPrice,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? customPrompt = null,
+        string? oneOffPrompt = null)
     {
         var cleanSku = NormalizeText(modelOrSku, 120);
         var cleanName = NormalizeText(productName, 200);
@@ -221,6 +260,8 @@ public sealed class ProductWatchService(
         }
 
         var normalizedCurrency = NormalizeCurrency(currency);
+        var cleanCustomPrompt = NormalizeText(customPrompt, 800);
+        var cleanOneOffPrompt = NormalizeText(oneOffPrompt, 800);
         var snippets = await GatherDealEvidenceAsync(userId, cleanName, cleanSku, normalizedCurrency, cancellationToken);
         var now = DateTime.UtcNow;
 
@@ -230,7 +271,9 @@ public sealed class ProductWatchService(
             normalizedCurrency,
             targetPrice,
             snippets,
-            now);
+            now,
+            cleanCustomPrompt,
+            cleanOneOffPrompt);
 
         var chatResult = await foundry.CompleteChatAsync(
             messages,
@@ -255,12 +298,14 @@ public sealed class ProductWatchService(
         string userId,
         string watchId,
         bool isScheduledBackgroundCheck,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? oneOffPrompt = null)
     {
         var item = await database.ProductWatches
             .SingleOrDefaultAsync(w => w.Id == watchId && w.UserId == userId, cancellationToken)
             ?? throw new KeyNotFoundException("Product watch item was not found.");
 
+        var cleanOneOff = NormalizeText(oneOffPrompt, 800);
         var now = DateTime.UtcNow;
         try
         {
@@ -270,7 +315,9 @@ public sealed class ProductWatchService(
                 item.ProductName,
                 item.Currency,
                 item.TargetPrice,
-                cancellationToken);
+                cancellationToken,
+                item.CustomPrompt,
+                cleanOneOff);
 
             var previousBest = item.BestPrice;
             item.PreviousBestPrice = previousBest;
@@ -284,6 +331,14 @@ public sealed class ProductWatchService(
             item.PriceVerdict = result.PriceVerdict;
             item.Summary = NormalizeText(result.Summary, 2000);
             item.BuyingTip = NormalizeText(result.BuyingTip, 600);
+            if (!string.IsNullOrWhiteSpace(result.PromptAnswer))
+            {
+                item.CustomPromptAnswer = NormalizeText(result.PromptAnswer, 2000);
+            }
+            else if (string.IsNullOrWhiteSpace(item.CustomPrompt) && cleanOneOff.Length == 0)
+            {
+                item.CustomPromptAnswer = "";
+            }
             item.OffersJson = JsonSerializer.Serialize(result.Offers);
             item.ModelUsed = NormalizeText(result.Model, 128);
             item.CheckCount += 1;
@@ -310,6 +365,22 @@ public sealed class ProductWatchService(
                 history = history.Skip(history.Count - MaxHistoryPoints).ToList();
             }
             item.PriceHistoryJson = JsonSerializer.Serialize(history);
+
+            if (cleanOneOff.Length > 0 && !string.IsNullOrWhiteSpace(result.PromptAnswer))
+            {
+                var qaHistory = ParseQaHistory(item.QaHistoryJson).ToList();
+                qaHistory.Add(new ProductWatchQaTurnDto(
+                    Id: $"qa-{Guid.NewGuid():N}"[..16],
+                    Question: cleanOneOff,
+                    Answer: NormalizeText(result.PromptAnswer, 2000),
+                    Model: item.ModelUsed,
+                    AskedAtUtc: now));
+                if (qaHistory.Count > MaxQaHistoryTurns)
+                {
+                    qaHistory = qaHistory.Skip(qaHistory.Count - MaxQaHistoryTurns).ToList();
+                }
+                item.QaHistoryJson = JsonSerializer.Serialize(qaHistory);
+            }
 
             await database.SaveChangesAsync(cancellationToken);
 
@@ -363,6 +434,250 @@ public sealed class ProductWatchService(
             await database.SaveChangesAsync(cancellationToken);
             throw;
         }
+    }
+
+    public async Task<ProductWatchAskResponse> AskWatchItemQuestionAsync(
+        string userId,
+        string watchId,
+        string? question,
+        CancellationToken cancellationToken)
+    {
+        var item = await database.ProductWatches
+            .SingleOrDefaultAsync(w => w.Id == watchId && w.UserId == userId, cancellationToken)
+            ?? throw new KeyNotFoundException("Product watch item was not found.");
+
+        var cleanQuestion = NormalizeText(question, 800);
+        if (cleanQuestion.Length < 2)
+        {
+            throw new ArgumentException("Enter a question or prompt about this product (at least 2 characters).");
+        }
+
+        var response = await ExecuteProductQuestionCoreAsync(
+            userId: userId,
+            productName: item.ProductName,
+            modelOrSku: item.ModelOrSku,
+            currency: item.Currency,
+            customPrompt: item.CustomPrompt,
+            knownBestPrice: item.BestPrice,
+            knownRegularPrice: item.RegularPrice,
+            knownRetailer: item.BestRetailer,
+            knownSummary: item.Summary,
+            priorTurns: ParseQaHistory(item.QaHistoryJson),
+            question: cleanQuestion,
+            cancellationToken: cancellationToken);
+
+        var now = response.AskedAtUtc;
+        var qaHistory = ParseQaHistory(item.QaHistoryJson).ToList();
+        qaHistory.Add(new ProductWatchQaTurnDto(
+            Id: $"qa-{Guid.NewGuid():N}"[..16],
+            Question: cleanQuestion,
+            Answer: response.Answer,
+            Model: response.Model,
+            AskedAtUtc: now));
+        if (qaHistory.Count > MaxQaHistoryTurns)
+        {
+            qaHistory = qaHistory.Skip(qaHistory.Count - MaxQaHistoryTurns).ToList();
+        }
+        item.QaHistoryJson = JsonSerializer.Serialize(qaHistory);
+
+        if (!item.BestPrice.HasValue && response.BestPrice is > 0)
+        {
+            item.BestPrice = response.BestPrice;
+            item.RegularPrice = response.RegularPrice ?? response.BestPrice;
+            item.LowestPriceEver = response.BestPrice;
+            if (!string.IsNullOrWhiteSpace(response.BestRetailer))
+            {
+                item.BestRetailer = NormalizeText(response.BestRetailer, 160);
+            }
+        }
+        item.UpdatedAtUtc = now;
+        await database.SaveChangesAsync(cancellationToken);
+
+        return response with { WatchItem = ToDto(item) };
+    }
+
+    public async Task<ProductWatchAskResponse> AskInstantProductQuestionAsync(
+        string? userId,
+        ProductWatchAskRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var cleanQuestion = NormalizeText(request.Question, 800);
+        if (cleanQuestion.Length < 2)
+        {
+            throw new ArgumentException("Enter a question or prompt about this product (at least 2 characters).");
+        }
+
+        var cleanSku = NormalizeText(request.ModelOrSku, 120);
+        var cleanName = NormalizeText(request.ProductName, 200);
+        if (cleanSku.Length == 0 && cleanName.Length > 0)
+        {
+            cleanSku = cleanName.Length <= 120 ? cleanName : cleanName[..120];
+        }
+        if (cleanName.Length == 0)
+        {
+            cleanName = cleanSku;
+        }
+        if (cleanSku.Length < 2)
+        {
+            throw new ArgumentException("Enter a product model or SKU (at least 2 characters) to ask about.");
+        }
+
+        return await ExecuteProductQuestionCoreAsync(
+            userId: userId,
+            productName: cleanName,
+            modelOrSku: cleanSku,
+            currency: NormalizeCurrency(request.Currency),
+            customPrompt: NormalizeText(request.CustomPrompt, 800),
+            knownBestPrice: request.BestPrice,
+            knownRegularPrice: null,
+            knownRetailer: NormalizeText(request.BestRetailer, 160),
+            knownSummary: "",
+            priorTurns: [],
+            question: cleanQuestion,
+            cancellationToken: cancellationToken);
+    }
+
+    private async Task<ProductWatchAskResponse> ExecuteProductQuestionCoreAsync(
+        string? userId,
+        string productName,
+        string modelOrSku,
+        string currency,
+        string customPrompt,
+        decimal? knownBestPrice,
+        decimal? knownRegularPrice,
+        string knownRetailer,
+        string knownSummary,
+        IReadOnlyList<ProductWatchQaTurnDto> priorTurns,
+        string question,
+        CancellationToken cancellationToken)
+    {
+        if (!foundry.Enabled)
+        {
+            throw new FoundryServiceException(
+                "Microsoft Foundry (gpt-6.1-sol) is not configured for Product Watch yet.",
+                StatusCodes.Status503ServiceUnavailable);
+        }
+
+        var snippets = await GatherDealEvidenceAsync(userId, productName, modelOrSku, currency, cancellationToken);
+        var now = DateTime.UtcNow;
+
+        var sys = new StringBuilder();
+        sys.AppendLine("You are Signal Product Watch, an AI product & retail pricing specialist powered by gpt-6.1-sol.");
+        sys.AppendLine($"Current UTC date: {now:yyyy-MM-dd}.");
+        sys.AppendLine("Answer the user's one-off question about the specified product model/SKU accurately, concisely, and practically.");
+        sys.AppendLine("Ground your response in the provided Live Web & Deal Snippets, current watched price context, and your knowledge of the product's specifications, retail pricing, retailer policies, and competing models.");
+        sys.AppendLine("Respond ONLY with a valid JSON object matching this schema:");
+        sys.AppendLine("{");
+        sys.AppendLine("  \"productName\": \"Full canonical product name\",");
+        sys.AppendLine("  \"modelOrSku\": \"Model or SKU\",");
+        sys.AppendLine($"  \"currency\": \"{currency}\",");
+        sys.AppendLine("  \"answer\": \"Clear, direct 2-5 sentence answer to the user's question\",");
+        sys.AppendLine("  \"bestPrice\": 499.00,");
+        sys.AppendLine("  \"regularPrice\": 649.00,");
+        sys.AppendLine("  \"bestRetailer\": \"Retailer offering the best price\",");
+        sys.AppendLine("  \"buyingTip\": \"1 short actionable recommendation\"");
+        sys.AppendLine("}");
+
+        var usr = new StringBuilder();
+        usr.AppendLine($"Product Name: {productName}");
+        usr.AppendLine($"Model / SKU: {modelOrSku}");
+        usr.AppendLine($"Preferred Currency: {currency}");
+        if (!string.IsNullOrWhiteSpace(customPrompt))
+        {
+            usr.AppendLine($"Additional Monitoring Instructions: {customPrompt}");
+        }
+        if (knownBestPrice is > 0)
+        {
+            var regPart = knownRegularPrice is > 0 ? $" (Regular: {currency} {knownRegularPrice.Value:F2})" : "";
+            var retPart = !string.IsNullOrWhiteSpace(knownRetailer) ? $" at {knownRetailer}" : "";
+            usr.AppendLine($"Current Tracked Best Price: {currency} {knownBestPrice.Value:F2}{retPart}{regPart}");
+        }
+        if (!string.IsNullOrWhiteSpace(knownSummary))
+        {
+            usr.AppendLine($"Latest Price Summary: {knownSummary}");
+        }
+        if (snippets.Count > 0)
+        {
+            usr.AppendLine($"Live Web & Deal Snippets ({snippets.Count}):");
+            for (var i = 0; i < snippets.Count; i++)
+            {
+                var s = snippets[i];
+                usr.AppendLine($"[S{i + 1}] {s.Title} | Source: {s.Source} | Date: {s.PublishedAt}");
+                if (!string.IsNullOrWhiteSpace(s.Summary))
+                {
+                    usr.AppendLine($"Summary: {s.Summary}");
+                }
+            }
+        }
+        if (priorTurns.Count > 0)
+        {
+            usr.AppendLine("Recent Product Q&A Context:");
+            foreach (var turn in priorTurns.TakeLast(3))
+            {
+                usr.AppendLine($"- Q: {turn.Question}");
+                usr.AppendLine($"  A: {turn.Answer}");
+            }
+        }
+        usr.AppendLine();
+        usr.AppendLine($"User One-Off Question: {question}");
+
+        var chatResult = await foundry.CompleteChatAsync(
+            [
+                new FoundryMessage("system", sys.ToString()),
+                new FoundryMessage("user", usr.ToString()),
+            ],
+            new FoundryChatOptions(
+                Temperature: 0.25,
+                MaxTokens: 1200,
+                JsonObjectResponse: true,
+                Deployment: DefaultModel),
+            cancellationToken);
+
+        var cleaned = StripJsonFence(chatResult.Content);
+        using var doc = JsonDocument.Parse(cleaned);
+        var root = doc.RootElement;
+
+        var resolvedName = NormalizeText(ReadString(root, "productName"), 200);
+        if (resolvedName.Length == 0) resolvedName = productName;
+
+        var resolvedSku = modelOrSku.Length > 0
+            ? modelOrSku
+            : NormalizeText(ReadString(root, "modelOrSku"), 120);
+
+        var answer = NormalizeText(ReadString(root, "answer"), 2000);
+        if (answer.Length == 0)
+        {
+            answer = NormalizeText(ReadString(root, "promptAnswer"), 2000);
+        }
+        if (answer.Length == 0)
+        {
+            answer = NormalizeText(ReadString(root, "summary"), 2000);
+        }
+        if (answer.Length == 0)
+        {
+            throw new FoundryServiceException("gpt-6.1-sol returned an empty answer for your product question.");
+        }
+
+        var bestPrice = ReadDecimal(root, "bestPrice") ?? knownBestPrice;
+        var regularPrice = ReadDecimal(root, "regularPrice") ?? knownRegularPrice;
+        var bestRetailer = NormalizeText(ReadString(root, "bestRetailer"), 160);
+        if (bestRetailer.Length == 0) bestRetailer = knownRetailer;
+        var buyingTip = NormalizeText(ReadString(root, "buyingTip"), 600);
+        var modelUsed = string.IsNullOrWhiteSpace(chatResult.Model) ? DefaultModel : chatResult.Model;
+
+        return new ProductWatchAskResponse(
+            ProductName: resolvedName,
+            ModelOrSku: resolvedSku,
+            Currency: currency,
+            Question: question,
+            Answer: answer,
+            BestPrice: bestPrice is > 0 ? Math.Round(bestPrice.Value, 2) : null,
+            RegularPrice: regularPrice is > 0 ? Math.Round(regularPrice.Value, 2) : null,
+            BestRetailer: bestRetailer,
+            BuyingTip: buyingTip,
+            Model: modelUsed,
+            AskedAtUtc: now);
     }
 
     public async Task<int> ProcessDueWatchesAsync(
@@ -517,8 +832,13 @@ public sealed class ProductWatchService(
         string currency,
         decimal? targetPrice,
         IReadOnlyList<DealEvidenceSnippet> snippets,
-        DateTime utcNow)
+        DateTime utcNow,
+        string? customPrompt = null,
+        string? oneOffPrompt = null)
     {
+        var hasCustomPrompt = !string.IsNullOrWhiteSpace(customPrompt);
+        var hasOneOffPrompt = !string.IsNullOrWhiteSpace(oneOffPrompt);
+
         var systemPrompt = new StringBuilder();
         systemPrompt.AppendLine("You are Signal Product Watch, an AI retail price intelligence analyst powered by gpt-6.1-sol.");
         systemPrompt.AppendLine($"Current UTC date: {utcNow:yyyy-MM-dd}.");
@@ -528,7 +848,11 @@ public sealed class ProductWatchService(
         systemPrompt.AppendLine("1. Prioritize concrete prices, deals, and retailer listings found in the Live Web & Deal Snippets when present.");
         systemPrompt.AppendLine("2. IMPORTANT: bestPrice and regularPrice MUST ALWAYS be positive numbers (> 0), and offers MUST ALWAYS contain 2 to 4 retailer entries with numeric prices (> 0) in the requested currency. If the live snippets do not state an explicit numeric price in the requested currency, use your knowledge of the product's MSRP and current street pricing across major retailers for that currency/region to populate realistic market benchmark prices, and note clearly in summary and offer notes when figures are estimated market benchmarks.");
         systemPrompt.AppendLine("3. Never invent fake URLs: only use URLs provided in the Live Snippets; if an offer has no matching snippet URL, set its url to \"\".");
-        systemPrompt.AppendLine("4. Respond ONLY with a valid JSON object matching this exact schema:");
+        if (hasCustomPrompt || hasOneOffPrompt)
+        {
+            systemPrompt.AppendLine("4. Honor any Additional Monitoring Instructions or One-Off User Question provided below when evaluating retailers/offers, and populate \"promptAnswer\" with a direct, helpful response addressing those instructions/questions.");
+        }
+        systemPrompt.AppendLine("5. Respond ONLY with a valid JSON object matching this exact schema:");
         systemPrompt.AppendLine("{");
         systemPrompt.AppendLine("  \"productName\": \"Full canonical product name\",");
         systemPrompt.AppendLine("  \"modelOrSku\": \"Normalized model or SKU\",");
@@ -540,6 +864,7 @@ public sealed class ProductWatchService(
         systemPrompt.AppendLine("  \"priceVerdict\": \"great-deal | good-price | fair-price | wait\",");
         systemPrompt.AppendLine("  \"summary\": \"2-3 sentence summary of the best price right now, active deals, and comparison vs typical retail\",");
         systemPrompt.AppendLine("  \"buyingTip\": \"1 concise actionable buying tip (price-match, SKU variant check, or sale timing)\",");
+        systemPrompt.AppendLine("  \"promptAnswer\": \"Direct response to the user's Additional Monitoring Instructions and/or One-Off Question (or empty string if none provided)\",");
         systemPrompt.AppendLine("  \"offers\": [");
         systemPrompt.AppendLine("    {");
         systemPrompt.AppendLine("      \"retailer\": \"Retailer name\",");
@@ -559,6 +884,14 @@ public sealed class ProductWatchService(
         if (targetPrice.HasValue && targetPrice.Value > 0)
         {
             userMessage.AppendLine($"User Target Alert Price: {currency} {targetPrice.Value:F2}");
+        }
+        if (hasCustomPrompt)
+        {
+            userMessage.AppendLine($"Additional Monitoring Instructions: {customPrompt}");
+        }
+        if (hasOneOffPrompt)
+        {
+            userMessage.AppendLine($"One-Off User Question: {oneOffPrompt}");
         }
 
         if (snippets.Count == 0)
@@ -709,6 +1042,7 @@ public sealed class ProductWatchService(
         }
 
         var buyingTip = NormalizeText(ReadString(root, "buyingTip"), 600);
+        var promptAnswer = NormalizeText(ReadString(root, "promptAnswer"), 2000);
         var savingsAmount = Math.Max(0m, Math.Round(regularPrice.Value - bestPrice.Value, 2));
         var savingsPercent = regularPrice.Value > 0 && savingsAmount > 0
             ? Math.Round(savingsAmount / regularPrice.Value * 100m, 1)
@@ -729,13 +1063,15 @@ public sealed class ProductWatchService(
             BuyingTip: buyingTip,
             Offers: offers.ToArray(),
             Model: modelUsed,
-            CheckedAtUtc: checkedAtUtc);
+            CheckedAtUtc: checkedAtUtc,
+            PromptAnswer: promptAnswer);
     }
 
     public static ProductWatchItemDto ToDto(ProductWatchItem entity)
     {
         var offers = ParseOffers(entity.OffersJson);
         var history = ParsePriceHistory(entity.PriceHistoryJson);
+        var qaHistory = ParseQaHistory(entity.QaHistoryJson);
         decimal? savingsAmount = null;
         decimal? savingsPercent = null;
         if (entity.BestPrice.HasValue && entity.RegularPrice.HasValue && entity.RegularPrice.Value > entity.BestPrice.Value)
@@ -779,6 +1115,9 @@ public sealed class ProductWatchService(
             PriceVerdict: entity.PriceVerdict,
             Summary: entity.Summary,
             BuyingTip: entity.BuyingTip,
+            CustomPrompt: entity.CustomPrompt ?? "",
+            CustomPromptAnswer: entity.CustomPromptAnswer ?? "",
+            QaHistory: qaHistory,
             Offers: offers,
             PriceHistory: history,
             ModelUsed: string.IsNullOrWhiteSpace(entity.ModelUsed) ? DefaultModel : entity.ModelUsed,
@@ -809,6 +1148,19 @@ public sealed class ProductWatchService(
         try
         {
             return JsonSerializer.Deserialize<ProductPriceHistoryPointDto[]>(json) ?? [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    public static ProductWatchQaTurnDto[] ParseQaHistory(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try
+        {
+            return JsonSerializer.Deserialize<ProductWatchQaTurnDto[]>(json) ?? [];
         }
         catch (JsonException)
         {

@@ -13,6 +13,7 @@ using Signal.Server.Controllers;
 using Signal.Server.Models;
 using Signal.Server.Services;
 
+if (args.Contains("--product-watch-only")) { await ProductWatchChecks.RunAsync(); return; }
 await MarketAvailabilityChecks.RunAsync();
 await MarketEndpointChecks.RunAsync();
 if (args.Contains("--market-only")) return;

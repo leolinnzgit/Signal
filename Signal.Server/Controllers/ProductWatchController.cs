@@ -27,9 +27,13 @@ public sealed class ProductWatchController(
         [property: JsonPropertyName("frequency")] string? Frequency,
         [property: JsonPropertyName("currency")] string? Currency,
         [property: JsonPropertyName("targetPrice")] decimal? TargetPrice,
-        [property: JsonPropertyName("enabled")] bool? Enabled,
-        [property: JsonPropertyName("notifyOnPriceDrop")] bool? NotifyOnPriceDrop,
+        [property: JsonPropertyName("customPrompt")] string? CustomPrompt = null,
+        [property: JsonPropertyName("enabled")] bool? Enabled = null,
+        [property: JsonPropertyName("notifyOnPriceDrop")] bool? NotifyOnPriceDrop = null,
         [property: JsonPropertyName("checkNow")] bool? CheckNow = false);
+
+    public sealed record ProductWatchCheckNowRequest(
+        [property: JsonPropertyName("oneOffPrompt")] string? OneOffPrompt = null);
 
     public sealed record ProductWatchStateResponse(
         [property: JsonPropertyName("authenticated")] bool Authenticated,
@@ -140,6 +144,14 @@ public sealed class ProductWatchController(
         existing.Frequency = frequency;
         existing.Currency = currency;
         existing.TargetPrice = request.TargetPrice.HasValue ? Math.Round(request.TargetPrice.Value, 2) : null;
+        if (request.CustomPrompt is not null)
+        {
+            existing.CustomPrompt = ProductWatchService.NormalizeText(request.CustomPrompt, 800);
+            if (existing.CustomPrompt.Length == 0)
+            {
+                existing.CustomPromptAnswer = "";
+            }
+        }
         existing.Enabled = enabled;
         existing.NotifyOnPriceDrop = request.NotifyOnPriceDrop ?? true;
         existing.UpdatedAtUtc = now;
@@ -188,7 +200,11 @@ public sealed class ProductWatchController(
 
     [HttpPost("{id}/check")]
     [Authorize]
-    public async Task<IActionResult> CheckNow(string id, CancellationToken cancellationToken)
+    [RequestSizeLimit(16_384)]
+    public async Task<IActionResult> CheckNow(
+        string id,
+        [FromBody] ProductWatchCheckNowRequest? request = null,
+        CancellationToken cancellationToken = default)
     {
         var userId = CurrentUserId;
         if (string.IsNullOrEmpty(userId)) return Unauthorized();
@@ -203,7 +219,8 @@ public sealed class ProductWatchController(
                 userId,
                 sanitizedId,
                 isScheduledBackgroundCheck: false,
-                cancellationToken);
+                cancellationToken,
+                request?.OneOffPrompt);
             return Ok(updated);
         }
         catch (KeyNotFoundException)
@@ -231,6 +248,98 @@ public sealed class ProductWatchController(
         }
     }
 
+    [HttpPost("{id}/ask")]
+    [Authorize]
+    [RequestSizeLimit(16_384)]
+    public async Task<IActionResult> AskWatchedProduct(
+        string id,
+        [FromBody] ProductWatchAskRequest? request,
+        CancellationToken cancellationToken)
+    {
+        var userId = CurrentUserId;
+        if (string.IsNullOrEmpty(userId)) return Unauthorized();
+
+        var sanitizedId = SanitizeId(id);
+        if (sanitizedId.Length == 0)
+            return BadRequest(new { error = "Invalid product watch ID." });
+        if (request is null || string.IsNullOrWhiteSpace(request.Question))
+            return BadRequest(new { error = "Enter a question or prompt for this product." });
+
+        try
+        {
+            var result = await productWatch.AskWatchItemQuestionAsync(
+                userId,
+                sanitizedId,
+                request.Question,
+                cancellationToken);
+            return Ok(result);
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound(new { error = "Watched product was not found." });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return StatusCode(499);
+        }
+        catch (FoundryServiceException ex)
+        {
+            return StatusCode(ex.StatusCode, new { error = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            logger?.LogWarning(ex, "Product Watch Q&A failed for {WatchId}.", sanitizedId);
+            return StatusCode(
+                StatusCodes.Status502BadGateway,
+                new { error = "Could not answer your product question right now. Please try again." });
+        }
+    }
+
+    [HttpPost("ask")]
+    [Authorize]
+    [RequestSizeLimit(16_384)]
+    public async Task<IActionResult> AskCurrentProduct(
+        [FromBody] ProductWatchAskRequest? request,
+        CancellationToken cancellationToken)
+    {
+        var userId = CurrentUserId;
+        if (string.IsNullOrEmpty(userId)) return Unauthorized();
+        if (request is null)
+            return BadRequest(new { error = "Provide a product model/SKU and question." });
+
+        try
+        {
+            var result = await productWatch.AskInstantProductQuestionAsync(
+                userId,
+                request,
+                cancellationToken);
+            return Ok(result);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return StatusCode(499);
+        }
+        catch (FoundryServiceException ex)
+        {
+            return StatusCode(ex.StatusCode, new { error = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            logger?.LogWarning(ex, "Instant Product Watch Q&A failed.");
+            return StatusCode(
+                StatusCodes.Status502BadGateway,
+                new { error = "Could not answer your product question right now. Please try again." });
+        }
+    }
+
     [HttpPost("check-instant")]
     [Authorize]
     [RequestSizeLimit(16_384)]
@@ -251,7 +360,9 @@ public sealed class ProductWatchController(
                 request.ProductName,
                 request.Currency,
                 request.TargetPrice,
-                cancellationToken);
+                cancellationToken,
+                request.CustomPrompt,
+                request.OneOffPrompt);
             return Ok(result);
         }
         catch (ArgumentException ex)

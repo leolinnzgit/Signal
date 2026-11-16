@@ -253,6 +253,9 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
             watch.Property(item => item.PriceVerdict).HasMaxLength(32).IsRequired();
             watch.Property(item => item.Summary).HasMaxLength(2000).IsRequired();
             watch.Property(item => item.BuyingTip).HasMaxLength(600).IsRequired();
+            watch.Property(item => item.CustomPrompt).HasMaxLength(800).IsRequired();
+            watch.Property(item => item.CustomPromptAnswer).HasMaxLength(2000).IsRequired();
+            watch.Property(item => item.QaHistoryJson).IsRequired();
             watch.Property(item => item.OffersJson).IsRequired();
             watch.Property(item => item.PriceHistoryJson).IsRequired();
             watch.Property(item => item.ModelUsed).HasMaxLength(128).IsRequired();

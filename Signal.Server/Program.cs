@@ -616,6 +616,9 @@ await using (var scope = app.Services.CreateAsyncScope())
             "PriceVerdict" TEXT NOT NULL DEFAULT '',
             "Summary" TEXT NOT NULL DEFAULT '',
             "BuyingTip" TEXT NOT NULL DEFAULT '',
+            "CustomPrompt" TEXT NOT NULL DEFAULT '',
+            "CustomPromptAnswer" TEXT NOT NULL DEFAULT '',
+            "QaHistoryJson" TEXT NOT NULL DEFAULT '[]',
             "OffersJson" TEXT NOT NULL DEFAULT '[]',
             "PriceHistoryJson" TEXT NOT NULL DEFAULT '[]',
             "ModelUsed" TEXT NOT NULL DEFAULT 'gpt-6.1-sol',
@@ -638,6 +641,27 @@ await using (var scope = app.Services.CreateAsyncScope())
     try
     {
         await using var tickerColumnCheck = database.Database.GetDbConnection().CreateCommand();
+        tickerColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('ProductWatches') WHERE name = 'CustomPrompt';";
+        if (Convert.ToInt32(await tickerColumnCheck.ExecuteScalarAsync()) == 0)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"ProductWatches\" ADD COLUMN \"CustomPrompt\" TEXT NOT NULL DEFAULT '';");
+        }
+
+        tickerColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('ProductWatches') WHERE name = 'CustomPromptAnswer';";
+        if (Convert.ToInt32(await tickerColumnCheck.ExecuteScalarAsync()) == 0)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"ProductWatches\" ADD COLUMN \"CustomPromptAnswer\" TEXT NOT NULL DEFAULT '';");
+        }
+
+        tickerColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('ProductWatches') WHERE name = 'QaHistoryJson';";
+        if (Convert.ToInt32(await tickerColumnCheck.ExecuteScalarAsync()) == 0)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"ProductWatches\" ADD COLUMN \"QaHistoryJson\" TEXT NOT NULL DEFAULT '[]';");
+        }
+
         tickerColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('UserNewsPreferences') WHERE name = 'PushNewsTitlesEnabled';";
         if (Convert.ToInt32(await tickerColumnCheck.ExecuteScalarAsync()) == 0)
         {

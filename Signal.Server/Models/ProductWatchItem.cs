@@ -54,6 +54,15 @@ public sealed class ProductWatchItem
     public string BuyingTip { get; set; } = "";
 
     [Required]
+    public string CustomPrompt { get; set; } = "";
+
+    [Required]
+    public string CustomPromptAnswer { get; set; } = "";
+
+    [Required]
+    public string QaHistoryJson { get; set; } = "[]";
+
+    [Required]
     public string OffersJson { get; set; } = "[]";
 
     [Required]

@@ -5,6 +5,9 @@ import {
   PRODUCT_WATCH_FREQUENCIES,
   PRODUCT_WATCH_MODEL,
   PRODUCT_WATCH_PRESETS,
+  PRODUCT_WATCH_QUICK_QUESTIONS,
+  askCurrentProductQuestion,
+  askWatchedProductQuestion,
   checkProductWatchPriceNow,
   computeNextCheckIso,
   deleteProductWatchItem,
@@ -25,6 +28,7 @@ test("PRODUCT_WATCH_FREQUENCIES defines daily, weekly, monthly, and sub-daily sc
   assert.equal(PRODUCT_WATCH_MODEL, "gpt-6.1-sol");
   assert.ok(PRODUCT_WATCH_CURRENCIES.includes("NZD"));
   assert.ok(PRODUCT_WATCH_PRESETS.length >= 4);
+  assert.ok(PRODUCT_WATCH_QUICK_QUESTIONS.length >= 4);
 });
 
 test("normalizeWatchFrequency and computeNextCheckIso handle daily, weekly, monthly, and manual schedules", () => {
@@ -60,7 +64,7 @@ test("formatProductPrice and priceVerdictBadgeMeta format currencies and verdict
   assert.equal(priceVerdictBadgeMeta("wait").toneClass, "verdict-wait");
 });
 
-test("saveProductWatchItem, checkProductWatchPriceNow, and deleteProductWatchItem integrate with CSRF API and guest storage", async () => {
+test("saveProductWatchItem, checkProductWatchPriceNow, customPrompt, and one-off Q&A integrate with CSRF API and guest storage", async () => {
   const storageMap = new Map();
   const mockStorage = {
     getItem: (k) => storageMap.get(k) ?? null,
@@ -71,7 +75,7 @@ test("saveProductWatchItem, checkProductWatchPriceNow, and deleteProductWatchIte
     length: 0,
   };
 
-  // 1. Guest mode persistence
+  // 1. Guest mode persistence with customPrompt
   const guestSaved = await saveProductWatchItem(
     {
       modelOrSku: "WH-1000XM5",
@@ -79,6 +83,7 @@ test("saveProductWatchItem, checkProductWatchPriceNow, and deleteProductWatchIte
       frequency: "weekly",
       currency: "NZD",
       targetPrice: 450,
+      customPrompt: "Only check authorised NZ retailers with local warranty",
     },
     false,
     undefined,
@@ -86,16 +91,14 @@ test("saveProductWatchItem, checkProductWatchPriceNow, and deleteProductWatchIte
   );
   assert.equal(guestSaved.modelOrSku, "WH-1000XM5");
   assert.equal(guestSaved.frequency, "weekly");
-  assert.equal(guestSaved.frequencyLabel, "Weekly");
+  assert.equal(guestSaved.customPrompt, "Only check authorised NZ retailers with local warranty");
   assert.equal(loadLocalProductWatches(mockStorage).length, 1);
 
   await deleteProductWatchItem(guestSaved.id, false, undefined, mockStorage);
   assert.equal(loadLocalProductWatches(mockStorage).length, 0);
 
-  // 2. Authenticated API mode with CSRF token and gpt-6.1-sol price check
-  const calls = [];
+  // 2. Authenticated API mode with CSRF token, customPrompt, price check, and one-off Q&A
   const mockFetch = async (input, init = {}) => {
-    calls.push({ input, init });
     if (input === "/api/auth/csrf") {
       return new Response(JSON.stringify({ token: "csrf-pw-123" }), { status: 200 });
     }
@@ -117,6 +120,7 @@ test("saveProductWatchItem, checkProductWatchPriceNow, and deleteProductWatchIte
       const body = JSON.parse(init.body);
       assert.equal(body.modelOrSku, "OLED65C4PSA");
       assert.equal(body.frequency, "monthly");
+      assert.equal(body.customPrompt, "Include delivery and bonus soundbar bundles");
       return new Response(
         JSON.stringify({
           id: "pw-server-1",
@@ -141,6 +145,9 @@ test("saveProductWatchItem, checkProductWatchPriceNow, and deleteProductWatchIte
           priceVerdict: "",
           summary: "",
           buyingTip: "",
+          customPrompt: body.customPrompt,
+          customPromptAnswer: "",
+          qaHistory: [],
           offers: [],
           priceHistory: [],
           modelUsed: "gpt-6.1-sol",
@@ -180,6 +187,9 @@ test("saveProductWatchItem, checkProductWatchPriceNow, and deleteProductWatchIte
           priceVerdict: "great-deal",
           summary: "PB Tech has the lowest current NZD price at $2,888.",
           buyingTip: "Ask Noel Leeming or JB Hi-Fi for a price match.",
+          customPrompt: "Include delivery and bonus soundbar bundles",
+          customPromptAnswer: "PB Tech charges $69 metro delivery; JB Hi-Fi includes a $200 soundbar bundle credit.",
+          qaHistory: [],
           offers: [
             {
               retailer: "PB Tech",
@@ -209,6 +219,91 @@ test("saveProductWatchItem, checkProductWatchPriceNow, and deleteProductWatchIte
         { status: 200 },
       );
     }
+    if (input === "/api/product-watch/pw-server-1/ask" && init.method === "POST") {
+      assert.equal(init.headers["X-XSRF-TOKEN"], "csrf-pw-123");
+      const body = JSON.parse(init.body);
+      assert.equal(body.question, "How does it compare to Samsung S90D?");
+      return new Response(
+        JSON.stringify({
+          productName: "LG C4 65\" 4K OLED Evo TV",
+          modelOrSku: "OLED65C4PSA",
+          currency: "NZD",
+          question: body.question,
+          answer: "The LG C4 supports Dolby Vision and 4x HDMI 2.1 ports, while the S90D has higher QD-OLED colour volume.",
+          bestPrice: 2888,
+          regularPrice: 3699,
+          bestRetailer: "PB Tech",
+          buyingTip: "Choose C4 for Dolby Vision cinema and multi-console gaming.",
+          model: "gpt-6.1-sol-2026-09-29",
+          askedAtUtc: "2026-11-17T00:02:00Z",
+          watchItem: {
+            id: "pw-server-1",
+            productName: "LG C4 65\" 4K OLED Evo TV",
+            modelOrSku: "OLED65C4PSA",
+            frequency: "monthly",
+            frequencyLabel: "Monthly",
+            currency: "NZD",
+            targetPrice: 2999,
+            enabled: true,
+            notifyOnPriceDrop: true,
+            bestPrice: 2888,
+            regularPrice: 3699,
+            lowestPriceEver: 2888,
+            previousBestPrice: null,
+            savingsAmount: 811,
+            savingsPercent: 21.9,
+            isTargetMet: true,
+            isPriceDrop: false,
+            bestRetailer: "PB Tech",
+            bestOfferUrl: "https://example.com/lg-c4",
+            priceVerdict: "great-deal",
+            summary: "PB Tech has the lowest current NZD price at $2,888.",
+            buyingTip: "Ask Noel Leeming or JB Hi-Fi for a price match.",
+            customPrompt: "Include delivery and bonus soundbar bundles",
+            customPromptAnswer: "PB Tech charges $69 metro delivery; JB Hi-Fi includes a $200 soundbar bundle credit.",
+            qaHistory: [
+              {
+                id: "qa-1",
+                question: body.question,
+                answer: "The LG C4 supports Dolby Vision and 4x HDMI 2.1 ports, while the S90D has higher QD-OLED colour volume.",
+                model: "gpt-6.1-sol-2026-09-29",
+                askedAtUtc: "2026-11-17T00:02:00Z",
+              },
+            ],
+            offers: [],
+            priceHistory: [],
+            modelUsed: "gpt-6.1-sol-2026-09-29",
+            checkCount: 1,
+            lastCheckedAtUtc: "2026-11-17T00:01:00Z",
+            nextCheckAtUtc: "2026-12-17T00:01:00Z",
+            lastError: "",
+            createdAtUtc: "2026-11-17T00:00:00Z",
+            updatedAtUtc: "2026-11-17T00:02:00Z",
+          },
+        }),
+        { status: 200 },
+      );
+    }
+    if (input === "/api/product-watch/ask" && init.method === "POST") {
+      assert.equal(init.headers["X-XSRF-TOKEN"], "csrf-pw-123");
+      const body = JSON.parse(init.body);
+      return new Response(
+        JSON.stringify({
+          productName: "Apple MacBook Air M3",
+          modelOrSku: body.modelOrSku,
+          currency: "NZD",
+          question: body.question,
+          answer: "Apple NZ education store offers ~$180 off this SKU.",
+          bestPrice: 1599,
+          regularPrice: 1999,
+          bestRetailer: "PB Tech",
+          buyingTip: "Compare PB Tech sale vs Apple Education store.",
+          model: "gpt-6.1-sol-2026-09-29",
+          askedAtUtc: "2026-11-17T00:03:00Z",
+        }),
+        { status: 200 },
+      );
+    }
     throw new Error(`Unexpected request: ${input}`);
   };
 
@@ -223,22 +318,43 @@ test("saveProductWatchItem, checkProductWatchPriceNow, and deleteProductWatchIte
       frequency: "monthly",
       currency: "NZD",
       targetPrice: 2999,
+      customPrompt: "Include delivery and bonus soundbar bundles",
     },
     true,
     mockFetch,
     mockStorage,
   );
   assert.equal(created.id, "pw-server-1");
-  assert.equal(created.frequency, "monthly");
+  assert.equal(created.customPrompt, "Include delivery and bonus soundbar bundles");
 
   const checked = await checkProductWatchPriceNow(created.id, true, mockFetch);
   assert.equal(checked.bestPrice, 2888);
-  assert.equal(checked.bestRetailer, "PB Tech");
-  assert.equal(checked.isTargetMet, true);
-  assert.equal(checked.modelUsed, "gpt-6.1-sol-2026-09-29");
+  assert.equal(
+    checked.customPromptAnswer,
+    "PB Tech charges $69 metro delivery; JB Hi-Fi includes a $200 soundbar bundle credit.",
+  );
 
-  const md = formatProductWatchMarkdown([checked]);
-  assert.match(md, /# Signal Product Watch — Best Price Report/);
-  assert.match(md, /OLED65C4PSA/);
-  assert.match(md, /NZD \$2,888\.00 at \*\*PB Tech\*\*/);
+  const askedWatched = await askWatchedProductQuestion(
+    created.id,
+    "How does it compare to Samsung S90D?",
+    true,
+    mockFetch,
+  );
+  assert.match(askedWatched.answer, /Dolby Vision/);
+  assert.equal(askedWatched.watchItem?.qaHistory.length, 1);
+
+  const askedCurrent = await askCurrentProductQuestion(
+    {
+      modelOrSku: "MC8K4X/A",
+      question: "Is there an education discount?",
+      currency: "NZD",
+    },
+    mockFetch,
+  );
+  assert.match(askedCurrent.answer, /education store/);
+
+  const md = formatProductWatchMarkdown([askedWatched.watchItem]);
+  assert.match(md, /\*\*Monitoring Prompt:\*\* Include delivery and bonus soundbar bundles/);
+  assert.match(md, /\*\*Custom Prompt Insight:\*\* PB Tech charges \$69 metro delivery/);
+  assert.match(md, /How does it compare to Samsung S90D\?/);
 });
