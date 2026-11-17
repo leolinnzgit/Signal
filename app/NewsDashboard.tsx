@@ -2580,8 +2580,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
       let historyNotice = "";
       if (articleStore) {
         try {
-          const enrichedToSync = enrichArticlesWithMarketQuotes(refreshedArticles, latestLiveQuotesRef.current);
-          const historyPage = await articleStore.sync(enrichedToSync);
+          const historyPage = await articleStore.sync(refreshedArticles);
           const bookmarkedUrls = new Set(historyPage.bookmarkedUrls);
           const readUrls = new Set(historyPage.readUrls);
           const syncedQuotesByUrl = new Map(
@@ -2591,7 +2590,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           );
           setHistoryTotal(historyPage.historyTotal);
           setBookmarkTotal(historyPage.bookmarkTotal);
-          setArticles(enrichedToSync.map((article) => ({
+          setArticles(refreshedArticles.map((article) => ({
             ...article,
             isBookmarked: bookmarkedUrls.has(article.url),
             isRead: readUrls.has(article.url),

@@ -222,6 +222,18 @@ internal static class MarketEndpointChecks
             "Articles synced without client quotes must automatically record server-resolved stock prices.");
         Check(graph.GetProperty("pricePoints").GetArrayLength() >= 4,
             "News graph must combine dated historical closes with recorded news snapshots.");
+
+        // Verify historical bars assign distinct historic prices per article publish timestamp
+        var bars = new[]
+        {
+            new HistoricalPriceBar(new DateTimeOffset(2026, 11, 14, 21, 0, 0, TimeSpan.Zero), "2026-11-14", 180m, 182m, 2m, 1.11m),
+            new HistoricalPriceBar(new DateTimeOffset(2026, 11, 15, 21, 0, 0, TimeSpan.Zero), "2026-11-15", 185m, 189m, 7m, 3.85m),
+            new HistoricalPriceBar(new DateTimeOffset(2026, 11, 16, 21, 0, 0, TimeSpan.Zero), "2026-11-16", 190m, 156.14m, -32.86m, -17.39m),
+        };
+        var qNov15 = MarketDataService.FindHistoricalQuoteAt(new DateTime(2026, 11, 15, 22, 0, 0, DateTimeKind.Utc), null, bars, "NVIDIA", "NVDA", "NVIDIA", "NASDAQ", "USD");
+        var qNov16 = MarketDataService.FindHistoricalQuoteAt(new DateTime(2026, 11, 16, 22, 0, 0, DateTimeKind.Utc), null, bars, "NVIDIA", "NVDA", "NVIDIA", "NASDAQ", "USD");
+        Check(qNov15?.Price == 189m && qNov16?.Price == 156.14m,
+            "FindHistoricalQuoteAt must assign each story its own historic bar price rather than a single flat price.");
     }
 
     private static async Task CheckDesktopRequestsAsync(HttpClient client)

@@ -43,6 +43,14 @@ public sealed record MarketWatchlistTopicInput(string Topic, string? Symbol = nu
 
 public sealed record MarketPricePoint(string Timestamp, decimal Price);
 
+public sealed record HistoricalPriceBar(
+    DateTimeOffset Utc,
+    string QuoteTime,
+    decimal Open,
+    decimal Close,
+    decimal Change,
+    decimal PercentChange);
+
 public sealed class MarketDataService(
     HttpClient httpClient,
     IMemoryCache cache,
@@ -526,8 +534,20 @@ public sealed class MarketDataService(
         int outputSize,
         CancellationToken cancellationToken)
     {
+        var bars = await GetHistoricalBarsAsync(requestedTopic, tickerOverride, outputSize, cancellationToken);
+        return bars
+            .Select(bar => new MarketPricePoint(bar.Utc.ToString("O", CultureInfo.InvariantCulture), bar.Close))
+            .ToArray();
+    }
+
+    public async Task<HistoricalPriceBar[]> GetHistoricalBarsAsync(
+        string requestedTopic,
+        string? tickerOverride,
+        int days,
+        CancellationToken cancellationToken)
+    {
         if (!IsConfigured) return [];
-        var boundedSize = Math.Clamp(outputSize, 2, 180);
+        var boundedDays = Math.Clamp(days, 2, 365);
 
         StockMatch? match = null;
         if (!string.IsNullOrWhiteSpace(tickerOverride) && MarketTickerParser.TryParse(tickerOverride, out var parsedOverride) && parsedOverride is not null)
@@ -554,36 +574,73 @@ public sealed class MarketDataService(
 
         if (match is null) return [];
 
-        var cacheKey = $"market-dated-series:{match.Symbol}:{match.Exchange}:{boundedSize}".ToLowerInvariant();
-        if (cache.TryGetValue(cacheKey, out MarketPricePoint[]? cached) && cached is not null)
+        var cacheKey = $"market-hist-bars:{match.Symbol}:{match.Exchange}:{boundedDays}".ToLowerInvariant();
+        if (cache.TryGetValue(cacheKey, out HistoricalPriceBar[]? cached) && cached is not null)
             return cached;
 
         try
         {
-            var query = $"time_series?symbol={Uri.EscapeDataString(match.Symbol)}&interval=1day&outputsize={boundedSize}";
-            if (match.Exchange.Length > 0)
-                query += $"&exchange={Uri.EscapeDataString(match.Exchange)}";
+            var dailySize = Math.Clamp(boundedDays + 10, 30, 365);
+            var dailyRows = await FetchTimeSeriesBarsAsync(match, "1day", dailySize, isHourly: false, cancellationToken);
 
-            using var document = await SendAsync(query, cancellationToken);
-            if (!document.RootElement.TryGetProperty("values", out var values)
-                || values.ValueKind != JsonValueKind.Array)
+            var dailyBars = new List<HistoricalPriceBar>(dailyRows.Count);
+            var dailyClosesByDate = new SortedDictionary<DateOnly, decimal>();
+            decimal? prevClose = null;
+            foreach (var row in dailyRows)
             {
-                cache.Set(cacheKey, Array.Empty<MarketPricePoint>(), TimeSpan.FromMinutes(10));
-                return [];
+                var baseline = prevClose ?? (row.Open > 0 ? row.Open : row.Close);
+                var change = Math.Round(row.Close - baseline, 4);
+                var pct = baseline > 0 ? Math.Round(change / baseline * 100m, 2) : 0m;
+                dailyBars.Add(new HistoricalPriceBar(row.Utc, row.QuoteTime, row.Open, row.Close, change, pct));
+                dailyClosesByDate[row.Date] = row.Close;
+                prevClose = row.Close;
             }
 
-            var points = new List<MarketPricePoint>(boundedSize);
-            foreach (var row in values.EnumerateArray())
+            List<HistoricalPriceBar> combined;
+            if (boundedDays <= 45)
             {
-                var close = ReadDecimal(row, "close");
-                var datetime = ReadString(row, "datetime");
-                if (close is > 0 && datetime.Length > 0)
-                    points.Add(new MarketPricePoint(datetime, close.Value));
+                var hourlyRows = await FetchTimeSeriesBarsAsync(match, "1h", 250, isHourly: true, cancellationToken);
+                var trueHourlyRows = hourlyRows.Where(r => r.HasTimeOfDay).ToList();
+                if (trueHourlyRows.Count >= 2)
+                {
+                    var earliestHourlyDate = trueHourlyRows[0].Date;
+                    combined = new List<HistoricalPriceBar>(dailyBars.Count + trueHourlyRows.Count);
+                    foreach (var daily in dailyBars)
+                    {
+                        var barDate = DateOnly.FromDateTime(daily.Utc.UtcDateTime);
+                        if (barDate < earliestHourlyDate)
+                            combined.Add(daily);
+                    }
+
+                    decimal? prevHourlyClose = null;
+                    foreach (var row in trueHourlyRows)
+                    {
+                        decimal priorDayClose = 0m;
+                        foreach (var kv in dailyClosesByDate)
+                        {
+                            if (kv.Key < row.Date) priorDayClose = kv.Value;
+                            else break;
+                        }
+                        var baseline = priorDayClose > 0
+                            ? priorDayClose
+                            : (prevHourlyClose ?? (row.Open > 0 ? row.Open : row.Close));
+                        var change = Math.Round(row.Close - baseline, 4);
+                        var pct = baseline > 0 ? Math.Round(change / baseline * 100m, 2) : 0m;
+                        combined.Add(new HistoricalPriceBar(row.Utc, row.QuoteTime, row.Open, row.Close, change, pct));
+                        prevHourlyClose = row.Close;
+                    }
+                }
+                else
+                {
+                    combined = dailyBars;
+                }
+            }
+            else
+            {
+                combined = dailyBars;
             }
 
-            // Twelve Data returns newest-first; reverse into chronological order (oldest -> latest)
-            points.Reverse();
-            var result = points.ToArray();
+            var result = combined.OrderBy(b => b.Utc).ToArray();
             cache.Set(cacheKey, result, result.Length >= 2 ? TimeSpan.FromMinutes(30) : TimeSpan.FromMinutes(10));
             return result;
         }
@@ -593,9 +650,260 @@ public sealed class MarketDataService(
         }
         catch
         {
-            cache.Set(cacheKey, Array.Empty<MarketPricePoint>(), TimeSpan.FromMinutes(10));
+            cache.Set(cacheKey, Array.Empty<HistoricalPriceBar>(), TimeSpan.FromMinutes(10));
             return [];
         }
+    }
+
+    public static ArticleMarketQuote? FindHistoricalQuoteAt(
+        DateTime publishedAtUtc,
+        MarketQuote? liveQuote,
+        HistoricalPriceBar[] bars,
+        string topic,
+        string symbol,
+        string name,
+        string exchange,
+        string currency)
+    {
+        var utc = DateTime.SpecifyKind(publishedAtUtc, DateTimeKind.Utc);
+        var publishedOffset = new DateTimeOffset(utc);
+
+        if (bars is { Length: > 0 })
+        {
+            if (liveQuote is not null && liveQuote.Price > 0
+                && publishedOffset >= DateTimeOffset.UtcNow.AddMinutes(-90)
+                && publishedOffset > bars[^1].Utc.AddHours(12))
+            {
+                return ToArticleMarketQuote(liveQuote, utc);
+            }
+
+            HistoricalPriceBar? matched = null;
+            foreach (var bar in bars)
+            {
+                if (bar.Utc <= publishedOffset) matched = bar;
+                else break;
+            }
+            matched ??= bars[0];
+
+            return new ArticleMarketQuote(
+                NormalizeDisplayText(topic, 80),
+                symbol.Trim().ToUpperInvariant(),
+                NormalizeDisplayText(name, 160),
+                exchange.Trim().ToUpperInvariant(),
+                currency.Trim().ToUpperInvariant(),
+                matched.Close,
+                matched.Change,
+                matched.PercentChange,
+                matched.QuoteTime,
+                null,
+                utc);
+        }
+
+        if (liveQuote is not null && liveQuote.Price > 0
+            && Math.Abs((DateTime.UtcNow - utc).TotalHours) <= 24)
+        {
+            return ToArticleMarketQuote(liveQuote, DateTime.UtcNow);
+        }
+
+        return null;
+    }
+
+    public async Task<Dictionary<long, ArticleMarketQuote[]>> ResolveQuotesForArticlesAsync(
+        IReadOnlyCollection<(long Key, string Title, string[] Topics, DateTime PublishedAtUtc)> articles,
+        IReadOnlyDictionary<string, string>? tickerOverrides,
+        CancellationToken cancellationToken)
+    {
+        var result = new Dictionary<long, ArticleMarketQuote[]>();
+        if (!IsConfigured || articles is null || articles.Count == 0)
+            return result;
+
+        var candidateTopics = articles
+            .SelectMany(a => CollectCandidateTopics(a.Title, a.Topics, tickerOverrides))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (candidateTopics.Length == 0)
+            return result;
+
+        var seenTopics = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var fastCandidates = new List<(string Topic, string? Override)>();
+        var discoveryCandidates = new List<(string Topic, string? Override)>();
+
+        foreach (var raw in candidateTopics)
+        {
+            var topic = NormalizeDisplayText(raw, 80);
+            if (topic.Length == 0 || !seenTopics.Add(topic)) continue;
+            var overrideSymbol = FindOverrideSymbol(tickerOverrides, topic);
+            if (overrideSymbol is not null)
+                fastCandidates.Add((topic, overrideSymbol));
+            else if (HasFastSymbolMatch(topic, out var knownOrCached))
+            {
+                if (knownOrCached) fastCandidates.Add((topic, null));
+            }
+            else
+            {
+                discoveryCandidates.Add((topic, null));
+            }
+        }
+
+        var topicSeries = new Dictionary<string, (MarketQuote Quote, HistoricalPriceBar[] Bars)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (topic, overrideSymbol) in fastCandidates.Concat(discoveryCandidates.Take(2)).Take(8))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var quote = await GetForTopicAsync(topic, overrideSymbol, cancellationToken, includeSparkline: false);
+                if (quote is null || quote.Price <= 0) continue;
+                var bars = await GetHistoricalBarsAsync(topic, overrideSymbol, 90, cancellationToken);
+                topicSeries[topic] = (quote, bars);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                // Best-effort quote snapshot enrichment should not fail article ingestion.
+            }
+        }
+
+        if (topicSeries.Count == 0)
+            return result;
+
+        foreach (var article in articles)
+        {
+            var matched = new List<ArticleMarketQuote>();
+            var articleTopics = CollectCandidateTopics(article.Title, article.Topics, tickerOverrides);
+            foreach (var topic in articleTopics)
+            {
+                if (!topicSeries.TryGetValue(topic, out var entry)) continue;
+                var q = FindHistoricalQuoteAt(
+                    article.PublishedAtUtc,
+                    entry.Quote,
+                    entry.Bars,
+                    entry.Quote.Topic,
+                    entry.Quote.Symbol,
+                    entry.Quote.Name,
+                    entry.Quote.Exchange,
+                    entry.Quote.Currency);
+                if (q is not null) matched.Add(q);
+            }
+            if (matched.Count > 0)
+                result[article.Key] = MergeMarketQuotes("[]", matched);
+        }
+
+        return result;
+    }
+
+    private static string? FindOverrideSymbol(IReadOnlyDictionary<string, string>? tickerOverrides, string topic)
+    {
+        if (tickerOverrides is null) return null;
+        foreach (var pair in tickerOverrides)
+        {
+            if (string.Equals(pair.Key, topic, StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(pair.Value))
+            {
+                return pair.Value.Trim();
+            }
+        }
+        return null;
+    }
+
+    private sealed record RawSeriesBar(DateTimeOffset Utc, DateOnly Date, string QuoteTime, decimal Open, decimal Close, bool HasTimeOfDay);
+
+    private async Task<List<RawSeriesBar>> FetchTimeSeriesBarsAsync(
+        StockMatch match,
+        string interval,
+        int outputSize,
+        bool isHourly,
+        CancellationToken cancellationToken)
+    {
+        var query = $"time_series?symbol={Uri.EscapeDataString(match.Symbol)}&interval={interval}&outputsize={outputSize}";
+        if (match.Exchange.Length > 0)
+            query += $"&exchange={Uri.EscapeDataString(match.Exchange)}";
+
+        using var document = await SendAsync(query, cancellationToken);
+        var root = document.RootElement;
+        if (!root.TryGetProperty("values", out var values) || values.ValueKind != JsonValueKind.Array)
+            return [];
+
+        var tzId = "";
+        if (root.TryGetProperty("meta", out var meta) && meta.ValueKind == JsonValueKind.Object)
+            tzId = ReadString(meta, "exchange_timezone");
+        var tz = ResolveExchangeTimeZone(tzId);
+
+        var rows = new List<RawSeriesBar>(outputSize);
+        foreach (var row in values.EnumerateArray())
+        {
+            var close = ReadDecimal(row, "close");
+            var datetime = ReadString(row, "datetime");
+            if (close is not > 0 || datetime.Length == 0) continue;
+            var open = ReadDecimal(row, "open") ?? close.Value;
+
+            if (!TryParseSeriesDatetime(datetime, tz, isHourly, out var utc, out var date, out var hasTimeOfDay))
+                continue;
+            rows.Add(new RawSeriesBar(utc, date, datetime, open, close.Value, hasTimeOfDay));
+        }
+
+        rows.Sort((a, b) => a.Utc.CompareTo(b.Utc));
+        return rows;
+    }
+
+    private static TimeZoneInfo ResolveExchangeTimeZone(string? tzId)
+    {
+        if (string.IsNullOrWhiteSpace(tzId)) return TimeZoneInfo.Utc;
+        try { return TimeZoneInfo.FindSystemTimeZoneById(tzId.Trim()); }
+        catch
+        {
+            if (TimeZoneInfo.TryConvertIanaIdToWindowsId(tzId.Trim(), out var winId))
+            {
+                try { return TimeZoneInfo.FindSystemTimeZoneById(winId); }
+                catch { }
+            }
+            return TimeZoneInfo.Utc;
+        }
+    }
+
+    private static bool TryParseSeriesDatetime(
+        string value,
+        TimeZoneInfo exchangeZone,
+        bool isHourly,
+        out DateTimeOffset utc,
+        out DateOnly date,
+        out bool hasTimeOfDay)
+    {
+        utc = default;
+        date = default;
+        hasTimeOfDay = false;
+
+        if (DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedDate))
+        {
+            date = parsedDate;
+            var localClose = parsedDate.ToDateTime(new TimeOnly(16, 0, 0), DateTimeKind.Unspecified);
+            var offset = exchangeZone.GetUtcOffset(localClose);
+            utc = new DateTimeOffset(localClose, offset).ToUniversalTime();
+            return true;
+        }
+
+        if (DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt))
+        {
+            hasTimeOfDay = value.Contains(':');
+            date = DateOnly.FromDateTime(dt);
+            if (dt.Kind == DateTimeKind.Utc)
+            {
+                utc = new DateTimeOffset(dt, TimeSpan.Zero);
+            }
+            else
+            {
+                var unspecified = DateTime.SpecifyKind(dt, DateTimeKind.Unspecified);
+                var offset = (isHourly || hasTimeOfDay)
+                    ? exchangeZone.GetUtcOffset(unspecified)
+                    : TimeSpan.Zero;
+                utc = new DateTimeOffset(unspecified, offset).ToUniversalTime();
+            }
+            return true;
+        }
+
+        return false;
     }
 
     private bool HasFastSymbolMatch(string topic, out bool matched)
@@ -642,6 +950,7 @@ public sealed class MarketDataService(
             var exchange = ReadString(candidate, "exchange");
             var instrumentType = ReadString(candidate, "instrument_type");
             if (symbol.Length == 0 || name.Length == 0 || !SupportedInstrumentTypes.Contains(instrumentType)) continue;
+            if (exchange.StartsWith("OTC", StringComparison.OrdinalIgnoreCase)) continue;
             if (!IsConfidentMatch(topic, symbol, name)) continue;
             match = new StockMatch(symbol, name, exchange);
             break;
@@ -763,6 +1072,9 @@ public sealed class MarketDataService(
         if (normalizedTopic.Length < 2 || normalizedName.Length < 2) return false;
         if (string.Equals(topic.Trim(), symbol, StringComparison.OrdinalIgnoreCase)) return true;
         if (normalizedName == normalizedTopic) return true;
+        var hasMultipleWords = normalizedTopic.Contains(' ', StringComparison.Ordinal);
+        var isKnownCompany = KnownSymbols.ContainsKey(topic.Trim()) || KnownNzxSymbols.ContainsKey(topic.Trim());
+        if (!hasMultipleWords && !isKnownCompany) return false;
         return normalizedName.StartsWith($"{normalizedTopic} ", StringComparison.Ordinal)
             || normalizedTopic.StartsWith($"{normalizedName} ", StringComparison.Ordinal);
     }

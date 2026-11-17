@@ -212,6 +212,7 @@ function quoteMatchesArticle(quote: MarketQuote, article: {
 export function enrichArticlesWithMarketQuotes<
   T extends {
     title: string;
+    publishedAt?: string;
     topics?: string[];
     matchedTopics?: string[];
     marketQuotes?: ArticleMarketQuote[];
@@ -225,10 +226,20 @@ export function enrichArticlesWithMarketQuotes<
     return articles.slice();
   }
 
+  const allowAnyAge = Boolean(recordedAtUtc);
+  const nowMs = Date.now();
+  const maxLiveAgeMs = 2 * 60 * 60 * 1000;
   const stamp = recordedAtUtc || new Date().toISOString();
   return articles.map((article) => {
     if (Array.isArray(article.marketQuotes) && article.marketQuotes.length > 0) {
       return article;
+    }
+
+    if (!allowAnyAge && article.publishedAt) {
+      const publishedMs = parseTimeMs(article.publishedAt);
+      if (Number.isFinite(publishedMs) && Math.abs(nowMs - publishedMs) > maxLiveAgeMs) {
+        return article;
+      }
     }
 
     const matched: ArticleMarketQuote[] = [];
@@ -530,28 +541,76 @@ export function mergeStockNewsGraphData(
   };
 }
 
+function selectChartPinEvents(
+  sortedEvents: readonly StockNewsChartEvent[],
+  selectedEventUrl?: string,
+  maxPins = 32,
+): StockNewsChartEvent[] {
+  if (sortedEvents.length <= maxPins) return sortedEvents.slice();
+
+  const selectedIndices = new Set<number>([0, sortedEvents.length - 1]);
+  if (selectedEventUrl) {
+    const targetLower = selectedEventUrl.trim().toLowerCase();
+    const matchIdx = sortedEvents.findIndex((ev) => ev.url.trim().toLowerCase() === targetLower);
+    if (matchIdx >= 0) selectedIndices.add(matchIdx);
+  }
+
+  // Include peak percentage movers
+  const byMagnitude = sortedEvents
+    .map((ev, idx) => ({ idx, mag: Math.abs(ev.percentChange || 0) }))
+    .filter((item) => item.mag > 0)
+    .sort((a, b) => b.mag - a.mag);
+  for (const item of byMagnitude.slice(0, 8)) {
+    if (selectedIndices.size >= maxPins) break;
+    selectedIndices.add(item.idx);
+  }
+
+  // Fill remaining slots evenly across the timeline
+  const remainingSlots = maxPins - selectedIndices.size;
+  if (remainingSlots > 0) {
+    const step = (sortedEvents.length - 1) / (remainingSlots + 1);
+    for (let i = 1; i <= remainingSlots; i++) {
+      const idx = Math.min(sortedEvents.length - 1, Math.round(i * step));
+      selectedIndices.add(idx);
+    }
+  }
+
+  let cursor = 0;
+  while (selectedIndices.size < maxPins && cursor < sortedEvents.length) {
+    selectedIndices.add(cursor);
+    cursor++;
+  }
+
+  return Array.from(selectedIndices)
+    .sort((a, b) => a - b)
+    .map((idx) => sortedEvents[idx]);
+}
+
 export function buildStockNewsChartGeometry(
   pricePoints: readonly StockNewsPricePoint[],
   events: readonly StockNewsChartEvent[],
   width = 760,
   height = 280,
   mode: StockNewsChartMode = "combined",
+  selectedEventUrl?: string,
 ): StockNewsChartGeometry | null {
   const sortedEvents = events
     .filter((ev) => Number.isFinite(ev.price) && ev.price > 0)
     .slice()
     .sort((a, b) => (parseTimeMs(a.publishedAtUtc) || 0) - (parseTimeMs(b.publishedAtUtc) || 0));
 
+  const pinnedEvents = selectChartPinEvents(sortedEvents, selectedEventUrl, 32);
+
   const rawPoints: StockNewsPricePoint[] =
     mode === "snapshots"
-      ? sortedEvents.map((ev) => ({
+      ? pinnedEvents.map((ev) => ({
           timestamp: ev.publishedAtUtc,
           price: ev.price,
           sourceType: ev.isRecordedSnapshot ? "news-snapshot" : "news-aligned",
         }))
       : pricePoints.length > 0
         ? pricePoints.filter((pt) => Number.isFinite(pt.price) && pt.price > 0)
-        : sortedEvents.map((ev) => ({
+        : pinnedEvents.map((ev) => ({
             timestamp: ev.publishedAtUtc,
             price: ev.price,
             sourceType: ev.isRecordedSnapshot ? "news-snapshot" : "news-aligned",
@@ -629,12 +688,12 @@ export function buildStockNewsChartGeometry(
     areaPath = `${linePath} L ${last.x} ${plotBottom} L ${first.x} ${plotBottom} Z`;
   }
 
-  const nodes: StockNewsChartNode[] = sortedEvents.map((event, idx) => {
+  const nodes: StockNewsChartNode[] = pinnedEvents.map((event, idx) => {
     const ms = parseTimeMs(event.publishedAtUtc);
     const baseX =
-      sortedEvents.length === 1 && curvePoints.length === 1
+      pinnedEvents.length === 1 && curvePoints.length === 1
         ? plotLeft + innerW * 0.5
-        : timeToX(Number.isFinite(ms) ? ms : idx, idx, sortedEvents.length);
+        : timeToX(Number.isFinite(ms) ? ms : idx, idx, pinnedEvents.length);
     const x = Math.max(plotLeft + 6, Math.min(plotRight - 6, baseX));
     const y = Math.max(plotTop + 6, Math.min(plotBottom - 6, priceToY(event.price)));
     const isPositive =

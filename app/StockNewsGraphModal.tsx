@@ -55,12 +55,14 @@ export default function StockNewsGraphModal({
   const [serverGraph, setServerGraph] = useState<StockNewsGraphResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [selectedEventUrl, setSelectedEventUrl] = useState<string>(initialHighlightUrl || "");
+  const [ledgerLimit, setLedgerLimit] = useState(150);
 
   useEffect(() => {
     if (!isOpen) return;
     setSelectedSymbol(initialSymbol || "");
     setSelectedTopic(initialTopic || "");
     setSelectedEventUrl(initialHighlightUrl || "");
+    setLedgerLimit(150);
   }, [isOpen, initialSymbol, initialTopic, initialHighlightUrl]);
 
   useEffect(() => {
@@ -107,8 +109,8 @@ export default function StockNewsGraphModal({
   );
 
   const geometry = useMemo(
-    () => buildStockNewsChartGeometry(graph.pricePoints, graph.events, 760, 280, chartMode),
-    [graph.pricePoints, graph.events, chartMode],
+    () => buildStockNewsChartGeometry(graph.pricePoints, graph.events, 760, 280, chartMode, selectedEventUrl),
+    [graph.pricePoints, graph.events, chartMode, selectedEventUrl],
   );
 
   const activeNodeIndex = useMemo(() => {
@@ -516,50 +518,56 @@ export default function StockNewsGraphModal({
           </section>
         )}
 
-        {geometry && geometry.nodes.length > 0 && (
+        {graph.events.length > 0 && (
           <div>
             <div className="stock-news-ledger-heading">
-              <span>Recorded Price vs. News Timeline ({geometry.nodes.length})</span>
+              <span>Recorded Price vs. News Timeline ({graph.events.length})</span>
               <span>Newest first</span>
             </div>
             <div className="stock-news-ledger">
-              {geometry.nodes
+              {graph.events
                 .slice()
                 .reverse()
-                .map((node) => {
-                  const isSelected = node.index === activeNodeIndex;
+                .slice(0, ledgerLimit)
+                .map((ev, revIdx) => {
+                  const nodeMatch = geometry?.nodes.find(
+                    (n) => n.event.url.trim().toLowerCase() === ev.url.trim().toLowerCase(),
+                  );
+                  const isSelected = activeEvent?.url.trim().toLowerCase() === ev.url.trim().toLowerCase();
                   const dirClass =
-                    node.isPositive === true ? "positive" : node.isPositive === false ? "negative" : "";
+                    ev.percentChange > 0.001 ? "positive" : ev.percentChange < -0.001 ? "negative" : "";
                   return (
                     <div
-                      key={`${node.event.url}:${node.index}`}
+                      key={`${ev.url}:${revIdx}`}
                       className={`stock-news-ledger-item${isSelected ? " selected" : ""}`}
                       role="button"
                       tabIndex={0}
-                      onClick={() => handleSelectNode(node.index)}
+                      onClick={() => setSelectedEventUrl(ev.url)}
                       onKeyDown={(event) => {
                         if (event.key === "Enter" || event.key === " ") {
                           event.preventDefault();
-                          handleSelectNode(node.index);
+                          setSelectedEventUrl(ev.url);
                         }
                       }}
                     >
                       <div className="stock-news-ledger-left">
-                        <span className={`stock-news-ledger-index ${dirClass}`}>{node.index + 1}</span>
+                        <span className={`stock-news-ledger-index ${dirClass}`}>
+                          {nodeMatch ? nodeMatch.index + 1 : "•"}
+                        </span>
                         <div>
-                          <span className="stock-news-ledger-title">{node.event.title}</span>
+                          <span className="stock-news-ledger-title">{ev.title}</span>
                           <span className="stock-news-ledger-meta">
-                            {node.event.source} · {formatEventDateTime(node.event.publishedAtUtc)}
-                            {node.event.isRecordedSnapshot ? " · Snapshot saved" : " · Close aligned"}
+                            {ev.source} · {formatEventDateTime(ev.publishedAtUtc)}
+                            {ev.isRecordedSnapshot ? " · Snapshot saved" : " · Close aligned"}
                           </span>
                         </div>
                       </div>
                       <div className="stock-news-ledger-right">
                         <div className="stock-news-ledger-price">
-                          <strong>{formatMarketPrice(node.event.price, node.event.currency || activeCurrency)}</strong>
+                          <strong>{formatMarketPrice(ev.price, ev.currency || activeCurrency)}</strong>
                           <small className={dirClass}>
-                            {node.event.percentChange > 0 ? "+" : ""}
-                            {node.event.percentChange.toFixed(2)}%
+                            {ev.percentChange > 0 ? "+" : ""}
+                            {ev.percentChange.toFixed(2)}%
                           </small>
                         </div>
                         {onOpenArticle && (
@@ -569,7 +577,7 @@ export default function StockNewsGraphModal({
                             onClick={(event) => {
                               event.stopPropagation();
                               onClose();
-                              onOpenArticle(node.event.url);
+                              onOpenArticle(ev.url);
                             }}
                           >
                             Read
@@ -580,6 +588,17 @@ export default function StockNewsGraphModal({
                   );
                 })}
             </div>
+            {graph.events.length > ledgerLimit && (
+              <div style={{ marginTop: "0.75rem", textAlign: "center" }}>
+                <button
+                  type="button"
+                  className="stock-news-nav-btn"
+                  onClick={() => setLedgerLimit((prev) => prev + 150)}
+                >
+                  Show {Math.min(150, graph.events.length - ledgerLimit)} more ({graph.events.length - ledgerLimit} remaining)
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

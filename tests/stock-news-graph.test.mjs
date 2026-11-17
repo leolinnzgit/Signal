@@ -240,3 +240,49 @@ test("buildStockNewsChartGeometry generates valid SVG curve and pins for combine
   assert.ok(Number.isFinite(single.nodes[0].y));
   assert.ok(!single.linePath.includes("NaN"));
 });
+
+test("enrichArticlesWithMarketQuotes does not stamp live price onto stale articles without explicit timestamp", () => {
+  const stale = {
+    title: "NVIDIA older report",
+    url: "https://example.com/nvda-stale",
+    source: "Reuters",
+    publishedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+    topics: ["NVIDIA"],
+  };
+  const fresh = {
+    title: "NVIDIA breaking report",
+    url: "https://example.com/nvda-fresh",
+    source: "Reuters",
+    publishedAt: new Date(Date.now() - 15 * 60 * 1000).toISOString(),
+    topics: ["NVIDIA"],
+  };
+  const enriched = enrichArticlesWithMarketQuotes([stale, fresh], [nvdaQuote]);
+  assert.equal(enriched[0].marketQuotes, undefined);
+  assert.equal(enriched[1].marketQuotes?.length, 1);
+});
+
+test("buildStockNewsChartGeometry caps dense catalyst pins to 32 while keeping selectedEventUrl", () => {
+  const manyEvents = Array.from({ length: 60 }, (_, idx) => ({
+    title: `Story ${idx}`,
+    url: `https://example.com/s-${idx}`,
+    source: "Wire",
+    publishedAtUtc: new Date(Date.UTC(2026, 10, 1 + Math.floor(idx / 3), idx % 24, 0, 0)).toISOString(),
+    recordedAtUtc: new Date(Date.UTC(2026, 10, 1 + Math.floor(idx / 3), idx % 24, 0, 0)).toISOString(),
+    symbol: "NVDA",
+    name: "NVIDIA Corp",
+    exchange: "NASDAQ",
+    currency: "USD",
+    price: 150 + idx * 0.25,
+    change: 0.5,
+    percentChange: idx === 17 ? 0 : 0.3,
+    quoteTime: "2026-11-10",
+    isMarketOpen: true,
+    isRecordedSnapshot: true,
+    topics: ["NVIDIA"],
+  }));
+
+  const geom = buildStockNewsChartGeometry([], manyEvents, 760, 280, "combined", "https://example.com/s-17");
+  assert.ok(geom);
+  assert.equal(geom.nodes.length, 32);
+  assert.ok(geom.nodes.some((n) => n.event.url === "https://example.com/s-17"));
+});

@@ -394,11 +394,13 @@ public sealed class MarketController(
         var followedTopics = DeserializeStringList(preferences?.TopicsJson);
         var tickerOverrides = MarketDataService.DeserializeTickerOverrides(preferences?.TickerOverridesJson);
 
-        var storedArticles = await database.StoredNewsArticles
+        var quotedArticles = await database.StoredNewsArticles
             .AsNoTracking()
-            .Where(item => item.UserId == userId && (item.PublishedAtUtc >= cutoff || item.LastSeenAtUtc >= cutoff))
+            .Where(item => item.UserId == userId
+                && item.MarketQuotesJson != "[]"
+                && item.PublishedAtUtc >= cutoff)
             .OrderByDescending(item => item.PublishedAtUtc)
-            .Take(1000)
+            .Take(5000)
             .Select(item => new StoredGraphArticleProjection(
                 item.Title,
                 item.Url,
@@ -408,7 +410,7 @@ public sealed class MarketController(
                 MarketDataService.DeserializeMarketQuotes(item.MarketQuotesJson)))
             .ToArrayAsync(cancellationToken);
 
-        var seriesMap = BuildRecordedSeriesMap(storedArticles);
+        var seriesMap = BuildRecordedSeriesMap(quotedArticles);
 
         // Include followed stock topics / overrides even before any snapshots have been stamped.
         var missingFollowed = followedTopics
@@ -487,7 +489,7 @@ public sealed class MarketController(
         }
 
         MarketQuote? liveQuote = null;
-        MarketPricePoint[] datedSeries = [];
+        HistoricalPriceBar[] historicalBars = [];
         if (marketData.IsConfigured && (requestedTopic.Length > 0 || requestedQualified.Length > 0))
         {
             var lookupTopic = requestedTopic.Length > 0 ? requestedTopic : requestedSymbol;
@@ -505,10 +507,10 @@ public sealed class MarketController(
                 // Keep serving stored snapshots even if live quote lookup fails.
             }
 
-            datedSeries = await marketData.GetDatedSeriesAsync(
+            historicalBars = await marketData.GetHistoricalBarsAsync(
                 lookupTopic,
                 lookupSymbol,
-                Math.Clamp(boundedDays, 7, 90),
+                Math.Clamp(boundedDays + 10, 14, 365),
                 cancellationToken);
         }
 
@@ -522,35 +524,75 @@ public sealed class MarketController(
         var activeCurrency = liveQuote?.Currency ?? summary?.Currency ?? "";
         var activeTopic = requestedTopic.Length > 0 ? requestedTopic : (summary?.Topic ?? activeName);
 
-        var parsedDated = datedSeries
-            .Select(pt => (Point: pt, Utc: ParseChartTimestampUtc(pt.Timestamp)))
+        var symbolQuotePattern = activeSymbol.Length > 0 ? $"%\"{activeSymbol}\"%" : "";
+        var topicPattern = activeTopic.Length > 0 ? $"%{activeTopic}%" : "";
+        var cleanName = CleanSeriesDisplayName(activeName);
+        var namePattern = cleanName.Length >= 3 ? $"%{cleanName}%" : "";
+        var symbolTitlePattern = activeSymbol.Length >= 2 ? $"%{activeSymbol}%" : "";
+
+        var matchingArticles = (activeSymbol.Length == 0 && activeTopic.Length == 0)
+            ? []
+            : await database.StoredNewsArticles
+                .AsNoTracking()
+                .Where(item => item.UserId == userId && item.PublishedAtUtc >= cutoff && (
+                    (symbolQuotePattern.Length > 0 && EF.Functions.Like(item.MarketQuotesJson, symbolQuotePattern))
+                    || (topicPattern.Length > 0 && (EF.Functions.Like(item.TopicsJson, topicPattern) || EF.Functions.Like(item.Title, topicPattern)))
+                    || (namePattern.Length > 0 && (EF.Functions.Like(item.TopicsJson, namePattern) || EF.Functions.Like(item.Title, namePattern)))
+                    || (symbolTitlePattern.Length > 0 && EF.Functions.Like(item.Title, symbolTitlePattern))))
+                .OrderByDescending(item => item.PublishedAtUtc)
+                .Take(600)
+                .Select(item => new StoredGraphArticleProjection(
+                    item.Title,
+                    item.Url,
+                    item.Source,
+                    item.PublishedAtUtc,
+                    DeserializeStringList(item.TopicsJson),
+                    MarketDataService.DeserializeMarketQuotes(item.MarketQuotesJson)))
+                .ToArrayAsync(cancellationToken);
+
+        var parsedDated = historicalBars
+            .Select(bar => (Point: new MarketPricePoint(bar.Utc.ToString("O", CultureInfo.InvariantCulture), bar.Close), Utc: bar.Utc))
             .Where(item => item.Point.Price > 0)
             .OrderBy(item => item.Utc)
             .ToArray();
 
         var events = new List<StockNewsChartEvent>();
-        foreach (var article in storedArticles.OrderBy(item => item.PublishedAtUtc))
+        foreach (var article in matchingArticles.OrderBy(item => item.PublishedAtUtc))
         {
             var recorded = article.MarketQuotes.FirstOrDefault(q =>
                 activeSymbol.Length > 0 && string.Equals(q.Symbol, activeSymbol, StringComparison.OrdinalIgnoreCase));
 
             if (recorded is not null && recorded.Price > 0)
             {
+                var publishedUtc = DateTime.SpecifyKind(article.PublishedAtUtc, DateTimeKind.Utc);
+                var recordedUtc = DateTime.SpecifyKind(recorded.RecordedAtUtc, DateTimeKind.Utc);
+                var effective = (historicalBars.Length > 0 && recordedUtc > publishedUtc.AddHours(6))
+                    ? (MarketDataService.FindHistoricalQuoteAt(
+                        publishedUtc,
+                        liveQuote,
+                        historicalBars,
+                        recorded.Topic.Length > 0 ? recorded.Topic : activeTopic,
+                        recorded.Symbol,
+                        recorded.Name.Length > 0 ? recorded.Name : activeName,
+                        recorded.Exchange.Length > 0 ? recorded.Exchange : activeExchange,
+                        recorded.Currency.Length > 0 ? recorded.Currency : activeCurrency) ?? recorded)
+                    : recorded;
+
                 events.Add(new StockNewsChartEvent(
                     article.Title,
                     article.Url,
                     article.Source,
-                    DateTime.SpecifyKind(article.PublishedAtUtc, DateTimeKind.Utc),
-                    DateTime.SpecifyKind(recorded.RecordedAtUtc, DateTimeKind.Utc),
-                    recorded.Symbol,
-                    recorded.Name.Length > 0 ? recorded.Name : activeName,
-                    recorded.Exchange.Length > 0 ? recorded.Exchange : activeExchange,
-                    recorded.Currency.Length > 0 ? recorded.Currency : activeCurrency,
-                    recorded.Price,
-                    recorded.Change,
-                    recorded.PercentChange,
-                    recorded.QuoteTime,
-                    recorded.IsMarketOpen,
+                    publishedUtc,
+                    DateTime.SpecifyKind(effective.RecordedAtUtc, DateTimeKind.Utc),
+                    effective.Symbol,
+                    effective.Name.Length > 0 ? effective.Name : activeName,
+                    effective.Exchange.Length > 0 ? effective.Exchange : activeExchange,
+                    effective.Currency.Length > 0 ? effective.Currency : activeCurrency,
+                    effective.Price,
+                    effective.Change,
+                    effective.PercentChange,
+                    effective.QuoteTime,
+                    effective.IsMarketOpen,
                     IsRecordedSnapshot: true,
                     article.Topics));
                 continue;
@@ -559,7 +601,16 @@ public sealed class MarketController(
             if (!ArticleMatchesStock(article, activeTopic, activeSymbol, activeName))
                 continue;
 
-            var alignedPrice = AlignPriceToTimestamp(article.PublishedAtUtc, parsedDated, liveQuote?.Price ?? 0m);
+            var alignedQuote = MarketDataService.FindHistoricalQuoteAt(
+                article.PublishedAtUtc,
+                liveQuote,
+                historicalBars,
+                activeTopic,
+                activeSymbol,
+                activeName,
+                activeExchange,
+                activeCurrency);
+            var alignedPrice = alignedQuote?.Price ?? AlignPriceToTimestamp(article.PublishedAtUtc, parsedDated, liveQuote?.Price ?? 0m);
             if (alignedPrice <= 0) continue;
 
             events.Add(new StockNewsChartEvent(
@@ -573,10 +624,10 @@ public sealed class MarketController(
                 activeExchange,
                 activeCurrency,
                 alignedPrice,
-                0m,
-                0m,
-                "",
-                null,
+                alignedQuote?.Change ?? 0m,
+                alignedQuote?.PercentChange ?? 0m,
+                alignedQuote?.QuoteTime ?? "",
+                alignedQuote?.IsMarketOpen,
                 IsRecordedSnapshot: false,
                 article.Topics));
         }
@@ -584,7 +635,8 @@ public sealed class MarketController(
         var pricePoints = new List<(DateTimeOffset Utc, int Priority, StockNewsPricePoint Point)>();
         foreach (var item in parsedDated)
         {
-            pricePoints.Add((item.Utc, 0, new StockNewsPricePoint(item.Point.Timestamp, item.Point.Price, "historical-close")));
+            if (item.Utc >= cutoff.AddDays(-1))
+                pricePoints.Add((item.Utc, 0, new StockNewsPricePoint(item.Point.Timestamp, item.Point.Price, "historical-close")));
         }
         foreach (var ev in events)
         {
@@ -712,6 +764,21 @@ public sealed class MarketController(
                 out var parsed))
             return parsed;
         return DateTimeOffset.MinValue;
+    }
+
+    private static string CleanSeriesDisplayName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "";
+        var suffixes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "inc", "inc.", "corp", "corp.", "corporation", "ltd", "ltd.", "limited", "plc", "co", "co.",
+            "company", "holdings", "group", "class", "a", "b", "common", "stock", "etf", "trust", "adr",
+        };
+        var parts = name
+            .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+            .Where(w => !suffixes.Contains(w.TrimEnd(',', '.')))
+            .ToArray();
+        return string.Join(' ', parts).Trim();
     }
 
     private static string[] DeserializeStringList(string? json)

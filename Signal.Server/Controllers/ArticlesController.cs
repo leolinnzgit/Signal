@@ -81,25 +81,26 @@ public sealed class ArticlesController(
             .Select(item => item.TickerOverridesJson)
             .SingleOrDefaultAsync(cancellationToken);
         var tickerOverrides = MarketDataService.DeserializeTickerOverrides(tickerOverridesJson);
-        var resolvedQuotes = new Dictionary<string, ArticleMarketQuote>(StringComparer.OrdinalIgnoreCase);
+        var resolvedByIndex = new Dictionary<long, ArticleMarketQuote[]>();
         if (marketData is { IsConfigured: true } && normalized.Length > 0)
         {
-            var candidateTopics = normalized
-                .SelectMany(item => MarketDataService.CollectCandidateTopics(item.Title, item.Topics, tickerOverrides))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
+            var indexedArticles = normalized
+                .Select((item, index) => (
+                    Key: (long)index,
+                    Title: item.Title,
+                    Topics: item.Topics,
+                    PublishedAtUtc: item.PublishedAtUtc))
                 .ToArray();
-            if (candidateTopics.Length > 0)
-            {
-                resolvedQuotes = await marketData.ResolveQuotesForTopicsAsync(
-                    candidateTopics,
-                    tickerOverrides,
-                    now,
-                    cancellationToken);
-            }
+            resolvedByIndex = await marketData.ResolveQuotesForArticlesAsync(
+                indexedArticles,
+                tickerOverrides,
+                cancellationToken);
         }
 
+        var itemIndex = -1L;
         foreach (var item in normalized)
         {
+            itemIndex++;
             if (!byUrl.TryGetValue(item.Url, out var stored))
             {
                 stored = new StoredNewsArticle
@@ -120,8 +121,10 @@ public sealed class ArticlesController(
             if (item.ImageUrl.Length > 0) stored.ImageUrl = item.ImageUrl;
             stored.TopicsJson = JsonSerializer.Serialize(MergeLists(stored.TopicsJson, item.Topics));
             stored.ProvidersJson = JsonSerializer.Serialize(MergeLists(stored.ProvidersJson, item.Providers));
-            var candidateTopics = MarketDataService.CollectCandidateTopics(item.Title, item.Topics, tickerOverrides);
-            var matchedQuotes = MarketDataService.MatchResolvedQuotes(candidateTopics, resolvedQuotes, item.MarketQuotes);
+            resolvedByIndex.TryGetValue(itemIndex, out var resolvedForItem);
+            var matchedQuotes = MarketDataService.MergeMarketQuotes(
+                "[]",
+                item.MarketQuotes.Concat(resolvedForItem ?? []));
             if (matchedQuotes.Length > 0)
             {
                 stored.MarketQuotesJson = JsonSerializer.Serialize(
