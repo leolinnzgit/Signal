@@ -13,7 +13,8 @@ public sealed class TopicRefreshService(
     PushNotificationService pushNotificationService,
     ILogger<TopicRefreshService> logger,
     IArticleAudioPrewarmer? audioPrewarmer = null,
-    TripwireEvaluatorService? tripwireEvaluator = null)
+    TripwireEvaluatorService? tripwireEvaluator = null,
+    MarketDataService? marketData = null)
 {
     private const int ProviderConcurrency = 8;
     private const int TopicsPerProviderBatch = 8;
@@ -452,6 +453,29 @@ public sealed class TopicRefreshService(
 
         foreach (var item in allKnown) IndexStoredArticle(item);
 
+        var tickerOverridesJson = await database.UserNewsPreferences
+            .AsNoTracking()
+            .Where(item => item.UserId == userId)
+            .Select(item => item.TickerOverridesJson)
+            .SingleOrDefaultAsync(cancellationToken);
+        var tickerOverrides = MarketDataService.DeserializeTickerOverrides(tickerOverridesJson);
+        var resolvedQuotes = new Dictionary<string, ArticleMarketQuote>(StringComparer.OrdinalIgnoreCase);
+        if (marketData is { IsConfigured: true } && articles.Count > 0)
+        {
+            var candidateTopics = articles
+                .SelectMany(article => MarketDataService.CollectCandidateTopics(article.Title, article.Topics, tickerOverrides))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (candidateTopics.Length > 0)
+            {
+                resolvedQuotes = await marketData.ResolveQuotesForTopicsAsync(
+                    candidateTopics,
+                    tickerOverrides,
+                    refreshedAt,
+                    cancellationToken);
+            }
+        }
+
         var newlyAvailableTopicKeys = new HashSet<string>(StringComparer.Ordinal);
         var newArticles = new List<StoredNewsArticle>();
 
@@ -546,6 +570,17 @@ public sealed class TopicRefreshService(
                 stored.ImageUrl = article.ImageUrl[..Math.Min(article.ImageUrl.Length, 2048)];
             stored.TopicsJson = JsonSerializer.Serialize(MergeLists(stored.TopicsJson, article.Topics));
             stored.ProvidersJson = JsonSerializer.Serialize(MergeLists(stored.ProvidersJson, article.Providers));
+            var articleCandidateTopics = MarketDataService.CollectCandidateTopics(article.Title, article.Topics, tickerOverrides);
+            var aliasQuotes = aliases.SelectMany(alias => MarketDataService.DeserializeMarketQuotes(alias.MarketQuotesJson));
+            var matchedQuotes = MarketDataService.MatchResolvedQuotes(
+                articleCandidateTopics,
+                resolvedQuotes,
+                (article.MarketQuotes ?? []).Concat(aliasQuotes));
+            if (matchedQuotes.Length > 0)
+            {
+                stored.MarketQuotesJson = JsonSerializer.Serialize(
+                    MarketDataService.MergeMarketQuotes(stored.MarketQuotesJson, matchedQuotes));
+            }
             stored.LastSeenAtUtc = refreshedAt;
 
             IndexStoredArticle(stored);
@@ -667,10 +702,85 @@ public sealed class TopicRefreshService(
                     Providers = mergedProviders,
                     IsBookmarked = group.Any(candidate => candidate.Item.IsBookmarked),
                     IsRead = group.Any(candidate => candidate.Item.IsRead),
+                    MarketQuotes = MarketDataService.MergeMarketQuotes(
+                        "[]",
+                        group.SelectMany(candidate => MarketDataService.DeserializeMarketQuotes(candidate.Item.MarketQuotesJson))),
                 };
             })
             .OrderByDescending(candidate => candidate.PublishedAtUtc)
             .ToArray();
+
+        if (marketData is { IsConfigured: true } && candidates.Length > 0)
+        {
+            var tickerOverrides = MarketDataService.DeserializeTickerOverrides(preferences.TickerOverridesJson);
+            var unquoted = candidates.Where(candidate => candidate.MarketQuotes.Length == 0).ToArray();
+            if (unquoted.Length > 0)
+            {
+                var fastTopics = unquoted
+                    .SelectMany(candidate => MarketDataService.CollectCandidateTopics(candidate.Title, candidate.Topics, tickerOverrides))
+                    .Where(topic => tickerOverrides.ContainsKey(topic) || marketData.IsKnownOrCachedStockTopic(topic))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+
+                if (fastTopics.Length > 0)
+                {
+                    var now = DateTime.UtcNow;
+                    var resolved = await marketData.ResolveQuotesForTopicsAsync(
+                        fastTopics,
+                        tickerOverrides,
+                        now,
+                        cancellationToken);
+                    if (resolved.Count > 0)
+                    {
+                        var backfillById = new Dictionary<long, ArticleMarketQuote[]>();
+                        foreach (var candidate in unquoted)
+                        {
+                            var candidateTopics = MarketDataService.CollectCandidateTopics(candidate.Title, candidate.Topics, tickerOverrides);
+                            var matched = MarketDataService.MatchResolvedQuotes(candidateTopics, resolved);
+                            if (matched.Length > 0)
+                                backfillById[candidate.Id] = MarketDataService.MergeMarketQuotes("[]", matched);
+                        }
+
+                        if (backfillById.Count > 0)
+                        {
+                            var ids = backfillById.Keys.ToArray();
+                            var toUpdate = await database.StoredNewsArticles
+                                .Where(item => item.UserId == userId && ids.Contains(item.Id))
+                                .ToListAsync(cancellationToken);
+                            foreach (var row in toUpdate)
+                            {
+                                if (backfillById.TryGetValue(row.Id, out var quotes))
+                                {
+                                    row.MarketQuotesJson = JsonSerializer.Serialize(
+                                        MarketDataService.MergeMarketQuotes(row.MarketQuotesJson, quotes));
+                                }
+                            }
+                            await database.SaveChangesAsync(cancellationToken);
+
+                            candidates = candidates
+                                .Select(candidate => backfillById.TryGetValue(candidate.Id, out var quotes)
+                                    ? new
+                                    {
+                                        candidate.Id,
+                                        candidate.Title,
+                                        candidate.Url,
+                                        candidate.Source,
+                                        candidate.PublishedAtUtc,
+                                        candidate.Summary,
+                                        candidate.ImageUrl,
+                                        candidate.Topics,
+                                        candidate.Providers,
+                                        candidate.IsBookmarked,
+                                        candidate.IsRead,
+                                        MarketQuotes = quotes,
+                                    }
+                                    : candidate)
+                                .ToArray();
+                        }
+                    }
+                }
+            }
+        }
 
         var included = new HashSet<long>();
         foreach (var topic in topics)
@@ -694,7 +804,8 @@ public sealed class TopicRefreshService(
                 candidate.Topics,
                 candidate.Providers,
                 candidate.IsBookmarked,
-                candidate.IsRead))
+                candidate.IsRead,
+                candidate.MarketQuotes))
             .ToArray();
     }
 
@@ -868,7 +979,8 @@ public sealed record TopicBriefingArticle(
     string[] Topics,
     string[] Providers,
     bool IsBookmarked,
-    bool IsRead);
+    bool IsRead,
+    ArticleMarketQuote[]? MarketQuotes = null);
 
 public sealed record TopicRefreshStatus(
     string Topic,

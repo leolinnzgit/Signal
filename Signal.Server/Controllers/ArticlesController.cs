@@ -17,7 +17,8 @@ namespace Signal.Server.Controllers;
 public sealed class ArticlesController(
     SignalDbContext database,
     UserManager<ApplicationUser> userManager,
-    IArticleAudioPrewarmer? audioPrewarmer = null) : ControllerBase
+    IArticleAudioPrewarmer? audioPrewarmer = null,
+    MarketDataService? marketData = null) : ControllerBase
 {
     private const int DefaultRetentionDays = 30;
     private const int MaximumSyncItems = 500;
@@ -74,6 +75,28 @@ public sealed class ArticlesController(
         var byUrl = existing.ToDictionary(item => item.Url, StringComparer.OrdinalIgnoreCase);
         var now = DateTime.UtcNow;
         var newArticles = new List<StoredNewsArticle>();
+        var tickerOverridesJson = await database.UserNewsPreferences
+            .AsNoTracking()
+            .Where(item => item.UserId == userId)
+            .Select(item => item.TickerOverridesJson)
+            .SingleOrDefaultAsync(cancellationToken);
+        var tickerOverrides = MarketDataService.DeserializeTickerOverrides(tickerOverridesJson);
+        var resolvedQuotes = new Dictionary<string, ArticleMarketQuote>(StringComparer.OrdinalIgnoreCase);
+        if (marketData is { IsConfigured: true } && normalized.Length > 0)
+        {
+            var candidateTopics = normalized
+                .SelectMany(item => MarketDataService.CollectCandidateTopics(item.Title, item.Topics, tickerOverrides))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (candidateTopics.Length > 0)
+            {
+                resolvedQuotes = await marketData.ResolveQuotesForTopicsAsync(
+                    candidateTopics,
+                    tickerOverrides,
+                    now,
+                    cancellationToken);
+            }
+        }
 
         foreach (var item in normalized)
         {
@@ -97,6 +120,13 @@ public sealed class ArticlesController(
             if (item.ImageUrl.Length > 0) stored.ImageUrl = item.ImageUrl;
             stored.TopicsJson = JsonSerializer.Serialize(MergeLists(stored.TopicsJson, item.Topics));
             stored.ProvidersJson = JsonSerializer.Serialize(MergeLists(stored.ProvidersJson, item.Providers));
+            var candidateTopics = MarketDataService.CollectCandidateTopics(item.Title, item.Topics, tickerOverrides);
+            var matchedQuotes = MarketDataService.MatchResolvedQuotes(candidateTopics, resolvedQuotes, item.MarketQuotes);
+            if (matchedQuotes.Length > 0)
+            {
+                stored.MarketQuotesJson = JsonSerializer.Serialize(
+                    MarketDataService.MergeMarketQuotes(stored.MarketQuotesJson, matchedQuotes));
+            }
             stored.LastSeenAtUtc = now;
         }
 
@@ -312,7 +342,8 @@ public sealed class ArticlesController(
             NormalizeText(item.Summary, 4000),
             NormalizeImageUrl(item.ImageUrl),
             NormalizeList(item.Topics),
-            NormalizeList(item.Providers));
+            NormalizeList(item.Providers),
+            MarketDataService.MergeMarketQuotes("[]", item.MarketQuotes));
     }
 
     private static string? NormalizeUrl(string value)
@@ -378,7 +409,8 @@ public sealed class ArticlesController(
         article.IsBookmarked,
         article.BookmarkedAtUtc,
         article.IsRead,
-        article.ReadAtUtc);
+        article.ReadAtUtc,
+        MarketDataService.DeserializeMarketQuotes(article.MarketQuotesJson));
 
     private sealed record NormalizedArticle(
         string Url,
@@ -388,7 +420,8 @@ public sealed class ArticlesController(
         string Summary,
         string ImageUrl,
         string[] Topics,
-        string[] Providers);
+        string[] Providers,
+        ArticleMarketQuote[] MarketQuotes);
 }
 
 public sealed record ArticleSyncRequest([Required] StoredArticleRequest[] Articles);
@@ -401,7 +434,8 @@ public sealed record StoredArticleRequest(
     string Summary,
     string? ImageUrl,
     [Required] string[] Topics,
-    [Required] string[] Providers);
+    [Required] string[] Providers,
+    ArticleMarketQuote[]? MarketQuotes = null);
 
 public sealed record BookmarkRequest([Required] string Url, bool Bookmarked);
 
@@ -439,4 +473,5 @@ public sealed record ArticleHistoryItem(
     bool IsBookmarked,
     DateTime? BookmarkedAt,
     bool IsRead,
-    DateTime? ReadAt);
+    DateTime? ReadAt,
+    ArticleMarketQuote[]? MarketQuotes = null);

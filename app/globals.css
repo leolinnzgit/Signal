@@ -2294,6 +2294,45 @@ button.local-weather {
 .portfolio-alert-badge.up { color: var(--market-up); background: color-mix(in srgb, var(--market-up) 12%, transparent); }
 .portfolio-alert-badge.down { color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); }
 
+.dashboard-watchlist-graph-btn,
+.market-snapshot-graph-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.55rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--content-background);
+  color: var(--page-text);
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.14s ease, background-color 0.14s ease, color 0.14s ease;
+}
+
+.dashboard-watchlist-graph-btn:hover,
+.market-snapshot-graph-btn:hover {
+  border-color: var(--red);
+  background: var(--red);
+  color: #fff;
+}
+
+.dashboard-watchlist-graph-btn {
+  margin-left: auto;
+}
+
+.market-snapshot-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  grid-column: 1 / -1;
+}
+
 @media (max-width: 600px) {
   .dashboard-market-watchlist { gap: 0.5rem; padding: 0.65rem; }
   .dashboard-watchlist-label { flex-basis: 100%; margin: 0 0 0.15rem; }
@@ -3392,11 +3431,54 @@ button.local-weather {
   color: var(--red);
 }
 
-.story-meta { display: flex; align-items: center; gap: 0.7rem; margin-bottom: 0.75rem; }
+.story-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem 0.7rem; margin-bottom: 0.75rem; }
 .story-meta span { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.13em; font-weight: 700; color: var(--sage); }
 .story-meta span + span::before { content: ""; display: inline-block; width: 3px; height: 3px; margin-right: 0.7rem; border-radius: 50%; background: var(--sage); vertical-align: middle; }
 .story-meta .story-topic { color: var(--red); }
+.story-meta .story-topic { color: var(--red); }
 .story-meta .story-provider { color: var(--provider); }
+
+.story-market-quote-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  padding: 0.14rem 0.5rem;
+  border-radius: 9999px;
+  border: 1px solid var(--line);
+  background: var(--paper-deep);
+  color: var(--page-text);
+  font-family: inherit;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.14s ease, transform 0.14s ease, background-color 0.14s ease;
+}
+
+.story-market-quote-badge:hover,
+.story-market-quote-badge:focus-visible {
+  border-color: var(--red);
+  transform: translateY(-1px);
+}
+
+.story-market-quote-badge.positive {
+  border-color: color-mix(in srgb, var(--market-up) 45%, transparent);
+  background: color-mix(in srgb, var(--market-up) 11%, var(--content-background));
+  color: var(--market-up);
+}
+
+.story-market-quote-badge.negative {
+  border-color: color-mix(in srgb, var(--red) 45%, transparent);
+  background: color-mix(in srgb, var(--red) 11%, var(--content-background));
+  color: var(--red);
+}
+
+.story-market-quote-badge.neutral {
+  color: var(--text-strong-muted);
+}
 
 .story-link h3 {
   max-width: 950px;

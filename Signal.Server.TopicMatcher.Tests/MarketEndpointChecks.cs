@@ -82,7 +82,7 @@ internal static class MarketEndpointChecks
         {
             var origin = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single();
             using var client = new HttpClient(new HttpClientHandler { CookieContainer = new(), AllowAutoRedirect = false }) { BaseAddress = new(origin) };
-            foreach (var path in new[] { "/api/market?topic=nvidia", "/api/market/portfolio" })
+            foreach (var path in new[] { "/api/market?topic=nvidia", "/api/market/portfolio", "/api/market/news-graph?topic=nvidia" })
                 Check((await client.GetAsync(path)).StatusCode == HttpStatusCode.Unauthorized, "Market data requires sign-in.");
             await client.GetAsync("/test/login");
 
@@ -116,10 +116,112 @@ internal static class MarketEndpointChecks
             var savedPortfolio = await saved.Content.ReadFromJsonAsync<JsonElement>();
             Check(savedPortfolio.GetProperty("items").GetArrayLength() == 1 && savedPortfolio.GetProperty("hasAlerts").GetBoolean(),
                 "Saved portfolio and price alerts must remain functional.");
+            await CheckStockNewsRecordingAndGraphAsync(client);
             await CheckDesktopRequestsAsync(client);
         }
         finally { await app.StopAsync(); }
         Console.WriteLine("Market HTTP endpoints passed MVC activation, topic matches, unmatched topics, portfolio reads/writes, alerts, authentication and CSRF checks.");
+    }
+
+    private static async Task CheckStockNewsRecordingAndGraphAsync(HttpClient client)
+    {
+        var initialPublished = DateTimeOffset.UtcNow.AddHours(-4);
+        var initialQuote = new
+        {
+            topic = "NVIDIA",
+            symbol = "NVDA",
+            name = "NVIDIA",
+            exchange = "NASDAQ",
+            currency = "USD",
+            price = 175.50m,
+            change = 3.25m,
+            percentChange = 1.89m,
+            quoteTime = "2026-11-17 12:00:00",
+            isMarketOpen = true,
+            recordedAtUtc = initialPublished.UtcDateTime,
+        };
+
+        using var firstSync = await client.PostAsJsonAsync("/api/articles/sync", new
+        {
+            articles = new object[]
+            {
+                new
+                {
+                    title = "NVIDIA unveils Blackwell server milestone",
+                    url = "https://example.com/nvda-story-1",
+                    source = "Reuters",
+                    publishedAt = initialPublished,
+                    summary = "New GPU clusters ship ahead of schedule.",
+                    topics = new[] { "NVIDIA" },
+                    providers = new[] { "Google News" },
+                    marketQuotes = new[] { initialQuote },
+                },
+                new
+                {
+                    title = "NVIDIA cloud demand remains strong",
+                    url = "https://example.com/nvda-story-2",
+                    source = "Bloomberg",
+                    publishedAt = DateTimeOffset.UtcNow.AddHours(-1),
+                    summary = "Data center bookings beat expectations.",
+                    topics = new[] { "NVIDIA" },
+                    providers = new[] { "Google News" },
+                },
+            },
+        });
+        Check(firstSync.IsSuccessStatusCode, "Article sync with stock price recording must succeed.");
+        var syncedHistory = await firstSync.Content.ReadFromJsonAsync<JsonElement>();
+        var syncedArticles = syncedHistory.GetProperty("articles");
+        Check(syncedArticles.GetArrayLength() == 2, "Both NVIDIA stories must be stored in article history.");
+
+        // Re-sync the first story with a different quote price and verify its original first-seen price ($175.50) is preserved.
+        using var secondSync = await client.PostAsJsonAsync("/api/articles/sync", new
+        {
+            articles = new object[]
+            {
+                new
+                {
+                    title = "NVIDIA unveils Blackwell server milestone",
+                    url = "https://example.com/nvda-story-1",
+                    source = "Reuters",
+                    publishedAt = initialPublished,
+                    summary = "New GPU clusters ship ahead of schedule.",
+                    topics = new[] { "NVIDIA" },
+                    providers = new[] { "Google News" },
+                    marketQuotes = new[]
+                    {
+                        new
+                        {
+                            topic = "NVIDIA",
+                            symbol = "NVDA",
+                            name = "NVIDIA",
+                            exchange = "NASDAQ",
+                            currency = "USD",
+                            price = 210.00m,
+                            change = 20.00m,
+                            percentChange = 10.50m,
+                            quoteTime = "2026-11-17 16:00:00",
+                            isMarketOpen = false,
+                            recordedAtUtc = DateTime.UtcNow,
+                        },
+                    },
+                },
+            },
+        });
+        Check(secondSync.IsSuccessStatusCode, "Re-syncing an existing story must succeed.");
+
+        var graph = await client.GetFromJsonAsync<JsonElement>("/api/market/news-graph?topic=NVIDIA&days=30");
+        Check(graph.GetProperty("activeSymbol").GetString() == "NVDA", "News graph must resolve active NVDA series.");
+        Check(graph.GetProperty("availableSeries").GetArrayLength() >= 1, "News graph must list NVDA in availableSeries.");
+        var graphEvents = graph.GetProperty("events");
+        Check(graphEvents.GetArrayLength() == 2, "News graph must include both recorded NVIDIA stories.");
+        Check(graphEvents[0].GetProperty("url").GetString() == "https://example.com/nvda-story-1",
+            "News graph events must be sorted chronologically.");
+        Check(graphEvents[0].GetProperty("price").GetDecimal() == 175.50m,
+            "Re-syncing an existing article must preserve its original first-seen stock price snapshot.");
+        Check(graphEvents[1].GetProperty("price").GetDecimal() == 190m && graphEvents[1].GetProperty("isRecordedSnapshot").GetBoolean(),
+            "Articles synced without client quotes must automatically record server-resolved stock prices.");
+        Check(graph.GetProperty("pricePoints").GetArrayLength() >= 4,
+            "News graph must combine dated historical closes with recorded news snapshots.");
     }
 
     private static async Task CheckDesktopRequestsAsync(HttpClient client)
@@ -179,7 +281,7 @@ internal static class MarketEndpointChecks
         {
             var path = request.RequestUri!.AbsolutePath;
             var json = path.EndsWith("symbol_search") ? "{\"data\":[]}" : path.EndsWith("time_series")
-                ? "{\"values\":[{\"close\":\"190\"},{\"close\":\"189\"}]}"
+                ? "{\"values\":[{\"datetime\":\"2026-11-16\",\"close\":\"190\"},{\"datetime\":\"2026-11-15\",\"close\":\"189\"}]}"
                 : "{\"symbol\":\"NVDA\",\"name\":\"NVIDIA\",\"close\":\"190\",\"percent_change\":\"2\"}";
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") });
         }

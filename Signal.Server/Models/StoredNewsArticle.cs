@@ -37,6 +37,9 @@ public sealed class StoredNewsArticle
     [Required]
     public string ProvidersJson { get; set; } = "[]";
 
+    [Required]
+    public string MarketQuotesJson { get; set; } = "[]";
+
     public DateTime FirstSeenAtUtc { get; set; } = DateTime.UtcNow;
 
     public DateTime LastSeenAtUtc { get; set; } = DateTime.UtcNow;
@@ -49,3 +52,16 @@ public sealed class StoredNewsArticle
 
     public DateTime? ReadAtUtc { get; set; }
 }
+
+public sealed record ArticleMarketQuote(
+    string Topic,
+    string Symbol,
+    string Name,
+    string Exchange,
+    string Currency,
+    decimal Price,
+    decimal Change,
+    decimal PercentChange,
+    string QuoteTime,
+    bool? IsMarketOpen,
+    DateTime RecordedAtUtc);

@@ -417,6 +417,7 @@ await using (var scope = app.Services.CreateAsyncScope())
             "ImageUrl" TEXT NOT NULL DEFAULT '',
             "TopicsJson" TEXT NOT NULL,
             "ProvidersJson" TEXT NOT NULL,
+            "MarketQuotesJson" TEXT NOT NULL DEFAULT '[]',
             "FirstSeenAtUtc" TEXT NOT NULL,
             "LastSeenAtUtc" TEXT NOT NULL,
             "IsBookmarked" INTEGER NOT NULL DEFAULT 0,
@@ -813,6 +814,13 @@ await using (var scope = app.Services.CreateAsyncScope())
         {
             await database.Database.ExecuteSqlRawAsync(
                 "ALTER TABLE \"StoredNewsArticles\" ADD COLUMN \"FullText\" TEXT NOT NULL DEFAULT '';");
+        }
+
+        articleColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('StoredNewsArticles') WHERE name = 'MarketQuotesJson';";
+        if (Convert.ToInt32(await articleColumnCheck.ExecuteScalarAsync()) == 0)
+        {
+            await database.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"StoredNewsArticles\" ADD COLUMN \"MarketQuotesJson\" TEXT NOT NULL DEFAULT '[]';");
         }
 
         await using var topicStateColumnCheck = database.Database.GetDbConnection().CreateCommand();

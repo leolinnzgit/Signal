@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -328,5 +329,395 @@ public sealed class MarketController(
             marketData.IsConfigured,
             assets.ToArray(),
             macroHeadline));
+    }
+
+    public sealed record StockNewsSeriesSummary(
+        string Symbol,
+        string Name,
+        string Exchange,
+        string Currency,
+        string Topic,
+        int ArticleCount,
+        decimal LatestPrice,
+        decimal LatestPercentChange);
+
+    public sealed record StockNewsChartEvent(
+        string Title,
+        string Url,
+        string Source,
+        DateTime PublishedAtUtc,
+        DateTime RecordedAtUtc,
+        string Symbol,
+        string Name,
+        string Exchange,
+        string Currency,
+        decimal Price,
+        decimal Change,
+        decimal PercentChange,
+        string QuoteTime,
+        bool? IsMarketOpen,
+        bool IsRecordedSnapshot,
+        string[] Topics);
+
+    public sealed record StockNewsPricePoint(
+        string Timestamp,
+        decimal Price,
+        string SourceType);
+
+    public sealed record StockNewsGraphResponse(
+        bool Configured,
+        string ActiveSymbol,
+        string ActiveName,
+        string ActiveExchange,
+        string ActiveCurrency,
+        string ActiveTopic,
+        StockNewsSeriesSummary[] AvailableSeries,
+        StockNewsPricePoint[] PricePoints,
+        StockNewsChartEvent[] Events);
+
+    [HttpGet("news-graph")]
+    public async Task<IActionResult> GetNewsGraph(
+        [FromQuery] string? topic = null,
+        [FromQuery] string? symbol = null,
+        [FromQuery] int days = 30,
+        CancellationToken cancellationToken = default)
+    {
+        var userId = userManager.GetUserId(User);
+        if (userId is null) return Unauthorized();
+
+        var boundedDays = Math.Clamp(days, 1, 365);
+        var cutoff = DateTime.UtcNow.AddDays(-boundedDays);
+
+        var preferences = await database.UserNewsPreferences
+            .AsNoTracking()
+            .SingleOrDefaultAsync(item => item.UserId == userId, cancellationToken);
+        var followedTopics = DeserializeStringList(preferences?.TopicsJson);
+        var tickerOverrides = MarketDataService.DeserializeTickerOverrides(preferences?.TickerOverridesJson);
+
+        var storedArticles = await database.StoredNewsArticles
+            .AsNoTracking()
+            .Where(item => item.UserId == userId && (item.PublishedAtUtc >= cutoff || item.LastSeenAtUtc >= cutoff))
+            .OrderByDescending(item => item.PublishedAtUtc)
+            .Take(1000)
+            .Select(item => new StoredGraphArticleProjection(
+                item.Title,
+                item.Url,
+                item.Source,
+                item.PublishedAtUtc,
+                DeserializeStringList(item.TopicsJson),
+                MarketDataService.DeserializeMarketQuotes(item.MarketQuotesJson)))
+            .ToArrayAsync(cancellationToken);
+
+        var seriesMap = BuildRecordedSeriesMap(storedArticles);
+
+        // Include followed stock topics / overrides even before any snapshots have been stamped.
+        var missingFollowed = followedTopics
+            .Where(t => tickerOverrides.ContainsKey(t) || marketData.IsKnownOrCachedStockTopic(t))
+            .Where(t => !seriesMap.Values.Any(s => string.Equals(s.Topic, t, StringComparison.OrdinalIgnoreCase)))
+            .ToArray();
+        if (marketData.IsConfigured && missingFollowed.Length > 0)
+        {
+            var resolvedFollowed = await marketData.ResolveQuotesForTopicsAsync(
+                missingFollowed,
+                tickerOverrides,
+                DateTime.UtcNow,
+                cancellationToken);
+            foreach (var q in resolvedFollowed.Values)
+            {
+                var symKey = q.Symbol.Trim().ToUpperInvariant();
+                if (symKey.Length > 0 && !seriesMap.ContainsKey(symKey))
+                {
+                    seriesMap[symKey] = new StockNewsSeriesSummary(
+                        symKey,
+                        q.Name,
+                        q.Exchange,
+                        q.Currency,
+                        q.Topic,
+                        0,
+                        q.Price,
+                        q.PercentChange);
+                }
+            }
+        }
+
+        var requestedTopic = (topic ?? "").Trim();
+        var requestedRawSymbol = (symbol ?? "").Trim();
+        MarketTickerParser.TryParse(requestedRawSymbol, out var parsedTicker);
+        var requestedSymbol = parsedTicker?.Symbol ?? requestedRawSymbol.ToUpperInvariant();
+        var requestedQualified = parsedTicker?.QualifiedSymbol ?? (requestedRawSymbol.Length > 0 ? requestedRawSymbol.ToUpperInvariant() : "");
+
+        var availableSeries = seriesMap.Values
+            .OrderByDescending(s => s.ArticleCount)
+            .ThenBy(s => s.Symbol, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (requestedTopic.Length == 0 && requestedSymbol.Length == 0)
+        {
+            if (availableSeries.Length > 0)
+            {
+                requestedSymbol = availableSeries[0].Symbol;
+                requestedTopic = availableSeries[0].Topic;
+            }
+            else if (missingFollowed.Length > 0)
+            {
+                requestedTopic = missingFollowed[0];
+            }
+        }
+
+        if (requestedTopic.Length == 0 && requestedSymbol.Length > 0 && seriesMap.TryGetValue(requestedSymbol, out var matchedBySym))
+        {
+            requestedTopic = matchedBySym.Topic;
+        }
+
+        if (requestedSymbol.Length == 0 && requestedTopic.Length > 0)
+        {
+            var matchedByTopic = availableSeries.FirstOrDefault(s =>
+                string.Equals(s.Topic, requestedTopic, StringComparison.OrdinalIgnoreCase));
+            if (matchedByTopic is not null)
+                requestedSymbol = matchedByTopic.Symbol;
+        }
+
+        if (requestedQualified.Length == 0 && requestedTopic.Length > 0 && tickerOverrides.TryGetValue(requestedTopic, out var overrideVal))
+            requestedQualified = overrideVal;
+        else if (requestedQualified.Length == 0 && requestedSymbol.Length > 0)
+        {
+            requestedQualified = seriesMap.TryGetValue(requestedSymbol, out var existingSeries) && existingSeries.Exchange.Length > 0
+                ? $"{existingSeries.Symbol}:{existingSeries.Exchange}"
+                : requestedSymbol;
+        }
+
+        MarketQuote? liveQuote = null;
+        MarketPricePoint[] datedSeries = [];
+        if (marketData.IsConfigured && (requestedTopic.Length > 0 || requestedQualified.Length > 0))
+        {
+            var lookupTopic = requestedTopic.Length > 0 ? requestedTopic : requestedSymbol;
+            var lookupSymbol = requestedQualified.Length > 0 ? requestedQualified : null;
+            try
+            {
+                liveQuote = await marketData.GetForTopicAsync(lookupTopic, lookupSymbol, cancellationToken, includeSparkline: false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                // Keep serving stored snapshots even if live quote lookup fails.
+            }
+
+            datedSeries = await marketData.GetDatedSeriesAsync(
+                lookupTopic,
+                lookupSymbol,
+                Math.Clamp(boundedDays, 7, 90),
+                cancellationToken);
+        }
+
+        seriesMap.TryGetValue(
+            (liveQuote?.Symbol ?? requestedSymbol).Trim().ToUpperInvariant(),
+            out var summary);
+
+        var activeSymbol = (liveQuote?.Symbol ?? summary?.Symbol ?? requestedSymbol).Trim().ToUpperInvariant();
+        var activeName = liveQuote?.Name ?? summary?.Name ?? (requestedTopic.Length > 0 ? requestedTopic : activeSymbol);
+        var activeExchange = liveQuote?.Exchange ?? summary?.Exchange ?? parsedTicker?.Exchange ?? "";
+        var activeCurrency = liveQuote?.Currency ?? summary?.Currency ?? "";
+        var activeTopic = requestedTopic.Length > 0 ? requestedTopic : (summary?.Topic ?? activeName);
+
+        var parsedDated = datedSeries
+            .Select(pt => (Point: pt, Utc: ParseChartTimestampUtc(pt.Timestamp)))
+            .Where(item => item.Point.Price > 0)
+            .OrderBy(item => item.Utc)
+            .ToArray();
+
+        var events = new List<StockNewsChartEvent>();
+        foreach (var article in storedArticles.OrderBy(item => item.PublishedAtUtc))
+        {
+            var recorded = article.MarketQuotes.FirstOrDefault(q =>
+                activeSymbol.Length > 0 && string.Equals(q.Symbol, activeSymbol, StringComparison.OrdinalIgnoreCase));
+
+            if (recorded is not null && recorded.Price > 0)
+            {
+                events.Add(new StockNewsChartEvent(
+                    article.Title,
+                    article.Url,
+                    article.Source,
+                    DateTime.SpecifyKind(article.PublishedAtUtc, DateTimeKind.Utc),
+                    DateTime.SpecifyKind(recorded.RecordedAtUtc, DateTimeKind.Utc),
+                    recorded.Symbol,
+                    recorded.Name.Length > 0 ? recorded.Name : activeName,
+                    recorded.Exchange.Length > 0 ? recorded.Exchange : activeExchange,
+                    recorded.Currency.Length > 0 ? recorded.Currency : activeCurrency,
+                    recorded.Price,
+                    recorded.Change,
+                    recorded.PercentChange,
+                    recorded.QuoteTime,
+                    recorded.IsMarketOpen,
+                    IsRecordedSnapshot: true,
+                    article.Topics));
+                continue;
+            }
+
+            if (!ArticleMatchesStock(article, activeTopic, activeSymbol, activeName))
+                continue;
+
+            var alignedPrice = AlignPriceToTimestamp(article.PublishedAtUtc, parsedDated, liveQuote?.Price ?? 0m);
+            if (alignedPrice <= 0) continue;
+
+            events.Add(new StockNewsChartEvent(
+                article.Title,
+                article.Url,
+                article.Source,
+                DateTime.SpecifyKind(article.PublishedAtUtc, DateTimeKind.Utc),
+                DateTime.SpecifyKind(article.PublishedAtUtc, DateTimeKind.Utc),
+                activeSymbol,
+                activeName,
+                activeExchange,
+                activeCurrency,
+                alignedPrice,
+                0m,
+                0m,
+                "",
+                null,
+                IsRecordedSnapshot: false,
+                article.Topics));
+        }
+
+        var pricePoints = new List<(DateTimeOffset Utc, int Priority, StockNewsPricePoint Point)>();
+        foreach (var item in parsedDated)
+        {
+            pricePoints.Add((item.Utc, 0, new StockNewsPricePoint(item.Point.Timestamp, item.Point.Price, "historical-close")));
+        }
+        foreach (var ev in events)
+        {
+            var utc = new DateTimeOffset(DateTime.SpecifyKind(ev.PublishedAtUtc, DateTimeKind.Utc));
+            pricePoints.Add((
+                utc,
+                1,
+                new StockNewsPricePoint(utc.ToString("O", CultureInfo.InvariantCulture), ev.Price, ev.IsRecordedSnapshot ? "news-snapshot" : "news-aligned")));
+        }
+
+        var orderedPoints = pricePoints
+            .OrderBy(item => item.Utc)
+            .ThenBy(item => item.Priority)
+            .Select(item => item.Point)
+            .ToArray();
+
+        return Ok(new StockNewsGraphResponse(
+            marketData.IsConfigured,
+            activeSymbol,
+            activeName,
+            activeExchange,
+            activeCurrency,
+            activeTopic,
+            availableSeries,
+            orderedPoints,
+            events.ToArray()));
+    }
+
+    private sealed record StoredGraphArticleProjection(
+        string Title,
+        string Url,
+        string Source,
+        DateTime PublishedAtUtc,
+        string[] Topics,
+        ArticleMarketQuote[] MarketQuotes);
+
+    private static Dictionary<string, StockNewsSeriesSummary> BuildRecordedSeriesMap(
+        IEnumerable<StoredGraphArticleProjection> articles)
+    {
+        var grouped = new Dictionary<string, (ArticleMarketQuote LatestQuote, DateTime LatestTime, int Count)>(
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var article in articles)
+        {
+            var seenInArticle = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var quote in article.MarketQuotes)
+            {
+                if (string.IsNullOrWhiteSpace(quote.Symbol) || quote.Price <= 0) continue;
+                var symbol = quote.Symbol.Trim().ToUpperInvariant();
+                if (!seenInArticle.Add(symbol)) continue;
+
+                var timestamp = quote.RecordedAtUtc > article.PublishedAtUtc
+                    ? quote.RecordedAtUtc
+                    : article.PublishedAtUtc;
+
+                if (!grouped.TryGetValue(symbol, out var entry))
+                {
+                    grouped[symbol] = (quote, timestamp, 1);
+                }
+                else
+                {
+                    var latestQuote = timestamp >= entry.LatestTime ? quote : entry.LatestQuote;
+                    var latestTime = timestamp >= entry.LatestTime ? timestamp : entry.LatestTime;
+                    grouped[symbol] = (latestQuote, latestTime, entry.Count + 1);
+                }
+            }
+        }
+
+        var result = new Dictionary<string, StockNewsSeriesSummary>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (symbol, value) in grouped)
+        {
+            result[symbol] = new StockNewsSeriesSummary(
+                symbol,
+                value.LatestQuote.Name,
+                value.LatestQuote.Exchange,
+                value.LatestQuote.Currency,
+                value.LatestQuote.Topic,
+                value.Count,
+                value.LatestQuote.Price,
+                value.LatestQuote.PercentChange);
+        }
+        return result;
+    }
+
+    private static bool ArticleMatchesStock(
+        StoredGraphArticleProjection article,
+        string activeTopic,
+        string activeSymbol,
+        string activeName)
+    {
+        if (activeTopic.Length > 0 && article.Topics.Any(t => string.Equals(t, activeTopic, StringComparison.OrdinalIgnoreCase)))
+            return true;
+        if (activeTopic.Length >= 2 && TopicMatcher.Matches(article.Title, activeTopic))
+            return true;
+        if (activeSymbol.Length >= 2 && TopicMatcher.Matches(article.Title, activeSymbol))
+            return true;
+        if (activeName.Length >= 3 && !string.Equals(activeName, activeSymbol, StringComparison.OrdinalIgnoreCase)
+            && TopicMatcher.Matches(article.Title, activeName))
+            return true;
+        return false;
+    }
+
+    private static decimal AlignPriceToTimestamp(
+        DateTime publishedAtUtc,
+        (MarketPricePoint Point, DateTimeOffset Utc)[] parsedDated,
+        decimal fallbackPrice)
+    {
+        if (parsedDated.Length == 0) return fallbackPrice;
+        var target = new DateTimeOffset(DateTime.SpecifyKind(publishedAtUtc, DateTimeKind.Utc));
+        MarketPricePoint? onOrBefore = null;
+        foreach (var item in parsedDated)
+        {
+            if (item.Utc <= target) onOrBefore = item.Point;
+            else break;
+        }
+        return onOrBefore?.Price ?? parsedDated[0].Point.Price;
+    }
+
+    private static DateTimeOffset ParseChartTimestampUtc(string value)
+    {
+        if (DateTimeOffset.TryParse(
+                value,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                out var parsed))
+            return parsed;
+        return DateTimeOffset.MinValue;
+    }
+
+    private static string[] DeserializeStringList(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try { return JsonSerializer.Deserialize<string[]>(json) ?? []; }
+        catch (JsonException) { return []; }
     }
 }

@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
+using Signal.Server.Models;
 
 namespace Signal.Server.Services;
 
@@ -39,6 +40,8 @@ public sealed record MarketQuote(
     decimal[]? Sparkline = null);
 
 public sealed record MarketWatchlistTopicInput(string Topic, string? Symbol = null);
+
+public sealed record MarketPricePoint(string Timestamp, decimal Price);
 
 public sealed class MarketDataService(
     HttpClient httpClient,
@@ -269,6 +272,330 @@ public sealed class MarketDataService(
         }
 
         return sorted;
+    }
+
+    public static string[] ExtractKnownTopicsFromText(string? title, IEnumerable<string>? topics = null)
+    {
+        var result = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        if (topics is not null)
+        {
+            foreach (var raw in topics)
+            {
+                var cleaned = NormalizeDisplayText(raw, 80);
+                if (cleaned.Length > 0 && seen.Add(cleaned))
+                    result.Add(cleaned);
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(title))
+        {
+            foreach (var company in KnownSymbols.Keys.Concat(KnownNzxSymbols.Keys))
+            {
+                if (seen.Contains(company)) continue;
+                if (TopicMatcher.Matches(title, company) && seen.Add(company))
+                    result.Add(company);
+            }
+        }
+
+        return result.ToArray();
+    }
+
+    public static ArticleMarketQuote ToArticleMarketQuote(MarketQuote quote, DateTime recordedAtUtc) =>
+        new(
+            NormalizeDisplayText(quote.Topic, 80),
+            quote.Symbol.Trim().ToUpperInvariant(),
+            NormalizeDisplayText(quote.Name, 160),
+            quote.Exchange.Trim().ToUpperInvariant(),
+            quote.Currency.Trim().ToUpperInvariant(),
+            quote.Price,
+            quote.Change,
+            quote.PercentChange,
+            NormalizeDisplayText(quote.QuoteTime, 64),
+            quote.IsMarketOpen,
+            recordedAtUtc);
+
+    public static ArticleMarketQuote[] DeserializeMarketQuotes(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try
+        {
+            var items = JsonSerializer.Deserialize<ArticleMarketQuote[]>(json);
+            if (items is null || items.Length == 0) return [];
+            return items
+                .Where(item => item is not null && !string.IsNullOrWhiteSpace(item.Symbol) && item.Price > 0)
+                .ToArray();
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    public static ArticleMarketQuote[] MergeMarketQuotes(
+        string? existingJson,
+        IEnumerable<ArticleMarketQuote>? additions)
+    {
+        var existing = DeserializeMarketQuotes(existingJson);
+        if (additions is null) return existing;
+
+        var merged = new List<ArticleMarketQuote>(Math.Min(6, existing.Length + 4));
+
+        foreach (var item in existing)
+        {
+            if (merged.Count >= 6) break;
+            if (!merged.Any(m => IsSameStockQuote(m, item)))
+                merged.Add(item);
+        }
+
+        foreach (var raw in additions)
+        {
+            if (merged.Count >= 6) break;
+            if (raw is null || string.IsNullOrWhiteSpace(raw.Symbol) || raw.Price <= 0) continue;
+            var normalized = raw with
+            {
+                Topic = NormalizeDisplayText(raw.Topic, 80),
+                Symbol = raw.Symbol.Trim().ToUpperInvariant(),
+                Name = NormalizeDisplayText(raw.Name, 160),
+                Exchange = (raw.Exchange ?? "").Trim().ToUpperInvariant(),
+                Currency = (raw.Currency ?? "").Trim().ToUpperInvariant(),
+                QuoteTime = NormalizeDisplayText(raw.QuoteTime, 64),
+                RecordedAtUtc = raw.RecordedAtUtc == default ? DateTime.UtcNow : raw.RecordedAtUtc,
+            };
+            if (!merged.Any(m => IsSameStockQuote(m, normalized)))
+                merged.Add(normalized);
+        }
+
+        return merged.ToArray();
+    }
+
+    private static bool IsSameStockQuote(ArticleMarketQuote left, ArticleMarketQuote right)
+    {
+        if (!string.Equals(left.Symbol, right.Symbol, StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (string.IsNullOrWhiteSpace(left.Exchange) || string.IsNullOrWhiteSpace(right.Exchange))
+            return true;
+        return string.Equals(left.Exchange, right.Exchange, StringComparison.OrdinalIgnoreCase);
+    }
+
+    public bool IsKnownOrCachedStockTopic(string topic)
+    {
+        var normalized = NormalizeDisplayText(topic, 80);
+        return normalized.Length > 0 && HasFastSymbolMatch(normalized, out var matched) && matched;
+    }
+
+    public async Task<Dictionary<string, ArticleMarketQuote>> ResolveQuotesForTopicsAsync(
+        IReadOnlyCollection<string> candidateTopics,
+        IReadOnlyDictionary<string, string>? tickerOverrides,
+        DateTime recordedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var resolved = new Dictionary<string, ArticleMarketQuote>(StringComparer.OrdinalIgnoreCase);
+        if (!IsConfigured || candidateTopics is null || candidateTopics.Count == 0)
+            return resolved;
+
+        var seenTopics = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var fastCandidates = new List<(string Topic, string? Override)>();
+        var discoveryCandidates = new List<(string Topic, string? Override)>();
+
+        foreach (var raw in candidateTopics)
+        {
+            var topic = NormalizeDisplayText(raw, 80);
+            if (topic.Length == 0 || !seenTopics.Add(topic)) continue;
+
+            string? overrideSymbol = null;
+            if (tickerOverrides is not null)
+            {
+                foreach (var pair in tickerOverrides)
+                {
+                    if (string.Equals(pair.Key, topic, StringComparison.OrdinalIgnoreCase)
+                        && !string.IsNullOrWhiteSpace(pair.Value))
+                    {
+                        overrideSymbol = pair.Value.Trim();
+                        break;
+                    }
+                }
+            }
+
+            if (overrideSymbol is not null)
+            {
+                fastCandidates.Add((topic, overrideSymbol));
+            }
+            else if (HasFastSymbolMatch(topic, out var knownOrCached))
+            {
+                if (knownOrCached)
+                    fastCandidates.Add((topic, null));
+            }
+            else
+            {
+                discoveryCandidates.Add((topic, null));
+            }
+        }
+
+        var ordered = fastCandidates.Concat(discoveryCandidates.Take(2)).Take(8);
+        foreach (var (topic, overrideSymbol) in ordered)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var quote = await GetForTopicAsync(topic, overrideSymbol, cancellationToken, includeSparkline: false);
+                if (quote is not null && quote.Price > 0)
+                    resolved[topic] = ToArticleMarketQuote(quote, recordedAtUtc);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                // Best-effort quote snapshot enrichment should not fail article ingestion.
+            }
+        }
+
+        return resolved;
+    }
+
+    public static Dictionary<string, string> DeserializeTickerOverrides(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+            if (parsed is null || parsed.Count == 0)
+                return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var normalized = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var pair in parsed)
+            {
+                if (!string.IsNullOrWhiteSpace(pair.Key) && !string.IsNullOrWhiteSpace(pair.Value))
+                    normalized[pair.Key.Trim()] = pair.Value.Trim();
+            }
+            return normalized;
+        }
+        catch (JsonException)
+        {
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    public static string[] CollectCandidateTopics(
+        string? title,
+        IEnumerable<string>? topics,
+        IReadOnlyDictionary<string, string>? tickerOverrides = null)
+    {
+        var baseTopics = ExtractKnownTopicsFromText(title, topics);
+        if (tickerOverrides is null || tickerOverrides.Count == 0 || string.IsNullOrWhiteSpace(title))
+            return baseTopics;
+
+        var seen = new HashSet<string>(baseTopics, StringComparer.OrdinalIgnoreCase);
+        var combined = new List<string>(baseTopics);
+        foreach (var pair in tickerOverrides)
+        {
+            if (seen.Contains(pair.Key)) continue;
+            if (TopicMatcher.Matches(title, pair.Key) && seen.Add(pair.Key))
+                combined.Add(pair.Key);
+        }
+        return combined.ToArray();
+    }
+
+    public static ArticleMarketQuote[] MatchResolvedQuotes(
+        IEnumerable<string> candidateTopics,
+        IReadOnlyDictionary<string, ArticleMarketQuote> resolvedByTopic,
+        IEnumerable<ArticleMarketQuote>? explicitQuotes = null)
+    {
+        var list = new List<ArticleMarketQuote>();
+        if (explicitQuotes is not null)
+            list.AddRange(explicitQuotes);
+
+        if (resolvedByTopic is { Count: > 0 })
+        {
+            foreach (var topic in candidateTopics)
+            {
+                if (resolvedByTopic.TryGetValue(topic, out var quote))
+                    list.Add(quote);
+            }
+        }
+
+        return list.ToArray();
+    }
+
+    public async Task<MarketPricePoint[]> GetDatedSeriesAsync(
+        string requestedTopic,
+        string? tickerOverride,
+        int outputSize,
+        CancellationToken cancellationToken)
+    {
+        if (!IsConfigured) return [];
+        var boundedSize = Math.Clamp(outputSize, 2, 180);
+
+        StockMatch? match = null;
+        if (!string.IsNullOrWhiteSpace(tickerOverride) && MarketTickerParser.TryParse(tickerOverride, out var parsedOverride) && parsedOverride is not null)
+        {
+            match = new StockMatch(parsedOverride.Symbol, "", parsedOverride.Exchange);
+        }
+        else
+        {
+            var topic = NormalizeDisplayText(requestedTopic, 80);
+            if (topic.Length == 0) return [];
+            try
+            {
+                match = await FindMatchAsync(topic, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                return [];
+            }
+        }
+
+        if (match is null) return [];
+
+        var cacheKey = $"market-dated-series:{match.Symbol}:{match.Exchange}:{boundedSize}".ToLowerInvariant();
+        if (cache.TryGetValue(cacheKey, out MarketPricePoint[]? cached) && cached is not null)
+            return cached;
+
+        try
+        {
+            var query = $"time_series?symbol={Uri.EscapeDataString(match.Symbol)}&interval=1day&outputsize={boundedSize}";
+            if (match.Exchange.Length > 0)
+                query += $"&exchange={Uri.EscapeDataString(match.Exchange)}";
+
+            using var document = await SendAsync(query, cancellationToken);
+            if (!document.RootElement.TryGetProperty("values", out var values)
+                || values.ValueKind != JsonValueKind.Array)
+            {
+                cache.Set(cacheKey, Array.Empty<MarketPricePoint>(), TimeSpan.FromMinutes(10));
+                return [];
+            }
+
+            var points = new List<MarketPricePoint>(boundedSize);
+            foreach (var row in values.EnumerateArray())
+            {
+                var close = ReadDecimal(row, "close");
+                var datetime = ReadString(row, "datetime");
+                if (close is > 0 && datetime.Length > 0)
+                    points.Add(new MarketPricePoint(datetime, close.Value));
+            }
+
+            // Twelve Data returns newest-first; reverse into chronological order (oldest -> latest)
+            points.Reverse();
+            var result = points.ToArray();
+            cache.Set(cacheKey, result, result.Length >= 2 ? TimeSpan.FromMinutes(30) : TimeSpan.FromMinutes(10));
+            return result;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            cache.Set(cacheKey, Array.Empty<MarketPricePoint>(), TimeSpan.FromMinutes(10));
+            return [];
+        }
     }
 
     private bool HasFastSymbolMatch(string topic, out bool matched)

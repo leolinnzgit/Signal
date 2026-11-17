@@ -36,6 +36,8 @@ import {
   type MarketQuote,
 } from "./market-quote";
 import { MarketSparkline } from "./MarketSparkline";
+import { enrichArticlesWithMarketQuotes, type ArticleMarketQuote } from "./stock-news-graph";
+const StockNewsGraphModal = lazy(() => import("./StockNewsGraphModal"));
 import { describeWeather, weatherBriefing, type ClientWeatherAlert, type ClientWeatherConditions, type LocalWeather, type WeatherForecastDay } from "./weather-briefing";
 import WeatherAlertBanner from "./WeatherAlertBanner";
 import ArticleEntities from "./ArticleEntities";
@@ -139,6 +141,7 @@ export type FollowedArticle = Article & {
   providers: string[];
   isBookmarked?: boolean;
   isRead?: boolean;
+  marketQuotes?: ArticleMarketQuote[];
 };
 
 type ExtractedReaderArticle = {
@@ -555,6 +558,7 @@ function areArticlesSnapshotEqual(a: readonly FollowedArticle[], b: readonly Fol
       || left.publishedAt !== right.publishedAt
       || left.providers.length !== right.providers.length
       || left.topics.length !== right.topics.length
+      || (left.marketQuotes?.length ?? 0) !== (right.marketQuotes?.length ?? 0)
     ) {
       return false;
     }
@@ -703,6 +707,7 @@ type StoryFeedItemProps = {
   onOpenShare: (article: FollowedArticle, trigger: HTMLButtonElement) => void;
   onCompareCluster: (cluster: StoryCluster) => void;
   onToggleBookmark: (article: FollowedArticle) => void;
+  onOpenStockGraph: (options: { symbol?: string; topic?: string; highlightUrl?: string }) => void;
 };
 
 const StoryFeedItem = memo(function StoryFeedItem({
@@ -723,6 +728,7 @@ const StoryFeedItem = memo(function StoryFeedItem({
   onOpenShare,
   onCompareCluster,
   onToggleBookmark,
+  onOpenStockGraph,
 }: StoryFeedItemProps) {
   return (
     <li>
@@ -746,6 +752,28 @@ const StoryFeedItem = memo(function StoryFeedItem({
                 ⭐ Watchlist
               </span>
             )}
+            {article.marketQuotes && article.marketQuotes.slice(0, 2).map((q) => {
+              const dir = q.percentChange > 0 ? "positive" : q.percentChange < 0 ? "negative" : "neutral";
+              return (
+                <button
+                  key={`${q.symbol}:${q.exchange}`}
+                  type="button"
+                  className={`story-market-quote-badge ${dir}`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onOpenStockGraph({
+                      symbol: q.exchange ? `${q.symbol}:${q.exchange}` : q.symbol,
+                      topic: q.topic || article.topics[0],
+                      highlightUrl: article.url,
+                    });
+                  }}
+                  title={`Stock price at story time: ${q.name || q.symbol} ${formatMarketPrice(q.price, q.currency)} (${q.percentChange > 0 ? "+" : ""}${q.percentChange.toFixed(2)}%) — View Price vs. News graph`}
+                >
+                  📈 {q.symbol} {formatMarketPrice(q.price, q.currency)} ({q.percentChange > 0 ? "+" : ""}{q.percentChange.toFixed(2)}%)
+                </button>
+              );
+            })}
             {cluster && cluster.articles.length > 1 && (
               <button
                 type="button"
@@ -974,6 +1002,7 @@ function mergeTopicBriefingArticles(
           isBookmarked: article.isBookmarked ?? existing.isBookmarked,
           isRead: article.isRead ?? existing.isRead,
           imageUrl: article.imageUrl || existing.imageUrl,
+          marketQuotes: article.marketQuotes?.length ? article.marketQuotes : existing.marketQuotes,
         }
       : article);
   });
@@ -1413,6 +1442,13 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [marketQuote, setMarketQuote] = useState<MarketQuote | null>(null);
   const [marketWatchlist, setMarketWatchlist] = useState<MarketQuote[]>([]);
   const [portfolioAlerts, setPortfolioAlerts] = useState<MarketPortfolioQuoteItem[]>([]);
+  const [stockGraphModal, setStockGraphModal] = useState<{ open: boolean; symbol?: string; topic?: string; highlightUrl?: string }>({ open: false });
+  const liveMarketQuotes = useMemo(
+    () => [...marketWatchlist, ...(marketQuote ? [marketQuote] : [])],
+    [marketWatchlist, marketQuote],
+  );
+  const latestLiveQuotesRef = useRef<MarketQuote[]>(liveMarketQuotes);
+  latestLiveQuotesRef.current = liveMarketQuotes;
   const [dailyBriefingCarMode, setDailyBriefingCarMode] = useState(false);
   const [marketNotice, setMarketNotice] = useState<MarketNotice | null>(null);
   const [tickerEditorOpen, setTickerEditorOpen] = useState(false);
@@ -2544,15 +2580,22 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
       let historyNotice = "";
       if (articleStore) {
         try {
-          const historyPage = await articleStore.sync(refreshedArticles);
+          const enrichedToSync = enrichArticlesWithMarketQuotes(refreshedArticles, latestLiveQuotesRef.current);
+          const historyPage = await articleStore.sync(enrichedToSync);
           const bookmarkedUrls = new Set(historyPage.bookmarkedUrls);
           const readUrls = new Set(historyPage.readUrls);
+          const syncedQuotesByUrl = new Map(
+            historyPage.articles
+              .filter((item) => Array.isArray(item.marketQuotes) && item.marketQuotes.length > 0)
+              .map((item) => [item.url, item.marketQuotes!]),
+          );
           setHistoryTotal(historyPage.historyTotal);
           setBookmarkTotal(historyPage.bookmarkTotal);
-          setArticles(refreshedArticles.map((article) => ({
+          setArticles(enrichedToSync.map((article) => ({
             ...article,
             isBookmarked: bookmarkedUrls.has(article.url),
             isRead: readUrls.has(article.url),
+            marketQuotes: syncedQuotesByUrl.get(article.url) ?? article.marketQuotes,
           })));
         } catch {
           historyNotice = "Stories refreshed, but article history could not be saved.";
@@ -2720,10 +2763,12 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   }, [loadNews, ready, refreshStore]);
 
   const viewedArticles = useMemo(
-    () => feedView === "latest"
-      ? articles
-      : historyArticles,
-    [articles, feedView, historyArticles],
+    () =>
+      enrichArticlesWithMarketQuotes(
+        feedView === "latest" ? articles : historyArticles,
+        liveMarketQuotes,
+      ),
+    [articles, feedView, historyArticles, liveMarketQuotes],
   );
 
   const unreadHeadlineQueue = useMemo(
@@ -2922,6 +2967,17 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const handleEditSecondaryTimeZone = useCallback(() => {
     storyActionsRef.current.openSecondaryTimeZoneEditor();
   }, []);
+  const handleOpenStockGraph = useCallback(
+    (options: { symbol?: string; topic?: string; highlightUrl?: string }) => {
+      setStockGraphModal({
+        open: true,
+        symbol: options.symbol,
+        topic: options.topic,
+        highlightUrl: options.highlightUrl,
+      });
+    },
+    [],
+  );
 
   const topicCounts = useMemo(
     () => feedView === "latest"
@@ -5724,6 +5780,19 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                   ))}
               </span>
             )}
+            <button
+              type="button"
+              className="dashboard-watchlist-graph-btn"
+              onClick={() => handleOpenStockGraph({
+                symbol: marketWatchlist[0]?.exchange
+                  ? `${marketWatchlist[0].symbol}:${marketWatchlist[0].exchange}`
+                  : marketWatchlist[0]?.symbol,
+                topic: marketWatchlist[0]?.topic,
+              })}
+              title="Open Stock Price vs. News timeline graph"
+            >
+              📊 Price vs. News
+            </button>
           </section>
         )}
 
@@ -5764,6 +5833,19 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
               <span aria-hidden="true"> · </span>{marketQuote.provider}
               <span aria-hidden="true"> · </span>For information only
             </p>
+            <div className="market-snapshot-actions">
+              <button
+                type="button"
+                className="market-snapshot-graph-btn"
+                onClick={() => handleOpenStockGraph({
+                  symbol: marketQuote.exchange ? `${marketQuote.symbol}:${marketQuote.exchange}` : marketQuote.symbol,
+                  topic: marketQuote.topic || selectedTopic,
+                })}
+                title={`View ${marketQuote.symbol} stock price vs. news graph`}
+              >
+                📊 Price vs. News
+              </button>
+            </div>
           </section>
         )}
         {marketNotice && marketNotice.topic.toLowerCase() === selectedTopic.toLowerCase() && (
@@ -6127,6 +6209,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                   onOpenShare={handleOpenStoryShare}
                   onCompareCluster={handleCompareCluster}
                   onToggleBookmark={handleToggleStoryBookmark}
+                  onOpenStockGraph={handleOpenStockGraph}
                 />
               ))}
             </ol>
@@ -6538,6 +6621,24 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
               <div className="article-reader-meta">
                 <span>{readerArticle.source}</span>
                 {readerArticle.publishedAt && <span>{formatAge(readerArticle.publishedAt)}</span>}
+                {readerArticle.marketQuotes && readerArticle.marketQuotes.slice(0, 2).map((q) => {
+                  const dir = q.percentChange > 0 ? "positive" : q.percentChange < 0 ? "negative" : "neutral";
+                  return (
+                    <button
+                      key={`${q.symbol}:${q.exchange}`}
+                      type="button"
+                      className={`story-market-quote-badge ${dir}`}
+                      onClick={() => handleOpenStockGraph({
+                        symbol: q.exchange ? `${q.symbol}:${q.exchange}` : q.symbol,
+                        topic: q.topic || readerArticle.topics[0],
+                        highlightUrl: readerArticle.url,
+                      })}
+                      title={`Stock price recorded for story: ${q.name || q.symbol} ${formatMarketPrice(q.price, q.currency)}`}
+                    >
+                      📈 {q.symbol} {formatMarketPrice(q.price, q.currency)} ({q.percentChange > 0 ? "+" : ""}{q.percentChange.toFixed(2)}%)
+                    </button>
+                  );
+                })}
               </div>
               <h2 id="article-reader-title" lang={readerTranslation?.language} dir="auto"><ArticleReadingText text={readerTranslation?.title ?? readerArticle.title} paragraphIndex={-1} section={readerReading.section} /></h2>
               <p>
@@ -7163,6 +7264,50 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
               isOpen={productWatchOpen}
               onClose={() => setProductWatchOpen(false)}
               onWatchCountChange={setProductWatchCount}
+            />
+          </Suspense>
+        </ErrorBoundary>
+      )}
+      {stockGraphModal.open && (
+        <ErrorBoundary name="Stock Price vs. News">
+          <Suspense fallback={null}>
+            <StockNewsGraphModal
+              isOpen={stockGraphModal.open}
+              onClose={() => setStockGraphModal({ open: false })}
+              initialSymbol={stockGraphModal.symbol}
+              initialTopic={stockGraphModal.topic}
+              initialHighlightUrl={stockGraphModal.highlightUrl}
+              articles={enrichArticlesWithMarketQuotes(
+                [
+                  ...articles,
+                  ...historyArticles.filter((h) => !articles.some((a) => a.url === h.url)),
+                ],
+                liveMarketQuotes,
+              )}
+              liveQuotes={liveMarketQuotes}
+              onOpenArticle={(url) => {
+                const matched =
+                  articles.find((a) => a.url === url) ??
+                  historyArticles.find((a) => a.url === url);
+                if (matched) {
+                  openArticleReader(matched, readerCloseButton.current ?? document.body);
+                } else {
+                  openArticleReader(
+                    {
+                      url,
+                      title: url,
+                      source: "Signal Archive",
+                      publishedAt: "",
+                      summary: "",
+                      topics: stockGraphModal.topic ? [stockGraphModal.topic] : [],
+                      providers: [],
+                    },
+                    readerCloseButton.current ?? document.body,
+                    false,
+                    true,
+                  );
+                }
+              }}
             />
           </Suspense>
         </ErrorBoundary>

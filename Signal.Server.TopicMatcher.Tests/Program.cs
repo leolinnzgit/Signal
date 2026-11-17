@@ -504,6 +504,14 @@ await using (var scheduleDatabase = new SignalDbContext(scheduleOptions))
     var newTopicStored = await refreshService.StoreArticlesAsync("schedule-user", [storedArticle with { Topics = ["Robots", "Solar", "Energy"] }], DateTime.UtcNow, CancellationToken.None);
     if (newTopicStored.NewArticles.Count != 0 || !newTopicStored.TopicKeys.SetEquals(["ENERGY"]))
         throw new InvalidOperationException("Adding a topic to an existing story repeated its headline notification.");
+
+    var snapshotQuote = new ArticleMarketQuote("Robots", "RBT", "Robots Inc", "NASDAQ", "USD", 42.5m, 1.5m, 3.66m, "2026-11-17 12:00:00", true, DateTime.UtcNow);
+    await refreshService.StoreArticlesAsync("schedule-user", [storedArticle with { MarketQuotes = [snapshotQuote] }], DateTime.UtcNow, CancellationToken.None);
+    await refreshService.StoreArticlesAsync("schedule-user", [storedArticle with { MarketQuotes = [snapshotQuote with { Price = 99.0m, Exchange = "" }] }], DateTime.UtcNow, CancellationToken.None);
+    var snapshotRow = await scheduleDatabase.StoredNewsArticles.AsNoTracking().SingleAsync(item => item.Url == storedArticle.Url);
+    var persistedQuotes = MarketDataService.DeserializeMarketQuotes(snapshotRow.MarketQuotesJson);
+    if (persistedQuotes.Length != 1 || persistedQuotes[0].Price != 42.5m)
+        throw new InvalidOperationException("TopicRefreshService did not preserve the original first-seen market quote snapshot.");
     await refreshService.RefreshAsync("schedule-user", ["Robots"], false, CancellationToken.None);
 
     var robotState = await scheduleDatabase.TopicRefreshStates.SingleAsync(
