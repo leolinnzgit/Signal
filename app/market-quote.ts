@@ -1,6 +1,14 @@
 import { topicMatchesText } from "./api/news/topic-matching.ts";
 
-export type MarketQuote = {
+export type ExtendedMarketQuoteFields = {
+  extendedPrice?: number | null;
+  extendedChange?: number | null;
+  extendedPercentChange?: number | null;
+  extendedQuoteTime?: string | null;
+  extendedSession?: "after-hours" | "pre-market" | string | null;
+};
+
+export type MarketQuote = ExtendedMarketQuoteFields & {
   topic: string;
   symbol: string;
   name: string;
@@ -14,6 +22,27 @@ export type MarketQuote = {
   provider: string;
   sparkline?: number[];
 };
+
+export function hasExtendedMarketQuote<T extends ExtendedMarketQuoteFields>(
+  quote: T | null | undefined,
+): quote is T & { extendedPrice: number } {
+  return Boolean(
+    quote &&
+      typeof quote.extendedPrice === "number" &&
+      Number.isFinite(quote.extendedPrice) &&
+      quote.extendedPrice > 0,
+  );
+}
+
+export function getExtendedMarketSessionLabel(
+  session?: string | null,
+  style: "short" | "full" = "short",
+): string {
+  if (session && session.trim().toLowerCase() === "pre-market") {
+    return "Pre-market";
+  }
+  return style === "full" ? "After hours · Post-market" : "After hours";
+}
 
 export type SparklineGeometry = {
   linePath: string;

@@ -37,7 +37,12 @@ public sealed record MarketQuote(
     string QuoteTime,
     bool? IsMarketOpen,
     string Provider,
-    decimal[]? Sparkline = null);
+    decimal[]? Sparkline = null,
+    decimal? ExtendedPrice = null,
+    decimal? ExtendedChange = null,
+    decimal? ExtendedPercentChange = null,
+    string? ExtendedQuoteTime = null,
+    string? ExtendedSession = null);
 
 public sealed record MarketWatchlistTopicInput(string Topic, string? Symbol = null);
 
@@ -322,7 +327,16 @@ public sealed class MarketDataService(
             quote.PercentChange,
             NormalizeDisplayText(quote.QuoteTime, 64),
             quote.IsMarketOpen,
-            recordedAtUtc);
+            recordedAtUtc,
+            quote.ExtendedPrice is > 0 ? quote.ExtendedPrice : null,
+            quote.ExtendedPrice is > 0 ? quote.ExtendedChange : null,
+            quote.ExtendedPrice is > 0 ? quote.ExtendedPercentChange : null,
+            quote.ExtendedPrice is > 0 && !string.IsNullOrWhiteSpace(quote.ExtendedQuoteTime)
+                ? NormalizeDisplayText(quote.ExtendedQuoteTime, 64)
+                : null,
+            quote.ExtendedPrice is > 0 && !string.IsNullOrWhiteSpace(quote.ExtendedSession)
+                ? NormalizeDisplayText(quote.ExtendedSession, 24)
+                : null);
 
     public static ArticleMarketQuote[] DeserializeMarketQuotes(string? json)
     {
@@ -361,6 +375,7 @@ public sealed class MarketDataService(
         {
             if (merged.Count >= 6) break;
             if (raw is null || string.IsNullOrWhiteSpace(raw.Symbol) || raw.Price <= 0) continue;
+            var hasExtended = raw.ExtendedPrice is > 0;
             var normalized = raw with
             {
                 Topic = NormalizeDisplayText(raw.Topic, 80),
@@ -370,6 +385,15 @@ public sealed class MarketDataService(
                 Currency = (raw.Currency ?? "").Trim().ToUpperInvariant(),
                 QuoteTime = NormalizeDisplayText(raw.QuoteTime, 64),
                 RecordedAtUtc = raw.RecordedAtUtc == default ? DateTime.UtcNow : raw.RecordedAtUtc,
+                ExtendedPrice = hasExtended ? raw.ExtendedPrice : null,
+                ExtendedChange = hasExtended ? raw.ExtendedChange : null,
+                ExtendedPercentChange = hasExtended ? raw.ExtendedPercentChange : null,
+                ExtendedQuoteTime = hasExtended && !string.IsNullOrWhiteSpace(raw.ExtendedQuoteTime)
+                    ? NormalizeDisplayText(raw.ExtendedQuoteTime, 64)
+                    : null,
+                ExtendedSession = hasExtended && !string.IsNullOrWhiteSpace(raw.ExtendedSession)
+                    ? NormalizeDisplayText(raw.ExtendedSession, 24)
+                    : null,
             };
             if (!merged.Any(m => IsSameStockQuote(m, normalized)))
                 merged.Add(normalized);
@@ -968,14 +992,76 @@ public sealed class MarketDataService(
         StockMatch match,
         CancellationToken cancellationToken)
     {
-        var query = $"quote?symbol={Uri.EscapeDataString(match.Symbol)}";
+        var baseQuery = $"quote?symbol={Uri.EscapeDataString(match.Symbol)}";
         if (match.Exchange.Length > 0)
-            query += $"&exchange={Uri.EscapeDataString(match.Exchange)}";
+            baseQuery += $"&exchange={Uri.EscapeDataString(match.Exchange)}";
 
-        using var document = await SendAsync(query, cancellationToken);
+        JsonDocument document;
+        try
+        {
+            document = await SendAsync($"{baseQuery}&prepost=true", cancellationToken);
+        }
+        catch (InvalidOperationException exception) when (IsExtendedHoursUnsupported(exception))
+        {
+            document = await SendAsync(baseQuery, cancellationToken);
+        }
+
+        using var _ = document;
         var root = document.RootElement;
         var price = ReadDecimal(root, "close");
         if (price is null) throw new InvalidOperationException("The latest quote did not include a price.");
+
+        var isMarketOpen = ReadBoolean(root, "is_market_open");
+        var lastQuoteAt = ReadInt64(root, "last_quote_at");
+        var extendedPriceRaw = ReadDecimal(root, "extended_price");
+        var extendedTimestamp = ReadInt64(root, "extended_timestamp");
+        var extendedDatetime = ReadString(root, "extended_datetime");
+
+        decimal? extendedPrice = null;
+        decimal? extendedChange = null;
+        decimal? extendedPercentChange = null;
+        string? extendedQuoteTime = null;
+        string? extendedSession = null;
+
+        var isStalePreMarketDuringOpenSession = isMarketOpen == true
+            && lastQuoteAt.HasValue
+            && extendedTimestamp.HasValue
+            && extendedTimestamp.Value < lastQuoteAt.Value;
+
+        if (extendedPriceRaw is > 0 && !isStalePreMarketDuringOpenSession)
+        {
+            extendedPrice = extendedPriceRaw.Value;
+            extendedChange = ReadDecimal(root, "extended_change")
+                ?? Math.Round(extendedPrice.Value - price.Value, 4);
+            extendedPercentChange = ReadDecimal(root, "extended_percent_change")
+                ?? (price.Value > 0 ? Math.Round(extendedChange.Value / price.Value * 100m, 2) : 0m);
+
+            if (extendedTimestamp is > 0)
+            {
+                var etZone = ResolveExchangeTimeZone("America/New_York");
+                var etTime = TimeZoneInfo.ConvertTime(
+                    DateTimeOffset.FromUnixTimeSeconds(extendedTimestamp.Value),
+                    etZone);
+                extendedQuoteTime = !string.IsNullOrWhiteSpace(extendedDatetime)
+                    ? NormalizeDisplayText(extendedDatetime, 64)
+                    : etTime.ToString("yyyy-MM-dd HH:mm 'ET'", CultureInfo.InvariantCulture);
+                extendedSession = IsPreMarketLocalTime(etTime.Hour, etTime.Minute)
+                    ? "pre-market"
+                    : "after-hours";
+            }
+            else if (!string.IsNullOrWhiteSpace(extendedDatetime))
+            {
+                extendedQuoteTime = NormalizeDisplayText(extendedDatetime, 64);
+                extendedSession = DateTime.TryParse(extendedDatetime, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedEt)
+                    && IsPreMarketLocalTime(parsedEt.Hour, parsedEt.Minute)
+                    ? "pre-market"
+                    : "after-hours";
+            }
+            else
+            {
+                extendedSession = "after-hours";
+            }
+        }
 
         return new MarketQuote(
             topic,
@@ -987,8 +1073,13 @@ public sealed class MarketDataService(
             ReadDecimal(root, "change") ?? 0,
             ReadDecimal(root, "percent_change") ?? 0,
             ReadString(root, "datetime"),
-            ReadBoolean(root, "is_market_open"),
-            "Twelve Data");
+            isMarketOpen,
+            "Twelve Data",
+            ExtendedPrice: extendedPrice,
+            ExtendedChange: extendedChange,
+            ExtendedPercentChange: extendedPercentChange,
+            ExtendedQuoteTime: extendedQuoteTime,
+            ExtendedSession: extendedSession);
     }
 
     private async Task<decimal[]?> TryGetSparklineAsync(
@@ -1083,6 +1174,15 @@ public sealed class MarketDataService(
         exception.Message.Contains("available starting with", StringComparison.OrdinalIgnoreCase)
         && exception.Message.Contains("plan", StringComparison.OrdinalIgnoreCase);
 
+    private static bool IsExtendedHoursUnsupported(InvalidOperationException exception) =>
+        exception.Message.Contains("Pre/post", StringComparison.OrdinalIgnoreCase)
+        || exception.Message.Contains("Pre-market", StringComparison.OrdinalIgnoreCase)
+        || exception.Message.Contains("extended hours", StringComparison.OrdinalIgnoreCase)
+        || exception.Message.Contains("prepost", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsPreMarketLocalTime(int hour, int minute) =>
+        hour >= 4 && (hour < 9 || (hour == 9 && minute < 30));
+
     private static string NormalizeForMatch(string value)
     {
         var wordsToDrop = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -1116,6 +1216,12 @@ public sealed class MarketDataService(
     private static decimal? ReadDecimal(JsonElement element, string property) =>
         element.TryGetProperty(property, out var value)
         && decimal.TryParse(value.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : null;
+
+    private static long? ReadInt64(JsonElement element, string property) =>
+        element.TryGetProperty(property, out var value)
+        && long.TryParse(value.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
             ? parsed
             : null;
 

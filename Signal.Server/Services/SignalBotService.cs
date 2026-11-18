@@ -567,11 +567,25 @@ public sealed class SignalBotService(
         if (marketQuote is not null)
         {
             var sign = marketQuote.Change >= 0 ? "+" : "";
+            var extendedSuffix = "";
+            if (marketQuote.ExtendedPrice is > 0)
+            {
+                var sessionLabel = string.Equals(marketQuote.ExtendedSession, "pre-market", StringComparison.OrdinalIgnoreCase)
+                    ? "Pre-market"
+                    : "After-hours";
+                var extChange = marketQuote.ExtendedChange ?? 0m;
+                var extPercent = marketQuote.ExtendedPercentChange ?? 0m;
+                var extSign = extChange >= 0 ? "+" : "";
+                var extTimeSuffix = string.IsNullOrWhiteSpace(marketQuote.ExtendedQuoteTime)
+                    ? ""
+                    : $" as of {marketQuote.ExtendedQuoteTime}";
+                extendedSuffix = $" | {sessionLabel}: {marketQuote.Currency} {marketQuote.ExtendedPrice.Value:F2} ({extSign}{extChange:F2}, {extSign}{extPercent:F2}%){extTimeSuffix}";
+            }
             evidence.AppendLine("Market Snapshot:");
             evidence.AppendLine(
                 $"- {marketQuote.Name} ({marketQuote.Symbol}" +
                 $"{(string.IsNullOrWhiteSpace(marketQuote.Exchange) ? "" : $":{marketQuote.Exchange}")}): " +
-                $"{marketQuote.Currency} {marketQuote.Price:F2} ({sign}{marketQuote.Change:F2}, {sign}{marketQuote.PercentChange:F2}%) as of {marketQuote.QuoteTime}");
+                $"{marketQuote.Currency} {marketQuote.Price:F2} ({sign}{marketQuote.Change:F2}, {sign}{marketQuote.PercentChange:F2}%) as of {marketQuote.QuoteTime}{extendedSuffix}");
             evidence.AppendLine();
         }
 

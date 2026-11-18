@@ -201,7 +201,7 @@ if (airNewZealandQuote?.Symbol != "AIR"
     || airNewZealandQuote.Exchange != "NZX"
     || airNewZealandQuote.Currency != "NZD"
     || marketHandler.LastRequestUri?.Query.Contains("symbol=AIR", StringComparison.Ordinal) != true
-    || marketHandler.LastRequestUri.Query.Contains("exchange=NZX", StringComparison.Ordinal) != true)
+    || marketHandler.LastRequestUri.Query.Contains("exchange=NZX", StringComparison.Ordinal) != true || marketHandler.LastRequestUri.Query.Contains("prepost=true", StringComparison.Ordinal) != true)
     throw new InvalidOperationException("Air New Zealand did not request and return an NZX quote.");
 
 Console.WriteLine("Market data service passed the NZX quote request check.");

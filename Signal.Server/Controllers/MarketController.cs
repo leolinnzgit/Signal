@@ -339,7 +339,12 @@ public sealed class MarketController(
         string Topic,
         int ArticleCount,
         decimal LatestPrice,
-        decimal LatestPercentChange);
+        decimal LatestPercentChange,
+        decimal? ExtendedPrice = null,
+        decimal? ExtendedChange = null,
+        decimal? ExtendedPercentChange = null,
+        string? ExtendedQuoteTime = null,
+        string? ExtendedSession = null);
 
     public sealed record StockNewsChartEvent(
         string Title,
@@ -357,7 +362,12 @@ public sealed class MarketController(
         string QuoteTime,
         bool? IsMarketOpen,
         bool IsRecordedSnapshot,
-        string[] Topics);
+        string[] Topics,
+        decimal? ExtendedPrice = null,
+        decimal? ExtendedChange = null,
+        decimal? ExtendedPercentChange = null,
+        string? ExtendedQuoteTime = null,
+        string? ExtendedSession = null);
 
     public sealed record StockNewsPricePoint(
         string Timestamp,
@@ -437,7 +447,12 @@ public sealed class MarketController(
                         q.Topic,
                         0,
                         q.Price,
-                        q.PercentChange);
+                        q.PercentChange,
+                        q.ExtendedPrice,
+                        q.ExtendedChange,
+                        q.ExtendedPercentChange,
+                        q.ExtendedQuoteTime,
+                        q.ExtendedSession);
                 }
             }
         }
@@ -594,7 +609,12 @@ public sealed class MarketController(
                     effective.QuoteTime,
                     effective.IsMarketOpen,
                     IsRecordedSnapshot: true,
-                    article.Topics));
+                    article.Topics,
+                    effective.ExtendedPrice,
+                    effective.ExtendedChange,
+                    effective.ExtendedPercentChange,
+                    effective.ExtendedQuoteTime,
+                    effective.ExtendedSession));
                 continue;
             }
 
@@ -629,7 +649,12 @@ public sealed class MarketController(
                 alignedQuote?.QuoteTime ?? "",
                 alignedQuote?.IsMarketOpen,
                 IsRecordedSnapshot: false,
-                article.Topics));
+                article.Topics,
+                alignedQuote?.ExtendedPrice,
+                alignedQuote?.ExtendedChange,
+                alignedQuote?.ExtendedPercentChange,
+                alignedQuote?.ExtendedQuoteTime,
+                alignedQuote?.ExtendedSession));
         }
 
         var pricePoints = new List<(DateTimeOffset Utc, int Priority, StockNewsPricePoint Point)>();
@@ -652,6 +677,50 @@ public sealed class MarketController(
             .ThenBy(item => item.Priority)
             .Select(item => item.Point)
             .ToArray();
+
+        if (liveQuote is not null && liveQuote.Price > 0 && activeSymbol.Length > 0)
+        {
+            var existingIdx = Array.FindIndex(
+                availableSeries,
+                s => string.Equals(s.Symbol, activeSymbol, StringComparison.OrdinalIgnoreCase));
+            if (existingIdx >= 0)
+            {
+                availableSeries[existingIdx] = availableSeries[existingIdx] with
+                {
+                    Name = liveQuote.Name.Length > 0 ? liveQuote.Name : availableSeries[existingIdx].Name,
+                    Exchange = liveQuote.Exchange.Length > 0 ? liveQuote.Exchange : availableSeries[existingIdx].Exchange,
+                    Currency = liveQuote.Currency.Length > 0 ? liveQuote.Currency : availableSeries[existingIdx].Currency,
+                    LatestPrice = liveQuote.Price,
+                    LatestPercentChange = liveQuote.PercentChange,
+                    ExtendedPrice = liveQuote.ExtendedPrice,
+                    ExtendedChange = liveQuote.ExtendedChange,
+                    ExtendedPercentChange = liveQuote.ExtendedPercentChange,
+                    ExtendedQuoteTime = liveQuote.ExtendedQuoteTime,
+                    ExtendedSession = liveQuote.ExtendedSession,
+                };
+            }
+            else
+            {
+                availableSeries =
+                [
+                    ..availableSeries,
+                    new StockNewsSeriesSummary(
+                        activeSymbol,
+                        activeName,
+                        activeExchange,
+                        activeCurrency,
+                        activeTopic,
+                        events.Count,
+                        liveQuote.Price,
+                        liveQuote.PercentChange,
+                        liveQuote.ExtendedPrice,
+                        liveQuote.ExtendedChange,
+                        liveQuote.ExtendedPercentChange,
+                        liveQuote.ExtendedQuoteTime,
+                        liveQuote.ExtendedSession),
+                ];
+            }
+        }
 
         return Ok(new StockNewsGraphResponse(
             marketData.IsConfigured,
@@ -716,7 +785,12 @@ public sealed class MarketController(
                 value.LatestQuote.Topic,
                 value.Count,
                 value.LatestQuote.Price,
-                value.LatestQuote.PercentChange);
+                value.LatestQuote.PercentChange,
+                value.LatestQuote.ExtendedPrice,
+                value.LatestQuote.ExtendedChange,
+                value.LatestQuote.ExtendedPercentChange,
+                value.LatestQuote.ExtendedQuoteTime,
+                value.LatestQuote.ExtendedSession);
         }
         return result;
     }

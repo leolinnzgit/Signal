@@ -91,8 +91,11 @@ internal static class MarketEndpointChecks
             using var quoteResponse = await client.GetAsync("/api/market?topic=nvidia&sparkline=true");
             Check(quoteResponse.IsSuccessStatusCode, "MVC must activate the market controller for topic quotes.");
             var quote = await quoteResponse.Content.ReadFromJsonAsync<JsonElement>();
-            Check(quote.GetProperty("matched").GetBoolean() && quote.GetProperty("quote").GetProperty("symbol").GetString() == "NVDA",
-                "Topic lookup must return the matching quote.");
+            Check(quote.GetProperty("matched").GetBoolean()
+                && quote.GetProperty("quote").GetProperty("symbol").GetString() == "NVDA"
+                && quote.GetProperty("quote").GetProperty("extendedPrice").GetDecimal() == 194.25m
+                && quote.GetProperty("quote").GetProperty("extendedSession").GetString() == "after-hours",
+                "Topic lookup must return the matching quote including extended-hours pricing.");
             foreach (var topic in new[] { "usa", "vegetarian" })
             {
                 var unmatched = await client.GetFromJsonAsync<JsonElement>("/api/market?topic=" + topic);
@@ -117,6 +120,7 @@ internal static class MarketEndpointChecks
             Check(savedPortfolio.GetProperty("items").GetArrayLength() == 1 && savedPortfolio.GetProperty("hasAlerts").GetBoolean(),
                 "Saved portfolio and price alerts must remain functional.");
             await CheckStockNewsRecordingAndGraphAsync(client);
+            await CheckExtendedHoursParsingAsync();
             await CheckDesktopRequestsAsync(client);
         }
         finally { await app.StopAsync(); }
@@ -212,6 +216,8 @@ internal static class MarketEndpointChecks
         var graph = await client.GetFromJsonAsync<JsonElement>("/api/market/news-graph?topic=NVIDIA&days=30");
         Check(graph.GetProperty("activeSymbol").GetString() == "NVDA", "News graph must resolve active NVDA series.");
         Check(graph.GetProperty("availableSeries").GetArrayLength() >= 1, "News graph must list NVDA in availableSeries.");
+        Check(graph.GetProperty("availableSeries")[0].GetProperty("extendedPrice").GetDecimal() == 194.25m,
+            "News graph series summary must propagate live extended-hours price.");
         var graphEvents = graph.GetProperty("events");
         Check(graphEvents.GetArrayLength() == 2, "News graph must include both recorded NVIDIA stories.");
         Check(graphEvents[0].GetProperty("url").GetString() == "https://example.com/nvda-story-1",
@@ -234,6 +240,37 @@ internal static class MarketEndpointChecks
         var qNov16 = MarketDataService.FindHistoricalQuoteAt(new DateTime(2026, 11, 16, 22, 0, 0, DateTimeKind.Utc), null, bars, "NVIDIA", "NVDA", "NVIDIA", "NASDAQ", "USD");
         Check(qNov15?.Price == 189m && qNov16?.Price == 156.14m,
             "FindHistoricalQuoteAt must assign each story its own historic bar price rather than a single flat price.");
+    }
+
+    private static async Task CheckExtendedHoursParsingAsync()
+    {
+        var handler = new ExtendedHoursHandler();
+        using var http = new HttpClient(handler) { BaseAddress = new("https://api.twelvedata.com/") };
+        using var cache = new Microsoft.Extensions.Caching.Memory.MemoryCache(
+            new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions());
+        var service = new MarketDataService(
+            http,
+            cache,
+            Microsoft.Extensions.Options.Options.Create(new MarketDataOptions { ApiKey = "test-only" }));
+
+        var afterHours = await service.GetForTopicAsync("NVIDIA", null, CancellationToken.None);
+        Check(afterHours?.ExtendedPrice == 162.8m
+            && afterHours.ExtendedSession == "after-hours"
+            && afterHours.ExtendedPercentChange == 4.72147m
+            && !string.IsNullOrWhiteSpace(afterHours.ExtendedQuoteTime),
+            "MarketDataService must parse after-hours pricing, session and timestamp.");
+
+        var preMarket = await service.GetForTopicAsync("Apple", null, CancellationToken.None);
+        Check(preMarket?.ExtendedPrice == 355.0m && preMarket.ExtendedSession == "pre-market",
+            "MarketDataService must classify morning pre-market quotes.");
+
+        var openMarket = await service.GetForTopicAsync("Microsoft", null, CancellationToken.None);
+        Check(openMarket?.ExtendedPrice is null,
+            "MarketDataService must suppress stale pre-market quotes while regular market hours are open.");
+
+        var fallback = await service.GetForTopicAsync("Amazon", null, CancellationToken.None);
+        Check(fallback?.Price == 210.5m && fallback.ExtendedPrice is null && handler.AmazonRequests == 2,
+            "MarketDataService must fall back cleanly without prepost=true when pre/post is unavailable.");
     }
 
     private static async Task CheckDesktopRequestsAsync(HttpClient client)
@@ -294,8 +331,69 @@ internal static class MarketEndpointChecks
             var path = request.RequestUri!.AbsolutePath;
             var json = path.EndsWith("symbol_search") ? "{\"data\":[]}" : path.EndsWith("time_series")
                 ? "{\"values\":[{\"datetime\":\"2026-11-16\",\"close\":\"190\"},{\"datetime\":\"2026-11-15\",\"close\":\"189\"}]}"
-                : "{\"symbol\":\"NVDA\",\"name\":\"NVIDIA\",\"close\":\"190\",\"percent_change\":\"2\"}";
+                : "{\"symbol\":\"NVDA\",\"name\":\"NVIDIA\",\"close\":\"190\",\"percent_change\":\"2\",\"is_market_open\":false,\"extended_price\":\"194.25\",\"extended_change\":\"4.25\",\"extended_percent_change\":\"2.24\",\"extended_timestamp\":1794963540}";
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") });
+        }
+    }
+
+    private sealed class ExtendedHoursHandler : HttpMessageHandler
+    {
+        public int AmazonRequests;
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var query = request.RequestUri!.Query;
+            if (query.Contains("symbol=AMZN", StringComparison.Ordinal))
+            {
+                AmazonRequests++;
+                if (query.Contains("prepost=true", StringComparison.Ordinal))
+                {
+                    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Forbidden)
+                    {
+                        Content = new StringContent(
+                            "{\"code\":403,\"message\":\"Pre-market and post-market data are available on the Pro plan.\",\"status\":\"error\"}",
+                            Encoding.UTF8,
+                            "application/json"),
+                    });
+                }
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        "{\"symbol\":\"AMZN\",\"name\":\"Amazon\",\"close\":\"210.5\",\"percent_change\":\"1.2\",\"is_market_open\":false}",
+                        Encoding.UTF8,
+                        "application/json"),
+                });
+            }
+
+            if (query.Contains("symbol=AAPL", StringComparison.Ordinal))
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        "{\"symbol\":\"AAPL\",\"name\":\"Apple\",\"close\":\"351.9\",\"percent_change\":\"-0.25\",\"is_market_open\":false,\"extended_price\":\"355.0\",\"extended_change\":\"3.1\",\"extended_percent_change\":\"0.88\",\"extended_timestamp\":1794918600}",
+                        Encoding.UTF8,
+                        "application/json"),
+                });
+            }
+
+            if (query.Contains("symbol=MSFT", StringComparison.Ordinal))
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        "{\"symbol\":\"MSFT\",\"name\":\"Microsoft\",\"close\":\"520.0\",\"percent_change\":\"0.5\",\"is_market_open\":true,\"last_quote_at\":1794931200,\"extended_price\":\"518.0\",\"extended_timestamp\":1794918600}",
+                        Encoding.UTF8,
+                        "application/json"),
+                });
+            }
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"symbol\":\"NVDA\",\"name\":\"NVIDIA\",\"close\":\"155.46\",\"percent_change\":\"-0.44\",\"is_market_open\":false,\"last_quote_at\":1794949140,\"extended_price\":\"162.8\",\"extended_change\":\"7.34\",\"extended_percent_change\":\"4.72147\",\"extended_timestamp\":1794963540}",
+                    Encoding.UTF8,
+                    "application/json"),
+            });
         }
     }
 }

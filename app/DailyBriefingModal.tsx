@@ -61,7 +61,7 @@ import type {
   ClientWeatherAlert,
   ClientWeatherConditions,
 } from "./weather-briefing";
-import type { MarketQuote, MarketPortfolioQuoteItem } from "./market-quote";
+import { getExtendedMarketSessionLabel, type MarketQuote, type MarketPortfolioQuoteItem } from "./market-quote";
 import type { EntityPulseSummary } from "./entity-pulse";
 import { useSpokenBriefing } from "./useSpokenBriefing";
 import CarModePlayer from "./CarModePlayer";
@@ -1842,6 +1842,16 @@ export default function DailyBriefingModal({
                 <p className="glance-subtext">
                   <span>{briefing.marketGlance.name}</span>
                   <span> &bull; {briefing.marketGlance.formattedPrice}</span>
+                  {briefing.marketGlance.extendedFormattedPrice && (
+                    <span className="glance-market-extended">
+                      {" "}
+                      &bull; {getExtendedMarketSessionLabel(briefing.marketGlance.extendedSession, "short")}{" "}
+                      {briefing.marketGlance.extendedFormattedPrice}
+                      {typeof briefing.marketGlance.extendedPercentChange === "number" && (
+                        <> ({briefing.marketGlance.extendedPercentChange > 0 ? "+" : ""}{briefing.marketGlance.extendedPercentChange.toFixed(2)}%)</>
+                      )}
+                    </span>
+                  )}
                 </p>
 
                 {briefing.marketGlance.catalystTitle && briefing.marketGlance.catalystUrl && (

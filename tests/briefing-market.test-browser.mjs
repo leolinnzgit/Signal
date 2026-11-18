@@ -20,7 +20,16 @@ const server = await createServer({ configFile: false, root: process.cwd(), cach
   server: { host: "127.0.0.1", port: 3016, strictPort: true, watch: { ignored: ["**/work/**", "**/Signal.Server/**", "**/Signal.Server.TopicMatcher.Tests/**", "**/iis-publish/**"] } } });
 
 const quotes = {
-  nvidia: { symbol: "NVDA", name: "NVIDIA Corporation", price: 189.32 },
+  nvidia: {
+    symbol: "NVDA",
+    name: "NVIDIA Corporation",
+    price: 189.32,
+    extendedPrice: 195.4,
+    extendedChange: 6.08,
+    extendedPercentChange: 3.21,
+    extendedQuoteTime: "2026-10-16 19:55 ET",
+    extendedSession: "after-hours",
+  },
   microsoft: { symbol: "MSFT", name: "Microsoft Corporation", price: 522.48 },
   apple: { symbol: "AAPL", name: "Apple Inc.", price: 245.67 },
 };
@@ -78,6 +87,7 @@ try {
       const market = dialog.locator(".briefing-market-price");
       await page.waitForFunction(() => document.querySelector(".briefing-market-price")?.textContent.includes("189.32"));
       assert.match(await market.innerText(), /NVDA[\s\S]*USD[\s\S]*-1\.21%/);
+      assert.match(await market.innerText(), /After hours[\s\S]*195\.40[\s\S]*\+3\.21%/i);
       assert.ok(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth), "Fits the viewport");
       if (scenario === "override" || scenario === "dashboard") assert.ok(requests.some(request => request.topic === "nvidia" && request.symbol === (scenario === "dashboard" ? "NVDA" : "NVDA:NASDAQ")), "Uses the saved ticker, including from All topics");
       const advance = async index => {
@@ -101,6 +111,10 @@ try {
         await advance(2);
         if (scenario === "stale") releaseMicrosoft();
         await page.waitForFunction(() => !document.querySelector(".briefing-market-price"));
+        const scienceDeadline = Date.now() + 5000;
+        while (!requests.some(request => request.topic === "science") && Date.now() < scienceDeadline) {
+          await new Promise(resolve => setTimeout(resolve, 25));
+        }
         await advance(3);
         await page.waitForFunction(() => document.querySelector(".briefing-market-price")?.textContent.includes("245.67"));
         assert.equal(requests.filter(request => request.topic === "science").length, 1, "Caches unmatched topics while trying the next topic");

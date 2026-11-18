@@ -64,4 +64,9 @@ public sealed record ArticleMarketQuote(
     decimal PercentChange,
     string QuoteTime,
     bool? IsMarketOpen,
-    DateTime RecordedAtUtc);
+    DateTime RecordedAtUtc,
+    decimal? ExtendedPrice = null,
+    decimal? ExtendedChange = null,
+    decimal? ExtendedPercentChange = null,
+    string? ExtendedQuoteTime = null,
+    string? ExtendedSession = null);

@@ -8,6 +8,8 @@ import {
 import {
   attributeMarketMoversToStories,
   formatMarketPrice,
+  getExtendedMarketSessionLabel,
+  hasExtendedMarketQuote,
   sortWatchlistByMagnitude,
   type MarketQuote,
   type MarketPortfolioQuoteItem,
@@ -78,6 +80,9 @@ export type DailyBriefingGlanceMarket = {
   catalystTitle?: string;
   catalystSource?: string;
   catalystUrl?: string;
+  extendedFormattedPrice?: string;
+  extendedPercentChange?: number;
+  extendedSession?: string;
 };
 
 export type DailyBriefingChapterKind =
@@ -644,6 +649,16 @@ export function buildDailyBriefing(params: DailyBriefingParams = {}): DailyBrief
         catalystTitle: catalyst?.story.title,
         catalystSource: catalyst?.story.source,
         catalystUrl: catalyst?.story.url,
+        ...(hasExtendedMarketQuote(quote)
+          ? {
+              extendedFormattedPrice: formatMarketPrice(quote.extendedPrice, quote.currency),
+              extendedPercentChange:
+                typeof quote.extendedPercentChange === "number" && Number.isFinite(quote.extendedPercentChange)
+                  ? quote.extendedPercentChange
+                  : 0,
+              extendedSession: quote.extendedSession || "after-hours",
+            }
+          : {}),
       };
     });
 
@@ -667,6 +682,14 @@ export function buildDailyBriefing(params: DailyBriefingParams = {}): DailyBrief
       if (secondaryMovers.length > 0) {
         marketLine += ` Elsewhere on your watchlist, ${secondaryMovers.join(", and ")}.`;
       }
+    }
+    if (hasExtendedMarketQuote(leadQuote)) {
+      const extPct = typeof leadQuote.extendedPercentChange === "number" && Number.isFinite(leadQuote.extendedPercentChange)
+        ? leadQuote.extendedPercentChange
+        : 0;
+      const extDir = extPct > 0 ? "up" : extPct < 0 ? "down" : "flat at";
+      const sessionWord = getExtendedMarketSessionLabel(leadQuote.extendedSession, "short").toLowerCase();
+      marketLine += ` In ${sessionWord} trading, it is at ${leadQuote.extendedPrice.toFixed(2)}${marketCurrency}, ${extDir} ${Math.abs(extPct).toFixed(2)} percent.`;
     }
     if (params.portfolioAlerts && params.portfolioAlerts.length > 0) {
       const triggered = params.portfolioAlerts.filter((a) => a.isAlertTriggered);

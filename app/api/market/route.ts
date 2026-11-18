@@ -20,10 +20,16 @@ type TwelveDataQuoteResponse = {
   exchange?: string;
   currency?: string;
   datetime?: string;
+  last_quote_at?: string | number;
   close?: string;
   change?: string;
   percent_change?: string;
   is_market_open?: boolean;
+  extended_price?: string | number;
+  extended_change?: string | number;
+  extended_percent_change?: string | number;
+  extended_timestamp?: string | number;
+  extended_datetime?: string;
   status?: string;
   message?: string;
 };
@@ -128,6 +134,35 @@ function isConfidentMatch(topic: string, match: StockMatch) {
     || normalizedTopic.startsWith(`${normalizedName} `);
 }
 
+function isExtendedHoursUnsupported(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  return message.includes("pre/post")
+    || message.includes("pre-market")
+    || message.includes("extended hours")
+    || message.includes("prepost");
+}
+
+function formatEtTimestamp(unixSeconds: number): { label: string; isPreMarket: boolean } {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date(unixSeconds * 1000));
+  const map = new Map(parts.map((part) => [part.type, part.value]));
+  const hour = Number(map.get("hour") ?? "0");
+  const minute = Number(map.get("minute") ?? "0");
+  const datePart = `${map.get("year") ?? "0000"}-${map.get("month") ?? "01"}-${map.get("day") ?? "01"}`;
+  const timePart = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  return {
+    label: `${datePart} ${timePart} ET`,
+    isPreMarket: hour >= 4 && (hour < 9 || (hour === 9 && minute < 30)),
+  };
+}
+
 async function requestTwelveData<T>(path: string, apiKey: string): Promise<T> {
   const response = await fetch(`https://api.twelvedata.com/${path}`, {
     headers: {
@@ -230,12 +265,59 @@ export async function GET(request: Request) {
     }
 
     const exchange = match.exchange ? `&exchange=${encodeURIComponent(match.exchange)}` : "";
-    const quote = await requestTwelveData<TwelveDataQuoteResponse>(
-      `quote?symbol=${encodeURIComponent(match.symbol)}${exchange}`,
-      apiKey,
-    );
+    const baseQuotePath = `quote?symbol=${encodeURIComponent(match.symbol)}${exchange}`;
+    let quote: TwelveDataQuoteResponse;
+    try {
+      quote = await requestTwelveData<TwelveDataQuoteResponse>(`${baseQuotePath}&prepost=true`, apiKey);
+    } catch (error) {
+      if (!isExtendedHoursUnsupported(error)) throw error;
+      quote = await requestTwelveData<TwelveDataQuoteResponse>(baseQuotePath, apiKey);
+    }
     const price = Number(quote.close);
     if (!Number.isFinite(price)) throw new Error("The latest quote did not include a price.");
+
+    const isMarketOpen = typeof quote.is_market_open === "boolean" ? quote.is_market_open : null;
+    const lastQuoteAt = Number(quote.last_quote_at);
+    const extendedPriceRaw = Number(quote.extended_price);
+    const extendedTimestamp = Number(quote.extended_timestamp);
+    const extendedDatetime = typeof quote.extended_datetime === "string" ? quote.extended_datetime.trim() : "";
+
+    let extendedPrice: number | null = null;
+    let extendedChange: number | null = null;
+    let extendedPercentChange: number | null = null;
+    let extendedQuoteTime: string | null = null;
+    let extendedSession: "after-hours" | "pre-market" | null = null;
+
+    const isStalePreMarket = isMarketOpen === true
+      && Number.isFinite(lastQuoteAt)
+      && Number.isFinite(extendedTimestamp)
+      && extendedTimestamp < lastQuoteAt;
+
+    if (Number.isFinite(extendedPriceRaw) && extendedPriceRaw > 0 && !isStalePreMarket) {
+      extendedPrice = extendedPriceRaw;
+      const rawExtChange = Number(quote.extended_change);
+      extendedChange = Number.isFinite(rawExtChange)
+        ? rawExtChange
+        : Math.round((extendedPrice - price) * 10000) / 10000;
+      const rawExtPct = Number(quote.extended_percent_change);
+      extendedPercentChange = Number.isFinite(rawExtPct)
+        ? rawExtPct
+        : price > 0 ? Math.round((extendedChange / price) * 10000) / 100 : 0;
+
+      if (Number.isFinite(extendedTimestamp) && extendedTimestamp > 0) {
+        const formatted = formatEtTimestamp(extendedTimestamp);
+        extendedQuoteTime = extendedDatetime || formatted.label;
+        extendedSession = formatted.isPreMarket ? "pre-market" : "after-hours";
+      } else if (extendedDatetime) {
+        extendedQuoteTime = extendedDatetime;
+        const matchTime = /(\d{2}):(\d{2})/.exec(extendedDatetime);
+        const h = matchTime ? Number(matchTime[1]) : 16;
+        const m = matchTime ? Number(matchTime[2]) : 0;
+        extendedSession = h >= 4 && (h < 9 || (h === 9 && m < 30)) ? "pre-market" : "after-hours";
+      } else {
+        extendedSession = "after-hours";
+      }
+    }
 
     const result = {
       topic,
@@ -247,8 +329,13 @@ export async function GET(request: Request) {
       change: Number(quote.change) || 0,
       percentChange: Number(quote.percent_change) || 0,
       quoteTime: quote.datetime || "",
-      isMarketOpen: typeof quote.is_market_open === "boolean" ? quote.is_market_open : null,
+      isMarketOpen,
       provider: "Twelve Data",
+      extendedPrice,
+      extendedChange,
+      extendedPercentChange,
+      extendedQuoteTime,
+      extendedSession,
     };
     quoteCache.set(quoteCacheKey, { quote: result, expiresAt: Date.now() + 2 * 60_000 });
 

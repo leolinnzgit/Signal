@@ -124,6 +124,17 @@
   opacity: 0.8;
 }
 
+.stock-news-series-pill .pill-extended {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.stock-news-series-pill.active .pill-extended {
+  color: inherit;
+  opacity: 0.85;
+}
+
 .stock-news-series-pill .pill-change.positive {
   color: var(--market-up);
   font-weight: 700;
@@ -229,6 +240,25 @@
 .stock-news-kpi-sub.negative {
   color: var(--red);
   font-weight: 700;
+}
+
+.stock-news-kpi-extended {
+  display: block;
+  font-size: 0.71rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-top: 0.2rem;
+  padding-top: 0.2rem;
+  border-top: 1px dashed var(--line);
+  font-variant-numeric: tabular-nums;
+}
+
+.stock-news-kpi-extended.positive {
+  color: var(--market-up);
+}
+
+.stock-news-kpi-extended.negative {
+  color: var(--red);
 }
 
 .stock-news-toggles {
@@ -438,6 +468,22 @@
 }
 
 .stock-news-callout-price span.negative {
+  color: var(--red);
+}
+
+.stock-news-callout-extended {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-top: 0.15rem;
+}
+
+.stock-news-callout-extended.positive {
+  color: var(--market-up);
+}
+
+.stock-news-callout-extended.negative {
   color: var(--red);
 }
 

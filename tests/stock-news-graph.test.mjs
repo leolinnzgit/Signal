@@ -286,3 +286,37 @@ test("buildStockNewsChartGeometry caps dense catalyst pins to 32 while keeping s
   assert.equal(geom.nodes.length, 32);
   assert.ok(geom.nodes.some((n) => n.event.url === "https://example.com/s-17"));
 });
+
+test("extended-hours pricing propagates through article enrichment and stock-news graph", () => {
+  const extendedQuote = {
+    ...nvdaQuote,
+    isMarketOpen: false,
+    extendedPrice: 149.8,
+    extendedChange: 7.3,
+    extendedPercentChange: 5.12,
+    extendedQuoteTime: "2026-11-17 19:59 ET",
+    extendedSession: "after-hours",
+  };
+
+  const enriched = enrichArticlesWithMarketQuotes(
+    [
+      {
+        title: "NVIDIA surges after hours on guidance",
+        url: "https://example.com/nvda-ah",
+        source: "Reuters",
+        publishedAt: "2026-11-18T00:50:00Z",
+        topics: ["NVIDIA"],
+      },
+    ],
+    [extendedQuote],
+    "2026-11-18T00:55:00Z",
+  );
+
+  assert.equal(enriched[0].marketQuotes?.[0].extendedPrice, 149.8);
+  assert.equal(enriched[0].marketQuotes?.[0].extendedSession, "after-hours");
+
+  const graph = buildClientStockNewsGraph(enriched, [extendedQuote], { symbol: "NVDA" });
+  assert.equal(graph.availableSeries[0].extendedPrice, 149.8);
+  assert.equal(graph.availableSeries[0].extendedPercentChange, 5.12);
+  assert.equal(graph.events[0].extendedPrice, 149.8);
+});

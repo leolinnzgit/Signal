@@ -1,7 +1,12 @@
 "use client";
 
 import { type FormEvent, useEffect, useId, useMemo, useState } from "react";
-import { formatMarketPrice, type MarketQuote } from "./market-quote";
+import {
+  formatMarketPrice,
+  getExtendedMarketSessionLabel,
+  hasExtendedMarketQuote,
+  type MarketQuote,
+} from "./market-quote";
 import {
   buildClientStockNewsGraph,
   buildStockNewsChartGeometry,
@@ -137,6 +142,14 @@ export default function StockNewsGraphModal({
   const activeSeriesSummary = graph.availableSeries.find(
     (s) => s.symbol.toUpperCase() === graph.activeSymbol.toUpperCase(),
   );
+  const matchingLiveQuote = liveQuotes.find(
+    (q) => graph.activeSymbol && q.symbol.trim().toUpperCase() === graph.activeSymbol.toUpperCase(),
+  );
+  const latestExtendedQuote = hasExtendedMarketQuote(activeSeriesSummary)
+    ? activeSeriesSummary
+    : hasExtendedMarketQuote(matchingLiveQuote)
+      ? matchingLiveQuote
+      : null;
   const latestDisplayPrice =
     activeSeriesSummary?.latestPrice && activeSeriesSummary.latestPrice > 0
       ? activeSeriesSummary.latestPrice
@@ -223,6 +236,12 @@ export default function StockNewsGraphModal({
                     {isUp && series.latestPercentChange > 0 ? "+" : ""}
                     {series.latestPercentChange.toFixed(2)}%
                   </span>
+                  {hasExtendedMarketQuote(series) && (
+                    <span className="pill-extended">
+                      {series.extendedSession === "pre-market" ? "PM" : "AH"}{" "}
+                      {formatMarketPrice(series.extendedPrice, series.currency)}
+                    </span>
+                  )}
                   <span className="pill-count">({series.articleCount})</span>
                 </button>
               );
@@ -256,6 +275,22 @@ export default function StockNewsGraphModal({
                     ? "Loading quote…"
                     : "No quote recorded yet"}
               </span>
+              {latestExtendedQuote && (
+                <span
+                  className={`stock-news-kpi-extended ${
+                    (latestExtendedQuote.extendedPercentChange ?? 0) > 0
+                      ? "positive"
+                      : (latestExtendedQuote.extendedPercentChange ?? 0) < 0
+                        ? "negative"
+                        : ""
+                  }`}
+                >
+                  {getExtendedMarketSessionLabel(latestExtendedQuote.extendedSession, "short")}:{" "}
+                  {formatMarketPrice(latestExtendedQuote.extendedPrice, activeCurrency)} (
+                  {(latestExtendedQuote.extendedPercentChange ?? 0) > 0 ? "+" : ""}
+                  {(latestExtendedQuote.extendedPercentChange ?? 0).toFixed(2)}%)
+                </span>
+              )}
             </div>
             <div className="stock-news-kpi-box">
               <span className="stock-news-kpi-label">Observed Range</span>
@@ -479,6 +514,22 @@ export default function StockNewsGraphModal({
                   {activeEvent.percentChange > 0 ? "+" : ""}
                   {activeEvent.percentChange.toFixed(2)}%
                 </span>
+                {hasExtendedMarketQuote(activeEvent) && (
+                  <small
+                    className={`stock-news-callout-extended ${
+                      (activeEvent.extendedPercentChange ?? 0) > 0
+                        ? "positive"
+                        : (activeEvent.extendedPercentChange ?? 0) < 0
+                          ? "negative"
+                          : ""
+                    }`}
+                  >
+                    {getExtendedMarketSessionLabel(activeEvent.extendedSession, "short")}{" "}
+                    {formatMarketPrice(activeEvent.extendedPrice, activeEvent.currency || activeCurrency)} (
+                    {(activeEvent.extendedPercentChange ?? 0) > 0 ? "+" : ""}
+                    {(activeEvent.extendedPercentChange ?? 0).toFixed(2)}%)
+                  </small>
+                )}
               </div>
               {geometry && geometry.nodes.length > 1 && (
                 <>

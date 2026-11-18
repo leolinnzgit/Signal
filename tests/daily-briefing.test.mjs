@@ -1335,3 +1335,36 @@ test("Personalized Portfolio Threshold Alerts enrich briefing chapters with trig
   assert.match(marketsChapter.text, /Personal portfolio alert: Bitcoin is up 4\.2 percent/);
   assert.match(marketsChapter.text, /exceeding your 3% threshold/);
 });
+
+test("buildDailyBriefing includes after-hours stock pricing in marketGlance and spoken script", () => {
+  const briefing = buildDailyBriefing({
+    articles: [],
+    selectedTopic: "NVIDIA",
+    marketQuote: {
+      topic: "NVIDIA",
+      symbol: "NVDA",
+      name: "NVIDIA Corporation",
+      exchange: "NASDAQ",
+      currency: "USD",
+      price: 155.46,
+      change: -0.68,
+      percentChange: -0.44,
+      quoteTime: "2026-11-17",
+      isMarketOpen: false,
+      provider: "Twelve Data",
+      extendedPrice: 162.8,
+      extendedChange: 7.34,
+      extendedPercentChange: 4.72,
+      extendedQuoteTime: "2026-11-17 19:59 ET",
+      extendedSession: "after-hours",
+    },
+  });
+
+  assert.ok(briefing.marketGlance);
+  assert.match(briefing.marketGlance.extendedFormattedPrice ?? "", /162\.80/);
+  assert.equal(briefing.marketGlance.extendedPercentChange, 4.72);
+  assert.equal(briefing.marketGlance.extendedSession, "after-hours");
+  const marketsChapter = briefing.chapters.find((ch) => ch.kind === "markets");
+  assert.ok(marketsChapter);
+  assert.match(marketsChapter.text, /after hours trading, it is at 162\.80 USD, up 4\.72 percent/i);
+});

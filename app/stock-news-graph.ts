@@ -1,7 +1,7 @@
 import { topicMatchesText } from "./api/news/topic-matching.ts";
-import type { MarketQuote } from "./market-quote.ts";
+import { hasExtendedMarketQuote, type ExtendedMarketQuoteFields, type MarketQuote } from "./market-quote.ts";
 
-export type ArticleMarketQuote = {
+export type ArticleMarketQuote = ExtendedMarketQuoteFields & {
   topic: string;
   symbol: string;
   name: string;
@@ -15,7 +15,7 @@ export type ArticleMarketQuote = {
   recordedAtUtc: string;
 };
 
-export type StockNewsSeriesSummary = {
+export type StockNewsSeriesSummary = ExtendedMarketQuoteFields & {
   symbol: string;
   name: string;
   exchange: string;
@@ -26,7 +26,7 @@ export type StockNewsSeriesSummary = {
   latestPercentChange: number;
 };
 
-export type StockNewsChartEvent = {
+export type StockNewsChartEvent = ExtendedMarketQuoteFields & {
   title: string;
   url: string;
   source: string;
@@ -155,6 +155,22 @@ function formatAxisDateLabel(timestamp: string, spanMs: number): string {
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+function extractExtendedFields(quote: ExtendedMarketQuoteFields | null | undefined): ExtendedMarketQuoteFields {
+  if (!hasExtendedMarketQuote(quote)) {
+    return {};
+  }
+  return {
+    extendedPrice: quote.extendedPrice,
+    extendedChange: typeof quote.extendedChange === "number" && Number.isFinite(quote.extendedChange) ? quote.extendedChange : null,
+    extendedPercentChange:
+      typeof quote.extendedPercentChange === "number" && Number.isFinite(quote.extendedPercentChange)
+        ? quote.extendedPercentChange
+        : null,
+    extendedQuoteTime: quote.extendedQuoteTime || null,
+    extendedSession: quote.extendedSession || null,
+  };
+}
+
 export function marketQuoteToArticleQuote(
   quote: MarketQuote,
   recordedAtUtc = new Date().toISOString(),
@@ -171,6 +187,7 @@ export function marketQuoteToArticleQuote(
     quoteTime: quote.quoteTime || "",
     isMarketOpen: quote.isMarketOpen ?? null,
     recordedAtUtc,
+    ...extractExtendedFields(quote),
   };
 }
 
@@ -279,6 +296,7 @@ export function buildClientStockNewsGraph(
         parseTimeMs(article.publishedAt) || 0,
       );
       const existing = seriesMap.get(symbol);
+      const ext = extractExtendedFields(q);
       if (!existing) {
         seriesMap.set(symbol, {
           symbol,
@@ -290,6 +308,7 @@ export function buildClientStockNewsGraph(
           latestPrice: q.price,
           latestPercentChange: Number.isFinite(q.percentChange) ? q.percentChange : 0,
           latestTimeMs: timeMs,
+          ...ext,
         });
       } else {
         existing.articleCount += 1;
@@ -297,6 +316,7 @@ export function buildClientStockNewsGraph(
           existing.latestTimeMs = timeMs;
           existing.latestPrice = q.price;
           existing.latestPercentChange = Number.isFinite(q.percentChange) ? q.percentChange : 0;
+          Object.assign(existing, ext);
         }
       }
     }
@@ -306,6 +326,7 @@ export function buildClientStockNewsGraph(
     if (!q?.symbol || !Number.isFinite(q.price) || q.price <= 0) continue;
     const symbol = q.symbol.trim().toUpperCase();
     const existing = seriesMap.get(symbol);
+    const ext = extractExtendedFields(q);
     if (!existing) {
       seriesMap.set(symbol, {
         symbol,
@@ -317,10 +338,12 @@ export function buildClientStockNewsGraph(
         latestPrice: q.price,
         latestPercentChange: Number.isFinite(q.percentChange) ? q.percentChange : 0,
         latestTimeMs: Date.now(),
+        ...ext,
       });
     } else if (Date.now() >= existing.latestTimeMs) {
       existing.latestPrice = q.price;
       existing.latestPercentChange = Number.isFinite(q.percentChange) ? q.percentChange : existing.latestPercentChange;
+      Object.assign(existing, ext);
     }
   }
 
@@ -389,6 +412,7 @@ export function buildClientStockNewsGraph(
         isMarketOpen: recorded.isMarketOpen,
         isRecordedSnapshot: true,
         topics: articleTopics,
+        ...extractExtendedFields(recorded),
       });
       continue;
     }
@@ -413,6 +437,7 @@ export function buildClientStockNewsGraph(
       isMarketOpen: matchingLive.isMarketOpen,
       isRecordedSnapshot: false,
       topics: articleTopics,
+      ...extractExtendedFields(matchingLive),
     });
   }
 
@@ -466,8 +491,12 @@ export function mergeStockNewsGraphData(
     if (!existing) {
       seriesBySymbol.set(key, { ...s });
     } else {
+      const serverExt = extractExtendedFields(s);
+      const clientExt = extractExtendedFields(existing);
+      const mergedExt = hasExtendedMarketQuote(s) ? serverExt : clientExt;
       seriesBySymbol.set(key, {
         ...s,
+        ...mergedExt,
         articleCount: Math.max(s.articleCount, existing.articleCount),
         latestPrice: s.latestPrice > 0 ? s.latestPrice : existing.latestPrice,
         latestPercentChange: s.latestPrice > 0 ? s.latestPercentChange : existing.latestPercentChange,

@@ -30,6 +30,8 @@ import AppSettings from "./AppSettings";
 import {
   attributeMarketMoversToStories,
   formatMarketPrice,
+  getExtendedMarketSessionLabel,
+  hasExtendedMarketQuote,
   loadMarketPortfolio,
   loadMarketWatchlist,
   type MarketPortfolioQuoteItem,
@@ -768,9 +770,12 @@ const StoryFeedItem = memo(function StoryFeedItem({
                       highlightUrl: article.url,
                     });
                   }}
-                  title={`Stock price at story time: ${q.name || q.symbol} ${formatMarketPrice(q.price, q.currency)} (${q.percentChange > 0 ? "+" : ""}${q.percentChange.toFixed(2)}%) — View Price vs. News graph`}
+                  title={`Stock price at story time: ${q.name || q.symbol} ${formatMarketPrice(q.price, q.currency)} (${q.percentChange > 0 ? "+" : ""}${q.percentChange.toFixed(2)}%)${hasExtendedMarketQuote(q) ? ` · ${getExtendedMarketSessionLabel(q.extendedSession, "short")} ${formatMarketPrice(q.extendedPrice, q.currency)}` : ""} — View Price vs. News graph`}
                 >
                   📈 {q.symbol} {formatMarketPrice(q.price, q.currency)} ({q.percentChange > 0 ? "+" : ""}{q.percentChange.toFixed(2)}%)
+                  {hasExtendedMarketQuote(q) && (
+                    <> · {q.extendedSession === "pre-market" ? "PM" : "AH"} {formatMarketPrice(q.extendedPrice, q.currency)}</>
+                  )}
                 </button>
               );
             })}
@@ -5728,7 +5733,11 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         {selectedTopic === ALL_TOPICS && marketWatchlist.length > 0 && (
           <section className="dashboard-market-watchlist" aria-label="Watched market movers">
             <span className="dashboard-watchlist-label">📈 Watchlist</span>
-            {marketWatchlist.map((item) => (
+            {marketWatchlist.map((item) => {
+              const extSuffix = hasExtendedMarketQuote(item)
+                ? ` · ${getExtendedMarketSessionLabel(item.extendedSession, "short")} ${formatMarketPrice(item.extendedPrice, item.currency)} (${(item.extendedPercentChange ?? 0) > 0 ? "+" : ""}${(item.extendedPercentChange ?? 0).toFixed(2)}%)`
+                : "";
+              return (
               <button
                 key={`${item.symbol}:${item.exchange}`}
                 type="button"
@@ -5736,8 +5745,8 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                 onClick={() => setSelectedTopic(item.topic)}
                 title={
                   watchlistCatalysts[item.symbol.toUpperCase()]
-                    ? `${item.name} (${item.topic}) — Why it's moving: ${watchlistCatalysts[item.symbol.toUpperCase()].story.title}`
-                    : `${item.name} (${item.topic}) — click to filter stories`
+                    ? `${item.name} (${item.topic})${extSuffix} — Why it's moving: ${watchlistCatalysts[item.symbol.toUpperCase()].story.title}`
+                    : `${item.name} (${item.topic})${extSuffix} — click to filter stories`
                 }
               >
                 <strong>{item.symbol}</strong>
@@ -5762,8 +5771,25 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                   {item.percentChange > 0 ? "+" : ""}
                   {(item.percentChange ?? 0).toFixed(2)}%
                 </span>
+                {hasExtendedMarketQuote(item) && (
+                  <span
+                    className={`dashboard-watchlist-extended ${
+                      (item.extendedPercentChange ?? 0) > 0
+                        ? "positive"
+                        : (item.extendedPercentChange ?? 0) < 0
+                          ? "negative"
+                          : "neutral"
+                    }`}
+                  >
+                    {getExtendedMarketSessionLabel(item.extendedSession, "short")}{" "}
+                    {formatMarketPrice(item.extendedPrice, item.currency)} (
+                    {(item.extendedPercentChange ?? 0) > 0 ? "+" : ""}
+                    {(item.extendedPercentChange ?? 0).toFixed(2)}%)
+                  </span>
+                )}
               </button>
-            ))}
+              );
+            })}
             {portfolioAlerts && portfolioAlerts.some((a) => a.isAlertTriggered) && (
               <span className="dashboard-watchlist-alerts" role="status" aria-label="Personal portfolio alerts">
                 {portfolioAlerts
@@ -5823,6 +5849,33 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                 {marketQuote.percentChange > 0 ? "+" : ""}
                 {marketQuote.percentChange.toFixed(2)}%
               </span>
+              {hasExtendedMarketQuote(marketQuote) && (
+                <div className="market-extended-price">
+                  <span className="market-extended-badge">
+                    {getExtendedMarketSessionLabel(marketQuote.extendedSession, "full")}
+                  </span>
+                  <strong>{formatMarketPrice(marketQuote.extendedPrice, marketQuote.currency)}</strong>
+                  {(() => {
+                    const extChange = typeof marketQuote.extendedChange === "number" && Number.isFinite(marketQuote.extendedChange)
+                      ? marketQuote.extendedChange
+                      : 0;
+                    const extPercent = typeof marketQuote.extendedPercentChange === "number" && Number.isFinite(marketQuote.extendedPercentChange)
+                      ? marketQuote.extendedPercentChange
+                      : 0;
+                    const cls = extChange > 0 ? "positive" : extChange < 0 ? "negative" : "unchanged";
+                    return (
+                      <span className={cls}>
+                        {extChange > 0 ? "+" : ""}
+                        {extChange.toFixed(2)}
+                        <b aria-hidden="true"> / </b>
+                        {extPercent > 0 ? "+" : ""}
+                        {extPercent.toFixed(2)}%
+                      </span>
+                    );
+                  })()}
+                  {marketQuote.extendedQuoteTime && <small>{marketQuote.extendedQuoteTime}</small>}
+                </div>
+              )}
             </div>
             <p>
               {marketQuote.isMarketOpen === null
@@ -5917,7 +5970,10 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
               </div>
               <div className="filter-sticky-summary">
                 {marketQuote && marketQuote.topic.toLowerCase() === selectedTopic.toLowerCase() && (
-                  <span className="filter-sticky-market" aria-label={`${marketQuote.symbol} ${formatMarketPrice(marketQuote.price, marketQuote.currency)}, ${marketQuote.percentChange >= 0 ? "up" : "down"} ${Math.abs(marketQuote.percentChange).toFixed(2)} percent`}>
+                  <span
+                    className="filter-sticky-market"
+                    aria-label={`${marketQuote.symbol} ${formatMarketPrice(marketQuote.price, marketQuote.currency)}, ${marketQuote.percentChange >= 0 ? "up" : "down"} ${Math.abs(marketQuote.percentChange).toFixed(2)} percent${hasExtendedMarketQuote(marketQuote) ? `, ${getExtendedMarketSessionLabel(marketQuote.extendedSession, "short")} ${formatMarketPrice(marketQuote.extendedPrice, marketQuote.currency)}` : ""}`}
+                  >
                     <b>{marketQuote.symbol}</b>
                     <MarketSparkline
                 points={marketQuote.sparkline}
@@ -5929,6 +5985,11 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                     <em className={marketQuote.percentChange > 0 ? "positive" : marketQuote.percentChange < 0 ? "negative" : "unchanged"}>
                       {marketQuote.percentChange > 0 ? "+" : ""}{marketQuote.percentChange.toFixed(2)}%
                     </em>
+                    {hasExtendedMarketQuote(marketQuote) && (
+                      <span className="filter-sticky-market-extended">
+                        {marketQuote.extendedSession === "pre-market" ? "PM" : "AH"} {formatMarketPrice(marketQuote.extendedPrice, marketQuote.currency)}
+                      </span>
+                    )}
                   </span>
                 )}
                 {marketNotice && marketNotice.topic.toLowerCase() === selectedTopic.toLowerCase() && (
@@ -6596,7 +6657,9 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                     className="article-reader-share"
                     onClick={() => setAudiogramTarget({
                       title: readerArticle.title,
-                      excerpt: readerArticle.summary,
+                      excerpt:
+                        readerArticle.summary ||
+                        (readerContent.status === "ready" ? readerContent.article.paragraphs[0] : undefined),
                       source: readerArticle.source,
                       url: readerArticle.url,
                     })}
@@ -6632,9 +6695,12 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                         topic: q.topic || readerArticle.topics[0],
                         highlightUrl: readerArticle.url,
                       })}
-                      title={`Stock price recorded for story: ${q.name || q.symbol} ${formatMarketPrice(q.price, q.currency)}`}
+                      title={`Stock price recorded for story: ${q.name || q.symbol} ${formatMarketPrice(q.price, q.currency)}${hasExtendedMarketQuote(q) ? ` · ${getExtendedMarketSessionLabel(q.extendedSession, "short")} ${formatMarketPrice(q.extendedPrice, q.currency)}` : ""}`}
                     >
                       📈 {q.symbol} {formatMarketPrice(q.price, q.currency)} ({q.percentChange > 0 ? "+" : ""}{q.percentChange.toFixed(2)}%)
+                      {hasExtendedMarketQuote(q) && (
+                        <> · {q.extendedSession === "pre-market" ? "PM" : "AH"} {formatMarketPrice(q.extendedPrice, q.currency)}</>
+                      )}
                     </button>
                   );
                 })}
