@@ -1,5 +1,19 @@
 # SignalWatch release preparation
 
+## Extended-hours quotes, Product Watch, Signal Bot, open coverage & charger pre-cache: 0.26.0 (43)
+
+Adds five major capabilities across SignalWatch and the shared library while keeping Signal Companion `0.13.0 (23)` unchanged:
+
+- **Extended-hours quotes & Stock Price vs. News sparklines:** `Markets & clocks` and story detail cards now display pre-market/after-hours stock prices (`extendedPrice`/`extendedSession`), per-story stock price snapshots (`marketQuotes`), Compose `Canvas` sparklines (`/api/market?sparkline=true`), and Stock Price vs. News timelines (`/api/market/news-graph`).
+- **Product Watch (`gpt-6.1-sol`) on wrist:** View tracked products (`/api/product-watch`), `TARGET MET ✓` / `PRICE DROP ↓` status, checked retailer offers, live price checks (`/api/product-watch/{id}/check`), voice one-off Q&A (`/api/product-watch/{id}/ask`), and phone deal links (`/?suite=product-watch`). `NativeNotice` validates and routes `signal-product-watch-*` price-drop push alerts directly to Product Watch on the watch.
+- **Open-coverage fallback for paywalled stories:** Paywalled or blocked full stories now offer one-tap **Find open coverage** in the watch reader (and automatic fallback in `Listen to full story` and `Add to Listen later`) via `POST /api/article-reader/open-coverage`.
+- **Signal Bot Topic Analyst:** Trigger **Signal Bot analyst** from any story or menu for Microsoft Foundry topic briefings (`/api/signal-bot/analyze`) with `Deep Overview`, `What Changed`, `Risks & Angles`, and `Watch Next` lenses, voice follow-ups, multi-section read-aloud, and one-tap hosted share pages opened on your paired phone (`/api/signal-bot/shares`).
+- **Overnight charger pre-caching for Daily Cast & morning briefing:** Extends the charging + unmetered Watch Wi-Fi `WorkManager` download policy (`QueueAudioDownloads`) to synthesize and cache Today's Daily Cast (`dailycast://`) and top 5 unread morning briefing clips in encrypted storage, showing offline readiness on `DailyCastTileService` and playing locally via `BriefingPlaybackService`.
+
+Validation (19 November 2026): packaged version `0.26.0 (43)` verified; all 163 Watch release JVM tests and 18 Phone Companion JVM tests passed, and release lint reported zero errors. Signed AAB/APK, bundle validation, signature, 64-bit/16 KB alignment and private-file checks passed with the existing upload certificate. Browser preview checks (`signalwatch-preview.test-browser.mjs`) passed at `1280px` and `390px`, `signalwatch-connect.test-browser.mjs` passed, and server watch-pairing/market/handoff checks passed. Checked artifacts: `../SignalWatch/outputs/play-release/0.26.0-43/`. APK SHA256: `fe8829c92e6c97fc06761f36890960960f89a188a2887a396b343f80f1b98ad7`.
+
+Publication verification (19 November 2026): both public HTTPS watch APK downloads (`/signalwatch/SignalWatch-release.apk` and `/signalwatch/native-preview/SignalWatch-release.apk`) serve `0.26.0 (43)` and match the checked SHA256 above. Preview version labels match. Companion `0.13.0 (23)` (`7cd3e6363f7dcc281be729ec03208865261b7f9dada79c4c8bcb49c72a9dc222`) is unchanged; production server/configuration guards passed and `App_Data` was excluded. Native source commit: `67901da`. No Google Play upload was made.
+
 ## Briefing resumption after full listen: 0.25.3 (42)
 
 When listening to a full story during an unread briefing or catch-up, completing that full story automatically resumes playback to the next story in the briefing and marks the finished story as read. Explicitly stopping playback cancels resumption. If the full story was the last story in the briefing, playback completes normally. Companion remains 0.13.0 (23).
