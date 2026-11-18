@@ -746,7 +746,21 @@ const StoryFeedItem = memo(function StoryFeedItem({
         <article>
           <div className="story-meta">
             <span className="story-topic">{article.topics.join(" + ")}</span>
-            <span className="story-provider">{article.providers.join(" + ")}</span>
+            <span className="story-provider">
+              {Array.from(
+                new Set(
+                  article.providers.map((provider) => {
+                    if (
+                      provider.toLowerCase().startsWith("rss / ") &&
+                      provider.slice(6).trim().toLowerCase() === article.source.trim().toLowerCase()
+                    ) {
+                      return "RSS";
+                    }
+                    return provider;
+                  }),
+                ),
+              ).join(" + ")}
+            </span>
             <span>{article.source}</span>
             <span>{formatAge(article.publishedAt)}</span>
             {watchMatch && (
