@@ -274,23 +274,24 @@ export default function StockNewsGraphModal({
                   : loading
                     ? "Loading quote…"
                     : "No quote recorded yet"}
+                {latestExtendedQuote && (
+                  <span
+                    className={`stock-news-kpi-extended ${
+                      (latestExtendedQuote.extendedPercentChange ?? 0) > 0
+                        ? "positive"
+                        : (latestExtendedQuote.extendedPercentChange ?? 0) < 0
+                          ? "negative"
+                          : ""
+                    }`}
+                  >
+                    {" · "}
+                    {latestExtendedQuote.extendedSession === "pre-market" ? "PM" : "AH"}{" "}
+                    {formatMarketPrice(latestExtendedQuote.extendedPrice, activeCurrency)} (
+                    {(latestExtendedQuote.extendedPercentChange ?? 0) > 0 ? "+" : ""}
+                    {(latestExtendedQuote.extendedPercentChange ?? 0).toFixed(2)}%)
+                  </span>
+                )}
               </span>
-              {latestExtendedQuote && (
-                <span
-                  className={`stock-news-kpi-extended ${
-                    (latestExtendedQuote.extendedPercentChange ?? 0) > 0
-                      ? "positive"
-                      : (latestExtendedQuote.extendedPercentChange ?? 0) < 0
-                        ? "negative"
-                        : ""
-                  }`}
-                >
-                  {getExtendedMarketSessionLabel(latestExtendedQuote.extendedSession, "short")}:{" "}
-                  {formatMarketPrice(latestExtendedQuote.extendedPrice, activeCurrency)} (
-                  {(latestExtendedQuote.extendedPercentChange ?? 0) > 0 ? "+" : ""}
-                  {(latestExtendedQuote.extendedPercentChange ?? 0).toFixed(2)}%)
-                </span>
-              )}
             </div>
             <div className="stock-news-kpi-box">
               <span className="stock-news-kpi-label">Observed Range</span>

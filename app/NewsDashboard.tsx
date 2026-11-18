@@ -5781,7 +5781,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                           : "neutral"
                     }`}
                   >
-                    {getExtendedMarketSessionLabel(item.extendedSession, "short")}{" "}
+                    {item.extendedSession === "pre-market" ? "PM" : "AH"}{" "}
                     {formatMarketPrice(item.extendedPrice, item.currency)} (
                     {(item.extendedPercentChange ?? 0) > 0 ? "+" : ""}
                     {(item.extendedPercentChange ?? 0).toFixed(2)}%)
@@ -5849,34 +5849,34 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                 {marketQuote.percentChange > 0 ? "+" : ""}
                 {marketQuote.percentChange.toFixed(2)}%
               </span>
-              {hasExtendedMarketQuote(marketQuote) && (
-                <div className="market-extended-price">
-                  <span className="market-extended-badge">
-                    {getExtendedMarketSessionLabel(marketQuote.extendedSession, "full")}
-                  </span>
-                  <strong>{formatMarketPrice(marketQuote.extendedPrice, marketQuote.currency)}</strong>
-                  {(() => {
-                    const extChange = typeof marketQuote.extendedChange === "number" && Number.isFinite(marketQuote.extendedChange)
-                      ? marketQuote.extendedChange
-                      : 0;
-                    const extPercent = typeof marketQuote.extendedPercentChange === "number" && Number.isFinite(marketQuote.extendedPercentChange)
-                      ? marketQuote.extendedPercentChange
-                      : 0;
-                    const cls = extChange > 0 ? "positive" : extChange < 0 ? "negative" : "unchanged";
-                    return (
-                      <span className={cls}>
-                        {extChange > 0 ? "+" : ""}
-                        {extChange.toFixed(2)}
-                        <b aria-hidden="true"> / </b>
-                        {extPercent > 0 ? "+" : ""}
-                        {extPercent.toFixed(2)}%
-                      </span>
-                    );
-                  })()}
-                  {marketQuote.extendedQuoteTime && <small>{marketQuote.extendedQuoteTime}</small>}
-                </div>
-              )}
             </div>
+            {hasExtendedMarketQuote(marketQuote) && (
+              <div className="market-extended-price">
+                <span className="market-extended-badge">
+                  {getExtendedMarketSessionLabel(marketQuote.extendedSession, "full")}
+                </span>
+                <strong>{formatMarketPrice(marketQuote.extendedPrice, marketQuote.currency)}</strong>
+                {(() => {
+                  const extChange = typeof marketQuote.extendedChange === "number" && Number.isFinite(marketQuote.extendedChange)
+                    ? marketQuote.extendedChange
+                    : 0;
+                  const extPercent = typeof marketQuote.extendedPercentChange === "number" && Number.isFinite(marketQuote.extendedPercentChange)
+                    ? marketQuote.extendedPercentChange
+                    : 0;
+                  const cls = extChange > 0 ? "positive" : extChange < 0 ? "negative" : "unchanged";
+                  return (
+                    <span className={cls}>
+                      {extChange > 0 ? "+" : ""}
+                      {extChange.toFixed(2)}
+                      <b aria-hidden="true"> / </b>
+                      {extPercent > 0 ? "+" : ""}
+                      {extPercent.toFixed(2)}%
+                    </span>
+                  );
+                })()}
+                {marketQuote.extendedQuoteTime && <small>{marketQuote.extendedQuoteTime}</small>}
+              </div>
+            )}
             <p>
               {marketQuote.isMarketOpen === null
                 ? "Latest available quote"
