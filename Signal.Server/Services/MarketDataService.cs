@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using Microsoft.Extensions.Caching.Memory;
@@ -155,7 +156,7 @@ public sealed class MarketDataService(
                 if (spark is not null)
                 {
                     resolved = resolved with { Sparkline = spark };
-                    cache.Set(quoteCacheKey, resolved, TimeSpan.FromMinutes(2));
+                    cache.Set(quoteCacheKey, resolved, TimeSpan.FromMinutes(10));
                 }
             }
             return resolved;
@@ -189,7 +190,7 @@ public sealed class MarketDataService(
             if (spark is not null)
                 quote = quote with { Sparkline = spark };
         }
-        cache.Set(quoteCacheKey, quote, TimeSpan.FromMinutes(2));
+        cache.Set(quoteCacheKey, quote, TimeSpan.FromMinutes(10));
         return quote;
     }
 
@@ -469,11 +470,15 @@ public sealed class MarketDataService(
         foreach (var (topic, overrideSymbol) in ordered)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var missCacheKey = ArticleTopicMissCacheKey(topic, overrideSymbol);
+            if (cache.TryGetValue(missCacheKey, out _)) continue;
             try
             {
                 var quote = await GetForTopicAsync(topic, overrideSymbol, cancellationToken, includeSparkline: false);
                 if (quote is not null && quote.Price > 0)
                     resolved[topic] = ToArticleMarketQuote(quote, recordedAtUtc);
+                else
+                    cache.Set(missCacheKey, true, TimeSpan.FromMinutes(15));
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -482,6 +487,7 @@ public sealed class MarketDataService(
             catch
             {
                 // Best-effort quote snapshot enrichment should not fail article ingestion.
+                cache.Set(missCacheKey, true, TimeSpan.FromMinutes(15));
             }
         }
 
@@ -665,7 +671,7 @@ public sealed class MarketDataService(
             }
 
             var result = combined.OrderBy(b => b.Utc).ToArray();
-            cache.Set(cacheKey, result, result.Length >= 2 ? TimeSpan.FromMinutes(30) : TimeSpan.FromMinutes(10));
+            cache.Set(cacheKey, result, result.Length >= 2 ? TimeSpan.FromMinutes(60) : TimeSpan.FromMinutes(10));
             return result;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -773,10 +779,16 @@ public sealed class MarketDataService(
         foreach (var (topic, overrideSymbol) in fastCandidates.Concat(discoveryCandidates.Take(2)).Take(8))
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var missCacheKey = ArticleTopicMissCacheKey(topic, overrideSymbol);
+            if (cache.TryGetValue(missCacheKey, out _)) continue;
             try
             {
                 var quote = await GetForTopicAsync(topic, overrideSymbol, cancellationToken, includeSparkline: false);
-                if (quote is null || quote.Price <= 0) continue;
+                if (quote is null || quote.Price <= 0)
+                {
+                    cache.Set(missCacheKey, true, TimeSpan.FromMinutes(15));
+                    continue;
+                }
                 var bars = await GetHistoricalBarsAsync(topic, overrideSymbol, 90, cancellationToken);
                 topicSeries[topic] = (quote, bars);
             }
@@ -787,6 +799,7 @@ public sealed class MarketDataService(
             catch
             {
                 // Best-effort quote snapshot enrichment should not fail article ingestion.
+                cache.Set(missCacheKey, true, TimeSpan.FromMinutes(15));
             }
         }
 
@@ -841,35 +854,50 @@ public sealed class MarketDataService(
         bool isHourly,
         CancellationToken cancellationToken)
     {
-        var query = $"time_series?symbol={Uri.EscapeDataString(match.Symbol)}&interval={interval}&outputsize={outputSize}";
-        if (match.Exchange.Length > 0)
-            query += $"&exchange={Uri.EscapeDataString(match.Exchange)}";
-
-        using var document = await SendAsync(query, cancellationToken);
-        var root = document.RootElement;
-        if (!root.TryGetProperty("values", out var values) || values.ValueKind != JsonValueKind.Array)
-            return [];
-
-        var tzId = "";
-        if (root.TryGetProperty("meta", out var meta) && meta.ValueKind == JsonValueKind.Object)
-            tzId = ReadString(meta, "exchange_timezone");
-        var tz = ResolveExchangeTimeZone(tzId);
-
-        var rows = new List<RawSeriesBar>(outputSize);
-        foreach (var row in values.EnumerateArray())
+        try
         {
-            var close = ReadDecimal(row, "close");
-            var datetime = ReadString(row, "datetime");
-            if (close is not > 0 || datetime.Length == 0) continue;
-            var open = ReadDecimal(row, "open") ?? close.Value;
+            var query = $"time_series?symbol={Uri.EscapeDataString(match.Symbol)}&interval={interval}&outputsize={outputSize}";
+            if (match.Exchange.Length > 0)
+                query += $"&exchange={Uri.EscapeDataString(match.Exchange)}";
 
-            if (!TryParseSeriesDatetime(datetime, tz, isHourly, out var utc, out var date, out var hasTimeOfDay))
-                continue;
-            rows.Add(new RawSeriesBar(utc, date, datetime, open, close.Value, hasTimeOfDay));
+            using var document = await SendAsync(query, cancellationToken);
+            var root = document.RootElement;
+            if (!root.TryGetProperty("values", out var values) || values.ValueKind != JsonValueKind.Array)
+                return [];
+
+            var tzId = "";
+            if (root.TryGetProperty("meta", out var meta) && meta.ValueKind == JsonValueKind.Object)
+                tzId = ReadString(meta, "exchange_timezone");
+            var tz = ResolveExchangeTimeZone(tzId);
+
+            var rows = new List<RawSeriesBar>(outputSize);
+            foreach (var row in values.EnumerateArray())
+            {
+                var close = ReadDecimal(row, "close");
+                var datetime = ReadString(row, "datetime");
+                if (close is not > 0 || datetime.Length == 0) continue;
+                var open = ReadDecimal(row, "open") ?? close.Value;
+
+                if (!TryParseSeriesDatetime(datetime, tz, isHourly, out var utc, out var date, out var hasTimeOfDay))
+                    continue;
+                rows.Add(new RawSeriesBar(utc, date, datetime, open, close.Value, hasTimeOfDay));
+            }
+
+            rows.Sort((a, b) => a.Utc.CompareTo(b.Utc));
+            return rows;
         }
-
-        rows.Sort((a, b) => a.Utc.CompareTo(b.Utc));
-        return rows;
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (InvalidOperationException exception) when (IsPlanRestriction(exception))
+        {
+            throw;
+        }
+        catch
+        {
+            return await FetchYahooTimeSeriesBarsAsync(match, interval, outputSize, isHourly, cancellationToken);
+        }
     }
 
     private static TimeZoneInfo ResolveExchangeTimeZone(string? tzId)
@@ -958,26 +986,37 @@ public sealed class MarketDataService(
         if (cache.TryGetValue(cacheKey, out StockMatchCache? cachedMatch) && cachedMatch is not null)
             return cachedMatch.Found ? cachedMatch.Match : null;
 
-        using var document = await SendAsync(
-            $"symbol_search?symbol={Uri.EscapeDataString(topic)}&outputsize=10",
-            cancellationToken);
-        var candidates = document.RootElement.TryGetProperty("data", out var data)
-            && data.ValueKind == JsonValueKind.Array
-                ? data.EnumerateArray()
-                : [];
-
         StockMatch? match = null;
-        foreach (var candidate in candidates)
+        try
         {
-            var symbol = ReadString(candidate, "symbol");
-            var name = ReadString(candidate, "instrument_name");
-            var exchange = ReadString(candidate, "exchange");
-            var instrumentType = ReadString(candidate, "instrument_type");
-            if (symbol.Length == 0 || name.Length == 0 || !SupportedInstrumentTypes.Contains(instrumentType)) continue;
-            if (exchange.StartsWith("OTC", StringComparison.OrdinalIgnoreCase)) continue;
-            if (!IsConfidentMatch(topic, symbol, name)) continue;
-            match = new StockMatch(symbol, name, exchange);
-            break;
+            using var document = await SendAsync(
+                $"symbol_search?symbol={Uri.EscapeDataString(topic)}&outputsize=10",
+                cancellationToken);
+            var candidates = document.RootElement.TryGetProperty("data", out var data)
+                && data.ValueKind == JsonValueKind.Array
+                    ? data.EnumerateArray()
+                    : [];
+
+            foreach (var candidate in candidates)
+            {
+                var symbol = ReadString(candidate, "symbol");
+                var name = ReadString(candidate, "instrument_name");
+                var exchange = ReadString(candidate, "exchange");
+                var instrumentType = ReadString(candidate, "instrument_type");
+                if (symbol.Length == 0 || name.Length == 0 || !SupportedInstrumentTypes.Contains(instrumentType)) continue;
+                if (exchange.StartsWith("OTC", StringComparison.OrdinalIgnoreCase)) continue;
+                if (!IsConfidentMatch(topic, symbol, name)) continue;
+                match = new StockMatch(symbol, name, exchange);
+                break;
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            match = await FindYahooMatchAsync(topic, cancellationToken);
         }
 
         cache.Set(
@@ -992,94 +1031,109 @@ public sealed class MarketDataService(
         StockMatch match,
         CancellationToken cancellationToken)
     {
-        var baseQuery = $"quote?symbol={Uri.EscapeDataString(match.Symbol)}";
-        if (match.Exchange.Length > 0)
-            baseQuery += $"&exchange={Uri.EscapeDataString(match.Exchange)}";
-
-        JsonDocument document;
         try
         {
-            document = await SendAsync($"{baseQuery}&prepost=true", cancellationToken);
+            var baseQuery = $"quote?symbol={Uri.EscapeDataString(match.Symbol)}";
+            if (match.Exchange.Length > 0)
+                baseQuery += $"&exchange={Uri.EscapeDataString(match.Exchange)}";
+
+            JsonDocument document;
+            try
+            {
+                document = await SendAsync($"{baseQuery}&prepost=true", cancellationToken);
+            }
+            catch (InvalidOperationException exception) when (IsExtendedHoursUnsupported(exception))
+            {
+                document = await SendAsync(baseQuery, cancellationToken);
+            }
+
+            using var _ = document;
+            var root = document.RootElement;
+            var price = ReadDecimal(root, "close");
+            if (price is null) throw new InvalidOperationException("The latest quote did not include a price.");
+
+            var isMarketOpen = ReadBoolean(root, "is_market_open");
+            var lastQuoteAt = ReadInt64(root, "last_quote_at");
+            var extendedPriceRaw = ReadDecimal(root, "extended_price");
+            var extendedTimestamp = ReadInt64(root, "extended_timestamp");
+            var extendedDatetime = ReadString(root, "extended_datetime");
+
+            decimal? extendedPrice = null;
+            decimal? extendedChange = null;
+            decimal? extendedPercentChange = null;
+            string? extendedQuoteTime = null;
+            string? extendedSession = null;
+
+            var isStalePreMarketDuringOpenSession = isMarketOpen == true
+                && lastQuoteAt.HasValue
+                && extendedTimestamp.HasValue
+                && extendedTimestamp.Value < lastQuoteAt.Value;
+
+            if (extendedPriceRaw is > 0 && !isStalePreMarketDuringOpenSession)
+            {
+                extendedPrice = extendedPriceRaw.Value;
+                extendedChange = ReadDecimal(root, "extended_change")
+                    ?? Math.Round(extendedPrice.Value - price.Value, 4);
+                extendedPercentChange = ReadDecimal(root, "extended_percent_change")
+                    ?? (price.Value > 0 ? Math.Round(extendedChange.Value / price.Value * 100m, 2) : 0m);
+
+                if (extendedTimestamp is > 0)
+                {
+                    var etZone = ResolveExchangeTimeZone("America/New_York");
+                    var etTime = TimeZoneInfo.ConvertTime(
+                        DateTimeOffset.FromUnixTimeSeconds(extendedTimestamp.Value),
+                        etZone);
+                    extendedQuoteTime = !string.IsNullOrWhiteSpace(extendedDatetime)
+                        ? NormalizeDisplayText(extendedDatetime, 64)
+                        : etTime.ToString("yyyy-MM-dd HH:mm 'ET'", CultureInfo.InvariantCulture);
+                    extendedSession = IsPreMarketLocalTime(etTime.Hour, etTime.Minute)
+                        ? "pre-market"
+                        : "after-hours";
+                }
+                else if (!string.IsNullOrWhiteSpace(extendedDatetime))
+                {
+                    extendedQuoteTime = NormalizeDisplayText(extendedDatetime, 64);
+                    extendedSession = DateTime.TryParse(extendedDatetime, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedEt)
+                        && IsPreMarketLocalTime(parsedEt.Hour, parsedEt.Minute)
+                        ? "pre-market"
+                        : "after-hours";
+                }
+                else
+                {
+                    extendedSession = "after-hours";
+                }
+            }
+
+            return new MarketQuote(
+                topic,
+                ReadString(root, "symbol", match.Symbol),
+                ReadString(root, "name", match.Name.Length > 0 ? match.Name : match.Symbol),
+                ReadString(root, "exchange", match.Exchange),
+                ReadString(root, "currency"),
+                price.Value,
+                ReadDecimal(root, "change") ?? 0,
+                ReadDecimal(root, "percent_change") ?? 0,
+                ReadString(root, "datetime"),
+                isMarketOpen,
+                "Twelve Data",
+                ExtendedPrice: extendedPrice,
+                ExtendedChange: extendedChange,
+                ExtendedPercentChange: extendedPercentChange,
+                ExtendedQuoteTime: extendedQuoteTime,
+                ExtendedSession: extendedSession);
         }
-        catch (InvalidOperationException exception) when (IsExtendedHoursUnsupported(exception))
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            document = await SendAsync(baseQuery, cancellationToken);
+            throw;
         }
-
-        using var _ = document;
-        var root = document.RootElement;
-        var price = ReadDecimal(root, "close");
-        if (price is null) throw new InvalidOperationException("The latest quote did not include a price.");
-
-        var isMarketOpen = ReadBoolean(root, "is_market_open");
-        var lastQuoteAt = ReadInt64(root, "last_quote_at");
-        var extendedPriceRaw = ReadDecimal(root, "extended_price");
-        var extendedTimestamp = ReadInt64(root, "extended_timestamp");
-        var extendedDatetime = ReadString(root, "extended_datetime");
-
-        decimal? extendedPrice = null;
-        decimal? extendedChange = null;
-        decimal? extendedPercentChange = null;
-        string? extendedQuoteTime = null;
-        string? extendedSession = null;
-
-        var isStalePreMarketDuringOpenSession = isMarketOpen == true
-            && lastQuoteAt.HasValue
-            && extendedTimestamp.HasValue
-            && extendedTimestamp.Value < lastQuoteAt.Value;
-
-        if (extendedPriceRaw is > 0 && !isStalePreMarketDuringOpenSession)
+        catch (InvalidOperationException exception) when (IsPlanRestriction(exception))
         {
-            extendedPrice = extendedPriceRaw.Value;
-            extendedChange = ReadDecimal(root, "extended_change")
-                ?? Math.Round(extendedPrice.Value - price.Value, 4);
-            extendedPercentChange = ReadDecimal(root, "extended_percent_change")
-                ?? (price.Value > 0 ? Math.Round(extendedChange.Value / price.Value * 100m, 2) : 0m);
-
-            if (extendedTimestamp is > 0)
-            {
-                var etZone = ResolveExchangeTimeZone("America/New_York");
-                var etTime = TimeZoneInfo.ConvertTime(
-                    DateTimeOffset.FromUnixTimeSeconds(extendedTimestamp.Value),
-                    etZone);
-                extendedQuoteTime = !string.IsNullOrWhiteSpace(extendedDatetime)
-                    ? NormalizeDisplayText(extendedDatetime, 64)
-                    : etTime.ToString("yyyy-MM-dd HH:mm 'ET'", CultureInfo.InvariantCulture);
-                extendedSession = IsPreMarketLocalTime(etTime.Hour, etTime.Minute)
-                    ? "pre-market"
-                    : "after-hours";
-            }
-            else if (!string.IsNullOrWhiteSpace(extendedDatetime))
-            {
-                extendedQuoteTime = NormalizeDisplayText(extendedDatetime, 64);
-                extendedSession = DateTime.TryParse(extendedDatetime, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedEt)
-                    && IsPreMarketLocalTime(parsedEt.Hour, parsedEt.Minute)
-                    ? "pre-market"
-                    : "after-hours";
-            }
-            else
-            {
-                extendedSession = "after-hours";
-            }
+            throw;
         }
-
-        return new MarketQuote(
-            topic,
-            ReadString(root, "symbol", match.Symbol),
-            ReadString(root, "name", match.Name.Length > 0 ? match.Name : match.Symbol),
-            ReadString(root, "exchange", match.Exchange),
-            ReadString(root, "currency"),
-            price.Value,
-            ReadDecimal(root, "change") ?? 0,
-            ReadDecimal(root, "percent_change") ?? 0,
-            ReadString(root, "datetime"),
-            isMarketOpen,
-            "Twelve Data",
-            ExtendedPrice: extendedPrice,
-            ExtendedChange: extendedChange,
-            ExtendedPercentChange: extendedPercentChange,
-            ExtendedQuoteTime: extendedQuoteTime,
-            ExtendedSession: extendedSession);
+        catch
+        {
+            return await RequestYahooQuoteAsync(topic, match, cancellationToken);
+        }
     }
 
     private async Task<decimal[]?> TryGetSparklineAsync(
@@ -1128,15 +1182,23 @@ public sealed class MarketDataService(
         {
             throw;
         }
+        catch (InvalidOperationException exception) when (IsPlanRestriction(exception))
+        {
+            return null;
+        }
         catch
         {
-            cache.Set(cacheKey, Array.Empty<decimal>(), TimeSpan.FromMinutes(10));
-            return null;
+            return await TryGetYahooSparklineAsync(match, cancellationToken);
         }
     }
 
+    private const string QuotaCooldownCacheKey = "twelvedata:quota-exhausted";
+
     private async Task<JsonDocument> SendAsync(string relativePath, CancellationToken cancellationToken)
     {
+        if (cache.TryGetValue(QuotaCooldownCacheKey, out string? cooldownMessage) && !string.IsNullOrEmpty(cooldownMessage))
+            throw new InvalidOperationException(cooldownMessage);
+
         using var request = new HttpRequestMessage(HttpMethod.Get, relativePath);
         request.Headers.Authorization = new AuthenticationHeaderValue("apikey", options.Value.ApiKey.Trim());
         using var response = await httpClient.SendAsync(
@@ -1144,7 +1206,18 @@ public sealed class MarketDataService(
             HttpCompletionOption.ResponseHeadersRead,
             cancellationToken);
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+        JsonDocument? document = null;
+        try
+        {
+            document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+        }
+        catch (JsonException) when (!response.IsSuccessStatusCode)
+        {
+            var fallbackMsg = $"Market pricing is temporarily unavailable ({(int)response.StatusCode}).";
+            if (IsQuotaOrRateLimit(response.StatusCode, fallbackMsg))
+                cache.Set(QuotaCooldownCacheKey, fallbackMsg, TimeSpan.FromMinutes(1));
+            throw new InvalidOperationException(fallbackMsg);
+        }
 
         if (response.IsSuccessStatusCode
             && (!document.RootElement.TryGetProperty("status", out var status)
@@ -1153,7 +1226,467 @@ public sealed class MarketDataService(
 
         var message = ReadString(document.RootElement, "message", "Market pricing is temporarily unavailable.");
         document.Dispose();
+        if (IsQuotaOrRateLimit(response.StatusCode, message))
+        {
+            var ttl = IsDailyQuotaExhausted(message)
+                ? TimeSpan.FromMinutes(15)
+                : TimeSpan.FromMinutes(1);
+            cache.Set(QuotaCooldownCacheKey, message, ttl);
+        }
         throw new InvalidOperationException(message);
+    }
+
+    private static string ArticleTopicMissCacheKey(string topic, string? overrideSymbol) =>
+        $"market-article-topic-miss:{topic}:{overrideSymbol ?? ""}".ToLowerInvariant();
+
+    private static bool IsQuotaOrRateLimit(HttpStatusCode statusCode, string message) =>
+        statusCode == HttpStatusCode.TooManyRequests || IsQuotaOrRateLimitMessage(message);
+
+    private static bool IsQuotaOrRateLimit(InvalidOperationException exception) =>
+        IsQuotaOrRateLimitMessage(exception.Message);
+
+    private static bool IsQuotaOrRateLimitMessage(string message) =>
+        message.Contains("API credits", StringComparison.OrdinalIgnoreCase)
+        || message.Contains("run out of API credits", StringComparison.OrdinalIgnoreCase)
+        || message.Contains("daily limit", StringComparison.OrdinalIgnoreCase)
+        || message.Contains("minute limit", StringComparison.OrdinalIgnoreCase)
+        || message.Contains("Too Many Requests", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsDailyQuotaExhausted(string message) =>
+        message.Contains("run out of API credits", StringComparison.OrdinalIgnoreCase)
+        || message.Contains("for the day", StringComparison.OrdinalIgnoreCase)
+        || message.Contains("daily limit", StringComparison.OrdinalIgnoreCase);
+
+    private async Task<JsonDocument> SendYahooAsync(string pathAndQuery, CancellationToken cancellationToken)
+    {
+        var uri = new Uri($"https://query1.finance.yahoo.com/{pathAndQuery.TrimStart('/')}");
+        using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+        request.Headers.UserAgent.Clear();
+        request.Headers.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+        request.Headers.Accept.Clear();
+        request.Headers.Accept.ParseAdd("application/json");
+        using var response = await httpClient.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorMessage = $"Market pricing is temporarily unavailable ({(int)response.StatusCode}).";
+            try
+            {
+                await using var errorStream = await response.Content.ReadAsStreamAsync(cancellationToken);
+                using var errorDoc = await JsonDocument.ParseAsync(errorStream, cancellationToken: cancellationToken);
+                if (errorDoc.RootElement.TryGetProperty("chart", out var errorChart)
+                    && errorChart.TryGetProperty("error", out var errorObj)
+                    && errorObj.ValueKind == JsonValueKind.Object)
+                {
+                    errorMessage = ReadString(errorObj, "description", errorMessage);
+                }
+            }
+            catch (JsonException) { }
+            throw new InvalidOperationException(errorMessage);
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        return await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+    }
+
+    private async Task<StockMatch?> FindYahooMatchAsync(string topic, CancellationToken cancellationToken)
+    {
+        using var document = await SendYahooAsync(
+            $"v1/finance/search?q={Uri.EscapeDataString(topic)}&quotesCount=10&newsCount=0",
+            cancellationToken);
+        if (!document.RootElement.TryGetProperty("quotes", out var quotes)
+            || quotes.ValueKind != JsonValueKind.Array)
+            return null;
+
+        foreach (var candidate in quotes.EnumerateArray())
+        {
+            var quoteType = ReadString(candidate, "quoteType");
+            if (!quoteType.Equals("EQUITY", StringComparison.OrdinalIgnoreCase)
+                && !quoteType.Equals("ETF", StringComparison.OrdinalIgnoreCase))
+                continue;
+            var rawSymbol = ReadString(candidate, "symbol");
+            var name = ReadString(candidate, "longname", ReadString(candidate, "shortname"));
+            var rawExchange = ReadString(candidate, "exchDisp", ReadString(candidate, "exchange"));
+            if (rawSymbol.Length == 0 || name.Length == 0) continue;
+            if (rawExchange.StartsWith("OTC", StringComparison.OrdinalIgnoreCase)
+                || rawExchange.Equals("PNK", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var (cleanSymbol, mappedExchange) = FromYahooSymbolAndExchange(rawSymbol, rawExchange, rawSymbol, "");
+            if (!IsConfidentMatch(topic, cleanSymbol, name)) continue;
+            return new StockMatch(cleanSymbol, name, mappedExchange);
+        }
+
+        return null;
+    }
+
+    private async Task<MarketQuote> RequestYahooQuoteAsync(
+        string topic,
+        StockMatch match,
+        CancellationToken cancellationToken)
+    {
+        var yahooSymbol = ToYahooSymbol(match);
+        using var document = await SendYahooAsync(
+            $"v8/finance/chart/{Uri.EscapeDataString(yahooSymbol)}?interval=15m&range=5d&includePrePost=true",
+            cancellationToken);
+        var result = ExtractYahooChartResult(document.RootElement);
+        var meta = result.GetProperty("meta");
+
+        var price = ReadDecimal(meta, "regularMarketPrice");
+        var previousClose = ReadDecimal(meta, "previousClose") ?? ReadDecimal(meta, "chartPreviousClose") ?? 0m;
+        var tzId = ReadString(meta, "exchangeTimezoneName");
+        var tz = ResolveExchangeTimeZone(tzId);
+        var regularMarketTime = ReadInt64(meta, "regularMarketTime");
+
+        long? preStart = null, regStart = null, regEnd = null, postStart = null, postEnd = null;
+        if (meta.TryGetProperty("currentTradingPeriod", out var periods) && periods.ValueKind == JsonValueKind.Object)
+        {
+            if (periods.TryGetProperty("pre", out var preObj) && preObj.ValueKind == JsonValueKind.Object)
+                preStart = ReadInt64(preObj, "start");
+            if (periods.TryGetProperty("regular", out var regObj) && regObj.ValueKind == JsonValueKind.Object)
+            {
+                regStart = ReadInt64(regObj, "start");
+                regEnd = ReadInt64(regObj, "end");
+            }
+            if (periods.TryGetProperty("post", out var postObj) && postObj.ValueKind == JsonValueKind.Object)
+            {
+                postStart = ReadInt64(postObj, "start");
+                postEnd = ReadInt64(postObj, "end");
+            }
+        }
+
+        var nowUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        bool? isMarketOpen = regStart.HasValue && regEnd.HasValue
+            ? nowUnix >= regStart.Value && nowUnix < regEnd.Value
+            : null;
+
+        long? latestBarTs = null;
+        decimal? latestBarClose = null;
+        decimal? latestRegularBarClose = null;
+        if (TryGetYahooCloseArrays(result, out var timestamps, out var closes))
+        {
+            var len = Math.Min(timestamps.GetArrayLength(), closes.GetArrayLength());
+            for (var i = 0; i < len; i++)
+            {
+                var close = ReadArrayDecimal(closes[i]);
+                if (close is not > 0 || !timestamps[i].TryGetInt64(out var ts)) continue;
+                latestBarTs = ts;
+                latestBarClose = close.Value;
+                if (!regStart.HasValue || !regEnd.HasValue || (ts >= regStart.Value && ts <= regEnd.Value))
+                    latestRegularBarClose = close.Value;
+            }
+        }
+
+        price ??= latestRegularBarClose ?? latestBarClose;
+        if (price is null || price.Value <= 0)
+            throw new InvalidOperationException("The latest quote did not include a price.");
+
+        var change = ReadDecimal(meta, "fulldayChange")
+            ?? (previousClose > 0 ? Math.Round(price.Value - previousClose, 4) : 0m);
+        var percentChange = ReadDecimal(meta, "regularMarketChangePercent")
+            ?? (previousClose > 0 ? Math.Round(change / previousClose * 100m, 2) : 0m);
+        var quoteTime = regularMarketTime is > 0
+            ? TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(regularMarketTime.Value), tz)
+                .ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)
+            : "";
+
+        decimal? extendedPrice = null;
+        decimal? extendedChange = null;
+        decimal? extendedPercentChange = null;
+        string? extendedQuoteTime = null;
+        string? extendedSession = null;
+
+        var hasPrePost = ReadBoolean(meta, "hasPrePostMarketData") == true;
+        if (isMarketOpen != true
+            && hasPrePost
+            && latestBarTs.HasValue
+            && latestBarClose is > 0
+            && (!regularMarketTime.HasValue || latestBarTs.Value > regularMarketTime.Value))
+        {
+            if ((postStart.HasValue && postEnd.HasValue && latestBarTs.Value >= postStart.Value && latestBarTs.Value <= postEnd.Value)
+                || (regEnd.HasValue && latestBarTs.Value >= regEnd.Value))
+            {
+                extendedSession = "after-hours";
+                extendedPrice = Math.Round(latestBarClose.Value, 4);
+            }
+            else if (preStart.HasValue && regStart.HasValue && latestBarTs.Value >= preStart.Value && latestBarTs.Value < regStart.Value)
+            {
+                extendedSession = "pre-market";
+                extendedPrice = Math.Round(latestBarClose.Value, 4);
+            }
+
+            if (extendedPrice is > 0)
+            {
+                extendedChange = Math.Round(extendedPrice.Value - price.Value, 4);
+                extendedPercentChange = price.Value > 0 ? Math.Round(extendedChange.Value / price.Value * 100m, 2) : 0m;
+                var etZone = ResolveExchangeTimeZone("America/New_York");
+                extendedQuoteTime = TimeZoneInfo.ConvertTime(
+                    DateTimeOffset.FromUnixTimeSeconds(latestBarTs.Value),
+                    etZone).ToString("yyyy-MM-dd HH:mm 'ET'", CultureInfo.InvariantCulture);
+            }
+        }
+
+        var (resolvedSymbol, resolvedExchange) = FromYahooSymbolAndExchange(
+            ReadString(meta, "symbol", yahooSymbol),
+            ReadString(meta, "exchangeName", match.Exchange),
+            match.Symbol,
+            match.Exchange);
+        var displayName = ReadString(meta, "longName", ReadString(meta, "shortName", match.Name.Length > 0 ? match.Name : resolvedSymbol));
+        var currency = ReadString(meta, "currency");
+
+        return new MarketQuote(
+            topic,
+            resolvedSymbol,
+            displayName,
+            resolvedExchange,
+            currency,
+            price.Value,
+            change,
+            percentChange,
+            quoteTime,
+            isMarketOpen,
+            "Yahoo Finance",
+            ExtendedPrice: extendedPrice,
+            ExtendedChange: extendedChange,
+            ExtendedPercentChange: extendedPercentChange,
+            ExtendedQuoteTime: extendedQuoteTime,
+            ExtendedSession: extendedSession);
+    }
+
+    private async Task<decimal[]?> TryGetYahooSparklineAsync(
+        StockMatch match,
+        CancellationToken cancellationToken)
+    {
+        var cacheKey = $"market-sparkline:{match.Symbol}:{match.Exchange}".ToLowerInvariant();
+        try
+        {
+            var yahooSymbol = ToYahooSymbol(match);
+            using var document = await SendYahooAsync(
+                $"v8/finance/chart/{Uri.EscapeDataString(yahooSymbol)}?interval=1d&range=1mo",
+                cancellationToken);
+            var result = ExtractYahooChartResult(document.RootElement);
+            if (!TryGetYahooCloseArrays(result, out _, out var closes))
+            {
+                cache.Set(cacheKey, Array.Empty<decimal>(), TimeSpan.FromMinutes(10));
+                return null;
+            }
+
+            var points = new List<decimal>(32);
+            foreach (var item in closes.EnumerateArray())
+            {
+                var close = ReadArrayDecimal(item);
+                if (close is > 0)
+                    points.Add(close.Value);
+            }
+
+            if (points.Count < 2)
+            {
+                cache.Set(cacheKey, Array.Empty<decimal>(), TimeSpan.FromMinutes(10));
+                return null;
+            }
+
+            var sliced = points.TakeLast(14).ToArray();
+            cache.Set(cacheKey, sliced, TimeSpan.FromMinutes(60));
+            return sliced;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            cache.Set(cacheKey, Array.Empty<decimal>(), TimeSpan.FromMinutes(10));
+            return null;
+        }
+    }
+
+    private async Task<List<RawSeriesBar>> FetchYahooTimeSeriesBarsAsync(
+        StockMatch match,
+        string interval,
+        int outputSize,
+        bool isHourly,
+        CancellationToken cancellationToken)
+    {
+        var yahooSymbol = ToYahooSymbol(match);
+        var range = isHourly
+            ? "1mo"
+            : outputSize <= 30 ? "1mo"
+            : outputSize <= 90 ? "3mo"
+            : outputSize <= 180 ? "6mo"
+            : "2y";
+        var yahooInterval = isHourly ? "1h" : "1d";
+
+        using var document = await SendYahooAsync(
+            $"v8/finance/chart/{Uri.EscapeDataString(yahooSymbol)}?interval={yahooInterval}&range={range}",
+            cancellationToken);
+        var result = ExtractYahooChartResult(document.RootElement);
+        if (!TryGetYahooCloseArrays(result, out var timestamps, out var closes))
+            return [];
+
+        JsonElement opens = default;
+        var hasOpens = result.TryGetProperty("indicators", out var indicators)
+            && indicators.TryGetProperty("quote", out var quoteArr)
+            && quoteArr.ValueKind == JsonValueKind.Array
+            && quoteArr.GetArrayLength() > 0
+            && quoteArr[0].TryGetProperty("open", out opens)
+            && opens.ValueKind == JsonValueKind.Array;
+
+        var tzId = result.TryGetProperty("meta", out var meta) ? ReadString(meta, "exchangeTimezoneName") : "";
+        var tz = ResolveExchangeTimeZone(tzId);
+
+        var rows = new List<RawSeriesBar>(outputSize);
+        var len = Math.Min(timestamps.GetArrayLength(), closes.GetArrayLength());
+        for (var i = 0; i < len; i++)
+        {
+            var close = ReadArrayDecimal(closes[i]);
+            if (close is not > 0 || !timestamps[i].TryGetInt64(out var ts)) continue;
+            var open = (hasOpens && i < opens.GetArrayLength() ? ReadArrayDecimal(opens[i]) : null) ?? close.Value;
+
+            var utcFromEpoch = DateTimeOffset.FromUnixTimeSeconds(ts).ToUniversalTime();
+            var localDt = TimeZoneInfo.ConvertTime(utcFromEpoch, tz);
+            var date = DateOnly.FromDateTime(localDt.DateTime);
+
+            if (isHourly)
+            {
+                var quoteTime = localDt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+                rows.Add(new RawSeriesBar(utcFromEpoch, date, quoteTime, open, close.Value, true));
+            }
+            else
+            {
+                var localClose = date.ToDateTime(new TimeOnly(16, 0, 0), DateTimeKind.Unspecified);
+                var offset = tz.GetUtcOffset(localClose);
+                var closeUtc = new DateTimeOffset(localClose, offset).ToUniversalTime();
+                var quoteTime = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                rows.Add(new RawSeriesBar(closeUtc, date, quoteTime, open, close.Value, false));
+            }
+        }
+
+        rows.Sort((a, b) => a.Utc.CompareTo(b.Utc));
+        if (rows.Count > outputSize)
+            rows = rows.Skip(rows.Count - outputSize).ToList();
+        return rows;
+    }
+
+    private static JsonElement ExtractYahooChartResult(JsonElement root)
+    {
+        if (!root.TryGetProperty("chart", out var chart) || chart.ValueKind != JsonValueKind.Object)
+            throw new InvalidOperationException("Market pricing is temporarily unavailable.");
+        if (chart.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.Object)
+            throw new InvalidOperationException(ReadString(error, "description", "Market pricing is temporarily unavailable."));
+        if (!chart.TryGetProperty("result", out var results)
+            || results.ValueKind != JsonValueKind.Array
+            || results.GetArrayLength() == 0)
+            throw new InvalidOperationException("The latest quote did not include a price.");
+        return results[0];
+    }
+
+    private static bool TryGetYahooCloseArrays(JsonElement result, out JsonElement timestamps, out JsonElement closes)
+    {
+        timestamps = default;
+        closes = default;
+        if (!result.TryGetProperty("timestamp", out timestamps) || timestamps.ValueKind != JsonValueKind.Array)
+            return false;
+        if (!result.TryGetProperty("indicators", out var indicators)
+            || !indicators.TryGetProperty("quote", out var quotes)
+            || quotes.ValueKind != JsonValueKind.Array
+            || quotes.GetArrayLength() == 0
+            || !quotes[0].TryGetProperty("close", out closes)
+            || closes.ValueKind != JsonValueKind.Array)
+            return false;
+        return true;
+    }
+
+    private static decimal? ReadArrayDecimal(JsonElement value) =>
+        value.ValueKind == JsonValueKind.Number
+        && decimal.TryParse(value.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : null;
+
+    private static string ToYahooSymbol(StockMatch match)
+    {
+        var symbol = match.Symbol.Trim().ToUpperInvariant();
+        var exchange = match.Exchange.Trim().ToUpperInvariant();
+        if (exchange.Length == 0 || exchange is "NASDAQ" or "NYSE" or "AMEX" or "NMS" or "NGM" or "NCM" or "NYQ" or "ASE" or "PCX" or "BATS")
+            return symbol.Replace('.', '-');
+
+        var suffix = exchange switch
+        {
+            "NZX" or "XNZE" or "NZE" => ".NZ",
+            "ASX" or "XASX" => ".AX",
+            "LSE" or "XLON" => ".L",
+            "TSX" or "XTSE" => ".TO",
+            "TSXV" or "XTSX" => ".V",
+            "HKEX" or "XHKG" => ".HK",
+            "NSE" => ".NS",
+            "BSE" => ".BO",
+            "JPX" or "TYO" or "XTKS" => ".T",
+            "FRA" or "XETR" or "ETR" => ".DE",
+            "EPA" or "XPAR" => ".PA",
+            "AMS" or "XAMS" => ".AS",
+            "SWX" or "XSWX" => ".SW",
+            "SGX" or "XSES" => ".SI",
+            _ => "",
+        };
+        return suffix.Length > 0 && !symbol.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)
+            ? symbol + suffix
+            : symbol;
+    }
+
+    private static (string Symbol, string Exchange) FromYahooSymbolAndExchange(
+        string yahooSymbol,
+        string yahooExchange,
+        string fallbackSymbol,
+        string fallbackExchange)
+    {
+        var cleanSymbol = yahooSymbol.Trim().ToUpperInvariant();
+        var mappedExchange = yahooExchange.Trim().ToUpperInvariant() switch
+        {
+            "NZE" or "XNZE" => "NZX",
+            "NMS" or "NGM" or "NCM" or "NASDAQGS" or "NASDAQGM" or "NASDAQCM" => "NASDAQ",
+            "NYQ" or "NYSE" => "NYSE",
+            "ASE" or "AMEX" => "AMEX",
+            "ASX" or "XASX" => "ASX",
+            "LSE" or "XLON" => "LSE",
+            "TOR" or "TSX" or "XTSE" => "TSX",
+            "HKG" or "HKEX" or "XHKG" => "HKEX",
+            _ => string.IsNullOrWhiteSpace(yahooExchange) ? fallbackExchange : yahooExchange.Trim().ToUpperInvariant(),
+        };
+
+        foreach (var (suffix, exchangeForSuffix) in new[]
+        {
+            (".NZ", "NZX"),
+            (".AX", "ASX"),
+            (".L", "LSE"),
+            (".TO", "TSX"),
+            (".V", "TSXV"),
+            (".HK", "HKEX"),
+            (".NS", "NSE"),
+            (".BO", "BSE"),
+            (".T", "TYO"),
+            (".DE", "XETR"),
+            (".PA", "EPA"),
+            (".AS", "AMS"),
+            (".SW", "SWX"),
+            (".SI", "SGX"),
+        })
+        {
+            if (cleanSymbol.EndsWith(suffix, StringComparison.OrdinalIgnoreCase) && cleanSymbol.Length > suffix.Length)
+            {
+                cleanSymbol = cleanSymbol[..^suffix.Length];
+                if (string.IsNullOrWhiteSpace(fallbackExchange))
+                    mappedExchange = exchangeForSuffix;
+                break;
+            }
+        }
+
+        if (cleanSymbol.Length == 0 || string.Equals(cleanSymbol.Replace('-', '.'), fallbackSymbol, StringComparison.OrdinalIgnoreCase))
+            cleanSymbol = fallbackSymbol;
+        if (!string.IsNullOrWhiteSpace(fallbackExchange))
+            mappedExchange = fallbackExchange;
+        return (cleanSymbol, mappedExchange);
     }
 
     private static bool IsConfidentMatch(string topic, string symbol, string instrumentName)

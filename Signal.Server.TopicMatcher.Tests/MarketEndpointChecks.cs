@@ -271,6 +271,31 @@ internal static class MarketEndpointChecks
         var fallback = await service.GetForTopicAsync("Amazon", null, CancellationToken.None);
         Check(fallback?.Price == 210.5m && fallback.ExtendedPrice is null && handler.AmazonRequests == 2,
             "MarketDataService must fall back cleanly without prepost=true when pre/post is unavailable.");
+
+        var quotaHandler = new QuotaExhaustedYahooFallbackHandler();
+        using var quotaHttp = new HttpClient(quotaHandler) { BaseAddress = new("https://api.twelvedata.com/") };
+        using var quotaCache = new Microsoft.Extensions.Caching.Memory.MemoryCache(
+            new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions());
+        var quotaService = new MarketDataService(
+            quotaHttp,
+            quotaCache,
+            Microsoft.Extensions.Options.Options.Create(new MarketDataOptions { ApiKey = "test-only" }));
+
+        var yahooQuote = await quotaService.GetForTopicAsync("Apple", null, CancellationToken.None, includeSparkline: true);
+        Check(yahooQuote is not null
+            && yahooQuote.Symbol == "AAPL"
+            && yahooQuote.Price == 352.205m
+            && yahooQuote.Provider == "Yahoo Finance"
+            && yahooQuote.Sparkline is { Length: >= 2 }
+            && quotaHandler.TwelveDataRequests == 1,
+            "MarketDataService must cache Twelve Data quota exhaustion and fall back to Yahoo Finance for quotes and sparklines.");
+
+        var secondYahooQuote = await quotaService.GetForTopicAsync("Microsoft", null, CancellationToken.None, includeSparkline: true);
+        Check(secondYahooQuote is not null
+            && secondYahooQuote.Symbol == "MSFT"
+            && secondYahooQuote.Provider == "Yahoo Finance"
+            && quotaHandler.TwelveDataRequests == 1,
+            "Cached Twelve Data quota cooldown must prevent subsequent topics from hitting Twelve Data again.");
     }
 
     private static async Task CheckDesktopRequestsAsync(HttpClient client)
@@ -393,6 +418,67 @@ internal static class MarketEndpointChecks
                     "{\"symbol\":\"NVDA\",\"name\":\"NVIDIA\",\"close\":\"155.46\",\"percent_change\":\"-0.44\",\"is_market_open\":false,\"last_quote_at\":1794949140,\"extended_price\":\"162.8\",\"extended_change\":\"7.34\",\"extended_percent_change\":\"4.72147\",\"extended_timestamp\":1794963540}",
                     Encoding.UTF8,
                     "application/json"),
+            });
+        }
+    }
+
+    private sealed class QuotaExhaustedYahooFallbackHandler : HttpMessageHandler
+    {
+        public int TwelveDataRequests;
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.RequestUri!.Host.Equals("api.twelvedata.com", StringComparison.OrdinalIgnoreCase))
+            {
+                TwelveDataRequests++;
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+                {
+                    Content = new StringContent(
+                        "{\"code\":429,\"message\":\"You have run out of API credits for the day. 2559 API credits were used, with the current limit being 800.\",\"status\":\"error\"}",
+                        Encoding.UTF8,
+                        "application/json"),
+                });
+            }
+
+            var path = request.RequestUri.AbsolutePath;
+            var symbol = path.EndsWith("/MSFT", StringComparison.OrdinalIgnoreCase) ? "MSFT" : "AAPL";
+            var price = symbol == "MSFT" ? "502.83" : "352.205";
+            var prev = symbol == "MSFT" ? "500.0" : "343.46";
+            var payload = $$"""
+                {
+                  "chart": {
+                    "result": [
+                      {
+                        "meta": {
+                          "currency": "USD",
+                          "symbol": "{{symbol}}",
+                          "exchangeName": "NMS",
+                          "exchangeTimezoneName": "America/New_York",
+                          "regularMarketTime": 1795017173,
+                          "hasPrePostMarketData": false,
+                          "regularMarketPrice": {{price}},
+                          "previousClose": {{prev}},
+                          "fulldayChange": 8.745,
+                          "regularMarketChangePercent": 2.546,
+                          "longName": "{{symbol}} Inc.",
+                          "currentTradingPeriod": {
+                            "regular": { "start": 1795012200, "end": 1795035600 }
+                          }
+                        },
+                        "timestamp": [1794900000, 1794986400, 1795017000],
+                        "indicators": {
+                          "quote": [
+                            { "close": [340.0, {{prev}}, {{price}}] }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                }
+                """;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(payload, Encoding.UTF8, "application/json"),
             });
         }
     }

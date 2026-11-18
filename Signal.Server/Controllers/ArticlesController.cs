@@ -85,16 +85,24 @@ public sealed class ArticlesController(
         if (marketData is { IsConfigured: true } && normalized.Length > 0)
         {
             var indexedArticles = normalized
-                .Select((item, index) => (
-                    Key: (long)index,
-                    Title: item.Title,
-                    Topics: item.Topics,
-                    PublishedAtUtc: item.PublishedAtUtc))
+                .Select((item, index) => (Item: item, Key: (long)index))
+                .Where(entry => entry.Item.MarketQuotes.Length == 0
+                    && (!byUrl.TryGetValue(entry.Item.Url, out var existingRow)
+                        || string.IsNullOrWhiteSpace(existingRow.MarketQuotesJson)
+                        || existingRow.MarketQuotesJson == "[]"))
+                .Select(entry => (
+                    Key: entry.Key,
+                    Title: entry.Item.Title,
+                    Topics: entry.Item.Topics,
+                    PublishedAtUtc: entry.Item.PublishedAtUtc))
                 .ToArray();
-            resolvedByIndex = await marketData.ResolveQuotesForArticlesAsync(
-                indexedArticles,
-                tickerOverrides,
-                cancellationToken);
+            if (indexedArticles.Length > 0)
+            {
+                resolvedByIndex = await marketData.ResolveQuotesForArticlesAsync(
+                    indexedArticles,
+                    tickerOverrides,
+                    cancellationToken);
+            }
         }
 
         var itemIndex = -1L;

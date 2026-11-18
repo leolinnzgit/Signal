@@ -463,16 +463,35 @@ public sealed class TopicRefreshService(
         if (marketData is { IsConfigured: true } && articles.Count > 0)
         {
             var indexedArticles = articles
-                .Select((article, index) => (
-                    Key: (long)index,
-                    Title: article.Title,
-                    Topics: article.Topics,
-                    PublishedAtUtc: article.PublishedAt.UtcDateTime))
+                .Select((article, index) => (Article: article, Key: (long)index))
+                .Where(entry =>
+                {
+                    if (entry.Article.MarketQuotes is { Length: > 0 })
+                        return false;
+                    foreach (var candidateUrl in ArticleIdentity.GetUrlLookupCandidates(entry.Article.Url))
+                    {
+                        if (byUrl.TryGetValue(candidateUrl, out var existingRow)
+                            && !string.IsNullOrWhiteSpace(existingRow.MarketQuotesJson)
+                            && existingRow.MarketQuotesJson != "[]")
+                        {
+                            return false;
+                        }
+                    }
+                    return true;
+                })
+                .Select(entry => (
+                    Key: entry.Key,
+                    Title: entry.Article.Title,
+                    Topics: entry.Article.Topics,
+                    PublishedAtUtc: entry.Article.PublishedAt.UtcDateTime))
                 .ToArray();
-            resolvedByIndex = await marketData.ResolveQuotesForArticlesAsync(
-                indexedArticles,
-                tickerOverrides,
-                cancellationToken);
+            if (indexedArticles.Length > 0)
+            {
+                resolvedByIndex = await marketData.ResolveQuotesForArticlesAsync(
+                    indexedArticles,
+                    tickerOverrides,
+                    cancellationToken);
+            }
         }
 
         var newlyAvailableTopicKeys = new HashSet<string>(StringComparer.Ordinal);
