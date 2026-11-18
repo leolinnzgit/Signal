@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createHandGestureDetector, handGestureTopic } from "../app/hand-gestures.ts";
 
@@ -135,4 +136,17 @@ test("raising a hand into view or making a smaller horizontal flick still trigge
   detector.update(frame("Open_Palm", { x: 0.5, y: 0.62 }), 0);
   detector.update(frame("Open_Palm", { x: 0.5, y: 0.5 }), 60);
   assert.equal(detector.update(frame("Open_Palm", { x: 0.35, y: 0.5 }), 140).action, "next");
+});
+
+test("floating gesture launcher keeps the same inset and button sizing breakpoints as floating navigation", () => {
+  const gestureCss = readFileSync(new URL("../app/hand-gestures.css", import.meta.url), "utf8");
+  const globalsCss = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+
+  assert.match(globalsCss, /@media\s*\(max-width:\s*900px\)[\s\S]*?\.floating-navigation\s*\{\s*--floating-navigation-inset:\s*0\.75rem;\s*\}/);
+  assert.match(globalsCss, /@media\s*\(max-width:\s*560px\)[\s\S]*?\.floating-navigation\s*\{\s*--floating-navigation-inset:\s*0\.5rem;/);
+  assert.match(globalsCss, /@media\s*\(max-width:\s*560px\)[\s\S]*?\.floating-next-unread\s*\{\s*width:\s*2\.4rem;\s*height:\s*2\.4rem;\s*font-size:\s*1\.05rem;\s*\}/);
+
+  assert.match(gestureCss, /\.hand-gesture-dock\s+\.hand-gesture-launch\s*\{[^}]*width:\s*3rem;\s*height:\s*3rem;\s*min-height:\s*0;[^}]*font-size:\s*1\.25rem;\s*line-height:\s*1;/);
+  assert.match(gestureCss, /@media\s*\(max-width:\s*900px\)\s*\{\s*\.hand-gesture-dock\s*\{\s*--floating-navigation-inset:\s*0\.75rem;\s*\}\s*\}/);
+  assert.match(gestureCss, /@media\s*\(max-width:\s*560px\)\s*\{\s*\.hand-gesture-dock\s*\{\s*--floating-navigation-inset:\s*0\.5rem;\s*\}\s*\.hand-gesture-dock:not\(\.hand-gesture-guide-open\)\s+\.hand-gesture-launch\s*\{\s*width:\s*2\.4rem;\s*height:\s*2\.4rem;\s*font-size:\s*1\.05rem;\s*\}\s*\}/);
 });

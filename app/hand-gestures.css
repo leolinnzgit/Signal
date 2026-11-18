@@ -23,7 +23,7 @@
 [data-theme="dark"] .hand-gesture-dock { background: #242720; color: #f5f2e9; border-color: #74796c; }
 [data-theme="dark"] .hand-gesture-guide-actions { background: #242720; }
 .hand-gesture-dock:not(.hand-gesture-guide-open) { width: auto; padding: 0; border: 0; background: transparent; box-shadow: none; }
-.hand-gesture-dock .hand-gesture-launch { display: inline-flex; position: relative; align-items: center; justify-content: center; gap: 8px; width: 3rem; height: 3rem; padding: 0; border-radius: 50%; border: 1px solid var(--page-text, var(--line)); background: var(--page-background, var(--content-background)); color: var(--page-text); box-shadow: 0 0.75rem 2rem var(--shadow, #0003); font-size: 1.25rem; }
+.hand-gesture-dock .hand-gesture-launch { display: inline-flex; position: relative; align-items: center; justify-content: center; gap: 8px; width: 3rem; height: 3rem; min-height: 0; padding: 0; border-radius: 50%; border: 1px solid var(--page-text, var(--line)); background: var(--page-background, var(--content-background)); color: var(--page-text); box-shadow: 0 0.75rem 2rem var(--shadow, #0003); font-size: 1.25rem; line-height: 1; }
 .hand-gesture-button-label { display: none; }
 .hand-gesture-guide-open .hand-gesture-launch { width: auto; height: auto; min-height: 38px; padding: 6px 10px; border-radius: 8px; font-size: 16px; box-shadow: none; }
 .hand-gesture-guide-open .hand-gesture-button-label { display: inline; font-size: 13px; }
@@ -51,7 +51,10 @@
 .hand-gesture-monitor:has(.eye-gesture-scores) { width: 194px; }
 .hand-gesture-monitor:has(.eye-gesture-scores) canvas { width: 178px; height: 134px; }
 .hand-gesture-dock:has(.eye-gesture-scores) .hand-gesture-toast.above-monitor { bottom: calc(100% + 315px); }
-@media (max-width: 640px) {
-  .hand-gesture-dock { --floating-navigation-inset: 1rem; }
-  .hand-gesture-dock:not(.hand-gesture-guide-open) .hand-gesture-launch { width: 2.75rem; height: 2.75rem; }
+@media (max-width: 900px) {
+  .hand-gesture-dock { --floating-navigation-inset: 0.75rem; }
+}
+@media (max-width: 560px) {
+  .hand-gesture-dock { --floating-navigation-inset: 0.5rem; }
+  .hand-gesture-dock:not(.hand-gesture-guide-open) .hand-gesture-launch { width: 2.4rem; height: 2.4rem; font-size: 1.05rem; }
 }

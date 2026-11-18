@@ -93,7 +93,8 @@ export default function HandGestureControls() {
       }
       setFloatingSide(nextSide);
       const navRect = nav && target?.classList.contains("signal-dashboard") ? nav.getBoundingClientRect() : null;
-      setNavOffset(navRect && navRect.height > 0 ? Math.max(0, Math.round(innerHeight - navRect.top + 10)) : 0);
+      const navGap = nav ? (Number.parseFloat(getComputedStyle(nav).rowGap || getComputedStyle(nav).gap) || 10) : 10;
+      setNavOffset(navRect && navRect.height > 0 ? Math.max(0, Math.round(innerHeight - navRect.top + navGap)) : 0);
     };
     updateHost();
     const observer = new MutationObserver(updateHost);
