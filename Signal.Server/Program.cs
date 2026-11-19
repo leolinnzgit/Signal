@@ -123,7 +123,11 @@ builder.Services.AddAntiforgery(options =>
 });
 builder.Services.AddControllersWithViews(options =>
     options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute()));
-builder.Services.AddAuthorization();
+builder.Services.AddAuthentication()
+    .AddScheme<ApiKeyAuthenticationOptions, ApiKeyAuthenticationHandler>(
+        ApiKeyAuthenticationDefaults.AuthenticationScheme,
+        _ => { });
+builder.Services.AddAuthorization(ApiKeyAuthorization.Configure);
 builder.Services.AddRateLimiter(SignalRateLimiting.Configure);
 builder.Services.AddRateLimiter(options => options.AddPolicy("audio", context => RateLimitPartition.GetFixedWindowLimiter(
     context.User.Identity?.Name ?? context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
@@ -263,6 +267,7 @@ builder.Services.AddHttpClient<ArticleReaderService>(client =>
 builder.Services.AddScoped<TripwireEvaluatorService>();
 builder.Services.AddScoped<TopicRefreshService>();
 builder.Services.AddScoped<OpenCoverageService>();
+builder.Services.AddScoped<ApiKeyService>();
 builder.Services.Configure<MicrosoftFoundryOptions>(options =>
     MicrosoftFoundryOptions.BindConfiguration(options, builder.Configuration));
 builder.Services.AddHttpClient(MicrosoftFoundryService.HttpClientName, client =>
@@ -637,6 +642,28 @@ await using (var scope = app.Services.CreateAsyncScope())
         "CREATE INDEX IF NOT EXISTS \"IX_ProductWatches_UserId_Enabled\" ON \"ProductWatches\" (\"UserId\", \"Enabled\");");
     await database.Database.ExecuteSqlRawAsync(
         "CREATE INDEX IF NOT EXISTS \"IX_ProductWatches_Enabled_NextCheckAtUtc\" ON \"ProductWatches\" (\"Enabled\", \"NextCheckAtUtc\");");
+
+    await database.Database.ExecuteSqlRawAsync(
+        """
+        CREATE TABLE IF NOT EXISTS "ApiKeys" (
+            "Id" TEXT NOT NULL CONSTRAINT "PK_ApiKeys" PRIMARY KEY,
+            "UserId" TEXT NOT NULL,
+            "Name" TEXT NOT NULL,
+            "KeyPrefix" TEXT NOT NULL,
+            "KeyHash" TEXT NOT NULL,
+            "ScopesJson" TEXT NOT NULL DEFAULT '["news:read"]',
+            "CreatedAtUtc" TEXT NOT NULL,
+            "ExpiresAtUtc" TEXT NULL,
+            "LastUsedAtUtc" TEXT NULL,
+            "RevokedAtUtc" TEXT NULL,
+            CONSTRAINT "FK_ApiKeys_AspNetUsers_UserId"
+                FOREIGN KEY ("UserId") REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE
+        );
+        """);
+    await database.Database.ExecuteSqlRawAsync(
+        "CREATE UNIQUE INDEX IF NOT EXISTS \"IX_ApiKeys_KeyHash\" ON \"ApiKeys\" (\"KeyHash\");");
+    await database.Database.ExecuteSqlRawAsync(
+        "CREATE INDEX IF NOT EXISTS \"IX_ApiKeys_UserId_RevokedAtUtc\" ON \"ApiKeys\" (\"UserId\", \"RevokedAtUtc\");");
 
     await database.Database.OpenConnectionAsync();
     try

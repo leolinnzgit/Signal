@@ -33,6 +33,14 @@ public static class SignalRateLimiting
             return context.User.Identity?.IsAuthenticated == true && user is not null
                 ? Limit($"user:{user}", 240) : Limit(Ip(context), 60);
         });
+        options.AddPolicy("news-extract", context =>
+        {
+            var keyId = context.User.FindFirstValue(ApiKeyAuthenticationDefaults.KeyIdClaimType);
+            if (!string.IsNullOrEmpty(keyId)) return Limit($"apikey:{keyId}", 60);
+            var user = context.User.FindFirstValue(ClaimTypes.NameIdentifier);
+            return context.User.Identity?.IsAuthenticated == true && user is not null
+                ? Limit($"user:{user}:news", 240) : Limit(Ip(context), 30);
+        });
     }
 
     private static string Ip(HttpContext context) => $"ip:{context.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";

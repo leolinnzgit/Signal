@@ -743,6 +743,157 @@ main {
   box-shadow: 0 0 0 4px rgba(200, 63, 50, 0.12);
 }
 .delivery-dot.connected { background: #27864a; box-shadow: 0 0 0 4px rgba(39, 134, 74, 0.12); }
+.api-keys-settings {
+  margin-top: 1.5rem;
+  border: 1px solid var(--line);
+  padding: 1rem;
+  background: var(--input-background);
+  display: grid;
+  gap: 0.85rem;
+}
+.api-keys-header h3 { margin: 0; font-size: 0.9rem; }
+.api-keys-header p { margin: 0.35rem 0 0; color: var(--sage); font-size: 0.72rem; line-height: 1.45; }
+.api-keys-header code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.68rem;
+  padding: 0.08rem 0.25rem;
+  border: 1px solid var(--line);
+  background: var(--page-background);
+}
+.api-key-create-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+.api-key-create-form input,
+.api-key-create-form select {
+  min-height: 2.35rem;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  padding: 0.4rem 0.6rem;
+  background: var(--page-background);
+  color: var(--page-text);
+  font-size: 0.75rem;
+  min-width: 0;
+}
+.api-key-create-form input:focus,
+.api-key-create-form select:focus {
+  outline: none;
+  border-color: var(--red);
+}
+.api-key-create-form button,
+.api-key-copy-button,
+.api-key-revoke {
+  min-height: 2.35rem;
+  border: 1px solid var(--line);
+  padding: 0.45rem 0.7rem;
+  background: var(--page-background);
+  color: var(--page-text);
+  cursor: pointer;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.api-key-create-form button {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+.api-key-create-form button:hover:not(:disabled) { background: var(--red); border-color: var(--red); }
+.api-key-copy-button:hover:not(:disabled) { border-color: var(--red); color: var(--red); }
+.api-key-revoke { color: var(--red); min-height: 1.9rem; padding: 0.3rem 0.55rem; }
+.api-key-revoke:hover:not(:disabled) { border-color: var(--red); background: rgba(200, 63, 50, 0.08); }
+.api-key-create-form button:disabled,
+.api-key-revoke:disabled { opacity: 0.58; cursor: wait; }
+.api-key-secret-box {
+  border: 1px solid var(--market-up);
+  padding: 0.8rem;
+  background: var(--page-background);
+  display: grid;
+  gap: 0.55rem;
+}
+.api-key-secret-title {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--market-up);
+}
+.api-key-secret-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.45rem;
+  align-items: center;
+}
+.api-key-secret-input {
+  width: 100%;
+  min-height: 2.25rem;
+  border: 1px solid var(--line);
+  padding: 0.35rem 0.55rem;
+  background: var(--input-background);
+  color: var(--page-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+}
+.api-key-curl {
+  margin: 0;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--line);
+  background: var(--input-background);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.66rem;
+  line-height: 1.4;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.api-key-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.55rem;
+}
+.api-key-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.6rem;
+  align-items: center;
+  border: 1px solid var(--line);
+  padding: 0.6rem 0.7rem;
+  background: var(--page-background);
+}
+.api-key-meta { display: grid; gap: 0.2rem; min-width: 0; }
+.api-key-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+.api-key-title-row strong {
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+.api-key-prefix,
+.api-key-scope {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.64rem;
+  padding: 0.08rem 0.32rem;
+  border: 1px solid var(--line);
+  color: var(--text-muted);
+}
+.api-key-dates {
+  font-size: 0.66rem;
+  color: var(--sage);
+  line-height: 1.4;
+}
+.api-key-dates .expired { color: var(--red); font-weight: 700; }
+.api-keys-empty { margin: 0; color: var(--sage); font-size: 0.72rem; }
+@media (max-width: 560px) {
+  .api-key-create-form { grid-template-columns: minmax(0, 1fr); }
+}
 .account-signout {
   width: 100%;
   margin-top: 2rem;

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -17,14 +18,22 @@ public sealed class NewsService(HttpClient httpClient)
     private const string GdeltDocApi = "https://api.gdeltproject.org/api/v2/doc/doc";
     private const int MaxFeedBytes = 1_500_000;
 
+    public Task<NewsResult> GetGoogleNewsAsync(
+        string topic,
+        int limit,
+        CancellationToken cancellationToken) =>
+        GetGoogleNewsAsync(topic, limit, dateRange: null, cancellationToken);
+
     public async Task<NewsResult> GetGoogleNewsAsync(
         string topic,
         int limit,
+        NewsDateRange? dateRange,
         CancellationToken cancellationToken)
     {
+        var searchQuery = BuildGoogleDateQuery(topic, dateRange);
         var query = BuildQuery(new Dictionary<string, string?>
         {
-            ["q"] = $"\"{topic}\" when:7d",
+            ["q"] = searchQuery,
             ["hl"] = "en-NZ",
             ["gl"] = "NZ",
             ["ceid"] = "NZ:en",
@@ -32,8 +41,74 @@ public sealed class NewsService(HttpClient httpClient)
         using var response = await httpClient.GetAsync($"{GoogleNewsRss}?{query}", cancellationToken);
         response.EnsureSuccessStatusCode();
         var xml = await response.Content.ReadAsStringAsync(cancellationToken);
-        var articles = ParseGoogleFeed(xml, topic).Take(limit).ToArray();
-        return new NewsResult(topic, "Google News", DateTimeOffset.UtcNow, articles);
+        var parsed = ParseGoogleFeed(xml, topic);
+        if (dateRange is { HasBounds: true })
+            parsed = parsed.Where(article => dateRange.Contains(article.PublishedAt));
+
+        var boundedLimit = Math.Clamp(limit, 1, 500);
+        var articles = parsed
+            .OrderByDescending(article => article.PublishedAt)
+            .Take(boundedLimit)
+            .Select(article => article with { MatchedTopics = [topic] })
+            .ToArray();
+        return new NewsResult(
+            topic,
+            "Google News",
+            DateTimeOffset.UtcNow,
+            articles,
+            [topic],
+            dateRange?.From,
+            dateRange?.To);
+    }
+
+    public async Task<NewsResult> GetGoogleNewsAsync(
+        IReadOnlyList<string> topics,
+        int limit,
+        NewsDateRange? dateRange,
+        CancellationToken cancellationToken)
+    {
+        if (topics.Count == 0) throw new ArgumentException("Choose at least one topic.");
+        if (topics.Count == 1) return await GetGoogleNewsAsync(topics[0], limit, dateRange, cancellationToken);
+
+        using var gate = new SemaphoreSlim(4, 4);
+        var outcomes = await Task.WhenAll(topics.Select(async topic =>
+        {
+            await gate.WaitAsync(cancellationToken);
+            try
+            {
+                return (Result: (NewsResult?)await GetGoogleNewsAsync(topic, limit, dateRange, cancellationToken), Error: (Exception?)null);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                return (Result: (NewsResult?)null, Error: (Exception?)exception);
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }));
+
+        var succeeded = outcomes.Where(outcome => outcome.Result is not null).Select(outcome => outcome.Result!).ToArray();
+        if (succeeded.Length == 0)
+        {
+            var firstError = outcomes.First(outcome => outcome.Error is not null).Error!;
+            ExceptionDispatchInfo.Capture(firstError).Throw();
+        }
+
+        var maxArticles = Math.Min(500, Math.Max(1, limit) * topics.Count);
+        var merged = MergeArticles(succeeded.SelectMany(result => result.Articles), topics, maxArticles);
+        return new NewsResult(
+            topics[0],
+            "Google News",
+            DateTimeOffset.UtcNow,
+            merged,
+            topics.ToArray(),
+            dateRange?.From,
+            dateRange?.To);
     }
 
     public async Task<IReadOnlyList<NewsArticle>> SearchGoogleNewsKeywordsAsync(
@@ -74,20 +149,41 @@ public sealed class NewsService(HttpClient httpClient)
         return ParseBingFeedItems(xml).Take(Math.Max(1, limit)).ToArray();
     }
 
+    public Task<NewsResult> GetGdeltNewsAsync(
+        IReadOnlyList<string> topics,
+        int limit,
+        CancellationToken cancellationToken) =>
+        GetGdeltNewsAsync(topics, limit, dateRange: null, cancellationToken);
+
     public async Task<NewsResult> GetGdeltNewsAsync(
         IReadOnlyList<string> topics,
         int limit,
+        NewsDateRange? dateRange,
         CancellationToken cancellationToken)
     {
-        var query = BuildQuery(new Dictionary<string, string?>
+        if (topics.Count == 0) throw new ArgumentException("Choose at least one topic.");
+
+        var queryParameters = new Dictionary<string, string?>
         {
             ["query"] = string.Join(" OR ", topics.Select(topic => $"\"{topic}\"")),
             ["mode"] = "ArtList",
             ["maxrecords"] = Math.Min(250, Math.Max(50, limit * topics.Count * 3)).ToString(CultureInfo.InvariantCulture),
             ["format"] = "json",
             ["sort"] = "DateDesc",
-            ["timespan"] = "1week",
-        });
+        };
+        if (dateRange is { HasBounds: true })
+        {
+            if (dateRange.From is { } from)
+                queryParameters["startdatetime"] = from.ToUniversalTime().ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture);
+            if (dateRange.To is { } to)
+                queryParameters["enddatetime"] = to.ToUniversalTime().ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture);
+        }
+        else
+        {
+            queryParameters["timespan"] = "1week";
+        }
+
+        var query = BuildQuery(queryParameters);
         using var response = await httpClient.GetAsync($"{GdeltDocApi}?{query}", cancellationToken);
         response.EnsureSuccessStatusCode();
         var text = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -103,11 +199,14 @@ public sealed class NewsService(HttpClient httpClient)
                 var normalizedUrl = ArticleIdentity.NormalizeUrl(GetJsonString(entry, "url"));
                 if (string.IsNullOrWhiteSpace(title) || normalizedUrl is null) continue;
 
+                var publishedAt = ParseDate(GetJsonString(entry, "seendate"));
+                if (dateRange is { HasBounds: true } && !dateRange.Contains(publishedAt)) continue;
+
                 var article = new NewsArticle(
                     StripHtml(title),
                     normalizedUrl,
                     GetJsonString(entry, "domain").Trim().Replace("www.", "", StringComparison.OrdinalIgnoreCase),
-                    ParseDate(GetJsonString(entry, "seendate")),
+                    publishedAt,
                     "",
                     ImageUrl: NormalizeImageUrl(GetJsonString(entry, "socialimage"), new Uri(normalizedUrl)));
                 var matchedTopics = topics.Where(topic => TopicMatcher.Matches(article, topic)).ToArray();
@@ -115,29 +214,206 @@ public sealed class NewsService(HttpClient httpClient)
             }
         }
 
-        return new NewsResult(topics[0], "GDELT", DateTimeOffset.UtcNow, articles);
+        var maxArticles = Math.Min(500, Math.Max(1, limit) * topics.Count);
+        var ordered = articles
+            .OrderByDescending(article => article.PublishedAt)
+            .Take(maxArticles)
+            .ToArray();
+        return new NewsResult(
+            topics[0],
+            "GDELT",
+            DateTimeOffset.UtcNow,
+            ordered,
+            topics.ToArray(),
+            dateRange?.From,
+            dateRange?.To);
     }
 
-    public async Task<NewsResult> GetPublisherFeedAsync(
+    public Task<NewsResult> GetPublisherFeedAsync(
         string feedUrl,
         string topic,
         int limit,
         CancellationToken cancellationToken) =>
-        await GetPublisherFeedAsync(feedUrl, [topic], limit, cancellationToken);
+        GetPublisherFeedAsync(feedUrl, [topic], limit, dateRange: null, cancellationToken);
+
+    public Task<NewsResult> GetPublisherFeedAsync(
+        string feedUrl,
+        IReadOnlyList<string> topics,
+        int limit,
+        CancellationToken cancellationToken) =>
+        GetPublisherFeedAsync(feedUrl, topics, limit, dateRange: null, cancellationToken);
 
     public async Task<NewsResult> GetPublisherFeedAsync(
         string feedUrl,
         IReadOnlyList<string> topics,
         int limit,
+        NewsDateRange? dateRange,
         CancellationToken cancellationToken)
     {
         if (topics.Count == 0) throw new ArgumentException("Choose at least one topic.");
         var (xml, finalUrl) = await FetchPublisherFeedAsync(feedUrl, cancellationToken);
-        var articles = ParsePublisherFeed(xml, finalUrl, topics)
-            .Take(Math.Min(500, limit * topics.Count))
+        var parsed = ParsePublisherFeed(xml, finalUrl, topics);
+        if (dateRange is { HasBounds: true })
+            parsed = parsed.Where(article => dateRange.Contains(article.PublishedAt));
+
+        var articles = parsed
+            .OrderByDescending(article => article.PublishedAt)
+            .Take(Math.Min(500, Math.Max(1, limit) * topics.Count))
             .ToArray();
         var providerName = articles.FirstOrDefault()?.Source ?? finalUrl.Host.Replace("www.", "", StringComparison.OrdinalIgnoreCase);
-        return new NewsResult(topics[0], $"RSS / {providerName}", DateTimeOffset.UtcNow, articles);
+        return new NewsResult(
+            topics[0],
+            $"RSS / {providerName}",
+            DateTimeOffset.UtcNow,
+            articles,
+            topics.ToArray(),
+            dateRange?.From,
+            dateRange?.To);
+    }
+
+    public async Task<NewsResult> GetCombinedNewsAsync(
+        IReadOnlyList<string> topics,
+        int limit,
+        NewsDateRange? dateRange,
+        CancellationToken cancellationToken)
+    {
+        if (topics.Count == 0) throw new ArgumentException("Choose at least one topic.");
+
+        var googleTask = RunProviderAsync(() => GetGoogleNewsAsync(topics, limit, dateRange, cancellationToken), cancellationToken);
+        var gdeltTask = RunProviderAsync(() => GetGdeltNewsAsync(topics, limit, dateRange, cancellationToken), cancellationToken);
+        await Task.WhenAll(googleTask, gdeltTask);
+
+        var (googleResult, googleError) = googleTask.Result;
+        var (gdeltResult, gdeltError) = gdeltTask.Result;
+
+        if (googleResult is null && gdeltResult is null)
+        {
+            ExceptionDispatchInfo.Capture(googleError ?? gdeltError!).Throw();
+        }
+
+        if (googleResult is not null && gdeltResult is null) return googleResult;
+        if (gdeltResult is not null && googleResult is null) return gdeltResult;
+
+        var maxArticles = Math.Min(500, Math.Max(1, limit) * topics.Count);
+        var merged = MergeArticles(
+            googleResult!.Articles.Concat(gdeltResult!.Articles),
+            topics,
+            maxArticles);
+        return new NewsResult(
+            topics[0],
+            "Google News + GDELT",
+            DateTimeOffset.UtcNow,
+            merged,
+            topics.ToArray(),
+            dateRange?.From,
+            dateRange?.To);
+    }
+
+    private static string BuildGoogleDateQuery(string topic, NewsDateRange? dateRange)
+    {
+        if (dateRange is null or { HasBounds: false })
+            return $"\"{topic}\" when:7d";
+
+        var parts = new List<string>(3) { $"\"{topic}\"" };
+        if (dateRange.From is { } from)
+            parts.Add($"after:{from.ToUniversalTime().UtcDateTime.Date.AddDays(-1):yyyy-MM-dd}");
+        if (dateRange.To is { } to)
+            parts.Add($"before:{to.ToUniversalTime().UtcDateTime.Date.AddDays(1):yyyy-MM-dd}");
+        return string.Join(' ', parts);
+    }
+
+    private static async Task<(NewsResult? Result, Exception? Error)> RunProviderAsync(
+        Func<Task<NewsResult>> fetch,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return (await fetch(), null);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            return (null, exception);
+        }
+    }
+
+    private static NewsArticle[] MergeArticles(
+        IEnumerable<NewsArticle> articles,
+        IReadOnlyList<string> topics,
+        int maxArticles)
+    {
+        var prepared = articles
+            .Select(article =>
+            {
+                var url = ArticleIdentity.NormalizeUrl(article.Url) ?? article.Url;
+                var matched = new HashSet<string>(article.MatchedTopics ?? [], StringComparer.OrdinalIgnoreCase);
+                foreach (var topic in topics)
+                {
+                    if (TopicMatcher.Matches(article, topic)) matched.Add(topic);
+                }
+                return article with
+                {
+                    Url = url,
+                    MatchedTopics = OrderTopics(matched, topics),
+                };
+            })
+            .ToArray();
+
+        if (prepared.Length == 0) return [];
+
+        return ArticleIdentity.GroupDuplicates(prepared, article => article.Title, article => article.Url)
+            .Select(group => MergeDuplicateGroup(group, topics))
+            .OrderByDescending(article => article.PublishedAt)
+            .Take(maxArticles)
+            .ToArray();
+    }
+
+    private static NewsArticle MergeDuplicateGroup(NewsArticle[] group, IReadOnlyList<string> topics)
+    {
+        var primary = group
+            .OrderBy(article => ArticleIdentity.IsGoogleNewsWrapperUrl(article.Url) ? 1 : 0)
+            .ThenBy(article => article.Url.Length)
+            .ThenByDescending(article => article.PublishedAt)
+            .First();
+
+        var mergedTopics = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in group)
+        {
+            if (item.MatchedTopics is not null)
+                mergedTopics.UnionWith(item.MatchedTopics);
+        }
+
+        var summary = group.Select(item => item.Summary).FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? "";
+        var imageUrl = group.Select(item => item.ImageUrl).FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? "";
+        var publishedAt = group.Max(item => item.PublishedAt);
+
+        return primary with
+        {
+            Summary = summary,
+            ImageUrl = imageUrl,
+            PublishedAt = publishedAt,
+            MatchedTopics = OrderTopics(mergedTopics, topics),
+        };
+    }
+
+    private static string[] OrderTopics(HashSet<string> matched, IReadOnlyList<string> requestedOrder)
+    {
+        if (matched.Count == 0) return [];
+        var ordered = new List<string>(matched.Count);
+        foreach (var topic in requestedOrder)
+        {
+            if (matched.Contains(topic) && !ordered.Contains(topic, StringComparer.OrdinalIgnoreCase))
+                ordered.Add(topic);
+        }
+        foreach (var topic in matched)
+        {
+            if (!ordered.Contains(topic, StringComparer.OrdinalIgnoreCase))
+                ordered.Add(topic);
+        }
+        return ordered.ToArray();
     }
 
     public async Task<string> ResolvePublisherFeedUrlAsync(

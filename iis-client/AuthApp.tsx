@@ -23,6 +23,23 @@ type EmailDeliveryStatus = {
   error: string | null;
 };
 
+type ApiKeySummary = {
+  id: string;
+  name: string;
+  keyPrefix: string;
+  scopes: string[];
+  createdAt: string;
+  expiresAt: string | null;
+  lastUsedAt: string | null;
+  isExpired: boolean;
+};
+
+type ApiKeyListResponse = {
+  keys: ApiKeySummary[];
+  maxActiveKeys: number;
+  availableScopes: string[];
+};
+
 type CommentAuthor = {
   userId: string;
   name: string;
@@ -1767,6 +1784,17 @@ function AccountPanel({
   const [photoMessage, setPhotoMessage] = useState("");
   const [photoError, setPhotoError] = useState("");
   const [delivery, setDelivery] = useState<EmailDeliveryStatus | null>(null);
+  const [apiKeys, setApiKeys] = useState<ApiKeySummary[]>([]);
+  const [maxApiKeys, setMaxApiKeys] = useState(10);
+  const [apiKeysLoading, setApiKeysLoading] = useState(true);
+  const [apiKeyName, setApiKeyName] = useState("");
+  const [apiKeyExpiryDays, setApiKeyExpiryDays] = useState("90");
+  const [apiKeyBusy, setApiKeyBusy] = useState(false);
+  const [apiKeyError, setApiKeyError] = useState("");
+  const [apiKeyNotice, setApiKeyNotice] = useState("");
+  const [newlyCreatedKey, setNewlyCreatedKey] = useState<string | null>(null);
+  const [copiedField, setCopiedField] = useState<"key" | "curl" | null>(null);
+  const [revokingKeyId, setRevokingKeyId] = useState<string | null>(null);
 
   useEffect(() => {
     void fetch("/api/email/status", { credentials: "same-origin", cache: "no-store" })
@@ -1774,6 +1802,89 @@ function AccountPanel({
         if (response.ok) setDelivery(await response.json() as EmailDeliveryStatus);
       });
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadApiKeys() {
+      setApiKeysLoading(true);
+      try {
+        const result = await getJson<ApiKeyListResponse>("/api/api-keys");
+        if (!cancelled) {
+          setApiKeys(result.keys);
+          if (result.maxActiveKeys > 0) setMaxApiKeys(result.maxActiveKeys);
+        }
+      } catch (caught) {
+        if (!cancelled) setApiKeyError(caught instanceof Error ? caught.message : "Could not load API keys.");
+      } finally {
+        if (!cancelled) setApiKeysLoading(false);
+      }
+    }
+    void loadApiKeys();
+    return () => { cancelled = true; };
+  }, []);
+
+  async function createApiKey(event: FormEvent) {
+    event.preventDefault();
+    const trimmedName = apiKeyName.trim();
+    if (!trimmedName) {
+      setApiKeyError("Choose a name for your API key.");
+      return;
+    }
+
+    setApiKeyBusy(true);
+    setApiKeyError("");
+    setApiKeyNotice("");
+    setCopiedField(null);
+    try {
+      const expiresInDays = apiKeyExpiryDays === "never" ? null : Number(apiKeyExpiryDays);
+      const created = await postJson<{ apiKey: ApiKeySummary; key: string }>("/api/api-keys", {
+        name: trimmedName,
+        expiresInDays,
+        scopes: ["news:read"],
+      });
+      setApiKeys((current) => [created.apiKey, ...current]);
+      setNewlyCreatedKey(created.key);
+      setApiKeyName("");
+    } catch (caught) {
+      setApiKeyError(caught instanceof Error ? caught.message : "Could not create the API key.");
+    } finally {
+      setApiKeyBusy(false);
+    }
+  }
+
+  async function revokeApiKey(id: string) {
+    setRevokingKeyId(id);
+    setApiKeyError("");
+    setApiKeyNotice("");
+    try {
+      await deleteJson<void>(`/api/api-keys/${encodeURIComponent(id)}`);
+      setApiKeys((current) => current.filter((item) => item.id !== id));
+      setApiKeyNotice("API key revoked.");
+    } catch (caught) {
+      setApiKeyError(caught instanceof Error ? caught.message : "Could not revoke the API key.");
+    } finally {
+      setRevokingKeyId(null);
+    }
+  }
+
+  async function copyApiKeyText(text: string, field: "key" | "curl") {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(field);
+    } catch {
+      setApiKeyError("Could not copy automatically. Select the text and copy it manually.");
+    }
+  }
+
+  function formatApiKeyDate(value: string) {
+    return new Date(value).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  }
+
+  const sampleToDay = new Date().toISOString().slice(0, 10);
+  const sampleFromDay = new Date(Date.now() - 6 * 86_400_000).toISOString().slice(0, 10);
+  const sampleCurlCommand = newlyCreatedKey
+    ? `curl -H "Authorization: Bearer ${newlyCreatedKey}" "${window.location.origin}/api/news?topic=Artificial+intelligence&from=${sampleFromDay}&to=${sampleToDay}&provider=all"`
+    : "";
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -1907,6 +2018,117 @@ function AccountPanel({
               : "Account emails are currently written to Signal's local mail-drop."}</p>
           </div>
         </div>
+        <section className="api-keys-settings" aria-labelledby="api-keys-title">
+          <div className="api-keys-header">
+            <h3 id="api-keys-title">API access</h3>
+            <p>
+              Create a scoped key to extract topics across custom date ranges via{" "}
+              <code>GET /api/news</code> using <code>Authorization: Bearer &lt;key&gt;</code> or{" "}
+              <code>X-API-Key</code>. Up to {maxApiKeys} active keys.
+            </p>
+          </div>
+          <form className="api-key-create-form" onSubmit={createApiKey}>
+            <input
+              type="text"
+              value={apiKeyName}
+              onChange={(event) => setApiKeyName(event.target.value)}
+              placeholder="e.g. Research script"
+              aria-label="API key name"
+              maxLength={80}
+              disabled={apiKeyBusy}
+            />
+            <select
+              value={apiKeyExpiryDays}
+              onChange={(event) => setApiKeyExpiryDays(event.target.value)}
+              aria-label="API key expiration"
+              disabled={apiKeyBusy}
+            >
+              <option value="30">30 days</option>
+              <option value="90">90 days</option>
+              <option value="365">1 year</option>
+              <option value="never">No expiry</option>
+            </select>
+            <button type="submit" disabled={apiKeyBusy || !apiKeyName.trim()}>
+              {apiKeyBusy ? "Creating…" : "Create key"}
+            </button>
+          </form>
+          {apiKeyError && <p className="auth-error" role="alert">{apiKeyError}</p>}
+          {apiKeyNotice && <p className="auth-notice" role="status">{apiKeyNotice}</p>}
+          {newlyCreatedKey && (
+            <div className="api-key-secret-box" role="status" aria-live="polite">
+              <p className="api-key-secret-title">Save your API key now — it will not be shown again.</p>
+              <div className="api-key-secret-row">
+                <input
+                  className="api-key-secret-input"
+                  type="text"
+                  readOnly
+                  value={newlyCreatedKey}
+                  aria-label="Newly created API key"
+                  onFocus={(event) => event.currentTarget.select()}
+                />
+                <button
+                  type="button"
+                  className="api-key-copy-button"
+                  onClick={() => void copyApiKeyText(newlyCreatedKey, "key")}
+                >
+                  {copiedField === "key" ? "Copied" : "Copy key"}
+                </button>
+              </div>
+              <pre className="api-key-curl">{sampleCurlCommand}</pre>
+              <div className="api-key-secret-row">
+                <span className="api-key-dates">Verify credentials with <code>GET /api/api-keys/verify</code></span>
+                <button
+                  type="button"
+                  className="api-key-copy-button"
+                  onClick={() => void copyApiKeyText(sampleCurlCommand, "curl")}
+                >
+                  {copiedField === "curl" ? "Copied curl" : "Copy curl"}
+                </button>
+              </div>
+            </div>
+          )}
+          {apiKeysLoading ? (
+            <p className="api-keys-empty">Loading API keys…</p>
+          ) : apiKeys.length === 0 ? (
+            <p className="api-keys-empty">No API keys created yet.</p>
+          ) : (
+            <ul className="api-key-list">
+              {apiKeys.map((item) => (
+                <li key={item.id}>
+                  <div className="api-key-meta">
+                    <div className="api-key-title-row">
+                      <strong>{item.name}</strong>
+                      <code className="api-key-prefix">{item.keyPrefix}…</code>
+                      {item.scopes.map((scope) => (
+                        <code key={scope} className="api-key-scope">{scope}</code>
+                      ))}
+                    </div>
+                    <span className="api-key-dates">
+                      Created {formatApiKeyDate(item.createdAt)}
+                      {" · "}
+                      {item.isExpired ? (
+                        <span className="expired">Expired</span>
+                      ) : item.expiresAt ? (
+                        `Expires ${formatApiKeyDate(item.expiresAt)}`
+                      ) : (
+                        "Never expires"
+                      )}
+                      {item.lastUsedAt ? ` · Last used ${formatApiKeyDate(item.lastUsedAt)}` : ""}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="api-key-revoke"
+                    disabled={revokingKeyId === item.id}
+                    onClick={() => void revokeApiKey(item.id)}
+                  >
+                    {revokingKeyId === item.id ? "Revoking…" : "Revoke"}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
         <form className="auth-form compact" onSubmit={submit}>
           <h3>{user.hasPassword ? "Change password" : "Add password sign-in"}</h3>
           {message && <p className="auth-notice" role="status">{message}</p>}

@@ -1,20 +1,25 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+using Signal.Server.Models;
 using Signal.Server.Services;
 
 namespace Signal.Server.Controllers;
 
 [ApiController]
-[Authorize]
 [Route("api/news")]
 public sealed class NewsController(NewsService newsService, ILogger<NewsController> logger) : ControllerBase
 {
     [HttpGet]
+    [Authorize(Policy = ApiKeyAuthenticationDefaults.NewsReadPolicy)]
+    [EnableRateLimiting("news-extract")]
     public async Task<IActionResult> Get(
         [FromQuery(Name = "topic")] string[] requestedTopics,
         [FromQuery] int limit = 20,
         [FromQuery] string provider = "google",
         [FromQuery] string? feed = null,
+        [FromQuery] string? from = null,
+        [FromQuery] string? to = null,
         CancellationToken cancellationToken = default)
     {
         var topics = requestedTopics
@@ -22,29 +27,42 @@ public sealed class NewsController(NewsService newsService, ILogger<NewsControll
             .Where(topic => topic.Length > 0)
             .Select(topic => topic[..Math.Min(topic.Length, 80)])
             .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(20)
             .ToArray();
         if (topics.Length == 0) topics = ["Artificial intelligence"];
-        limit = Math.Clamp(limit, 10, 500);
+
+        if (!NewsDateRange.TryParse(from, to, out var dateRange, out var dateError))
+            return BadRequest(new { error = dateError });
+
+        limit = Math.Clamp(limit, 1, 500);
         provider = provider.Trim().ToLowerInvariant();
 
         try
         {
             var result = provider switch
             {
-                "google" => await newsService.GetGoogleNewsAsync(topics[0], limit, cancellationToken),
-                "gdelt" => await newsService.GetGdeltNewsAsync(topics, limit, cancellationToken),
+                "google" => await newsService.GetGoogleNewsAsync(topics, limit, dateRange, cancellationToken),
+                "gdelt" => await newsService.GetGdeltNewsAsync(topics, limit, dateRange, cancellationToken),
+                "all" => await newsService.GetCombinedNewsAsync(topics, limit, dateRange, cancellationToken),
                 "rss" when !string.IsNullOrWhiteSpace(feed) =>
-                    await newsService.GetPublisherFeedAsync(feed, topics[0], limit, cancellationToken),
+                    await newsService.GetPublisherFeedAsync(feed, topics, limit, dateRange, cancellationToken),
                 "rss" => throw new ArgumentException("Choose a publisher RSS or Atom feed."),
                 _ => throw new ArgumentException("Unknown news provider."),
             };
 
-            Response.Headers.CacheControl = "private, max-age=120";
+            Response.Headers.Vary = "Cookie, Authorization, X-API-Key";
+            Response.Headers.CacheControl = User.HasClaim(claim => claim.Type == ApiKeyAuthenticationDefaults.KeyIdClaimType)
+                ? "private, no-store"
+                : "private, max-age=120";
             return Ok(result);
         }
         catch (ArgumentException exception)
         {
             return BadRequest(new { error = exception.Message });
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return StatusCode(499);
         }
         catch (Exception exception)
         {
@@ -57,6 +75,8 @@ public sealed class NewsController(NewsService newsService, ILogger<NewsControll
     }
 
     [HttpPost("sources/diagnostics")]
+    [Authorize]
+    [EnableRateLimiting("account")]
     public async Task<IActionResult> RunDiagnostics(
         [FromBody] PreferencesController.SourceDiagnosticsRequest? request,
         CancellationToken cancellationToken)

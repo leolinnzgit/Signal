@@ -14,6 +14,8 @@ using Signal.Server.Models;
 using Signal.Server.Services;
 
 if (args.Contains("--product-watch-only")) { await ProductWatchChecks.RunAsync(); return; }
+if (args.Contains("--news-api-only")) { await NewsApiKeyChecks.RunAsync(); return; }
+await NewsApiKeyChecks.RunAsync();
 await MarketAvailabilityChecks.RunAsync();
 await MarketEndpointChecks.RunAsync();
 if (args.Contains("--market-only")) return;

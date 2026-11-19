@@ -34,6 +34,8 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
 
     public DbSet<ProductWatchItem> ProductWatches => Set<ProductWatchItem>();
 
+    public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
@@ -264,6 +266,24 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
             watch.HasIndex(item => new { item.UserId, item.Enabled });
             watch.HasIndex(item => new { item.Enabled, item.NextCheckAtUtc });
             watch.HasOne(item => item.User)
+                .WithMany()
+                .HasForeignKey(item => item.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<ApiKey>(apiKey =>
+        {
+            apiKey.ToTable("ApiKeys");
+            apiKey.HasKey(item => item.Id);
+            apiKey.Property(item => item.Id).HasMaxLength(64);
+            apiKey.Property(item => item.UserId).HasMaxLength(450).IsRequired();
+            apiKey.Property(item => item.Name).HasMaxLength(80).IsRequired();
+            apiKey.Property(item => item.KeyPrefix).HasMaxLength(16).IsRequired();
+            apiKey.Property(item => item.KeyHash).HasMaxLength(64).IsRequired();
+            apiKey.Property(item => item.ScopesJson).IsRequired();
+            apiKey.HasIndex(item => item.KeyHash).IsUnique();
+            apiKey.HasIndex(item => new { item.UserId, item.RevokedAtUtc });
+            apiKey.HasOne(item => item.User)
                 .WithMany()
                 .HasForeignKey(item => item.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
