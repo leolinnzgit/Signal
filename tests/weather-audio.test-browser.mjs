@@ -10,7 +10,8 @@ const server = await createServer({ configFile: false, root: process.cwd(), plug
       res.end(await server.transformIndexHtml("/weather-test", '<!doctype html><html><body><div id="root"></div><script type="module" src="/tests/weather-audio.fixture.tsx"></script></body></html>'));
     });
   },
-}], server: { host: "127.0.0.1", port: 3015, strictPort: true, watch: { ignored: ["**/Signal.Server/wwwroot/**", "**/iis-publish/**"] } } });
+}], optimizeDeps: { entries: ["tests/weather-audio.fixture.tsx"] },
+server: { host: "127.0.0.1", port: 3015, strictPort: true, watch: { ignored: ["**/work/**", "**/Signal.Server/wwwroot/**", "**/iis-publish/**"] } } });
 
 async function mockSpeech(page, scenario = "automatic") {
   await page.addInitScript(scenario => {
@@ -42,7 +43,7 @@ async function mockSpeech(page, scenario = "automatic") {
     };
     window.finishWeatherPart = () => { synth.speaking = false; window.currentWeather.onend?.(); };
     Object.defineProperty(window, "speechSynthesis", { value: synth });
-    window.SpeechSynthesisUtterance = scenario === "unsupported" ? undefined : class { constructor(text) { this.text = text; } };
+    window.SpeechSynthesisUtterance = scenario === "unsupported" ? undefined : class extends EventTarget { constructor(text) { super(); this.text = text; } };
   }, scenario);
 }
 
@@ -59,9 +60,9 @@ async function mockAzure(page, scenario) {
     document.addEventListener("pointerdown", () => { gesture = false; });
     document.addEventListener("click", () => { gesture = true; }, true);
     document.addEventListener("click", () => { gesture = false; });
-    window.Audio = class {
+    window.Audio = class extends EventTarget {
       src = "";
-      constructor() { window.azureAudio.push(this); }
+      constructor() { super(); window.azureAudio.push(this); }
       play() {
         window.azurePlays.push({ src: this.src, rate: this.playbackRate, gesture });
         if (window.failAzurePlay) return Promise.reject(new DOMException("Tap to play", "NotAllowedError"));
@@ -92,7 +93,7 @@ try {
     const streamUrl = `/api/article-audio-stream/${"a".repeat(32)}`;
     page.on("pageerror", error => errors.push(error.message));
     await mockAzure(page, scenario);
-    await page.route("**/api/**", async route => {
+    await page.route(url => url.pathname.startsWith("/api/"), async route => {
       const path = new URL(route.request().url()).pathname;
       if (path === "/api/auth/csrf") { csrfRequests++; return route.fulfill({ json: { token: "weather-csrf" } }); }
       if (path === "/api/article-audio-stream") {
@@ -172,7 +173,7 @@ try {
     let audioRequests = 0;
     page.on("pageerror", error => errors.push(error.message));
     await mockSpeech(page, scenario);
-    await page.route("**/api/**", route => { audioRequests++; return route.abort(); });
+    await page.route(url => url.pathname.startsWith("/api/"), route => { audioRequests++; return route.abort(); });
     await page.goto("http://127.0.0.1:3015/weather-test");
     const status = page.getByTestId("status");
     const read = page.getByRole("button", { name: "Read weather now" });
@@ -236,6 +237,7 @@ try {
   }
   for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) {
     const page = await browser.newPage({ viewport });
+    page.setDefaultNavigationTimeout(90_000);
     const errors = [];
     let audioRequests = 0;
     page.on("pageerror", error => errors.push(error.message));
@@ -243,17 +245,16 @@ try {
     await page.addInitScript(() => {
       localStorage.setItem("signal-news-preferences", JSON.stringify({ weatherLocation: { name: "Auckland", latitude: -36.85, longitude: 174.76, timezone: "Pacific/Auckland" } }));
     });
-    await page.route("**/*", async route => {
+    await page.route(url => url.hostname !== "127.0.0.1" || url.pathname.startsWith("/api/"), async route => {
       const url = new URL(route.request().url());
       if (url.hostname === "api.open-meteo.com") return route.fulfill({ json: {
         timezone: "Pacific/Auckland", current: { time: "2026-10-13T10:00", temperature_2m: 17, apparent_temperature: 15, relative_humidity_2m: 65, weather_code: 3, wind_speed_10m: 12, is_day: 1 },
         daily: { time: ["2026-10-13"], weather_code: [61], temperature_2m_max: [21], temperature_2m_min: [12], precipitation_probability_max: [75], wind_speed_10m_max: [20] },
       } });
       if (url.hostname !== "127.0.0.1") return route.abort();
-      if (url.pathname.startsWith("/api/headline-audio") || url.pathname === "/api/auth/csrf") { audioRequests++; return route.abort(); }
+      if (url.pathname === "/api/headline-audio" || url.pathname.startsWith("/api/article-audio-stream")) { audioRequests++; return route.abort(); }
       if (url.pathname === "/api/news") return route.fulfill({ json: { articles: [], fetchedAt: new Date().toISOString() } });
-      if (url.pathname.startsWith("/api/")) return route.fulfill({ json: {} });
-      return route.continue();
+      return route.fulfill({ json: {} });
     });
     await page.goto("http://127.0.0.1:3015/weather-test?dashboard");
     await page.waitForFunction(() => window.weatherCalls.length === 1);

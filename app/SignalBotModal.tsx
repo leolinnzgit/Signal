@@ -1,3 +1,4 @@
+import { cancelListeningSpeech, createListeningAudio, speakListeningSpeech } from "./listening-break";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { openArticleAudioStream } from "./article-audio-stream";
 import { translationLanguages } from "./article-translation";
@@ -176,7 +177,7 @@ export default function SignalBotModal({
     browserSpeakingRef.current.speaking = false;
     browserSpeakingRef.current.runId++;
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
+      cancelListeningSpeech();
     }
     setSpeakingTurnId(null);
     setSpeakingSectionIndex(null);
@@ -402,10 +403,10 @@ export default function SignalBotModal({
       utterance.onerror = () => {
         stopSpeech();
       };
-      window.speechSynthesis.speak(utterance);
+      speakListeningSpeech(utterance, stopSpeech);
     };
 
-    window.speechSynthesis.cancel();
+    cancelListeningSpeech();
     speakNext();
   };
 
@@ -443,7 +444,7 @@ export default function SignalBotModal({
 
       if (controller.signal.aborted) return;
 
-      const audio = new Audio(streamUrl);
+      const audio = createListeningAudio(streamUrl, stopSpeech);
       audioRef.current = audio;
 
       const updateSectionHighlight = () => {

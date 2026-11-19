@@ -1,5 +1,6 @@
 "use client";
 
+import { canStartListening, cancelListeningSpeech, createListeningAudio, pauseListeningSpeech, speakListeningSpeech } from "./listening-break";
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import type { DeepDiveEpisode, DeepDiveTurn, DeepDiveChapter } from "./daily-briefing-deep-dive";
 import { openArticleAudioStream } from "./article-audio-stream";
@@ -36,6 +37,12 @@ export default function DeepDivePodcastPlayer({
   const chapters: DeepDiveChapter[] = episode.chapters || [];
   const currentTurn = turns[currentTurnIndex] || turns[0];
   const activeSpeaker = currentTurn?.speaker || "Anchor";
+
+  const pauseForBreak = useCallback(() => {
+    isPlayingRef.current = false;
+    setIsPlaying(false);
+    if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
+  }, []);
 
   // Keep refs in sync
   useEffect(() => {
@@ -77,6 +84,7 @@ export default function DeepDivePodcastPlayer({
 
   const playTurn = useCallback(
     async (turnIdx: number) => {
+      if (!canStartListening()) return;
       if (turnIdx >= turns.length) {
         setIsPlaying(false);
         setCurrentTurnIndex(0);
@@ -126,7 +134,7 @@ export default function DeepDivePodcastPlayer({
         if (controller.signal.aborted) return;
 
         if (streamUrl) {
-          const audio = new Audio(streamUrl);
+          const audio = createListeningAudio(streamUrl, pauseForBreak);
           audioRef.current = audio;
 
           audio.onended = () => {
@@ -143,12 +151,13 @@ export default function DeepDivePodcastPlayer({
           return;
         }
       } catch {
+        if (!canStartListening()) return;
         // Fall back to browser speech synthesis
       }
 
       fallbackSpeech(turnIdx);
     },
-    [turns, targetLanguage, episode.title, stopCurrentAudio],
+    [turns, targetLanguage, episode.title, stopCurrentAudio, pauseForBreak],
   );
 
   const fallbackSpeech = useCallback(
@@ -190,9 +199,9 @@ export default function DeepDivePodcastPlayer({
         setIsPlaying(false);
       };
 
-      window.speechSynthesis.speak(utterance);
+      speakListeningSpeech(utterance, pauseForBreak);
     },
-    [turns, targetLanguage, stopCurrentAudio, playTurn],
+    [turns, targetLanguage, stopCurrentAudio, playTurn, pauseForBreak],
   );
 
   const togglePlayPause = () => {
@@ -201,13 +210,14 @@ export default function DeepDivePodcastPlayer({
         audioRef.current.pause();
       }
       if (typeof window !== "undefined" && window.speechSynthesis) {
-        window.speechSynthesis.pause();
+        pauseListeningSpeech();
       }
       setIsPlaying(false);
       if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
         navigator.mediaSession.playbackState = "paused";
       }
     } else {
+      if (!canStartListening()) return;
       if (audioRef.current && audioRef.current.paused && audioRef.current.src) {
         audioRef.current.play().catch(() => playTurn(currentTurnIndex));
         setIsPlaying(true);
@@ -250,7 +260,7 @@ export default function DeepDivePodcastPlayer({
     return () => {
       stopCurrentAudio();
       if (typeof window !== "undefined" && window.speechSynthesis) {
-        window.speechSynthesis.cancel();
+        cancelListeningSpeech();
       }
       if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
         navigator.mediaSession.playbackState = "none";

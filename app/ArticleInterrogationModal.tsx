@@ -1,5 +1,6 @@
 "use client";
 
+import { cancelListeningSpeech, createListeningAudio, speakListeningSpeech } from "./listening-break";
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { interrogateArticle, type InterrogateArticleResponse } from "./article-interrogation";
 import { openArticleAudioStream } from "./article-audio-stream";
@@ -56,7 +57,7 @@ export default function ArticleInterrogationModal({
       audioRef.current = null;
     }
     if (typeof window !== "undefined" && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
+      cancelListeningSpeech();
     }
     setIsSpeaking(false);
   }, []);
@@ -71,12 +72,12 @@ export default function ArticleInterrogationModal({
     }
     if (typeof window !== "undefined" && window.speechSynthesis && typeof SpeechSynthesisUtterance === "function") {
       try {
-        window.speechSynthesis.cancel();
+        cancelListeningSpeech();
         const ut = new SpeechSynthesisUtterance(text);
         ut.onend = () => setIsSpeaking(false);
         ut.onerror = () => setIsSpeaking(false);
         setIsSpeaking(true);
-        window.speechSynthesis.speak(ut);
+        speakListeningSpeech(ut, () => setIsSpeaking(false));
         return;
       } catch {}
     }
@@ -195,7 +196,7 @@ export default function ArticleInterrogationModal({
         return;
       }
 
-      const audio = new Audio(streamUrl);
+      const audio = createListeningAudio(streamUrl, () => setIsSpeaking(false));
       audioRef.current = audio;
       audio.onended = () => {
         if (!fellBack && audioRef.current === audio) {

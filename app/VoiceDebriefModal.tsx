@@ -1,3 +1,4 @@
+import { cancelListeningSpeech, createListeningAudio, speakListeningSpeech } from "./listening-break";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   DebriefPreset,
@@ -79,7 +80,7 @@ export default function VoiceDebriefModal({
       timerRef.current = null;
     }
     if (typeof window !== "undefined" && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
+      cancelListeningSpeech();
     }
   }, []);
 
@@ -141,7 +142,7 @@ export default function VoiceDebriefModal({
       try {
         const blob = await fetchDebriefAudioBlob(scriptText, preferredVoice);
         const url = URL.createObjectURL(blob);
-        const audio = new Audio(url);
+        const audio = createListeningAudio(url, () => setState("idle"));
         audio.playbackRate = playbackSpeed;
         audioRef.current = audio;
 
@@ -185,7 +186,7 @@ export default function VoiceDebriefModal({
         return;
       }
 
-      window.speechSynthesis.cancel();
+      cancelListeningSpeech();
       const utterance = new SpeechSynthesisUtterance(scriptText);
       utterance.rate = playbackSpeed;
 
@@ -213,7 +214,7 @@ export default function VoiceDebriefModal({
         setState("idle");
       };
 
-      window.speechSynthesis.speak(utterance);
+      speakListeningSpeech(utterance, () => setState("idle"));
     },
     [playbackSpeed],
   );

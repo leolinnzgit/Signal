@@ -38,7 +38,7 @@ try {
     localStorage.setItem("signal-news-preferences", JSON.stringify({ topics: ["AI", "USA", "Anthropic", "NVIDIA"], limit: 120, sources: { google: true, gdelt: false, rssFeeds: [] }, tickerOverrides: {} }));
     const synth = { speaking: false, pending: false, paused: false, getVoices: () => [], addEventListener() {}, removeEventListener() {}, pause() {}, resume() {}, cancel() { synth.speaking = false; }, speak(utterance) { synth.speaking = true; utterance.onstart?.(); } };
     Object.defineProperty(window, "speechSynthesis", { value: synth });
-    window.SpeechSynthesisUtterance = class { constructor(text) { this.text = text; } };
+    window.SpeechSynthesisUtterance = class extends EventTarget { constructor(text) { super(); this.text = text; } };
   });
   await page.route("**/*", async route => {
     const url = new URL(route.request().url());

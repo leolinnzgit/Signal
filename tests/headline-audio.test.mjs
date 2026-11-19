@@ -45,6 +45,7 @@ test("browser briefings narrate completion with saved preferences and stop on cl
       "./BriefingMarketPrice": { default: () => null },
       "./useBriefingMarketQuote": { useBriefingMarketQuote: () => null },
       "./headline-audio": { BRIEFING_COMPLETE_MESSAGE },
+      "./listening-break": { listeningSpeech: () => ({}) },
       "./headline-playback": { ...playbackModule, createHeadlinePlayback(options) {
         calls.push(options);
         return { dispose() { disposed = true; } };

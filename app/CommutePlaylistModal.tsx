@@ -1,5 +1,6 @@
 "use client";
 
+import { canStartListening, cancelListeningSpeech, createListeningAudio, pauseListeningSpeech, speakListeningSpeech } from "./listening-break";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   buildCommutePlaylist,
@@ -48,6 +49,8 @@ export default function CommutePlaylistModal({
   const abortRef = useRef<AbortController | null>(null);
   const speechRef = useRef<SpeechSynthesisUtterance | null>(null);
 
+  const pauseForBreak = useCallback(() => { setIsPlaying(false); }, []);
+
   const stopAllAudio = useCallback(() => {
     if (abortRef.current) {
       abortRef.current.abort();
@@ -65,7 +68,7 @@ export default function CommutePlaylistModal({
       timerRef.current = null;
     }
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
+      cancelListeningSpeech();
       speechRef.current = null;
     }
   }, []);
@@ -145,10 +148,12 @@ export default function CommutePlaylistModal({
         timerRef.current = null;
       }
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        window.speechSynthesis.pause();
+        pauseListeningSpeech();
       }
       return;
     }
+
+    if (!canStartListening()) { pauseForBreak(); return; }
 
     // If audio is already loaded and paused, resume it
     if (audioRef.current) {
@@ -176,13 +181,13 @@ export default function CommutePlaylistModal({
 
     const startFallbackSpeech = () => {
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        window.speechSynthesis.cancel();
+        cancelListeningSpeech();
         const ut = new SpeechSynthesisUtterance(activeChapter.narrationText);
         ut.rate = playbackRate;
         ut.onend = () => handleNext();
         ut.onerror = () => handleNext();
         speechRef.current = ut;
-        window.speechSynthesis.speak(ut);
+        if (!speakListeningSpeech(ut, pauseForBreak)) return;
       }
       startTimerFallback();
     };
@@ -200,7 +205,7 @@ export default function CommutePlaylistModal({
         if (!isSubscribed || controller.signal.aborted) return;
 
         if (streamUrl) {
-          const audio = new Audio(streamUrl);
+          const audio = createListeningAudio(streamUrl, pauseForBreak);
           audio.playbackRate = playbackRate;
           audioRef.current = audio;
 
@@ -249,7 +254,7 @@ export default function CommutePlaylistModal({
         timerRef.current = null;
       }
     };
-  }, [activeChapter, handleNext, isOpen, isPlaying, playbackRate, preferredVoice]);
+  }, [activeChapter, handleNext, isOpen, isPlaying, playbackRate, preferredVoice, pauseForBreak]);
 
   if (!isOpen || !playlist || !activeChapter) return null;
 

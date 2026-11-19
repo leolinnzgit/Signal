@@ -11,7 +11,8 @@ const server = await createServer({ configFile: false, root: process.cwd(), plug
       res.end(await server.transformIndexHtml('/speech-test', '<!doctype html><html><body><div id="root"></div><script type="module" src="/tests/browser-speech.fixture.tsx"></script></body></html>'));
     });
   },
-}], server: { host: "127.0.0.1", port: 3014, strictPort: true } });
+}], optimizeDeps: { entries: ["tests/browser-speech.fixture.tsx"] },
+server: { host: "127.0.0.1", port: 3014, strictPort: true, watch: { ignored: ["**/work/**", "**/iis-publish/**", "**/Signal.Server/wwwroot/**"] } } });
 await server.listen();
 const browser = await chromium.launch({ headless: true, ...(process.env.SIGNAL_BROWSER_CHANNEL ? { channel: process.env.SIGNAL_BROWSER_CHANNEL } : {}) });
 try {
@@ -58,7 +59,7 @@ try {
         },
       };
       Object.defineProperty(window, "speechSynthesis", { value: synth });
-      window.SpeechSynthesisUtterance = class { constructor(text) { this.text = text; } };
+      window.SpeechSynthesisUtterance = class extends EventTarget { constructor(text) { super(); this.text = text; } };
     }, { mobile, device });
     await page.goto("http://127.0.0.1:3014/speech-test");
     await page.getByRole("button", { name: mobile ? "Play" : "Pause", exact: true }).waitFor();
@@ -103,7 +104,7 @@ try {
     await page.getByRole("alert").waitFor();
     assert.match(await page.getByRole("alert").innerText(), /selected voice is unavailable/);
     await page.getByText("Voice details", { exact: true }).click();
-    assert.match(await page.locator("details").innerText(), /voice-unavailable/);
+    assert.match(await page.locator("details").filter({ has: page.getByText("Voice details", { exact: true }) }).innerText(), /voice-unavailable/);
     await page.getByRole("button", { name: "Copy voice details", exact: true }).click();
     await page.getByRole("button", { name: "Voice details copied", exact: true }).waitFor();
     const diagnostics = await page.evaluate(() => JSON.parse(window.copiedVoiceDetails));

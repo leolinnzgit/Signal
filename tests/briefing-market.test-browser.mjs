@@ -61,7 +61,7 @@ try {
           speak(utterance) { window.currentHeadline = utterance; synth.speaking = true; utterance.onstart?.(); },
         };
         Object.defineProperty(window, "speechSynthesis", { value: synth });
-        window.SpeechSynthesisUtterance = class { constructor(text) { this.text = text; } };
+        window.SpeechSynthesisUtterance = class extends EventTarget { constructor(text) { super(); this.text = text; } };
         window.finishHeadline = () => { synth.speaking = false; window.currentHeadline.onend?.(); };
       });
       await page.route("**/*", async route => {

@@ -1,5 +1,6 @@
 "use client";
 
+import { cancelListeningSpeech, createListeningAudio, speakListeningSpeech } from "./listening-break";
 import React, { useState, useEffect, useRef } from "react";
 import {
   fetchSanctionsRadarStatus,
@@ -56,7 +57,7 @@ export default function SanctionsRadarModal({
       audioRef.current = null;
     }
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
+      cancelListeningSpeech();
     }
     setIsPlayingAudio(false);
   };
@@ -111,13 +112,13 @@ export default function SanctionsRadarModal({
 
   const fallbackSpeech = (script: string) => {
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
+      cancelListeningSpeech();
       const utterance = new SpeechSynthesisUtterance(script);
       utterance.rate = 1.15;
       utterance.onend = () => setIsPlayingAudio(false);
       utterance.onerror = () => setIsPlayingAudio(false);
       setIsPlayingAudio(true);
-      window.speechSynthesis.speak(utterance);
+      speakListeningSpeech(utterance, () => setIsPlayingAudio(false));
     } else {
       setIsPlayingAudio(false);
     }
@@ -148,7 +149,7 @@ export default function SanctionsRadarModal({
       if (controller.signal.aborted) return;
 
       if (streamUrl) {
-        const audio = new Audio(streamUrl);
+        const audio = createListeningAudio(streamUrl, () => setIsPlayingAudio(false));
         audioRef.current = audio;
         audio.onended = () => {
           setIsPlayingAudio(false);

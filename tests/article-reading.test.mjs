@@ -170,6 +170,7 @@ async function narrationHarness(mode, { streaming = false } = {}) {
       streamReport = report; report({ starts: [0], complete: false, duration: 0, error: null });
       return Promise.resolve("/api/article-audio-stream/" + "a".repeat(32));
     } },
+    "./listening-break": { canStartListening: () => true, listeningSpeech: () => ({}) },
     "./headline-playback": {
       HEADLINE_SPEECH_PREFERENCES_KEY: "preferences", normalizeHeadlineSpeechPreferences: () => ({ rate: 1, voices: {} }),
       browserSpeechRequiresTap: () => false, headlineSpeechLanguage: () => "en", rankHeadlineVoices: () => [],

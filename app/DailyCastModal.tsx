@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef, useMemo } from "react";
+import { canStartListening, cancelListeningSpeech, speakListeningSpeech } from "./listening-break";
 import {
   CastPreset,
   DailyCastAudioStatus,
@@ -44,7 +45,7 @@ export function DailyCastModal({
   const activeBlobUrlRef = useRef<string | null>(null);
 
   const stopAllAudio = () => {
-    synthRef.current?.cancel();
+    cancelListeningSpeech(synthRef.current);
     if (audioElRef.current) {
       audioElRef.current.pause();
       audioElRef.current.currentTime = 0;
@@ -123,13 +124,18 @@ export function DailyCastModal({
       synthRef.current = window.speechSynthesis;
     }
     return () => {
-      synthRef.current?.cancel();
+      cancelListeningSpeech(synthRef.current);
       if (activeBlobUrlRef.current) {
         URL.revokeObjectURL(activeBlobUrlRef.current);
         activeBlobUrlRef.current = null;
       }
     };
   }, []);
+
+  useEffect(() => {
+    const audio = audioElRef.current;
+    return () => { audio?.pause(); };
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -170,7 +176,7 @@ export function DailyCastModal({
     setAudioEngine("browser");
 
     if (synthRef.current) {
-      synthRef.current.cancel();
+      cancelListeningSpeech(synthRef.current);
       const utterance = new SpeechSynthesisUtterance(turn.text);
       const params = getHostVoiceParams(turn.speaker);
       utterance.pitch = params.pitch;
@@ -189,7 +195,7 @@ export function DailyCastModal({
         setIsPlaying(false);
       };
 
-      synthRef.current.speak(utterance);
+      speakListeningSpeech(utterance, () => setIsPlaying(false), synthRef.current);
     }
   };
 
@@ -199,13 +205,13 @@ export function DailyCastModal({
         audioElRef.current.pause();
         setIsPlaying(false);
       } else {
-        synthRef.current?.cancel();
+        cancelListeningSpeech(synthRef.current);
         setIsPlaying(false);
       }
       return;
     }
 
-    if (!cast || cast.dialogTurns.length === 0) return;
+    if (!cast || cast.dialogTurns.length === 0 || !canStartListening()) return;
 
     // Resume existing synthesized Azure WAV buffer if already loaded
     if (audioBlobUrl && audioElRef.current) {
@@ -215,6 +221,7 @@ export function DailyCastModal({
         setIsPlaying(true);
         return;
       } catch {
+        if (!canStartListening()) return;
         // Fall through to browser speech if play rejected
       }
     }
@@ -277,6 +284,8 @@ export function DailyCastModal({
         <audio
           ref={audioElRef}
           preload="auto"
+          onPlaying={() => setIsPlaying(true)}
+          onPause={() => setIsPlaying(false)}
           onTimeUpdate={(e) => {
             if (audioEngine !== "azure-neural") return;
             const idx = resolveTurnIndexAtTime(e.currentTarget.currentTime, audioStarts);

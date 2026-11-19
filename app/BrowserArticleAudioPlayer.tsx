@@ -6,6 +6,7 @@ import ContinueOnWatch from "./ContinueOnWatch";
 import { useSharedListeningReporter } from "./SharedListening";
 import type { ArticleAudioPlayerProps } from "./ArticleAudioPlayer";
 import { articleNarrationSections, type ArticleNarrationSection } from "./headline-audio";
+import { canStartListening, listeningSpeech } from "./listening-break";
 import {
   createHeadlinePlayback, findPreferredHeadlineVoice, HEADLINE_SPEECH_PREFERENCES_KEY,
   headlineSpeechLanguage, headlineVoiceId, normalizeHeadlineSpeechPreferences,
@@ -86,7 +87,11 @@ export default function BrowserArticleAudioPlayer({ queueTransfer, onPlaybackCom
         setError(browserSpeechErrorMessage(reason));
       },
     }, {
-      speech: window.speechSynthesis,
+      speech: listeningSpeech(() => {
+        current.setPaused(true, true);
+        setPaused(true);
+        setStarted(false);
+      }),
       createUtterance: (value) => new SpeechSynthesisUtterance(value),
       language: navigator.language,
       preferDeviceVoice: mobileSpeech,
@@ -128,6 +133,7 @@ export default function BrowserArticleAudioPlayer({ queueTransfer, onPlaybackCom
       setPaused(true);
       return;
     }
+    if (!canStartListening()) return;
     const part = completed ? 0 : index;
     if (error || completed) { disposePlayback(); setReadingSection(null); }
     setError("");

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
+import ListeningBreak from "./ListeningBreak";
 import "./globals.css";
 
 const themeBootstrap = `try{const s=localStorage.getItem("signal-color-theme");const t=s==="light"||s==="dark"?s:matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.dataset.theme=t;document.documentElement.style.colorScheme=t}catch{}`;
@@ -48,7 +49,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="en" suppressHydrationWarning>
       <head><script src="/seasonal-branding.js" /><script dangerouslySetInnerHTML={{ __html: themeBootstrap }} /></head>
-      <body>{children}</body>
+      <body><ListeningBreak />{children}</body>
     </html>
   );
 }

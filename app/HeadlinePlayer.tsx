@@ -10,6 +10,7 @@ import ScreenOffAudioPlayer, { type ScreenOffAudioControls } from "./ScreenOffAu
 import BriefingMarketPrice from "./BriefingMarketPrice";
 import { useBriefingMarketQuote } from "./useBriefingMarketQuote";
 import { BRIEFING_COMPLETE_MESSAGE } from "./headline-audio";
+import { listeningSpeech } from "./listening-break";
 import {
   createHeadlinePlayback,
   DEVICE_DEFAULT_SPEECH_VOICE,
@@ -164,7 +165,10 @@ export default function HeadlinePlayer({ articles, marketTopic, tickerOverrides 
       onAdvance: () => { if (!completed) setIndex((currentIndex) => currentIndex + 1); },
       onSpeechError: () => { setSpeechError(true); setReadAloud(false); },
     }, {
-      speech: speechSupported ? window.speechSynthesis : undefined,
+      speech: speechSupported ? listeningSpeech(() => {
+        current.setPaused(true, true);
+        setPaused(true);
+      }) : undefined,
       createUtterance: speechSupported ? (text) => new SpeechSynthesisUtterance(text) : undefined,
       language: navigator.language,
       now: () => performance.now(),

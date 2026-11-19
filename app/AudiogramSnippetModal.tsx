@@ -1,5 +1,6 @@
 "use client";
 
+import { cancelListeningSpeech, createListeningAudio, speakListeningSpeech } from "./listening-break";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { drawAudiogramCard, copyAudiogramText } from "./audiogram-generator";
 import { openArticleAudioStream } from "./article-audio-stream";
@@ -51,7 +52,7 @@ export default function AudiogramSnippetModal({
       audioRef.current = null;
     }
     if (typeof window !== "undefined" && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
+      cancelListeningSpeech();
     }
     setIsPlaying(false);
   }, []);
@@ -66,12 +67,12 @@ export default function AudiogramSnippetModal({
     }
     if (typeof window !== "undefined" && window.speechSynthesis && typeof SpeechSynthesisUtterance === "function") {
       try {
-        window.speechSynthesis.cancel();
+        cancelListeningSpeech();
         const ut = new SpeechSynthesisUtterance(text);
         ut.onend = () => setIsPlaying(false);
         ut.onerror = () => setIsPlaying(false);
         setIsPlaying(true);
-        window.speechSynthesis.speak(ut);
+        speakListeningSpeech(ut, () => setIsPlaying(false));
         return;
       } catch {}
     }
@@ -195,7 +196,7 @@ export default function AudiogramSnippetModal({
         return;
       }
 
-      const audio = new Audio(streamUrl);
+      const audio = createListeningAudio(streamUrl, () => setIsPlaying(false));
       audioRef.current = audio;
       audio.onended = () => {
         if (!fellBack && audioRef.current === audio) {

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { openArticleAudioStream } from "./article-audio-stream";
+import { canStartListening, createListeningAudio, listeningSpeech } from "./listening-break";
 import {
   articleNarrationParts,
   resolveUserReadingVoice,
@@ -127,6 +128,7 @@ export function useSpokenBriefing() {
   }, [syncMediaSession]);
 
   const resume = useCallback(() => {
+    if (!canStartListening()) return;
     if (audioRef.current) {
       audioRef.current.play().catch(() => {});
     }
@@ -159,6 +161,7 @@ export function useSpokenBriefing() {
       chaptersInput: ReadonlyArray<{ text: string; label?: string }>,
       options: SpeakChaptersOptions = {},
     ) => {
+      if (!canStartListening()) return;
       const validChapters = chaptersInput
         .map((ch) => ({ text: (ch?.text || "").trim(), label: ch?.label }))
         .filter((ch) => ch.text.length > 0);
@@ -312,7 +315,11 @@ export function useSpokenBriefing() {
                 },
               },
               {
-                speech: window.speechSynthesis,
+                speech: listeningSpeech(() => {
+                  current.setPaused(true, true);
+                  setStatus("paused");
+                  syncMediaSession("paused", currentChapterIndexRef.current);
+                }),
                 createUtterance: (val) => new SpeechSynthesisUtterance(val),
                 language,
                 preferDeviceVoice: true,
@@ -338,7 +345,10 @@ export function useSpokenBriefing() {
 
       const abort = new AbortController();
       abortRef.current = abort;
-      const element = new Audio();
+      const element = createListeningAudio(undefined, () => {
+        setStatus("paused");
+        syncMediaSession("paused", currentChapterIndexRef.current);
+      });
       audioRef.current = element;
       element.playbackRate = preferences.rate;
 
@@ -391,7 +401,7 @@ export function useSpokenBriefing() {
             }
             element.src = streamUrl;
             element.play().catch(() => {
-              fallbackToBrowserSpeech();
+              if (canStartListening()) fallbackToBrowserSpeech();
             });
           })
           .catch(() => {
@@ -405,7 +415,7 @@ export function useSpokenBriefing() {
           objectUrlRef.current = blobUrl;
           element.src = blobUrl;
           element.play().catch(() => {
-            fallbackToBrowserSpeech();
+            if (canStartListening()) fallbackToBrowserSpeech();
           });
           return;
         } catch {

@@ -226,7 +226,7 @@ export function createHeadlinePlayback(
   }
 
   return {
-    setPaused(nextPaused: boolean) {
+    setPaused(nextPaused: boolean, restartSpeech = runtime.restartOnResume) {
       if (disposed || advanced || nextPaused === paused) return;
       if (nextPaused) {
         playedMilliseconds = elapsed();
@@ -234,8 +234,8 @@ export function createHeadlinePlayback(
         clearTimers();
         idleChecks = 0;
         if (utterance && !speechFinished) {
-          if (runtime.restartOnResume) {
-            // Android's native pause stops speech; its resume implementation does nothing.
+          if (restartSpeech) {
+            // Restart after a listening break or when native resume is unavailable on Android.
             utterance.onend = utterance.onerror = utterance.onstart = utterance.onboundary = null;
             runtime.speech?.cancel();
             utterance = undefined;
@@ -272,7 +272,7 @@ export function createHeadlinePlayback(
             runtime.speech.speak(utterance);
             // A paused native engine may have no current utterance until speak queues one.
             // Resume afterwards, while still inside the user's tap.
-            if (!disposed && !speechFinished) runtime.speech.resume();
+            if (!disposed && !paused && !speechFinished) runtime.speech.resume();
           }
         } catch {
           finishSpeech("speech-exception");

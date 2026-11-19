@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { articleNarrationParts, normalizeReadingVoices, resolveUserReadingVoice, READING_VOICES_STORAGE_KEY } from "./headline-audio";
 import { openArticleAudioStream } from "./article-audio-stream";
+import { canStartListening, createListeningAudio, listeningSpeech } from "./listening-break";
 import { browserSpeechRequiresTap, createHeadlinePlayback, HEADLINE_SPEECH_PREFERENCES_KEY, normalizeHeadlineSpeechPreferences } from "./headline-playback";
 
 const storageKey = "signal.weather-audio-on-open.v1";
@@ -52,6 +53,10 @@ export function useWeatherAudio(text: string, suspended = false) {
   const read = useCallback(() => {
     const { text, suspended } = latest.current;
     if (!text || suspended) return;
+    if (!canStartListening()) {
+      openingPending.current = gesturePending.current = false;
+      return;
+    }
     const play = (element: HTMLAudioElement, run: number) => {
       gesturePending.current = false;
       setStatus("starting");
@@ -99,7 +104,7 @@ export function useWeatherAudio(text: string, suspended = false) {
             setStatus(gesturePending.current ? "blocked" : "unavailable");
           },
         }, {
-          speech: window.speechSynthesis,
+          speech: listeningSpeech(stop),
           createUtterance: (value) => new SpeechSynthesisUtterance(value),
           language: navigator.language.startsWith("en") ? navigator.language : "en-NZ",
           preferDeviceVoice: true,
@@ -115,7 +120,7 @@ export function useWeatherAudio(text: string, suspended = false) {
     if (browserFallback.current || typeof window.Audio !== "function") { readBrowser(); return; }
     const abort = new AbortController();
     request.current = abort;
-    const element = new Audio();
+    const element = createListeningAudio(undefined, stop);
     audio.current = element;
     element.playbackRate = preferences.rate;
     let started = false;
