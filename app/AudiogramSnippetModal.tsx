@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { drawAudiogramCard, copyAudiogramText } from "./audiogram-generator";
 import { openArticleAudioStream } from "./article-audio-stream";
-import { resolveUserReadingVoice } from "./headline-audio";
+import { articleNarrationParts, resolveUserReadingVoice } from "./headline-audio";
 import "./audiogram.css";
 
 export interface AudiogramSnippetModalProps {
@@ -28,20 +28,64 @@ export default function AudiogramSnippetModal({
   const activeVoice = preferredVoice || resolveUserReadingVoice();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const isPlayingRef = useRef<boolean>(false);
+  isPlayingRef.current = isPlaying;
   const [copyFeedback, setCopyFeedback] = useState<string>("");
   const animFrameRef = useRef<number | null>(null);
   const wavePhaseRef = useRef<number>(0);
 
   const quoteText = excerpt && excerpt.length > 20 ? excerpt : title;
 
+  const stopAudio = useCallback(() => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+    if (audioRef.current) {
+      audioRef.current.onended = null;
+      audioRef.current.onerror = null;
+      audioRef.current.pause();
+      audioRef.current.removeAttribute("src");
+      audioRef.current = null;
+    }
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+    setIsPlaying(false);
+  }, []);
+
+  const fallbackToBrowserSpeech = useCallback((text: string) => {
+    if (audioRef.current) {
+      audioRef.current.onended = null;
+      audioRef.current.onerror = null;
+      audioRef.current.pause();
+      audioRef.current.removeAttribute("src");
+      audioRef.current = null;
+    }
+    if (typeof window !== "undefined" && window.speechSynthesis && typeof SpeechSynthesisUtterance === "function") {
+      try {
+        window.speechSynthesis.cancel();
+        const ut = new SpeechSynthesisUtterance(text);
+        ut.onend = () => setIsPlaying(false);
+        ut.onerror = () => setIsPlaying(false);
+        setIsPlaying(true);
+        window.speechSynthesis.speak(ut);
+        return;
+      } catch {}
+    }
+    setIsPlaying(false);
+  }, []);
+
   // Animation loop updating waveform
   const updateCanvas = useCallback(() => {
     if (!canvasRef.current) return;
     const barCount = 36;
     const phase = wavePhaseRef.current;
+    const activePlaying = isPlayingRef.current;
     const waveFractions = Array.from({ length: barCount }, (_, i) => {
-      if (!isPlaying) {
+      if (!activePlaying) {
         return 0.15 + 0.25 * Math.abs(Math.sin((i + 1) * 0.3));
       }
       return 0.2 + 0.7 * Math.abs(Math.sin((i + 1) * 0.35 + phase));
@@ -58,7 +102,7 @@ export default function AudiogramSnippetModal({
       }),
       waveformFractions: waveFractions,
     });
-  }, [isPlaying, quoteText, source, title]);
+  }, [quoteText, source, title]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -74,50 +118,98 @@ export default function AudiogramSnippetModal({
     return () => {
       if (animFrameRef.current) {
         cancelAnimationFrame(animFrameRef.current);
-      }
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
+        animFrameRef.current = null;
       }
     };
   }, [isOpen, updateCanvas]);
 
+  useEffect(() => {
+    if (!isOpen) {
+      stopAudio();
+      return;
+    }
+    return () => {
+      stopAudio();
+    };
+  }, [isOpen, stopAudio]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.stopImmediatePropagation();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [isOpen, onClose]);
+
   const toggleAudio = async () => {
     if (isPlaying) {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-      setIsPlaying(false);
+      stopAudio();
       return;
     }
 
+    const cleanQuote = quoteText.trim();
+    if (!cleanQuote) return;
+
+    stopAudio();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    let fellBack = false;
+
+    const triggerFallback = () => {
+      if (controller.signal.aborted || fellBack) return;
+      fellBack = true;
+      fallbackToBrowserSpeech(cleanQuote);
+    };
+
     try {
-      const controller = new AbortController();
+      let parts: string[];
+      try {
+        parts = articleNarrationParts("", [cleanQuote], 900);
+      } catch {
+        parts = [cleanQuote.slice(0, 900)];
+      }
+      if (!parts.length) {
+        parts = [cleanQuote.slice(0, 900)];
+      }
+
       const streamUrl = await openArticleAudioStream(
-        [quoteText],
+        parts,
         "en-NZ",
         { en: activeVoice, zh: "zh-CN-XiaoxiaoNeural" },
         controller.signal,
-        () => {},
+        (status) => {
+          if (status.error) {
+            triggerFallback();
+          }
+        },
       );
 
-      if (streamUrl) {
-        const audio = new Audio(streamUrl);
-        audioRef.current = audio;
-        audio.onended = () => setIsPlaying(false);
-        audio.onerror = () => setIsPlaying(false);
-        await audio.play();
-        setIsPlaying(true);
+      if (controller.signal.aborted || fellBack) return;
+
+      if (!streamUrl) {
+        triggerFallback();
+        return;
       }
+
+      const audio = new Audio(streamUrl);
+      audioRef.current = audio;
+      audio.onended = () => {
+        if (!fellBack && audioRef.current === audio) {
+          audioRef.current = null;
+          setIsPlaying(false);
+        }
+      };
+      audio.onerror = () => {
+        triggerFallback();
+      };
+      setIsPlaying(true);
+      await audio.play();
     } catch {
-      // SpeechSynthesis fallback
-      if (typeof window !== "undefined" && window.speechSynthesis) {
-        const ut = new SpeechSynthesisUtterance(quoteText);
-        ut.onend = () => setIsPlaying(false);
-        window.speechSynthesis.speak(ut);
-        setIsPlaying(true);
-      }
+      triggerFallback();
     }
   };
 
@@ -158,6 +250,9 @@ export default function AudiogramSnippetModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="audiogram-title"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
       <div className="audiogram-modal-card">
         {/* Header */}

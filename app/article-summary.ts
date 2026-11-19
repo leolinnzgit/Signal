@@ -1,5 +1,25 @@
 export type ArticleSummary = { available: boolean; reason: string; paragraphs: string[] };
 
+export function formatArticleSummaryText(paragraphs: readonly string[]): string {
+  return paragraphs.map((text) => text.trim()).filter(Boolean).join("\n\n");
+}
+
+export async function copyArticleSummary(
+  paragraphs: readonly string[],
+  clipboard?: { writeText: (text: string) => Promise<void> } | null,
+): Promise<boolean> {
+  const text = formatArticleSummaryText(paragraphs);
+  if (!text) return false;
+  const target = clipboard ?? (typeof navigator !== "undefined" ? navigator.clipboard : undefined);
+  if (typeof target?.writeText !== "function") return false;
+  try {
+    await target.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function loadArticleSummary(url: string, signal: AbortSignal, fetcher: typeof fetch = fetch): Promise<ArticleSummary> {
   const csrf = await fetcher("/api/auth/csrf", { credentials: "same-origin", cache: "no-store", signal });
   if (!csrf.ok) throw new Error("Sign in again to prepare an article summary.");

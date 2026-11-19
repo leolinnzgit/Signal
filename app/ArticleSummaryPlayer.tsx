@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import ArticleAudioPlayer, { type ArticleAudioPlayerProps } from "./ArticleAudioPlayer";
 import ArticleReadingText from "./ArticleReadingText";
-import { loadArticleSummary, type ArticleSummary } from "./article-summary";
+import { copyArticleSummary, loadArticleSummary, type ArticleSummary } from "./article-summary";
 import type { ArticleNarrationSection } from "./headline-audio";
 
 export default function ArticleSummaryPlayer({ url, title, source, paragraphs, storyImageUrl, autoPrepare = false, onReadingSectionChange }: ArticleAudioPlayerProps & { url: string }) {
@@ -12,11 +12,13 @@ export default function ArticleSummaryPlayer({ url, title, source, paragraphs, s
   const [attempt, setAttempt] = useState(0);
   const [scope, setScope] = useState(autoPrepare ? "article" : "summary");
   const [reading, setReading] = useState<ArticleNarrationSection | null>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     const abort = new AbortController();
     setLoading(true);
     setSummary(null);
+    setCopied(false);
     void loadArticleSummary(url, abort.signal).then((result) => {
       if (!abort.signal.aborted) setSummary(result);
     }).catch((reason: unknown) => {
@@ -40,8 +42,16 @@ export default function ArticleSummaryPlayer({ url, title, source, paragraphs, s
     setScope(next);
   }
 
+  async function copySummary() {
+    if (!summary?.available) return;
+    setCopied(await copyArticleSummary(summary.paragraphs));
+  }
+
   return <section className="article-ai-summary" aria-label="Article summary">
-    <h3>Article summary</h3>
+    <div className="article-ai-summary-header">
+      <h3>Article summary</h3>
+      {summary?.available && <button type="button" className="article-summary-copy-button" onClick={() => copySummary()}>{copied ? "Summary copied" : "Copy summary"}</button>}
+    </div>
     {loading && <p role="status">Preparing a summary from the article text…</p>}
     {summary?.available && <>
       <p className="article-summary-caption">AI summary of the available article text.</p>

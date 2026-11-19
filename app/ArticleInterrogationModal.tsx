@@ -1,10 +1,11 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { interrogateArticle, type InterrogateArticleResponse } from "./article-interrogation";
 import { openArticleAudioStream } from "./article-audio-stream";
-import { resolveUserReadingVoice } from "./headline-audio";
+import { articleNarrationParts, resolveUserReadingVoice } from "./headline-audio";
 import VoiceMicButton from "./VoiceMicButton";
+import "./daily-briefing.css";
 
 export interface ArticleInterrogationModalProps {
   article: {
@@ -36,25 +37,71 @@ export default function ArticleInterrogationModal({
   const [error, setError] = useState<string | null>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
 
+  const articleRef = useRef(article);
+  articleRef.current = article;
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const streamAbortRef = useRef<AbortController | null>(null);
 
-  const stopAudio = () => {
+  const stopAudio = useCallback(() => {
+    if (streamAbortRef.current) {
+      streamAbortRef.current.abort();
+      streamAbortRef.current = null;
+    }
     if (audioRef.current) {
+      audioRef.current.onended = null;
+      audioRef.current.onerror = null;
       audioRef.current.pause();
+      audioRef.current.removeAttribute("src");
       audioRef.current = null;
     }
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
     setIsSpeaking(false);
-  };
+  }, []);
+
+  const fallbackToBrowserSpeech = useCallback((text: string) => {
+    if (audioRef.current) {
+      audioRef.current.onended = null;
+      audioRef.current.onerror = null;
+      audioRef.current.pause();
+      audioRef.current.removeAttribute("src");
+      audioRef.current = null;
+    }
+    if (typeof window !== "undefined" && window.speechSynthesis && typeof SpeechSynthesisUtterance === "function") {
+      try {
+        window.speechSynthesis.cancel();
+        const ut = new SpeechSynthesisUtterance(text);
+        ut.onend = () => setIsSpeaking(false);
+        ut.onerror = () => setIsSpeaking(false);
+        setIsSpeaking(true);
+        window.speechSynthesis.speak(ut);
+        return;
+      } catch {}
+    }
+    setIsSpeaking(false);
+  }, []);
 
   useEffect(() => {
     return () => {
       stopAudio();
       abortRef.current?.abort();
     };
-  }, []);
+  }, [stopAudio]);
 
-  const handleAsk = async (qText: string) => {
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.stopImmediatePropagation();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [onClose]);
+
+  const handleAsk = useCallback(async (qText: string) => {
     const cleanQ = qText.trim();
     if (cleanQ.length < 3) return;
 
@@ -67,24 +114,35 @@ export default function ArticleInterrogationModal({
     const controller = new AbortController();
     abortRef.current = controller;
 
+    const currentArticle = articleRef.current;
     try {
       const res = await interrogateArticle(
         {
-          url: article.url,
-          title: article.title,
-          source: article.source,
-          paragraphs: article.paragraphs,
+          url: currentArticle.url,
+          title: currentArticle.title,
+          source: currentArticle.source,
+          paragraphs: currentArticle.paragraphs,
           question: cleanQ,
         },
         controller.signal,
       );
+      if (controller.signal.aborted) return;
       setResult(res);
     } catch (err) {
+      if (controller.signal.aborted) return;
       setError(err instanceof Error ? err.message : "Interrogation failed.");
     } finally {
-      setLoading(false);
+      if (abortRef.current === controller) {
+        setLoading(false);
+      }
     }
-  };
+  }, [stopAudio]);
+
+  useEffect(() => {
+    setResult(null);
+    setError(null);
+    void handleAsk(SUGGESTED_QUESTIONS[0]);
+  }, [article.url, article.title, handleAsk]);
 
   const handleSpeakAnswer = async () => {
     if (!result?.answer) return;
@@ -93,32 +151,65 @@ export default function ArticleInterrogationModal({
       return;
     }
 
+    const cleanAnswer = result.answer.trim();
+    if (!cleanAnswer) return;
+
+    stopAudio();
+    const controller = new AbortController();
+    streamAbortRef.current = controller;
+    let fellBack = false;
+
+    const triggerFallback = () => {
+      if (controller.signal.aborted || fellBack) return;
+      fellBack = true;
+      fallbackToBrowserSpeech(cleanAnswer);
+    };
+
     try {
-      const controller = new AbortController();
+      let parts: string[];
+      try {
+        parts = articleNarrationParts("", [cleanAnswer], 900);
+      } catch {
+        parts = [cleanAnswer.slice(0, 900)];
+      }
+      if (!parts.length) {
+        parts = [cleanAnswer.slice(0, 900)];
+      }
+
       const streamUrl = await openArticleAudioStream(
-        [result.answer],
+        parts,
         "en-NZ",
         { en: activeVoice, zh: "zh-CN-XiaoxiaoNeural" },
         controller.signal,
-        () => {},
+        (status) => {
+          if (status.error) {
+            triggerFallback();
+          }
+        },
       );
 
-      if (streamUrl) {
-        const audio = new Audio(streamUrl);
-        audioRef.current = audio;
-        audio.onended = () => setIsSpeaking(false);
-        audio.onerror = () => setIsSpeaking(false);
-        await audio.play();
-        setIsSpeaking(true);
+      if (controller.signal.aborted || fellBack) return;
+
+      if (!streamUrl) {
+        triggerFallback();
+        return;
       }
+
+      const audio = new Audio(streamUrl);
+      audioRef.current = audio;
+      audio.onended = () => {
+        if (!fellBack && audioRef.current === audio) {
+          audioRef.current = null;
+          setIsSpeaking(false);
+        }
+      };
+      audio.onerror = () => {
+        triggerFallback();
+      };
+      setIsSpeaking(true);
+      await audio.play();
     } catch {
-      // Fallback
-      if (typeof window !== "undefined" && window.speechSynthesis) {
-        const ut = new SpeechSynthesisUtterance(result.answer);
-        ut.onend = () => setIsSpeaking(false);
-        window.speechSynthesis.speak(ut);
-        setIsSpeaking(true);
-      }
+      triggerFallback();
     }
   };
 
@@ -128,6 +219,9 @@ export default function ArticleInterrogationModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="interrogate-title"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
       <div className="interrogate-modal-card">
         {/* Header */}
@@ -172,7 +266,8 @@ export default function ArticleInterrogationModal({
           className="interrogate-form"
           onSubmit={(e) => {
             e.preventDefault();
-            void handleAsk(question);
+            const targetQuestion = question.trim().length >= 3 ? question : SUGGESTED_QUESTIONS[0];
+            void handleAsk(targetQuestion);
           }}
         >
           <input
@@ -194,7 +289,7 @@ export default function ArticleInterrogationModal({
               }
             }}
           />
-          <button type="submit" className="interrogate-submit-btn" disabled={loading || question.trim().length < 3}>
+          <button type="submit" className="interrogate-submit-btn" disabled={loading}>
             {loading ? "Analyzing..." : "Interrogate"}
           </button>
         </form>

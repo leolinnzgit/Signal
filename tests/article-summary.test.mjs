@@ -9,7 +9,7 @@ async function compiled(file, commonJS = false) {
     compilerOptions: { module: commonJS ? ts.ModuleKind.CommonJS : ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
   }).outputText;
 }
-const { loadArticleSummary } = await import(`data:text/javascript;base64,${Buffer.from(await compiled("article-summary.ts")).toString("base64")}`);
+const { loadArticleSummary, formatArticleSummaryText, copyArticleSummary } = await import(`data:text/javascript;base64,${Buffer.from(await compiled("article-summary.ts")).toString("base64")}`);
 
 test("summaries submit only the article URL with credentials, CSRF protection and cancellation", async () => {
   const calls = [], signal = new AbortController().signal;
@@ -39,7 +39,7 @@ function find(node, predicate) {
   if (predicate(node)) return node;
   for (const child of [node.props?.children].flat(Infinity)) { const match = find(child, predicate); if (match) return match; }
 }
-async function playerHarness(autoPrepare = false) {
+async function playerHarness(autoPrepare = false, clipboard) {
   const slots = [], effects = [];
   let cursor = 0, effectCursor = 0, tree, dirty = false, resolve, activeSignal;
   const audioPlayer = () => null;
@@ -59,7 +59,10 @@ async function playerHarness(autoPrepare = false) {
   };
   const modules = { react, "react/jsx-runtime": { jsx, jsxs: jsx },
     "./ArticleAudioPlayer": { default: audioPlayer }, "./ArticleReadingText": { default: () => null },
-    "./article-summary": { loadArticleSummary(_url, signal) { activeSignal = signal; return new Promise((done) => { resolve = done; }); } },
+    "./article-summary": {
+      copyArticleSummary: (paragraphs) => copyArticleSummary(paragraphs, clipboard),
+      loadArticleSummary(_url, signal) { activeSignal = signal; return new Promise((done) => { resolve = done; }); },
+    },
   };
   const exports = {};
   runInNewContext(await compiled("ArticleSummaryPlayer.tsx", true), { exports, require: (name) => modules[name], AbortController });
@@ -77,7 +80,14 @@ async function playerHarness(autoPrepare = false) {
   return {
     get audio() { return find(tree, (node) => node.type === audioPlayer)?.props; }, reports,
     async complete(result) { resolve(result); await new Promise(setImmediate); render(); },
-    click(label) { const button = find(tree, (node) => node.type === "button" && node.props.children === label); assert.ok(button); button.props.onClick(); render(); },
+    hasButton(label) { return Boolean(find(tree, (node) => node.type === "button" && node.props.children === label)); },
+    click(label) {
+      const button = find(tree, (node) => node.type === "button" && node.props.children === label);
+      assert.ok(button);
+      const result = button.props.onClick();
+      render();
+      return Promise.resolve(result).then(() => { render(); });
+    },
     close() { for (const effect of effects) effect.cleanup?.(); }, get signal() { return activeSignal; },
   };
 }
@@ -113,4 +123,33 @@ test("explicit full-text narration is preserved and failed summaries do not auto
   failed.close();
   await failed.complete({ available: true, paragraphs: ["Late summary."], reason: "" });
   assert.equal(failed.audio, undefined, "A closed request must not start audio when it finishes.");
+});
+
+test("article summary formatting and clipboard copy handle multi-paragraph text and failures", async () => {
+  assert.equal(formatArticleSummaryText(["  First paragraph.  ", "", "  ", "Second paragraph."]), "First paragraph.\n\nSecond paragraph.");
+  let copiedText = "";
+  assert.equal(await copyArticleSummary(["First paragraph.", "Second paragraph."], {
+    async writeText(text) { copiedText = text; },
+  }), true);
+  assert.equal(copiedText, "First paragraph.\n\nSecond paragraph.");
+  assert.equal(await copyArticleSummary(["", "   "], { async writeText() { throw new Error("should not run"); } }), false);
+  assert.equal(await copyArticleSummary(["Summary"], null), false);
+  assert.equal(await copyArticleSummary(["Summary"], { async writeText() { throw new Error("Denied"); } }), false);
+});
+
+test("copy summary button appears when summary is ready and copies summary text", async () => {
+  let copiedText = "";
+  const player = await playerHarness(false, { async writeText(text) { copiedText = text; } });
+  assert.equal(player.hasButton("Copy summary"), false);
+  await player.complete({ available: true, paragraphs: ["First sentence.", "Second sentence."], reason: "" });
+  assert.equal(player.hasButton("Copy summary"), true);
+  await player.click("Copy summary");
+  assert.equal(copiedText, "First sentence.\n\nSecond sentence.");
+  assert.equal(player.hasButton("Summary copied"), true);
+  player.close();
+
+  const unavailable = await playerHarness(false, { async writeText() {} });
+  await unavailable.complete({ available: false, paragraphs: [], reason: "Summary unavailable." });
+  assert.equal(unavailable.hasButton("Copy summary"), false);
+  unavailable.close();
 });

@@ -35,8 +35,8 @@ const SAMPLE_ARTICLES = [
   },
 ];
 
-function createTinyWavBuffer() {
-  const wav = Buffer.alloc(44 + 16000 * 2);
+function createTinyWavBuffer(seconds = 1) {
+  const wav = Buffer.alloc(44 + 16000 * 2 * seconds);
   wav.write("RIFF");
   wav.writeUInt32LE(wav.length - 8, 4);
   wav.write("WAVEfmt ", 8);
@@ -57,7 +57,10 @@ const server = await createServer({
   root: path.resolve(process.cwd(), "iis-client"),
   publicDir: path.resolve(process.cwd(), "public"),
   plugins: [react()],
-  optimizeDeps: { entries: ["main.tsx"] },
+  optimizeDeps: {
+    noDiscovery: true,
+    include: ["react", "react-dom", "react-dom/client", "react/jsx-runtime", "react/jsx-dev-runtime"],
+  },
   server: {
     host: "127.0.0.1",
     port: 3018,
@@ -82,6 +85,9 @@ try {
     cortexRequests: [],
     dailyCastRequests: [],
     dailyCastAudioRequested: false,
+    interrogateRequests: [],
+    audioStreamCreates: [],
+    audioStreamFetches: 0,
     sovereignAssessRequests: [],
     preMortemRequests: [],
     tripwireEvaluateRequests: [],
@@ -515,6 +521,50 @@ try {
         });
       }
 
+      if (pathname === "/api/article-reader/interrogate" && method === "POST") {
+        const body = req.postDataJSON() || {};
+        telemetry.interrogateRequests.push(body);
+        return route.fulfill({
+          json: {
+            available: true,
+            question: body.question || "",
+            answer: `Socratic analysis for ${body.title || "story"}: Red Sea diversions shift carrier routing costs without independent freight rate audits.`,
+            supportingEvidence: ["Container ships divert around the Cape of Good Hope."],
+            omittedPerspectives: ["Independent insurer war-risk premium quotes were omitted."],
+            stakeholderImpact: "Exporters face extended transit buffers and working capital strain.",
+            mode: "socratic-analytical",
+          },
+        });
+      }
+
+      if (pathname === "/api/article-audio-stream" && method === "POST") {
+        const body = req.postDataJSON() || {};
+        telemetry.audioStreamCreates.push(body);
+        const streamId = "0123456789abcdef0123456789abcdef";
+        return route.fulfill({
+          json: {
+            url: `/api/article-audio-stream/${streamId}`,
+            statusUrl: `/api/article-audio-stream/${streamId}/status`,
+            status: { starts: [0], complete: true, duration: 5, error: null },
+          },
+        });
+      }
+
+      if (pathname === "/api/article-audio-stream/0123456789abcdef0123456789abcdef/status" && method === "GET") {
+        return route.fulfill({
+          json: { starts: [0], complete: true, duration: 5, error: null },
+        });
+      }
+
+      if (pathname === "/api/article-audio-stream/0123456789abcdef0123456789abcdef" && method === "GET") {
+        telemetry.audioStreamFetches += 1;
+        return route.fulfill({
+          status: 200,
+          contentType: "audio/wav",
+          body: createTinyWavBuffer(5),
+        });
+      }
+
       return route.fulfill({ json: {} });
     });
   }
@@ -556,6 +606,42 @@ try {
     console.error("DOM SNAPSHOT:", await page.evaluate(() => document.body.innerText.slice(0, 600)));
     throw err;
   }
+
+  // News Page Story Interrogate modal: opens styled fixed overlay without opening Daily Briefing, auto-loads Socratic analysis, plays Azure Neural readout
+  await page.getByRole("button", { name: `Interrogate story: ${SAMPLE_ARTICLES[0].title}`, exact: true }).click();
+  const interrogateDialog = page.getByRole("dialog", { name: SAMPLE_ARTICLES[0].title });
+  await interrogateDialog.waitFor();
+  const interrogatePosition = await interrogateDialog.evaluate((el) => getComputedStyle(el).position);
+  assert.equal(interrogatePosition, "fixed", "Interrogate modal overlay must render as fixed dialog without DailyBriefingModal mounted");
+  await interrogateDialog.getByText(/Socratic analysis for/i).waitFor();
+  assert.ok(telemetry.interrogateRequests.length >= 1, "Opening Interrogate modal must immediately submit initial Socratic query");
+  await interrogateDialog.getByRole("button", { name: /Listen via Azure Neural/i }).click();
+  await interrogateDialog.getByRole("button", { name: /Stop Azure Voice/i }).waitFor();
+  await page.waitForTimeout(150);
+  assert.equal(
+    await interrogateDialog.getByRole("button", { name: /Stop Azure Voice/i }).isVisible(),
+    true,
+    "Interrogate audio playback must stay active across renders"
+  );
+  await interrogateDialog.getByRole("button", { name: "Close interrogation", exact: true }).click();
+  await interrogateDialog.waitFor({ state: "detached" });
+
+  // News Page Soundbite Audiogram modal: opens and streams audio continuously without useEffect cleanup pausing it
+  await page.getByRole("button", { name: `Clip soundbite audiogram for ${SAMPLE_ARTICLES[0].title}`, exact: true }).click();
+  const audiogramDialog = page.getByRole("dialog", { name: /Generate Audiogram & Quote Card/i });
+  await audiogramDialog.waitFor();
+  await audiogramDialog.getByRole("button", { name: /Listen to Clip/i }).click();
+  await audiogramDialog.getByRole("button", { name: /Stop Voice/i }).waitFor();
+  await page.waitForTimeout(150);
+  assert.equal(
+    await audiogramDialog.getByRole("button", { name: /Stop Voice/i }).isVisible(),
+    true,
+    "Soundbite audio playback must stay active and not be immediately paused by canvas animation cleanup"
+  );
+  assert.ok(telemetry.audioStreamCreates.length >= 2, "Interrogate and Soundbite must both request /api/article-audio-stream");
+  assert.ok(telemetry.audioStreamFetches >= 2, "Audio elements must actually fetch streamed WAV audio");
+  await audiogramDialog.getByRole("button", { name: "Close Audiogram Clipper", exact: true }).click();
+  await audiogramDialog.waitFor({ state: "detached" });
 
   // Command Center -> 28 badge -> Search "tripwires" -> Open Executive Tripwires
   const hubBtn = page.getByRole("button", { name: "Open Executive Command Center", exact: true });
