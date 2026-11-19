@@ -1,5 +1,19 @@
 # SignalWatch release preparation
 
+## Companion 0.14.0 controls, Instant Store Price Check, Markets Complication/Tile, Tripwires & Executive Dossier, and Playback Speed Polish: 0.27.0 (44)
+
+Ships both **SignalWatch `0.27.0 (44)`** and **Signal Companion `0.14.0 (24)`**, bringing five upgrades across watch, phone companion, and shared layer:
+
+- **Signal Companion `0.14.0 (24)` alert rules, quiet hours & phone Product Watch manager:** Adds `PhoneControlsActivity` (`/api/watch/alerts`, `/api/quiet-hours/config`) and `PhoneProductWatchActivity` (`/api/product-watch`, instant price checks, delete), packages updated `NativeNotice` validation (`signal-product-watch-*` and `signal-tripwire-*` forwarding), and adds a one-tap **Quiet hours** wrist toggle in `WatchModel`/`MainActivity`.
+- **In-store voice Instant Price Check & One-Off Product Q&A (`gpt-6.1-sol`):** Adds voice/text instant store checks (`POST /api/product-watch/check-instant`), one-off Q&A (`POST /api/product-watch/ask`), and one-tap **Watch this item** creation (`POST /api/product-watch`).
+- **Signal Markets complication & Markets & Deals tile:** Adds `MarketsComplicationService`, `MarketsTileService`, and encrypted `MarketsTileCache`, refreshing automatically from story snapshots, `Markets & clocks` (with `/api/watch/market` fallback), and Product Watch checks.
+- **Tripwires & Synced Executive Dossier on wrist:** Connects `/api/tripwires` (`GET`, `POST /api/tripwires`, `POST /api/tripwires/evaluate` with instant preset activation/toggling) and `/api/watch/dossier` (reader view + multi-section narration playback).
+- **Playback speed presets & rotary bezel haptics:** Adds one-tap `1x / 1.25x / 1.5x` speed chips in the audio player (`NewsPlayer.setSpeed`, widened `0.8x–1.75x` clamping, `MediaSession.onSetPlaybackSpeed`), route-scoped rotary focus refresh, and throttled rotary detent + transport haptic feedback.
+
+Validation (19 November 2026): packaged watch version `0.27.0 (44)` and companion version `0.14.0 (24)` verified; all `169` Watch release JVM tests and `22` Phone Companion release JVM tests passed (`0` failures, `0` skipped); `:app:lintRelease` (`0` errors, `54` warnings) and `:phone:lintRelease` (`0` errors, `38` warnings) passed. Signed AAB/APK, bundle validation, signature, 64-bit/16 KB alignment, and private-file checks passed with the existing upload certificate. Browser preview checks (`signalwatch-preview.test-browser.mjs`) passed at `1280px` and `390px`, `signalwatch-connect.test-browser.mjs` passed, and server watch-pairing/market/handoff checks passed. Checked artifacts: `../SignalWatch/outputs/play-release/0.27.0-44/` (Watch APK SHA256: `30a1e4ccf652cfb75f797aab61b580f6cf0b5dfeba17a328c4bd32a78f874e39`; Watch AAB SHA256: `6f10cc348dec1f6c97ddeb49c72bd53128ca598c8c8f337a5826ea59c6a0e13f`) and `../SignalWatch/outputs/play-release/0.14.0-24/` (Companion APK SHA256: `7cef343f14dc802846d0dd6b78557d2ac47b84be0c8f3d717afdde629482b04b`; Companion AAB SHA256: `175092a6475b95dbe828af28b3b044032c64e4d7e6b6ebcf303ee201b3080508`).
+
+Publication verification (19 November 2026): both public HTTPS watch APK downloads (`/signalwatch/SignalWatch-release.apk` and `/signalwatch/native-preview/SignalWatch-release.apk`) serve `0.27.0 (44)` matching SHA256 `30a1e4ccf652cfb75f797aab61b580f6cf0b5dfeba17a328c4bd32a78f874e39`, and `/signalwatch/native-preview/SignalCompanion-release.apk` serves Companion `0.14.0 (24)` matching SHA256 `7cef343f14dc802846d0dd6b78557d2ac47b84be0c8f3d717afdde629482b04b`. Preview version labels match. Production server/configuration guards passed and `App_Data` was excluded. Native source commit: `daa6268`. No Google Play upload was made.
+
 ## Extended-hours quotes, Product Watch, Signal Bot, open coverage & charger pre-cache: 0.26.0 (43)
 
 Adds five major capabilities across SignalWatch and the shared library while keeping Signal Companion `0.13.0 (23)` unchanged:
