@@ -3254,13 +3254,33 @@ button.local-weather {
   border-bottom: 1px solid var(--line);
 }
 
+.topic-date-range {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.85rem 1rem;
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.topic-date-range .ticker-editor-field {
+  flex: 0 1 11rem;
+  min-width: 0;
+}
+
+.topic-date-range .ticker-editor-message {
+  flex: 1 0 100%;
+  margin: 0;
+}
+
 .ticker-editor-copy {
   display: grid;
   gap: 0.2rem;
 }
 
 .ticker-editor-copy > span,
-.ticker-editor-field label {
+.ticker-editor-field label,
+.topic-date-range .ticker-editor-field > span {
   color: var(--red);
   font-size: 0.58rem;
   font-weight: 700;

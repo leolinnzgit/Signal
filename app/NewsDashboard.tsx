@@ -260,6 +260,8 @@ type NewsRequest = {
   sourceLabel: string;
 };
 
+type NewsDateRange = { from: string; to: string };
+
 export type SourcePreferences = {
   google: boolean;
   gdelt: boolean;
@@ -1080,6 +1082,64 @@ function topicBatches(topics: string[]) {
   );
 }
 
+function buildNewsRequests(topics: string[], sources: SourcePreferences): NewsRequest[] {
+  const requests: NewsRequest[] = topics.flatMap((topic) => [
+    ...(sources.google ? [{ topics: [topic], provider: "google" as const, sourceKey: "google", sourceLabel: "Google News" }] : []),
+    ...sources.rssFeeds.map((feed) => ({
+      topics: [topic],
+      provider: "rss" as const,
+      feed,
+      sourceKey: `rss:${feed}`,
+      sourceLabel: feedName(feed),
+    })),
+  ]);
+  if (sources.gdelt) {
+    requests.push(...topicBatches(topics).map((topics) => ({
+      topics,
+      provider: "gdelt" as const,
+      sourceKey: "gdelt",
+      sourceLabel: "GDELT",
+    })));
+  }
+  return requests;
+}
+
+async function fetchNewsRequest(
+  { topics, provider, feed }: NewsRequest,
+  limit: number,
+  range?: NewsDateRange,
+  signal?: AbortSignal,
+): Promise<FeedResponse> {
+  const params = new URLSearchParams({ provider, limit: String(limit), ...range });
+  topics.forEach((topic) => params.append("topic", topic));
+  if (feed) params.set("feed", feed);
+  const response = await fetch(`/api/news?${params}`, { cache: "no-store", signal });
+  const data = (await response.json()) as FeedResponse;
+  if (!response.ok) throw new Error(data.error || `Could not load ${topics.join(", ")}.`);
+  return data;
+}
+
+function mergeNewsFeeds(feeds: FeedResponse[]) {
+  const merged = new Map<string, FollowedArticle>();
+  for (const feed of feeds) {
+    for (const article of feed.articles) {
+      const key = articleKey(article);
+      const matchedTopics = article.matchedTopics?.length ? article.matchedTopics : [feed.topic];
+      const existing = merged.get(key);
+      if (existing) {
+        existing.topics = Array.from(new Set([...existing.topics, ...matchedTopics]));
+        existing.providers = Array.from(new Set([...existing.providers, feed.provider]));
+        if (!existing.imageUrl && article.imageUrl) existing.imageUrl = article.imageUrl;
+      } else {
+        merged.set(key, { ...article, topics: matchedTopics, providers: [feed.provider] });
+      }
+    }
+  }
+  return Array.from(merged.values()).sort(
+    (left, right) => new Date(right.publishedAt).getTime() - new Date(left.publishedAt).getTime(),
+  );
+}
+
 function normalizePreferences(saved: Partial<NewsPreferences> & { topic?: string }): NewsPreferences {
   const savedTopics = Array.isArray(saved.topics)
     ? saved.topics
@@ -1303,6 +1363,18 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [historySearchInput, setHistorySearchInput] = useState("");
   const [historySearch, setHistorySearch] = useState("");
   const [feedView, setFeedView] = useState<"latest" | "history" | "bookmarks">("latest");
+  const [dateFilterOpen, setDateFilterOpen] = useState(false);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [dateInputError, setDateInputError] = useState("");
+  const [dateRange, setDateRange] = useState<NewsDateRange | null>(null);
+  const [dateSearchResult, setDateSearchResult] = useState<{
+    topic: string;
+    range: NewsDateRange;
+    articles: FollowedArticle[];
+    error?: string;
+    notice?: string;
+  } | null>(null);
   const [bookmarkingUrls, setBookmarkingUrls] = useState<Set<string>>(() => new Set());
   const [sharingUrls, setSharingUrls] = useState<Set<string>>(() => new Set());
   const [friendShareArticle, setFriendShareArticle] = useState<FollowedArticle | null>(null);
@@ -2515,29 +2587,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
       return;
     }
 
-    const requests: NewsRequest[] = next.topics.flatMap((topic) => [
-      ...(next.sources.google ? [{
-        topics: [topic],
-        provider: "google" as const,
-        sourceKey: "google",
-        sourceLabel: "Google News",
-      }] : []),
-      ...next.sources.rssFeeds.map((feed) => ({
-        topics: [topic],
-        provider: "rss" as const,
-        feed,
-        sourceKey: `rss:${feed}`,
-        sourceLabel: feedName(feed),
-      })),
-    ]);
-    if (next.sources.gdelt) {
-      requests.push(...topicBatches(next.topics).map((topics) => ({
-        topics,
-        provider: "gdelt" as const,
-        sourceKey: "gdelt",
-        sourceLabel: "GDELT",
-      })));
-    }
+    const requests = buildNewsRequests(next.topics, next.sources);
 
     if (next.topics.length === 0 || requests.length === 0) {
       setArticles([]);
@@ -2547,43 +2597,13 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     }
 
     try {
-      const results = await Promise.allSettled(
-        requests.map(async ({ topics, provider, feed }) => {
-          const params = new URLSearchParams({ provider, limit: String(next.limit) });
-          topics.forEach((topic) => params.append("topic", topic));
-          if (feed) params.set("feed", feed);
-          const response = await fetch(`/api/news?${params.toString()}`, { cache: "no-store" });
-          const data = (await response.json()) as FeedResponse;
-          if (!response.ok) throw new Error(data.error || `Could not refresh ${topics.join(", ")}.`);
-          return data;
-        }),
-      );
+      const results = await Promise.allSettled(requests.map((request) => fetchNewsRequest(request, next.limit)));
 
       if (runId !== requestSequence.current) return;
-      const successful = results.flatMap((result, index) => result.status === "fulfilled"
-        ? [{ feed: result.value, request: requests[index] }]
-        : []);
+      const successful = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
       if (successful.length === 0) throw new Error("The selected news sources could not be reached.");
 
-      const merged = new Map<string, FollowedArticle>();
-      successful.forEach(({ feed }) => {
-        feed.articles.forEach((article) => {
-          const key = articleKey(article);
-          const matchedTopics = article.matchedTopics?.length ? article.matchedTopics : [feed.topic];
-          const existing = merged.get(key);
-          if (existing) {
-            existing.topics = Array.from(new Set([...existing.topics, ...matchedTopics]));
-            existing.providers = Array.from(new Set([...existing.providers, feed.provider]));
-            if (!existing.imageUrl && article.imageUrl) existing.imageUrl = article.imageUrl;
-          } else {
-            merged.set(key, { ...article, topics: matchedTopics, providers: [feed.provider] });
-          }
-        });
-      });
-
-      const sorted = Array.from(merged.values()).sort(
-        (left, right) => new Date(right.publishedAt).getTime() - new Date(left.publishedAt).getTime(),
-      );
+      const sorted = mergeNewsFeeds(successful);
       const included = new Set<string>();
       next.topics.forEach((topic) => {
         selectBalancedArticles(
@@ -2592,7 +2612,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         ).forEach((article) => included.add(articleKey(article)));
       });
       const refreshedArticles = sorted.filter((article) => included.has(articleKey(article)));
-      const refreshedAt = successful.map(({ feed }) => feed.fetchedAt).sort((left, right) => right.localeCompare(left))[0] ?? "";
+      const refreshedAt = successful.map((feed) => feed.fetchedAt).sort((left, right) => right.localeCompare(left))[0] ?? "";
       setArticles(refreshedArticles);
       setFetchedAt(refreshedAt);
 
@@ -2780,13 +2800,73 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     };
   }, [loadNews, ready, refreshStore]);
 
+  const activeDateRange = feedView === "latest" && selectedTopic !== ALL_TOPICS ? dateRange : null;
+  const currentDateResult = dateSearchResult?.topic === selectedTopic && dateSearchResult.range === activeDateRange
+    ? dateSearchResult
+    : null;
+  const dateSearchLoading = Boolean(activeDateRange && !currentDateResult);
+
+  useEffect(() => {
+    if (!activeDateRange) return;
+    const controller = new AbortController();
+    const { signal } = controller;
+    const requests = buildNewsRequests([selectedTopic], preferences.sources);
+    const scope = { topic: selectedTopic, range: activeDateRange };
+
+    async function search() {
+      const results = await Promise.allSettled(requests.map((request) =>
+        fetchNewsRequest(request, preferences.limit, activeDateRange ?? undefined, signal),
+      ));
+      if (signal.aborted) return;
+      const feeds = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+      if (!feeds.length) {
+        const firstFailure = results[0];
+        setDateSearchResult({
+          ...scope,
+          articles: [],
+          error: firstFailure?.status === "rejected" && firstFailure.reason instanceof Error
+            ? firstFailure.reason.message
+            : "Choose a news source to search.",
+        });
+        return;
+      }
+
+      let matches = selectBalancedArticles(mergeNewsFeeds(feeds), preferences.limit);
+      const failedSources = requests.flatMap((request, index) =>
+        results[index].status === "rejected" ? [request.sourceLabel] : [],
+      );
+      const notices = failedSources.length ? [`Could not search ${summarizeSources(failedSources)}.`] : [];
+      if (articleStore && matches.length > 0) {
+        try {
+          const history = await articleStore.sync(matches);
+          if (signal.aborted) return;
+          const bookmarks = new Set(history.bookmarkedUrls);
+          const read = new Set(history.readUrls);
+          setHistoryTotal(history.historyTotal);
+          setBookmarkTotal(history.bookmarkTotal);
+          matches = matches.map((article) => ({
+            ...article,
+            isBookmarked: bookmarks.has(article.url),
+            isRead: read.has(article.url),
+          }));
+        } catch {
+          notices.push("Signal could not save these results to Article history.");
+        }
+      }
+      if (!signal.aborted) setDateSearchResult({ ...scope, articles: matches, notice: notices.join(" ") });
+    }
+
+    void search();
+    return () => controller.abort();
+  }, [activeDateRange, articleStore, preferences.limit, preferences.sources, selectedTopic]);
+
   const viewedArticles = useMemo(
     () =>
       enrichArticlesWithMarketQuotes(
-        feedView === "latest" ? articles : historyArticles,
+        activeDateRange ? currentDateResult?.articles ?? [] : feedView === "latest" ? articles : historyArticles,
         liveMarketQuotes,
       ),
-    [articles, feedView, historyArticles, liveMarketQuotes],
+    [activeDateRange, articles, currentDateResult, feedView, historyArticles, liveMarketQuotes],
   );
 
   const unreadHeadlineQueue = useMemo(
@@ -2896,7 +2976,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
 
   useEffect(() => {
     setVisibleFeedCount(FEED_BATCH_SIZE);
-  }, [selectedTopic, selectedProvider, feedView, historySearch]);
+  }, [selectedTopic, selectedProvider, feedView, historySearch, activeDateRange]);
 
   const visibleFeedItems = useMemo(
     () => clusteredFeedItems.slice(0, visibleFeedCount),
@@ -3393,7 +3473,11 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
       ),
     }));
     setRecentTopicFilters((current) => current.filter((followed) => followed.toLowerCase() !== topic.toLowerCase()));
-    if (selectedTopic === topic) setSelectedTopic(ALL_TOPICS);
+    if (selectedTopic === topic) {
+      setSelectedTopic(ALL_TOPICS);
+      clearDateRange();
+      setDateFilterOpen(false);
+    }
   }
 
   function requestTopicRemoval(topic: string) {
@@ -4005,6 +4089,8 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   }
 
   function changeFeedView(next: "latest" | "history" | "bookmarks", search = "") {
+    clearDateRange();
+    setDateFilterOpen(false);
     setFeedView(next);
     setSelectedTopic(ALL_TOPICS);
     setSelectedProvider(ALL_PROVIDERS);
@@ -4060,6 +4146,10 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   }
 
   function selectTopicFilter(topic: string) {
+    if (topic === ALL_TOPICS) {
+      clearDateRange();
+      setDateFilterOpen(false);
+    }
     const viewedRequest = markTopicViewed(topic);
     if (topic !== selectedTopic && filterStackElement.current?.classList.contains("pinned")) {
       pendingPinnedTopicScroll.current = topic;
@@ -4106,6 +4196,26 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     if (feedView !== "latest") {
       void loadHistoryPage(feedView, historySearch, 0, selectedTopic, provider);
     }
+  }
+
+  function submitDateRange(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const from = new Date(`${dateFrom}T00:00:00`);
+    const to = new Date(`${dateTo}T23:59:59.999`);
+    if (!Number.isFinite(from.getTime()) || !Number.isFinite(to.getTime()) || dateFrom > dateTo) {
+      setDateInputError("Choose an end date on or after the start date.");
+      return;
+    }
+    setDateInputError("");
+    setDateRange({ from: new Date(Math.max(+from, Date.UTC(2000, 0, 1))).toISOString(), to: to.toISOString() });
+  }
+
+  function clearDateRange() {
+    setDateFrom("");
+    setDateTo("");
+    setDateInputError("");
+    setDateRange(null);
+    setDateSearchResult(null);
   }
 
   function submitHistorySearch(event: FormEvent<HTMLFormElement>) {
@@ -4328,7 +4438,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     openArticleReader(article, headerElement.current?.querySelector<HTMLButtonElement>(".latest-comments-button") ?? document.body, false, true);
   }, [articleToOpen, articles, historyArticles]);
 
-  function markArticleRead(article: FollowedArticle, fromLatest = feedView === "latest", copies = [article]) {
+  function markArticleRead(article: FollowedArticle, fromLatest = feedView === "latest" && !activeDateRange, copies = [article]) {
     markArticlesRead(copies, fromLatest);
   }
 
@@ -4380,6 +4490,10 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     setHistoryArticles((current) => current.map((item) => readUrls.has(item.url)
       ? { ...item, isRead: true, readAt }
       : item));
+    setDateSearchResult((current) => current && {
+      ...current,
+      articles: current.articles.map((item) => readUrls.has(item.url) ? { ...item, isRead: true } : item),
+    });
     if (persist) persistArticleReads(readUrls);
     if (caughtUpTopics.length > 0) {
       const viewedAt = new Date().toISOString();
@@ -4435,6 +4549,10 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
       setHistoryArticles((current) => current.map((item) => item.url === article.url
         ? { ...item, isBookmarked: bookmarked, bookmarkedAt: bookmarked ? new Date().toISOString() : null }
         : item));
+      setDateSearchResult((current) => current && {
+        ...current,
+        articles: current.articles.map((item) => item.url === article.url ? { ...item, isBookmarked: bookmarked } : item),
+      });
       setReaderArticle((current) => current?.url === article.url ? { ...current, isBookmarked: bookmarked } : current);
       setHeadlineQueue((current) => current?.map((item) => item.url === article.url ? { ...item, isBookmarked: bookmarked } : item) ?? null);
       setBookmarkTotal((current) => Math.max(0, current + (bookmarked ? 1 : -1)));
@@ -5642,10 +5760,12 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
 
       <section className={`feed story-title-${preferences.storyTitleSize} topic-header-${preferences.topicHeaderSize}`} aria-labelledby="feed-title">
         <div className="feed-heading">
-          <div><p className="eyebrow">Latest signal</p><h2 id="feed-title">{feedTitle}</h2></div>
+          <div><p className="eyebrow">{activeDateRange ? "Date-range results" : "Latest signal"}</p><h2 id="feed-title">{feedTitle}</h2></div>
           <div className="feed-actions">
             <div className="feed-meta" aria-live="polite">
-              {feedView === "latest"
+              {activeDateRange
+                ? dateSearchLoading ? "Searching selected dates…" : `${filteredArticles.length} stories / ${publisherCount} publishers`
+                : feedView === "latest"
                 ? fetchedAt ? `${filteredArticles.length} stories / ${publisherCount} publishers / updated ${formatAge(fetchedAt)}` : preferences.topics.length > 0 && enabledSourceCount > 0 ? "Gathering recent coverage" : "Add a topic and source to begin"
                 : historyLoading && historyArticles.length === 0
                   ? historySearch || selectedTopic !== ALL_TOPICS || selectedProvider !== ALL_PROVIDERS ? "Filtering saved stories" : "Loading saved stories"
@@ -5656,6 +5776,17 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                       : `${filteredArticles.length} loaded / ${historyTotal} stored`}
             </div>
             <div className="feed-action-buttons">
+              {feedView === "latest" && selectedTopic !== ALL_TOPICS && (
+                <button
+                  type="button"
+                  className={`ticker-config-button${activeDateRange ? " active" : ""}`}
+                  aria-expanded={dateFilterOpen}
+                  aria-controls="topic-date-range"
+                  onClick={() => setDateFilterOpen((open) => !open)}
+                >
+                  Date range
+                </button>
+              )}
               <button
                 type="button"
                 className="signal-bot-feed-button"
@@ -5696,10 +5827,28 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                   <span aria-hidden="true">&#8722;</span> Unfollow <strong>{selectedTopic}</strong>
                 </button>
               )}
-              <button className="refresh-button" onClick={() => void loadNews(preferences, { emailSummary: true, forceRefresh: true })} disabled={loading || preferences.topics.length === 0 || enabledSourceCount === 0}><RefreshIcon spinning={loading} /> Refresh</button>
+              {!activeDateRange && <button className="refresh-button" onClick={() => void loadNews(preferences, { emailSummary: true, forceRefresh: true })} disabled={loading || preferences.topics.length === 0 || enabledSourceCount === 0}><RefreshIcon spinning={loading} /> Refresh</button>}
             </div>
           </div>
         </div>
+
+        {dateFilterOpen && feedView === "latest" && selectedTopic !== ALL_TOPICS && (
+          <form id="topic-date-range" className="topic-date-range" aria-label="Search topic by date" onSubmit={submitDateRange}>
+            <label className="ticker-editor-field">
+              <span>From date</span>
+              <input type="date" required min="2000-01-01" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
+            </label>
+            <label className="ticker-editor-field">
+              <span>To date</span>
+              <input type="date" required min="2000-01-01" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
+            </label>
+            <div className="ticker-editor-actions">
+              <button type="submit">Search dates</button>
+              {activeDateRange && <button type="button" className="secondary" onClick={clearDateRange}>Clear dates</button>}
+            </div>
+            {dateInputError && <p role="alert" className="ticker-editor-message error">{dateInputError}</p>}
+          </form>
+        )}
 
         {tickerEditorOpen && selectedTopic !== ALL_TOPICS && (
           <form className="ticker-editor" onSubmit={saveTickerOverride}>
@@ -6239,8 +6388,15 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         )}
 
         {notice && <p className="feed-notice" role="status">{notice}</p>}
+        {currentDateResult?.notice && <p className="feed-notice" role="status">{currentDateResult.notice}</p>}
 
-        {feedView !== "latest" && historyError ? (
+        {dateSearchLoading ? (
+          <div className="loading-list" aria-label="Loading stories in date range">{Array.from({ length: 4 }, (_, index) => <div className="loading-row" key={index} />)}</div>
+        ) : currentDateResult?.error ? (
+          <div className="message-card" role="alert"><h3>Couldn&apos;t search these dates.</h3><p>{currentDateResult.error}</p><button type="button" onClick={() => setDateRange({ ...currentDateResult.range })}>Try again</button></div>
+        ) : activeDateRange && filteredArticles.length === 0 ? (
+          <div className="message-card"><h3>No stories found in this date range.</h3><p>Try a wider date range or choose All sources.</p><button type="button" onClick={clearDateRange}>Clear dates</button></div>
+        ) : feedView !== "latest" && historyError ? (
           <div className="message-card" role="alert"><p className="message-kicker">History unavailable</p><h3>We couldn&apos;t load your saved stories.</h3><p>{historyError}</p><button onClick={() => void loadHistoryPage(feedView, historySearch, 0, selectedTopic, selectedProvider)}>Try again</button></div>
         ) : feedView !== "latest" && historyLoading && historyArticles.length === 0 ? (
           <div className="loading-list" aria-label="Loading saved stories">{Array.from({ length: 4 }, (_, index) => <div className="loading-row" key={index} />)}</div>
@@ -6254,9 +6410,9 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           <div className="message-card"><p className="message-kicker">Your briefing is empty</p><h3>Add a topic to begin.</h3><p>Your followed topics will appear here as filters, with everything combined under All.</p></div>
         ) : enabledSourceCount === 0 && feedView === "latest" ? (
           <div className="message-card"><p className="message-kicker">No sources selected</p><h3>Choose where Signal should look.</h3><p>Turn on Google News or GDELT, or add a publisher RSS feed.</p></div>
-        ) : error && feedView === "latest" ? (
+        ) : error && feedView === "latest" && !activeDateRange ? (
           <div className="message-card" role="alert"><p className="message-kicker">The signal dropped</p><h3>We couldn&apos;t gather the latest stories.</h3><p>{error}</p><button onClick={() => void loadNews(preferences, { emailSummary: true })}>Try again</button></div>
-        ) : loading && articles.length === 0 && feedView === "latest" ? (
+        ) : loading && articles.length === 0 && feedView === "latest" && !activeDateRange ? (
           <div className="loading-list" aria-label="Loading recent stories">{Array.from({ length: 4 }, (_, index) => <div className="loading-row" key={index} />)}</div>
         ) : filteredArticles.length === 0 ? (
           <div className="message-card"><p className="message-kicker">No coverage found</p><h3>Try a broader filter.</h3><p>Choose All sources or use a more general topic to widen the signal.</p></div>

@@ -438,6 +438,26 @@ For Gmail accounts using an App Password, helper scripts are provided in `work/`
 
 Recycle the application pool after changing its environment variables.
 
+## Topic date search and API access
+
+Select a followed topic on the news page, choose **Date range**, and enter a
+start and end date. Signal searches your enabled news sources across those dates
+in your browser’s time zone. Found stories are added to Article history and can
+be bookmarked. Use **Clear dates** to return to the latest coverage.
+
+To query the News API from a script, open **Account → API access**, name your
+key, choose an expiration, and select **Create key**. Your account email must
+be verified. Copy the key when it appears and store it securely. You can revoke
+it from the same panel. The key grants read access to `GET /api/news`.
+
+```sh
+curl -H 'Authorization: Bearer YOUR_SIGNAL_API_KEY' 'https://YOUR_SIGNAL_HOST/api/news?topic=Reserve+Bank&from=2026-11-02&to=2026-11-08&provider=all'
+```
+
+The API accepts `Authorization: Bearer` or `X-API-Key`. Date-only bounds are
+inclusive UTC days. You can also send ISO 8601 timestamps with a UTC offset.
+Use `GET /api/api-keys/verify` with the same header to check a key.
+
 ## Validation
 
 Run the client type check, production build, client unit tests, and server integration tests:

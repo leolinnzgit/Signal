@@ -145,6 +145,7 @@ test("dashboard saves all heard copies and catches up their topics without consu
   ];
   let latest = articles;
   let history = articles;
+  let dateSearch = { articles };
   let topics = ["Markets", "Economy", "Technology"].map((topic) => ({ topic, hasUnread: true }));
   let queued = null;
   let randomized = false;
@@ -167,6 +168,7 @@ test("dashboard saves all heard copies and catches up their topics without consu
     document: { fullscreenElement: null, documentElement: {} },
     setArticles: (update) => { latest = update(latest); },
     setHistoryArticles: (update) => { history = update(history); },
+    setDateSearchResult: (update) => { dateSearch = update(dateSearch); },
     setTopicRefreshStates: (update) => { topics = update(topics); },
     articleStore: { async setRead(url) { saved.push(url); } },
     refreshStore: { async markViewed(topic) { viewed.push(topic); } },
@@ -185,6 +187,7 @@ test("dashboard saves all heard copies and catches up their topics without consu
   assert.deepEqual(viewed, ["Markets", "Economy"]);
   assert.deepEqual(Array.from(latest, (article) => !!article.isRead), [true, true, false]);
   assert.deepEqual(Array.from(history, (article) => !!article.isRead), [true, true, false]);
+  assert.deepEqual(Array.from(dateSearch.articles, (article) => !!article.isRead), [true, true, false]);
   assert.deepEqual(Array.from(topics, (topic) => topic.hasUnread), [false, false, true]);
   assert.equal(latest[2], articles[2]);
   assert.deepEqual(createUnreadHeadlineQueue(latest).articles, [articles[2]]);

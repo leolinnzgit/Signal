@@ -1792,7 +1792,7 @@ function AccountPanel({
   const [apiKeyBusy, setApiKeyBusy] = useState(false);
   const [apiKeyError, setApiKeyError] = useState("");
   const [apiKeyNotice, setApiKeyNotice] = useState("");
-  const [newlyCreatedKey, setNewlyCreatedKey] = useState<string | null>(null);
+  const [createdApiKey, setCreatedApiKey] = useState<{ id: string; key: string } | null>(null);
   const [copiedField, setCopiedField] = useState<"key" | "curl" | null>(null);
   const [revokingKeyId, setRevokingKeyId] = useState<string | null>(null);
 
@@ -1843,7 +1843,7 @@ function AccountPanel({
         scopes: ["news:read"],
       });
       setApiKeys((current) => [created.apiKey, ...current]);
-      setNewlyCreatedKey(created.key);
+      setCreatedApiKey({ id: created.apiKey.id, key: created.key });
       setApiKeyName("");
     } catch (caught) {
       setApiKeyError(caught instanceof Error ? caught.message : "Could not create the API key.");
@@ -1859,6 +1859,7 @@ function AccountPanel({
     try {
       await deleteJson<void>(`/api/api-keys/${encodeURIComponent(id)}`);
       setApiKeys((current) => current.filter((item) => item.id !== id));
+      setCreatedApiKey((current) => current?.id === id ? null : current);
       setApiKeyNotice("API key revoked.");
     } catch (caught) {
       setApiKeyError(caught instanceof Error ? caught.message : "Could not revoke the API key.");
@@ -1880,6 +1881,7 @@ function AccountPanel({
     return new Date(value).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
   }
 
+  const newlyCreatedKey = createdApiKey?.key;
   const sampleToDay = new Date().toISOString().slice(0, 10);
   const sampleFromDay = new Date(Date.now() - 6 * 86_400_000).toISOString().slice(0, 10);
   const sampleCurlCommand = newlyCreatedKey
@@ -2048,7 +2050,7 @@ function AccountPanel({
               <option value="365">1 year</option>
               <option value="never">No expiry</option>
             </select>
-            <button type="submit" disabled={apiKeyBusy || !apiKeyName.trim()}>
+            <button type="submit" disabled={apiKeysLoading || apiKeyBusy || !apiKeyName.trim()}>
               {apiKeyBusy ? "Creating…" : "Create key"}
             </button>
           </form>

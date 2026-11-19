@@ -35,6 +35,15 @@ const SAMPLE_ARTICLES = [
   },
 ];
 
+const ARCHIVE_ARTICLE = {
+  title: "Archived shipping routes reopen after port negotiations",
+  url: "https://example.com/archived-shipping-routes",
+  source: "Lloyd's List",
+  publishedAt: "2024-11-03T12:00:00Z",
+  summary: "Shipping schedules return to normal.",
+  matchedTopics: ["Logistics"],
+};
+
 function createTinyWavBuffer(seconds = 1) {
   const wav = Buffer.alloc(44 + 16000 * 2 * seconds);
   wav.write("RIFF");
@@ -82,6 +91,9 @@ try {
   });
 
   const telemetry = {
+    dateSearches: [],
+    createdApiKeys: [],
+    revokedApiKeys: [],
     cortexRequests: [],
     dailyCastRequests: [],
     dailyCastAudioRequested: false,
@@ -96,6 +108,7 @@ try {
   };
 
   async function installApiRoutes(context) {
+    let apiKey = null;
     await context.route("http://127.0.0.1:3018/api/**", async (route) => {
       const req = route.request();
       const url = new URL(req.url());
@@ -151,6 +164,18 @@ try {
         });
       }
       if (pathname === "/api/news") {
+        if (url.searchParams.has("from") && url.searchParams.has("to")) {
+          const search = Object.fromEntries(url.searchParams);
+          telemetry.dateSearches.push(search);
+          const covered = Date.parse(search.from) <= Date.parse(ARCHIVE_ARTICLE.publishedAt)
+            && Date.parse(search.to) >= Date.parse(ARCHIVE_ARTICLE.publishedAt);
+          return route.fulfill({ json: {
+            articles: covered && search.topic === "Logistics" ? [ARCHIVE_ARTICLE] : [],
+            topic: search.topic,
+            provider: search.provider,
+            fetchedAt: new Date().toISOString(),
+          } });
+        }
         return route.fulfill({
           json: {
             articles: SAMPLE_ARTICLES,
@@ -158,6 +183,23 @@ try {
             fetchedAt: new Date().toISOString(),
           },
         });
+      }
+      if (pathname === "/api/api-keys") {
+        if (method === "POST") {
+          const request = req.postDataJSON();
+          telemetry.createdApiKeys.push({ ...request, csrf: req.headers()["x-xsrf-token"] });
+          apiKey = {
+            id: "test-key", name: request.name, keyPrefix: "signal_fixture", scopes: request.scopes,
+            createdAt: new Date().toISOString(), expiresAt: null, isExpired: false,
+          };
+          return route.fulfill({ status: 201, json: { apiKey, key: "signal_fixture_for_browser_test" } });
+        }
+        return route.fulfill({ json: { keys: apiKey ? [apiKey] : [], maxActiveKeys: 10 } });
+      }
+      if (pathname === "/api/api-keys/test-key" && method === "DELETE") {
+        telemetry.revokedApiKeys.push(req.headers()["x-xsrf-token"]);
+        apiKey = null;
+        return route.fulfill({ status: 204 });
       }
       if (pathname === "/api/social") {
         return route.fulfill({
@@ -167,7 +209,7 @@ try {
       if (pathname === "/api/comments/latest") {
         return route.fulfill({ json: { comments: [], newCount: 0 } });
       }
-      if (pathname === "/api/articles") {
+      if (pathname === "/api/articles" || pathname === "/api/articles/sync") {
         return route.fulfill({
           json: {
             articles: [],
@@ -642,6 +684,53 @@ try {
   assert.ok(telemetry.audioStreamFetches >= 2, "Audio elements must actually fetch streamed WAV audio");
   await audiogramDialog.getByRole("button", { name: "Close Audiogram Clipper", exact: true }).click();
   await audiogramDialog.waitFor({ state: "detached" });
+
+  await page.locator(".topic-filters-toggle").click();
+  const topicFilters = page.getByRole("navigation", { name: "Filter stories by followed topic" });
+  await topicFilters.getByRole("button", { name: /^Logistics\b/ }).click();
+  await page.getByRole("button", { name: "Date range", exact: true }).click();
+  const dates = page.getByRole("form", { name: "Search topic by date" });
+  await dates.getByLabel("From date").fill("2024-11-04");
+  await dates.getByLabel("To date").fill("2024-11-02");
+  await dates.getByRole("button", { name: "Search dates" }).click();
+  await dates.getByRole("alert").getByText("Choose an end date on or after the start date.").waitFor();
+  assert.equal(telemetry.dateSearches.length, 0);
+  await dates.getByLabel("From date").fill("2024-11-03");
+  await dates.getByLabel("To date").fill("2024-11-04");
+  await dates.getByRole("button", { name: "Search dates" }).click();
+  await page.getByText(ARCHIVE_ARTICLE.title).waitFor();
+  const firstSearch = telemetry.dateSearches[0];
+  assert.equal(firstSearch.topic, "Logistics");
+  assert.equal(firstSearch.provider, "google");
+  const localBounds = await page.evaluate(() => [
+    new Date("2024-11-03T00:00:00").toISOString(), new Date("2024-11-04T23:59:59.999").toISOString(),
+  ]);
+  assert.deepEqual([firstSearch.from, firstSearch.to], localBounds);
+  assert.equal(await page.getByText(SAMPLE_ARTICLES[0].title).isVisible(), false);
+  await dates.getByLabel("From date").fill("2024-11-10");
+  await dates.getByLabel("To date").fill("2024-11-11");
+  await dates.getByRole("button", { name: "Search dates" }).click();
+  await page.getByRole("heading", { name: "No stories found in this date range." }).waitFor();
+  await dates.getByRole("button", { name: "Clear dates" }).click();
+  await page.getByText(SAMPLE_ARTICLES[0].title).waitFor();
+  await topicFilters.getByRole("button", { name: /^All \d/ }).click();
+
+  await page.getByRole("button", { name: "Account", exact: true }).click();
+  const apiAccess = page.getByRole("region", { name: "API access" });
+  await apiAccess.getByLabel("API key name").fill("Browser smoke test");
+  await apiAccess.getByLabel("API key expiration").selectOption("30");
+  await apiAccess.getByRole("button", { name: "Create key" }).click();
+  const secret = apiAccess.getByLabel("Newly created API key");
+  await secret.waitFor();
+  assert.equal(await secret.inputValue(), "signal_fixture_for_browser_test");
+  assert.deepEqual(telemetry.createdApiKeys, [{
+    name: "Browser smoke test", expiresInDays: 30, scopes: ["news:read"], csrf: "csrf-e2e-token",
+  }]);
+  await apiAccess.getByRole("button", { name: "Revoke", exact: true }).click();
+  await secret.waitFor({ state: "detached" });
+  await apiAccess.getByText("No API keys created yet.").waitFor();
+  assert.deepEqual(telemetry.revokedApiKeys, ["csrf-e2e-token"]);
+  await page.getByRole("button", { name: "Close account settings" }).click();
 
   // Command Center -> 28 badge -> Search "tripwires" -> Open Executive Tripwires
   const hubBtn = page.getByRole("button", { name: "Open Executive Command Center", exact: true });
