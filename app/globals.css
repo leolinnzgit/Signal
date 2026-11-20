@@ -2665,12 +2665,24 @@ button.local-weather {
   text-align: right;
 }
 
+.filter-stack-sentinel {
+  height: 0;
+  overflow-anchor: none;
+}
+
+.filter-stack-spacer {
+  height: 0;
+  pointer-events: none;
+  overflow-anchor: none;
+}
+
 .filter-stack {
   position: sticky;
   z-index: 22;
   top: var(--filter-sticky-top, 8.5rem);
   border-bottom: 1px solid var(--line);
   background: var(--content-background);
+  overflow-anchor: none;
 }
 
 .filter-stack.pinned {

@@ -93,18 +93,15 @@ export default function ProductWatchModal({
     if (!isOpen) return;
     let cancelled = false;
 
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-
-    setLoading(true);
-    setErrorMsg("");
-    void fetchProductWatchState()
+    void Promise.resolve()
+      .then(() => {
+        if (cancelled) return null;
+        setErrorMsg("");
+        setLoading(true);
+        return fetchProductWatchState();
+      })
       .then((state) => {
-        if (cancelled) return;
+        if (cancelled || !state) return;
         setAuthenticated(state.authenticated);
         setAiAvailable(state.aiAvailable);
         setActiveModel(state.model || PRODUCT_WATCH_MODEL);
@@ -118,9 +115,51 @@ export default function ProductWatchModal({
 
     return () => {
       cancelled = true;
-      window.removeEventListener("keydown", handleKeyDown);
     };
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, onClose]);
+
+  useEffect(() => {
+    if (!isOpen || typeof document === "undefined") return;
+    const alreadyFixed = document.body.style.position === "fixed";
+    const scrollPosition = window.scrollY;
+    const previousRootOverflow = document.documentElement.style.overflow;
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousBodyPosition = document.body.style.position;
+    const previousBodyTop = document.body.style.top;
+    const previousBodyWidth = document.body.style.width;
+    document.documentElement.style.overflow = "hidden";
+    document.body.style.overflow = "hidden";
+    if (!alreadyFixed) {
+      document.body.style.position = "fixed";
+      document.body.style.top = `-${scrollPosition}px`;
+      document.body.style.width = "100%";
+    }
+    return () => {
+      document.documentElement.style.overflow = previousRootOverflow;
+      document.body.style.overflow = previousBodyOverflow;
+      document.body.style.position = previousBodyPosition;
+      document.body.style.top = previousBodyTop;
+      document.body.style.width = previousBodyWidth;
+      if (!alreadyFixed) {
+        window.scrollTo({
+          top: scrollPosition,
+          left: 0,
+          behavior: "instant" as ScrollBehavior,
+        });
+      }
+    };
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -904,7 +943,7 @@ export default function ProductWatchModal({
             </div>
           )}
 
-          {loading ? (
+          {loading && items.length === 0 ? (
             <div className="product-watch-empty">
               Loading your watched products…
             </div>

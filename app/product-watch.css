@@ -2,6 +2,7 @@
   position: fixed;
   inset: 0;
   z-index: 10055;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -9,6 +10,7 @@
   background: var(--overlay, rgba(16, 17, 15, 0.68));
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
+  overscroll-behavior: contain;
   animation: productWatchFadeIn 150ms ease-out;
 }
 
@@ -139,6 +141,9 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  overflow-anchor: none;
   -webkit-overflow-scrolling: touch;
   padding: 1rem 1.15rem 1.25rem;
   display: flex;
@@ -719,8 +724,8 @@
   }
 
   .product-watch-modal {
-    height: calc(100dvh - 0.7rem);
-    max-height: calc(100dvh - 0.7rem);
+    height: 100%;
+    max-height: 100%;
     border-radius: 14px;
   }
 

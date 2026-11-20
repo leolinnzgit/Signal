@@ -1412,6 +1412,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [signalBotAutoPrompt, setSignalBotAutoPrompt] = useState("");
   const [productWatchOpen, setProductWatchOpen] = useState(false);
   const [productWatchCount, setProductWatchCount] = useState(0);
+  const closeProductWatch = useCallback(() => setProductWatchOpen(false), []);
   const [dailyCastOpen, setDailyCastOpen] = useState(false);
   const [sovereignRiskOpen, setSovereignRiskOpen] = useState(false);
   const [preMortemOpen, setPreMortemOpen] = useState(false);
@@ -1657,6 +1658,8 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const quickTopicSearchInput = useRef<HTMLInputElement>(null);
   const quickTopicSearchButton = useRef<HTMLButtonElement>(null);
   const filterStackElement = useRef<HTMLDivElement>(null);
+  const filterStackSentinelElement = useRef<HTMLDivElement>(null);
+  const filterStackSpacerElement = useRef<HTMLDivElement>(null);
   const storyListElement = useRef<HTMLOListElement>(null);
   const pendingPinnedTopicScroll = useRef<string | null>(null);
   const readerCloseButton = useRef<HTMLButtonElement>(null);
@@ -3253,20 +3256,34 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     const updatePinnedFilters = () => {
       window.cancelAnimationFrame(frame);
       frame = window.requestAnimationFrame(() => {
+        if (document.body.style.position === "fixed") return;
         const filterStack = filterStackElement.current;
         if (!filterStack) return;
+        const sentinel = filterStackSentinelElement.current;
+        const spacer = filterStackSpacerElement.current;
         const heroBottom = Math.max(0, heroElement.current?.getBoundingClientRect().bottom ?? 0);
-        const filterTop = filterStack.getBoundingClientRect().top;
+        const anchorTop = sentinel ? sentinel.getBoundingClientRect().top : filterStack.getBoundingClientRect().top;
         const scrollY = window.scrollY;
         const nextStickyTop = Math.round(heroBottom);
-        const pinned = filterTop <= heroBottom + 1 && scrollY > 0;
+        const threshold = lastPinned ? heroBottom + 3 : heroBottom + 1;
+        const pinned = anchorTop <= threshold && scrollY > 0;
         if (nextStickyTop !== lastStickyTop) {
           lastStickyTop = nextStickyTop;
           filterStack.style.setProperty("--filter-sticky-top", `${nextStickyTop}px`);
         }
         if (pinned !== lastPinned) {
           lastPinned = pinned;
-          filterStack.classList.toggle("pinned", pinned);
+          if (pinned) {
+            const unpinnedHeight = filterStack.offsetHeight;
+            filterStack.classList.add("pinned");
+            if (spacer) {
+              const heightDelta = Math.max(0, unpinnedHeight - filterStack.offsetHeight);
+              spacer.style.height = heightDelta > 0 ? `${heightDelta}px` : "";
+            }
+          } else {
+            filterStack.classList.remove("pinned");
+            if (spacer) spacer.style.height = "";
+          }
         }
       });
     };
@@ -3282,6 +3299,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
       window.removeEventListener("resize", updatePinnedFilters);
       observer?.disconnect();
       filterStackElement.current?.classList.remove("pinned");
+      if (filterStackSpacerElement.current) filterStackSpacerElement.current.style.height = "";
     };
   }, [preferences.topics.length]);
 
@@ -3335,7 +3353,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
       document.body.style.position = previousPosition;
       document.body.style.top = previousTop;
       document.body.style.width = previousWidth;
-      window.scrollTo(0, scrollPosition);
+      window.scrollTo({ top: scrollPosition, left: 0, behavior: "instant" as ScrollBehavior });
     };
   }, [readerArticle, readerMinimized]);
 
@@ -6118,6 +6136,8 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         )}
 
         {preferences.topics.length > 0 && (
+          <>
+          <div className="filter-stack-sentinel" ref={filterStackSentinelElement} aria-hidden="true" />
           <div
             className={[
               "filter-stack",
@@ -6385,6 +6405,8 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
               </div>
             )}
           </div>
+          <div className="filter-stack-spacer" ref={filterStackSpacerElement} aria-hidden="true" />
+          </>
         )}
 
         {notice && <p className="feed-notice" role="status">{notice}</p>}
@@ -7497,7 +7519,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           <Suspense fallback={null}>
             <ProductWatchModal
               isOpen={productWatchOpen}
-              onClose={() => setProductWatchOpen(false)}
+              onClose={closeProductWatch}
               onWatchCountChange={setProductWatchCount}
             />
           </Suspense>

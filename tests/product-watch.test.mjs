@@ -381,10 +381,39 @@ test("ProductWatchModal header stacks cleanly and compacts on mobile without squ
   assert.match(modalCss, /\.product-watch-qa-question\s*\{[^}]*flex-wrap:\s*wrap;/);
   assert.match(
     modalCss,
-    /@media\s*\(max-width:\s*680px\)\s*\{[\s\S]*?\.product-watch-overlay\s*\{\s*padding:\s*0\.35rem;\s*\}[\s\S]*?\.product-watch-modal\s*\{\s*height:\s*calc\(100dvh - 0\.7rem\);\s*max-height:\s*calc\(100dvh - 0\.7rem\);/,
+    /@media\s*\(max-width:\s*680px\)\s*\{[\s\S]*?\.product-watch-overlay\s*\{\s*padding:\s*0\.35rem;\s*\}[\s\S]*?\.product-watch-modal\s*\{\s*height:\s*100%;\s*max-height:\s*100%;/,
   );
   assert.match(
     modalCss,
     /@media\s*\(max-width:\s*680px\)\s*\{[\s\S]*?\.product-watch-title-detail,\s*\.product-watch-header-subtitle\s*\{\s*display:\s*none;\s*\}/,
   );
+});
+
+test("ProductWatchModal and NewsDashboard pinned filters prevent mobile scroll jumping", () => {
+  const modalSource = readFileSync(new URL("../app/ProductWatchModal.tsx", import.meta.url), "utf8");
+  const modalCss = readFileSync(new URL("../app/product-watch.css", import.meta.url), "utf8");
+  const dashboardSource = readFileSync(new URL("../app/NewsDashboard.tsx", import.meta.url), "utf8");
+  const globalsCss = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+
+  const fetchEffectMatch = modalSource.match(
+    /useEffect\(\(\)\s*=>\s*\{(?:(?!\buseEffect\b)[\s\S])*?fetchProductWatchState\(\)(?:(?!\buseEffect\b)[\s\S])*?\n\s*\},\s*\[([^\]]*)\]\);/,
+  );
+  assert.ok(fetchEffectMatch, "fetchProductWatchState should run in its own useEffect");
+  assert.equal(fetchEffectMatch[1].trim(), "isOpen");
+  assert.match(modalSource, /\{loading && items\.length === 0 \?/);
+  assert.match(modalSource, /document\.body\.style\.position\s*=\s*"fixed"/);
+  assert.match(modalSource, /window\.scrollTo\(\{[\s\S]*?behavior:\s*"instant"/);
+
+  assert.match(modalCss, /\.product-watch-overlay\s*\{[^}]*box-sizing:\s*border-box;[^}]*overscroll-behavior:\s*contain;/);
+  assert.match(modalCss, /\.product-watch-body\s*\{[^}]*overscroll-behavior:\s*contain;[^}]*touch-action:\s*pan-y;[^}]*overflow-anchor:\s*none;/);
+
+  assert.match(dashboardSource, /const closeProductWatch = useCallback\(\(\) => setProductWatchOpen\(false\), \[\]\);/);
+  assert.match(dashboardSource, /<ProductWatchModal[\s\S]*?onClose=\{closeProductWatch\}/);
+  assert.match(dashboardSource, /filter-stack-sentinel/);
+  assert.match(dashboardSource, /filter-stack-spacer/);
+  assert.match(dashboardSource, /if \(document\.body\.style\.position === "fixed"\) return;/);
+
+  assert.match(globalsCss, /\.filter-stack-sentinel\s*\{[^}]*overflow-anchor:\s*none;/);
+  assert.match(globalsCss, /\.filter-stack-spacer\s*\{[^}]*overflow-anchor:\s*none;/);
+  assert.match(globalsCss, /\.filter-stack\s*\{[^}]*overflow-anchor:\s*none;/);
 });
