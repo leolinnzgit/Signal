@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json.Serialization;
 
 namespace Signal.Server.Models;
 
@@ -130,7 +131,14 @@ public sealed record NewsArticle(
     DateTimeOffset PublishedAt,
     string Summary,
     IReadOnlyList<string>? MatchedTopics = null,
-    string ImageUrl = "");
+    string ImageUrl = "")
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? FullText { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ArticleMarketQuote[]? MarketQuotes { get; init; }
+}
 
 public sealed record NewsResult(
     string Topic,

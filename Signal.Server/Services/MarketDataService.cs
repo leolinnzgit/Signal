@@ -741,7 +741,8 @@ public sealed class MarketDataService(
     public async Task<Dictionary<long, ArticleMarketQuote[]>> ResolveQuotesForArticlesAsync(
         IReadOnlyCollection<(long Key, string Title, string[] Topics, DateTime PublishedAtUtc)> articles,
         IReadOnlyDictionary<string, string>? tickerOverrides,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool historicalOnly = false)
     {
         var result = new Dictionary<long, ArticleMarketQuote[]>();
         if (!IsConfigured || articles is null || articles.Count == 0)
@@ -813,9 +814,11 @@ public sealed class MarketDataService(
             foreach (var topic in articleTopics)
             {
                 if (!topicSeries.TryGetValue(topic, out var entry)) continue;
+                if (historicalOnly && (entry.Bars.Length == 0 || entry.Bars[0].Utc.UtcDateTime > article.PublishedAtUtc))
+                    continue;
                 var q = FindHistoricalQuoteAt(
                     article.PublishedAtUtc,
-                    entry.Quote,
+                    historicalOnly ? null : entry.Quote,
                     entry.Bars,
                     entry.Quote.Topic,
                     entry.Quote.Symbol,

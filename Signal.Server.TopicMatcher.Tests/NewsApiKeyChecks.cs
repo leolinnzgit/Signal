@@ -223,6 +223,11 @@ internal static class NewsApiKeyChecks
         builder.Services.AddScoped<ApiKeyService>();
         builder.Services.AddHttpClient<NewsService>()
             .ConfigurePrimaryHttpMessageHandler(() => fakeNewsHandler);
+        builder.Services.AddHttpClient<ArticleReaderService>()
+            .ConfigurePrimaryHttpMessageHandler(() => new NewsEnrichmentHandler());
+        builder.Services.Configure<MarketDataOptions>(options => options.ApiKey = "test-only");
+        builder.Services.AddHttpClient<MarketDataService>(client => client.BaseAddress = new("https://api.twelvedata.com/"))
+            .ConfigurePrimaryHttpMessageHandler(() => new NewsEnrichmentHandler());
 
         await using var app = builder.Build();
         app.UseRouting();
@@ -354,6 +359,10 @@ internal static class NewsApiKeyChecks
                 && extractedJson.GetProperty("topics").GetArrayLength() == 2
                 && extractedJson.GetProperty("articles").GetArrayLength() == 3,
                 $"Unexpected Bearer extraction response: {extractedJson}");
+            Check(extractedJson.GetProperty("articles").EnumerateArray().All(article =>
+                !article.TryGetProperty("fullText", out _) && !article.TryGetProperty("marketQuotes", out _)),
+                "News requests without enrichment flags must retain the existing response shape.");
+            await CheckNewsEnrichmentAsync(thirdParty, plaintextKey);
 
             // 5. Third-party extracts via X-API-Key header
             using var extractHeaderReq = new HttpRequestMessage(
@@ -401,6 +410,8 @@ internal static class NewsApiKeyChecks
                 (HttpMethod.Get, "/api/api-keys"),
                 (HttpMethod.Post, "/api/api-keys"),
                 (HttpMethod.Get, "/api/preferences"),
+                (HttpMethod.Get, "/api/market?topic=NVIDIA"),
+                (HttpMethod.Get, "/api/article-reader?url=https%3A%2F%2F93.184.216.34%2Fnvidia-oct-05"),
                 (HttpMethod.Post, "/api/news/sources/diagnostics"),
             })
             {
@@ -510,6 +521,75 @@ internal static class NewsApiKeyChecks
         finally
         {
             await app.StopAsync();
+        }
+    }
+
+    private static async Task CheckNewsEnrichmentAsync(HttpClient client, string key)
+    {
+        const string path = "/api/news?topic=NVIDIA&provider=rss&feed=https%3A%2F%2F93.184.216.34%2Ffeed.xml&from=2026-10-01&to=2026-10-07";
+        async Task<JsonElement[]> ReadArticlesAsync(string flags)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, path + flags);
+            request.Headers.Add("X-API-Key", key);
+            using var response = await client.SendAsync(request);
+            Check(response.IsSuccessStatusCode, $"Enriched news failed with {(int)response.StatusCode}.");
+            var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
+            return payload.GetProperty("articles").EnumerateArray().ToArray();
+        }
+
+        var enriched = await ReadArticlesAsync("&includeText=true&includeMarketQuotes=true");
+        Check(enriched.Length == 2 && enriched[0].GetProperty("fullText").GetString()!.Contains("NVIDIA published")
+            && enriched[0].GetProperty("fullText").GetString()!.Contains("\n\n"),
+            "Published article text should retain paragraph breaks in the enriched response.");
+        var quote = enriched[0].GetProperty("marketQuotes").EnumerateArray().Single();
+        Check(quote.GetProperty("symbol").GetString() == "NVDA"
+            && quote.GetProperty("currency").GetString() == "USD"
+            && quote.GetProperty("price").GetDecimal() == 141.50m
+            && quote.GetProperty("quoteTime").GetString() == "2026-10-05",
+            "News should include the closing price on or before the story, even when a later price is available.");
+        Check(!enriched[1].TryGetProperty("fullText", out _)
+            && enriched[1].GetProperty("summary").GetString() == "A public preview."
+            && enriched[1].GetProperty("marketQuotes").GetArrayLength() == 0,
+            "Paywalled and older stories should retain the feed summary and omit unavailable text and prices.");
+
+        var textOnly = await ReadArticlesAsync("&includeText=true");
+        var quotesOnly = await ReadArticlesAsync("&includeMarketQuotes=true");
+        Check(textOnly[0].TryGetProperty("fullText", out _) && !textOnly[0].TryGetProperty("marketQuotes", out _)
+            && quotesOnly[0].TryGetProperty("marketQuotes", out _) && !quotesOnly[0].TryGetProperty("fullText", out _),
+            "Article text and market quotes must be independently selectable.");
+    }
+
+    private sealed class NewsEnrichmentHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            if (path == "/nvidia-oct-02")
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.PaymentRequired));
+
+            var content = path switch
+            {
+                "/nvidia-oct-05" => """
+                    <html><head><script type="application/ld+json">
+                    {"@type":"NewsArticle","articleBody":"NVIDIA published a detailed account of its latest semiconductor research, highlighting the practical work behind the new development. Engineers described how they measured improvements across multiple real-world experiments.\n\nThe report also outlined the team's plans to work with universities and industrial partners. It included detailed examples of how researchers compared the new measurements with their earlier results."}
+                    </script></head><body></body></html>
+                    """,
+                "/quote" => """
+                    {"symbol":"NVDA","name":"NVIDIA","exchange":"NASDAQ","currency":"USD","close":"199.00"}
+                    """,
+                "/time_series" => """
+                    {"meta":{"exchange_timezone":"America/New_York"},"values":[
+                      {"datetime":"2026-10-06","close":"150.00"},
+                      {"datetime":"2026-10-05","close":"141.50"},
+                      {"datetime":"2026-10-02","close":"130.00"}
+                    ]}
+                    """,
+                _ => throw new InvalidOperationException($"Unexpected enrichment request to {request.RequestUri}."),
+            };
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(content, Encoding.UTF8, path == "/nvidia-oct-05" ? "text/html" : "application/json"),
+            });
         }
     }
 
@@ -623,6 +703,17 @@ internal static class NewsApiKeyChecks
                           <title>AI older briefing</title>
                           <link>https://93.184.216.34/rss-sep-25</link>
                           <pubDate>Fri, 25 Sep 2026 12:00:00 GMT</pubDate>
+                        </item>
+                        <item>
+                          <title>NVIDIA semiconductor research</title>
+                          <link>https://93.184.216.34/nvidia-oct-05</link>
+                          <pubDate>Mon, 05 Oct 2026 22:00:00 GMT</pubDate>
+                        </item>
+                        <item>
+                          <title>NVIDIA research preview</title>
+                          <link>https://93.184.216.34/nvidia-oct-02</link>
+                          <description>A public preview.</description>
+                          <pubDate>Fri, 02 Oct 2026 08:00:00 GMT</pubDate>
                         </item>
                       </channel>
                     </rss>

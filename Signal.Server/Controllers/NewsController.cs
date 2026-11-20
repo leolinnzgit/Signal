@@ -10,16 +10,23 @@ namespace Signal.Server.Controllers;
 [Route("api/news")]
 public sealed class NewsController(NewsService newsService, ILogger<NewsController> logger) : ControllerBase
 {
+    private const int MaxTextArticles = 20;
+    private static readonly TimeSpan EnrichmentTimeout = TimeSpan.FromSeconds(15);
+
     [HttpGet]
     [Authorize(Policy = ApiKeyAuthenticationDefaults.NewsReadPolicy)]
     [EnableRateLimiting("news-extract")]
     public async Task<IActionResult> Get(
         [FromQuery(Name = "topic")] string[] requestedTopics,
+        [FromServices] ArticleReaderService articleReader,
+        [FromServices] MarketDataService marketData,
         [FromQuery] int limit = 20,
         [FromQuery] string provider = "google",
         [FromQuery] string? feed = null,
         [FromQuery] string? from = null,
         [FromQuery] string? to = null,
+        [FromQuery] bool includeText = false,
+        [FromQuery] bool includeMarketQuotes = false,
         CancellationToken cancellationToken = default)
     {
         var topics = requestedTopics
@@ -50,6 +57,23 @@ public sealed class NewsController(NewsService newsService, ILogger<NewsControll
                 _ => throw new ArgumentException("Unknown news provider."),
             };
 
+            if (result.Articles.Count > 0 && (includeText || includeMarketQuotes))
+            {
+                var articles = result.Articles.ToArray();
+                var textTask = includeText ? LoadArticleTextAsync(articleReader, articles, cancellationToken) : Task.CompletedTask;
+                var quotesTask = includeMarketQuotes
+                    ? LoadMarketQuotesAsync(marketData, result.Articles, cancellationToken)
+                    : Task.FromResult<Dictionary<long, ArticleMarketQuote[]>>([]);
+                await Task.WhenAll(textTask, quotesTask);
+                if (includeMarketQuotes)
+                {
+                    var quotes = await quotesTask;
+                    for (var index = 0; index < articles.Length; index++)
+                        articles[index] = articles[index] with { MarketQuotes = quotes.GetValueOrDefault(index) ?? [] };
+                }
+                result = result with { Articles = articles };
+            }
+
             Response.Headers.Vary = "Cookie, Authorization, X-API-Key";
             Response.Headers.CacheControl = User.HasClaim(claim => claim.Type == ApiKeyAuthenticationDefaults.KeyIdClaimType)
                 ? "private, no-store"
@@ -71,6 +95,60 @@ public sealed class NewsController(NewsService newsService, ILogger<NewsControll
                 ? exception.Message
                 : "This news source is temporarily unavailable.";
             return StatusCode(StatusCodes.Status502BadGateway, new { error = message });
+        }
+    }
+
+    private async Task LoadArticleTextAsync(
+        ArticleReaderService articleReader, NewsArticle[] articles, CancellationToken cancellationToken)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(EnrichmentTimeout);
+        try
+        {
+            var indexes = Enumerable.Range(0, Math.Min(articles.Length, MaxTextArticles));
+            await Parallel.ForEachAsync(indexes, new ParallelOptions
+            {
+                MaxDegreeOfParallelism = 4,
+                CancellationToken = deadline.Token,
+            }, async (index, token) =>
+            {
+                try
+                {
+                    var result = await articleReader.ReadAsync(articles[index].Url, token, storeSearchText: false);
+                    if (result is { Available: true, Paywalled: false, Article.Paragraphs.Count: > 0 })
+                        articles[index] = articles[index] with { FullText = string.Join("\n\n", result.Article.Paragraphs) };
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+                catch (Exception exception)
+                {
+                    logger.LogDebug(exception, "Could not extract text for a News API article.");
+                }
+            });
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && deadline.IsCancellationRequested)
+        {
+            // Return the articles already enriched before the deadline.
+        }
+    }
+
+    private static async Task<Dictionary<long, ArticleMarketQuote[]>> LoadMarketQuotesAsync(
+        MarketDataService marketData, IReadOnlyList<NewsArticle> articles, CancellationToken cancellationToken)
+    {
+        var candidates = articles.Select((article, index) => (
+            Key: (long)index,
+            article.Title,
+            Topics: article.MatchedTopics?.ToArray() ?? [],
+            PublishedAtUtc: article.PublishedAt.UtcDateTime)).ToArray();
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(EnrichmentTimeout);
+        try
+        {
+            return await marketData.ResolveQuotesForArticlesAsync(
+                candidates, tickerOverrides: null, deadline.Token, historicalOnly: true);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && deadline.IsCancellationRequested)
+        {
+            return [];
         }
     }
 

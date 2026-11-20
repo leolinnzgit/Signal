@@ -458,6 +458,23 @@ The API accepts `Authorization: Bearer` or `X-API-Key`. Date-only bounds are
 inclusive UTC days. You can also send ISO 8601 timestamps with a UTC offset.
 Use `GET /api/api-keys/verify` with the same header to check a key.
 
+Add `includeText=true` and `includeMarketQuotes=true` to request both fields, or
+send either parameter on its own.
+
+```sh
+curl -H 'Authorization: Bearer YOUR_SIGNAL_API_KEY' 'https://YOUR_SIGNAL_HOST/api/news?topic=NVIDIA&from=2026-11-02&to=2026-11-08&provider=all&limit=10&includeText=true&includeMarketQuotes=true'
+```
+
+- `articles[].fullText` contains plain text extracted by Signal Reader, with
+  blank lines between paragraphs. Signal attempts extraction for the first 20
+  results and omits `fullText` when the publisher text is unavailable. Use the
+  existing `summary` and `url` fields for those stories.
+- `articles[].marketQuotes` contains historical closing prices for stocks matched
+  to the story. Each quote includes `symbol`, `exchange`, `currency`, `price`,
+  and `quoteTime`. Signal uses the latest available close at or before the
+  story's timestamp. An empty array indicates that a quote was unavailable,
+  including when the story predates the available price history.
+
 ## Validation
 
 Run the client type check, production build, client unit tests, and server integration tests:

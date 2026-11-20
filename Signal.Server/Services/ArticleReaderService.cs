@@ -87,13 +87,14 @@ public sealed class ArticleReaderService(
         "class='paywall",
     ];
 
-    public async Task<ArticleReaderResult> ReadAsync(string value, CancellationToken cancellationToken)
+    public async Task<ArticleReaderResult> ReadAsync(
+        string value, CancellationToken cancellationToken, bool storeSearchText = true)
     {
         var initialUri = await ValidatePublicArticleUriAsync(value, cancellationToken);
         var cacheKey = $"article-reader:{initialUri.AbsoluteUri}";
         if (cache.TryGetValue(cacheKey, out ArticleReaderResult? cached) && cached is not null)
         {
-            await StoreSearchTextAsync(value, cached, cancellationToken);
+            if (storeSearchText) await StoreSearchTextAsync(value, cached, cancellationToken);
             return cached;
         }
 
@@ -102,7 +103,7 @@ public sealed class ArticleReaderService(
             cacheKey,
             result,
             result.Available ? TimeSpan.FromMinutes(30) : TimeSpan.FromMinutes(5));
-        await StoreSearchTextAsync(value, result, cancellationToken);
+        if (storeSearchText) await StoreSearchTextAsync(value, result, cancellationToken);
         return result;
     }
 
