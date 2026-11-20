@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   PRODUCT_WATCH_CURRENCIES,
   PRODUCT_WATCH_FREQUENCIES,
@@ -357,4 +358,33 @@ test("saveProductWatchItem, checkProductWatchPriceNow, customPrompt, and one-off
   assert.match(md, /\*\*Monitoring Prompt:\*\* Include delivery and bonus soundbar bundles/);
   assert.match(md, /\*\*Custom Prompt Insight:\*\* PB Tech charges \$69 metro delivery/);
   assert.match(md, /How does it compare to Samsung S90D\?/);
+});
+
+test("ProductWatchModal header stacks cleanly and compacts on mobile without squeezing the body", () => {
+  const modalSource = readFileSync(new URL("../app/ProductWatchModal.tsx", import.meta.url), "utf8");
+  const modalCss = readFileSync(new URL("../app/product-watch.css", import.meta.url), "utf8");
+
+  assert.match(modalSource, /className="product-watch-header-top"/);
+  assert.match(modalSource, /className="product-watch-title-primary"/);
+  assert.match(modalSource, /className="product-watch-title-detail"/);
+  assert.match(modalSource, /className="product-watch-header-subtitle"/);
+
+  // Subtitle must live outside .product-watch-header-top so actions never crush it into a narrow column
+  const headerMatch = modalSource.match(/<header className="product-watch-header">([\s\S]*?)<\/header>/);
+  assert.ok(headerMatch, "ProductWatchModal should render .product-watch-header");
+  const headerTopEnd = headerMatch[1].indexOf('<p className="product-watch-header-subtitle">');
+  const actionsClose = headerMatch[1].indexOf("className=\"product-watch-header-actions\"");
+  assert.ok(headerTopEnd > actionsClose && actionsClose >= 0);
+
+  assert.match(modalCss, /\.product-watch-header\s*\{[^}]*flex-direction:\s*column;/);
+  assert.match(modalCss, /\.product-watch-status-actions\s*\{[^}]*flex-wrap:\s*wrap;/);
+  assert.match(modalCss, /\.product-watch-qa-question\s*\{[^}]*flex-wrap:\s*wrap;/);
+  assert.match(
+    modalCss,
+    /@media\s*\(max-width:\s*680px\)\s*\{[\s\S]*?\.product-watch-overlay\s*\{\s*padding:\s*0\.35rem;\s*\}[\s\S]*?\.product-watch-modal\s*\{\s*height:\s*calc\(100dvh - 0\.7rem\);\s*max-height:\s*calc\(100dvh - 0\.7rem\);/,
+  );
+  assert.match(
+    modalCss,
+    /@media\s*\(max-width:\s*680px\)\s*\{[\s\S]*?\.product-watch-title-detail,\s*\.product-watch-header-subtitle\s*\{\s*display:\s*none;\s*\}/,
+  );
 });

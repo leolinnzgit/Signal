@@ -548,37 +548,44 @@ export default function ProductWatchModal({
     >
       <div className="product-watch-modal">
         <header className="product-watch-header">
-          <div className="product-watch-header-title">
-            <span className="product-watch-avatar" aria-hidden="true">
-              🏷️
-            </span>
-            <div>
-              <h2 id="product-watch-modal-title">
-                Product Watch — Best Price Monitor &amp; AI Product Q&amp;A
-              </h2>
-              <p>
-                Track any product model or SKU on your chosen schedule (daily,
-                weekly, monthly), attach custom monitoring instructions, or ask
-                one-off questions using <strong>{activeModel}</strong>
-              </p>
+          <div className="product-watch-header-top">
+            <div className="product-watch-header-title">
+              <span className="product-watch-avatar" aria-hidden="true">
+                🏷️
+              </span>
+              <div className="product-watch-header-heading">
+                <h2 id="product-watch-modal-title">
+                  <span className="product-watch-title-primary">
+                    Product Watch
+                  </span>
+                  <span className="product-watch-title-detail">
+                    {" "}— Best Price Monitor &amp; AI Product Q&amp;A
+                  </span>
+                </h2>
+              </div>
+            </div>
+            <div className="product-watch-header-actions">
+              <span
+                className="product-watch-model-pill"
+                title={`Powered by Microsoft Foundry ${activeModel}`}
+              >
+                ⚡ {activeModel}
+              </span>
+              <button
+                type="button"
+                className="product-watch-close-btn"
+                onClick={onClose}
+                aria-label="Close Product Watch"
+              >
+                ✕
+              </button>
             </div>
           </div>
-          <div className="product-watch-header-actions">
-            <span
-              className="product-watch-model-pill"
-              title="Powered by Microsoft Foundry gpt-6.1-sol"
-            >
-              ⚡ {activeModel}
-            </span>
-            <button
-              type="button"
-              className="product-watch-close-btn"
-              onClick={onClose}
-              aria-label="Close Product Watch"
-            >
-              ✕
-            </button>
-          </div>
+          <p className="product-watch-header-subtitle">
+            Track any product model or SKU on your chosen schedule (daily,
+            weekly, monthly), attach custom monitoring instructions, or ask
+            one-off questions using <strong>{activeModel}</strong>
+          </p>
         </header>
 
         <div className="product-watch-body">
