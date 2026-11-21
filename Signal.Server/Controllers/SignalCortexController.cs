@@ -17,7 +17,8 @@ public sealed class SignalCortexController(
     SignalDbContext? database = null,
     MarketDataService? marketData = null,
     EarthquakeFeed? earthquakes = null,
-    ILogger<SignalCortexController>? logger = null) : ControllerBase
+    ILogger<SignalCortexController>? logger = null,
+    ICortexNewsSearch? publicNews = null) : ControllerBase
 {
     public sealed record CortexArticleInput(
         [property: JsonPropertyName("title")] string Title,
@@ -44,7 +45,9 @@ public sealed class SignalCortexController(
         [property: JsonPropertyName("confidence")] double Confidence,
         [property: JsonPropertyName("crossDomainHits")] CortexHit[] CrossDomainHits,
         [property: JsonPropertyName("suggestedQueries")] string[] SuggestedQueries,
-        [property: JsonPropertyName("executedAt")] DateTimeOffset ExecutedAt);
+        [property: JsonPropertyName("executedAt")] DateTimeOffset ExecutedAt,
+        [property: JsonPropertyName("publicNews"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        CortexPublicNewsHit[]? PublicNews = null);
 
     [HttpPost("search")]
     [IgnoreAntiforgeryToken]
@@ -70,6 +73,7 @@ public sealed class SignalCortexController(
             ));
         }
 
+        var publicNewsTask = publicNews?.SearchAsync(rawQuery, cancellationToken);
         var clientArticles = request?.Articles ?? [];
         var mergedArticles = new List<CortexArticleInput>(clientArticles);
         var seenUrls = new HashSet<string>(
@@ -339,7 +343,8 @@ public sealed class SignalCortexController(
             Confidence: sortedHits.Length > 0 ? 0.94 : 0.45,
             CrossDomainHits: sortedHits,
             SuggestedQueries: suggestions.ToArray(),
-            ExecutedAt: DateTimeOffset.UtcNow
+            ExecutedAt: DateTimeOffset.UtcNow,
+            PublicNews: publicNewsTask is null ? null : await publicNewsTask
         ));
     }
 }

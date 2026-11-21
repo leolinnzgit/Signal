@@ -292,6 +292,14 @@ builder.Services.AddHostedService<EarthquakeMonitor>();
 builder.Services.AddHostedService<TopicRefreshBackgroundService>();
 builder.Services.AddHostedService<ExecutiveBriefingBackgroundService>();
 builder.Services.AddHostedService<ProductWatchBackgroundService>();
+builder.Services.Configure<CortexNewsOptions>(builder.Configuration.GetSection(CortexNewsOptions.SectionName));
+builder.Services.AddSingleton<ICortexNewsEmbeddings, CortexNewsEmbeddings>();
+builder.Services.AddSingleton<ICortexNewsSearch, CortexNewsSearch>();
+builder.Services.AddHttpClient(CortexNewsSearch.QueryClient, client => client.Timeout = TimeSpan.FromSeconds(2))
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+builder.Services.AddHttpClient(CortexNewsIndexWorker.IndexClient, client => client.Timeout = TimeSpan.FromSeconds(15))
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+builder.Services.AddHostedService<CortexNewsIndexWorker>();
 
 var app = builder.Build();
 

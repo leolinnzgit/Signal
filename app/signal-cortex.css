@@ -317,3 +317,24 @@
     padding: 0.65rem 1rem;
   }
 }
+
+.cortex-news-heading {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+  color: inherit;
+}
+
+.cortex-news-link {
+  color: #7dd3fc;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.cortex-news-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  margin: 0.25rem 0;
+  font-size: 0.75rem;
+  color: #94a3b8;
+}

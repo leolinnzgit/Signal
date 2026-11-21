@@ -13,6 +13,8 @@ using Signal.Server.Controllers;
 using Signal.Server.Models;
 using Signal.Server.Services;
 
+if (args.FirstOrDefault() == "--cortex-news-only") { await CortexNewsChecks.RunAsync(args.ElementAtOrDefault(1)); return; }
+await CortexNewsChecks.RunAsync();
 if (args.Contains("--product-watch-only")) { await ProductWatchChecks.RunAsync(); return; }
 if (args.Contains("--news-api-only")) { await NewsApiKeyChecks.RunAsync(); return; }
 await NewsApiKeyChecks.RunAsync();

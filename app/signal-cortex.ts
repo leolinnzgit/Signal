@@ -20,7 +20,17 @@ export interface CortexHit {
   url?: string;
 }
 
+export interface CortexPublicNewsHit {
+  id: string;
+  title: string;
+  publisher: string;
+  url: string;
+  publishedAt: string;
+  excerpt: string;
+}
+
 export interface CortexSearchResponse {
+  publicNews?: CortexPublicNewsHit[];
   query: string;
   synthesizedAnswer: string;
   confidence: number;
@@ -91,11 +101,13 @@ CONFIDENTIAL - SIGNAL EXECUTIVE CORTEX`;
  */
 export async function searchSignalCortex(
   query: string,
-  articles?: CortexArticleInput[]
+  articles?: CortexArticleInput[],
+  signal?: AbortSignal
 ): Promise<CortexSearchResponse> {
   const res = await fetch("/api/cortex/search", {
     method: "POST",
     credentials: "same-origin",
+    signal,
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json",

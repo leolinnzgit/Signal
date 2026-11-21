@@ -14,10 +14,13 @@ interface SignalCortexModalProps {
   onOpenSuite: (suiteId: string, focusEntityId?: string) => void;
 }
 
+const EMPTY_ARTICLES: NonNullable<SignalCortexModalProps["articles"]> = [];
+const publishedDate = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
+
 export function SignalCortexModal({
   isOpen,
   onClose,
-  articles = [],
+  articles = EMPTY_ARTICLES,
   onOpenSuite,
 }: SignalCortexModalProps) {
   const [query, setQuery] = useState<string>("");
@@ -56,16 +59,16 @@ export function SignalCortexModal({
       return;
     }
 
-    let cancelled = false;
+    const search = new AbortController();
     const run = async () => {
       try {
         setIsSearching(true);
-        const res = await searchSignalCortex(query, articles);
-        if (!cancelled) setResponse(res);
+        const res = await searchSignalCortex(query, articles, search.signal);
+        if (!search.signal.aborted) setResponse(res);
       } catch (err) {
-        console.error("Cortex search error:", err);
+        if (!search.signal.aborted) console.error("Cortex search error:", err);
       } finally {
-        if (!cancelled) setIsSearching(false);
+        if (!search.signal.aborted) setIsSearching(false);
       }
     };
 
@@ -73,7 +76,7 @@ export function SignalCortexModal({
       wasOpenRef.current = true;
       void run();
       return () => {
-        cancelled = true;
+        search.abort();
       };
     }
 
@@ -82,7 +85,7 @@ export function SignalCortexModal({
     }, 200);
 
     return () => {
-      cancelled = true;
+      search.abort();
       clearTimeout(timeout);
     };
   }, [query, isOpen, articles]);
@@ -163,6 +166,26 @@ export function SignalCortexModal({
                 </button>
               ))}
             </div>
+          )}
+
+          {!!response?.publicNews?.length && (
+            <section aria-labelledby="cortex-public-news">
+              <h3 id="cortex-public-news" className="cortex-news-heading">Public news matches</h3>
+              <div className="cortex-hits-list">
+                {response.publicNews.map((hit) => (
+                  <article key={hit.id} className="cortex-hit-card">
+                    <a className="cortex-hit-title cortex-news-link" href={hit.url} target="_blank" rel="noopener noreferrer">
+                      {hit.title}
+                    </a>
+                    <div className="cortex-news-meta">
+                      {hit.publisher && <span>{hit.publisher}</span>}
+                      <time dateTime={hit.publishedAt}>{publishedDate.format(new Date(hit.publishedAt))}</time>
+                    </div>
+                    {hit.excerpt && <div className="cortex-hit-snippet">{hit.excerpt}</div>}
+                  </article>
+                ))}
+              </div>
+            </section>
           )}
 
           {/* Synthesized Box */}
