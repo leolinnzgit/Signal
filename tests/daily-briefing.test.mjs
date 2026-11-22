@@ -1368,3 +1368,14 @@ test("buildDailyBriefing includes after-hours stock pricing in marketGlance and 
   assert.ok(marketsChapter);
   assert.match(marketsChapter.text, /after hours trading, it is at 162\.80 USD, up 4\.72 percent/i);
 });
+
+
+test("Daily Briefing fills lead slots with distinct stories before narrating", () => {
+  const publishedAt = "2026-11-21T12:00:00Z";
+  const base = { source: "RNZ", publishedAt, summary: "", topics: [], providers: [] };
+  const lead = { ...base, title: "Auckland port workers strike blocks freight shipments", url: "https://rnz.co.nz/lead" };
+  const alias = { ...base, title: "Port workers strike blocks Auckland freight shipments", url: "https://example.test/copy" };
+  const second = { ...base, title: "Wellington approves plans for a new airport terminal", url: "https://rnz.co.nz/second" };
+  const result = buildDailyBriefing({ articles: [lead, alias, second], maxLeadStories: 2 });
+  assert.deepEqual(result.leadStories.map((article) => article.url), [lead.url, second.url]);
+});

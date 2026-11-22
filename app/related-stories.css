@@ -179,3 +179,13 @@
   font-weight: 600;
   color: var(--sage);
 }
+
+.related-story-excerpt {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: var(--text-muted);
+}

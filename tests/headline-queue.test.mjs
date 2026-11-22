@@ -192,3 +192,31 @@ test("dashboard saves all heard copies and catches up their topics without consu
   assert.equal(latest[2], articles[2]);
   assert.deepEqual(createUnreadHeadlineQueue(latest).articles, [articles[2]]);
 });
+
+
+test("automatic headline queues skip near-identical coverage without marking other publishers read", () => {
+  const publishedAt = "2026-11-21T12:00:00Z";
+  const lead = story("Auckland port workers strike blocks freight shipments", "lead", { publishedAt });
+  const alternate = story("Port workers strike blocks Auckland freight shipments", "alternative", { publishedAt });
+  const differentEvent = story("Auckland port strike freight rerouting affects exporters", "follow-up", { publishedAt });
+  const input = [lead, alternate, differentEvent];
+  const queue = createUnreadHeadlineQueue(input);
+  assert.deepEqual(queue.articles, [lead, differentEvent]);
+  assert.deepEqual(queue.duplicates.get(lead.url), [lead]);
+  assert.equal(queue.duplicates.has(alternate.url), false);
+  const afterHearing = [{ ...lead, isRead: true }, alternate, differentEvent];
+  assert.deepEqual(createUnreadHeadlineQueue(afterHearing).articles, [differentEvent]);
+  assert.deepEqual(createRandomHeadlineQueue(afterHearing, () => 0).articles, [differentEvent]);
+});
+
+test("headlines with changed figures, opposite decisions or separate publication dates stay in audio", () => {
+  const publishedAt = "2026-11-21T12:00:00Z";
+  const lead = story("Reserve Bank raises official cash rate to 4.25% after Wellington policy meeting", "lead", { publishedAt });
+  const copy = story("Wellington policy meeting: Reserve Bank lifts official cash rate to 4.25%", "copy", { publishedAt });
+  const changed = story("Reserve Bank raises official cash rate to 4.50% after Wellington policy meeting", "revision", { publishedAt });
+  const held = story("Reserve Bank holds official cash rate at 4.25% after Wellington policy meeting", "hold", { publishedAt });
+  const later = story("Reserve Bank lifts official cash rate to 4.25% at new Wellington policy meeting", "later", {
+    publishedAt: "2026-11-23T12:00:00Z",
+  });
+  assert.deepEqual(createUnreadHeadlineQueue([lead, copy, changed, held, later]).articles, [lead, changed, held, later]);
+});

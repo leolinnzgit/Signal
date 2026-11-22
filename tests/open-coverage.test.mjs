@@ -112,3 +112,44 @@ test('fetchOpenCoverage surfaces CSRF errors, server validation message, or fall
     /Could not search open news sources right now\./
   );
 });
+
+
+test("More coverage combines indexed and local stories across distinct publishers", async () => {
+  const { findCoverageMatches } = await import("../app/more-coverage.ts");
+  const publishedAt = "2026-11-21T12:00:00Z";
+  const anchor = { title: "Auckland port strike delays freight deliveries", source: "Radio New Zealand",
+    url: "https://www.rnz.co.nz/news/a", publishedAt };
+  const samePublisher = { ...anchor, source: "RNZ", url: "https://rnz.co.nz/news/b" };
+  const irrelevant = { ...anchor, title: "Markets brace for wage announcement", source: "Other",
+    url: "https://other.example/news", summary: "Stocks closed broadly higher." };
+  const indexed = { title: "Exports disrupted after walkout", summary: "Freight and port deliveries delayed in Auckland.",
+    source: "BBC News", url: "https://bbc.com/news/one", publishedAt };
+  const duplicatePublisher = { ...indexed, source: "BBC", url: "https://www.bbc.co.uk/news/two" };
+  const local = { ...anchor, title: "Freight deliveries delayed after Auckland port strike",
+    source: "Stuff", url: "https://stuff.co.nz/one" };
+  const old = { ...local, source: "Archive", url: "https://archive.example/story", publishedAt: "2026-11-01T12:00:00Z" };
+  assert.deepEqual(findCoverageMatches(anchor, [samePublisher, irrelevant, indexed, duplicatePublisher], [old, local]), [indexed, local]);
+  assert.deepEqual(findCoverageMatches(anchor, [], [samePublisher, old, local]), [local]);
+});
+
+test("More coverage submits the article seed with CSRF protection and maps Azure results", async () => {
+  const { fetchMoreCoverage } = await import("../app/more-coverage.ts");
+  const requests = [];
+  const signal = new AbortController().signal;
+  const story = { title: "  Auckland port strike ", summary: " Freight delays ", publishedAt: "2026-11-21",
+    url: "https://www.rnz.co.nz/news/a", source: "RNZ" };
+  const hit = { title: "Freight delays across Auckland", publisher: "BBC", url: "https://bbc.com/news/a",
+    publishedAt: "2026-11-21T00:00:00Z", excerpt: "Port strike continues." };
+  const result = await fetchMoreCoverage(story, signal, async (path, options) => {
+    requests.push({ path, options });
+    return Response.json(path === "/api/auth/csrf" ? { token: "token" } : { articles: [hit] });
+  });
+  assert.equal(requests[1].path, "/api/article-reader/more-coverage");
+  assert.equal(requests[1].options.headers["X-XSRF-TOKEN"], "token");
+  assert.equal(requests[1].options.signal, signal);
+  assert.deepEqual(JSON.parse(requests[1].options.body), {
+    url: story.url, title: "Auckland port strike", summary: "Freight delays", publishedAt: "2026-11-21T00:00:00.000Z",
+  });
+  assert.deepEqual(result, [{ title: hit.title, source: hit.publisher, url: hit.url,
+    publishedAt: hit.publishedAt, summary: hit.excerpt }]);
+});

@@ -1,3 +1,4 @@
+import { uniqueNarrationStories } from "./headline-queue.ts";
 import {
   describeWeather,
   type ClientWeatherAlert,
@@ -782,7 +783,7 @@ export function buildDailyBriefing(params: DailyBriefingParams = {}): DailyBrief
     return a.index - b.index;
   });
 
-  const leadStories = sortedForBriefing.slice(0, maxLeadStories).map((r) => r.story);
+  const leadStories = uniqueNarrationStories(sortedForBriefing.map((r) => r.story)).slice(0, maxLeadStories);
   const priorityMatchesCount = leadStories.filter((s) => Boolean(s.priorityTopic)).length;
 
   if (leadStories.length > 0) {

@@ -1500,6 +1500,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [weatherAlerts, setWeatherAlerts] = useState<ClientWeatherAlert[]>([]);
   const [weatherConditions, setWeatherConditions] = useState<ClientWeatherConditions | null>(null);
   const [relatedStoriesEntity, setRelatedStoriesEntity] = useState<string | null>(null);
+  const [moreCoverageOpen, setMoreCoverageOpen] = useState(false);
   const [entityPulseOpen, setEntityPulseOpen] = useState(false);
   const [dailyBriefingOpen, setDailyBriefingOpen] = useState(false);
   const [dailyBriefingMinimized, setDailyBriefingMinimized] = useState(false);
@@ -4358,6 +4359,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   }
 
   function openArticleReader(article: FollowedArticle, trigger: HTMLElement, listen = false, stayInSignal = false) {
+    setMoreCoverageOpen(false);
     weatherAudio.stop();
     resetOpenCoverage();
     setReaderMinimized(false);
@@ -4545,6 +4547,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   }
 
   function closeArticleReader() {
+    setMoreCoverageOpen(false);
     setReaderMinimized(false);
     resetOpenCoverage();
     readerRequestSequence.current += 1;
@@ -6874,6 +6877,14 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
               </div>
               <div className="article-reader-meta">
                 <span>{readerArticle.source}</span>
+                <button
+                  type="button"
+                  className="article-reader-open-coverage-btn"
+                  aria-haspopup="dialog"
+                  onClick={() => setMoreCoverageOpen(true)}
+                >
+                  More coverage
+                </button>
                 {readerArticle.publishedAt && <span>{formatAge(readerArticle.publishedAt)}</span>}
                 {readerArticle.marketQuotes && readerArticle.marketQuotes.slice(0, 2).map((q) => {
                   const dir = q.percentChange > 0 ? "positive" : q.percentChange < 0 ? "negative" : "neutral";
@@ -7354,7 +7365,9 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           </button>
         </nav>
       <RelatedStoriesModal
-        isOpen={relatedStoriesEntity !== null}
+        isOpen={relatedStoriesEntity !== null || (moreCoverageOpen && readerArticle !== null)}
+        story={moreCoverageOpen ? readerArticle ?? undefined : undefined}
+        archiveArticles={historyArticles}
         entity={relatedStoriesEntity ?? ""}
         currentUrl={readerArticle?.url ?? ""}
         liveArticles={articles}
@@ -7363,20 +7376,28 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         onFollow={(entity) => addTopic(entity, { select: false })}
         onOpenArticle={(article) => {
           setRelatedStoriesEntity(null);
+          setMoreCoverageOpen(false);
           openArticleReader(
             {
               url: article.url,
               title: article.title,
               source: article.source,
-              publishedAt: "",
-              summary: "",
+              publishedAt: article.publishedAt ?? "",
+              summary: article.summary ?? "",
               topics: [],
               providers: [],
             },
-            document.activeElement instanceof HTMLElement ? document.activeElement : document.body
+            moreCoverageOpen
+              ? readerCloseButton.current ?? document.body
+              : document.activeElement instanceof HTMLElement ? document.activeElement : document.body,
+            false,
+            moreCoverageOpen,
           );
         }}
-        onClose={() => setRelatedStoriesEntity(null)}
+        onClose={() => {
+          setRelatedStoriesEntity(null);
+          setMoreCoverageOpen(false);
+        }}
       />
       <EntityPulseModal
         isOpen={entityPulseOpen}

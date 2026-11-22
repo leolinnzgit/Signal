@@ -1,4 +1,6 @@
-type HeadlineArticle = { title: string; url: string; isRead?: boolean };
+import { extractContentTokens } from "./story-clustering.ts";
+
+type HeadlineArticle = { title: string; url: string; publishedAt?: string; isRead?: boolean };
 
 function headlineKey(title: string) {
   return title.normalize("NFKC").toLowerCase()
@@ -28,7 +30,7 @@ function normalizePublisherPath(host: string, pathname: string) {
   return pathname;
 }
 
-function storyUrlKey(value: string) {
+export function storyUrlKey(value: string) {
   try {
     const url = new URL(value);
     url.hash = "";
@@ -48,7 +50,7 @@ function storyUrlKey(value: string) {
   } catch { return value.trim(); }
 }
 
-function groupHeadlineArticles<T extends HeadlineArticle>(articles: T[]) {
+function groupHeadlineArticles<T extends HeadlineArticle>(articles: readonly T[]) {
   const parents = articles.map((_, index) => index);
   const identities = new Map<string, number>();
   function root(index: number): number {
@@ -79,11 +81,78 @@ function groupHeadlineArticles<T extends HeadlineArticle>(articles: T[]) {
   return Array.from(groups.values());
 }
 
+const MAX_REPEAT_GAP_MS = 36 * 60 * 60 * 1000;
+const CHANGE_TERMS = [
+  /\b(?:ris(?:e[sn]?|ing)|rose|rais(?:e[sd]?|ing)|hik(?:e[sd]?|ing)|lift(?:s|ed|ing)?|increas(?:e[sd]?|ing)|gain(?:s|ed)?|up)\b/i,
+  /\b(?:falls?|fell|fallen|cut(?:s|ting)?|lower(?:s|ed|ing)?|decreas(?:e[sd]?|ing)|drop(?:s|ped|ping)?|down)\b/i,
+  /\b(?:holds?|held|unchanged|steady|paus(?:e[sd]?|ing))\b/i,
+  /\b(?:approv(?:e[sd]?|ing)|accept(?:s|ed|ing)?|pass(?:es|ed|ing)?)\b/i,
+  /\b(?:reject(?:s|ed|ing)?|den(?:y|ies|ied|ying)|fail(?:s|ed|ing)?)\b/i,
+  /\b(?:no|not|never|without)\b|n['’]t\b/i,
+];
+
+function audioHeadlineSignature(article: HeadlineArticle) {
+  const date = Date.parse(article.publishedAt ?? "");
+  const tokens = extractContentTokens(article.title);
+  // The visual clusterer retains stems and plurals. Count a word only once
+  // here so a single shared phrase cannot look like several shared facts.
+  const words = new Set([...tokens].filter((token) =>
+    !/\d/.test(token) && !(token.endsWith("s") && tokens.has(token.slice(0, -1)))));
+  const figures = [...new Set((article.title.normalize("NFKC").replace(/[−–]/g, "-")
+        .match(/[+\-]?(?:[$€£¥]\s*)?\d+(?:[.,]\d+)*%?/g) ?? [])
+    .map((figure) => figure.replace(/[,\s]/g, "")))].sort().join("|");
+  const changes = CHANGE_TERMS.map((pattern) => pattern.test(article.title)).join("|");
+  return { date, words, figures, changes };
+}
+
+function isAudioRepeat(a: ReturnType<typeof audioHeadlineSignature>, b: ReturnType<typeof audioHeadlineSignature>) {
+  if (!Number.isFinite(a.date) || !Number.isFinite(b.date) || Math.abs(a.date - b.date) > MAX_REPEAT_GAP_MS
+    || a.figures !== b.figures || a.changes !== b.changes) return false;
+  const shared = [...a.words].filter((word) => b.words.has(word)).length;
+  return shared >= 4 && shared / (a.words.size + b.words.size - shared) >= 0.55;
+}
+
+function groupNarrationStories<T extends HeadlineArticle>(articles: readonly T[]) {
+  const groups: { copies: T[]; isRead: boolean; signature: ReturnType<typeof audioHeadlineSignature> }[] = [];
+  const wordToGroup = new Map<string, number[]>();
+  for (const copies of groupHeadlineArticles(articles)) {
+    const signature = audioHeadlineSignature(copies[0]);
+    const isRead = copies.some((copy) => copy.isRead);
+    const candidates = new Set<number>();
+    if (Number.isFinite(signature.date) && signature.words.size >= 4) {
+      for (const word of signature.words) {
+        for (const group of wordToGroup.get(word) ?? []) candidates.add(group);
+      }
+    }
+    const match = [...candidates].sort((a, b) => a - b)
+      .find((index) => isAudioRepeat(groups[index].signature, signature));
+    if (match !== undefined) {
+      groups[match].isRead ||= isRead;
+      continue;
+    }
+
+    // Approximate matches affect playback only. The lead and its exact
+    // aliases keep their normal read tracking, and cannot bridge two events.
+    const index = groups.push({ copies, isRead, signature }) - 1;
+    if (!Number.isFinite(signature.date) || signature.words.size < 4) continue;
+    for (const word of signature.words) {
+      const bucket = wordToGroup.get(word) ?? [];
+      bucket.push(index);
+      wordToGroup.set(word, bucket);
+    }
+  }
+  return groups;
+}
+
+export function uniqueNarrationStories<T extends HeadlineArticle>(articles: readonly T[]): T[] {
+  return groupNarrationStories(articles).map(({ copies }) => copies[0]);
+}
+
 export function createUnreadHeadlineQueue<T extends HeadlineArticle>(articles: T[]) {
   const queue: T[] = [];
   const duplicates = new Map<string, T[]>();
-  for (const group of groupHeadlineArticles(articles)) {
-    if (group.some((article) => article.isRead)) continue;
+  for (const { copies: group, isRead } of groupNarrationStories(articles)) {
+    if (isRead) continue;
     queue.push(group[0]);
     for (const copy of group) duplicates.set(copy.url, group);
   }
@@ -108,12 +177,12 @@ export function createRandomHeadlineQueue<T extends HeadlineArticle>(
   articles: T[],
   random: () => number = Math.random,
 ) {
-  const groups = groupHeadlineArticles(articles);
-  const unreadGroups = groups.filter((group) => !group.some((article) => article.isRead));
+  const groups = groupNarrationStories(articles);
+  const unreadGroups = groups.filter(({ isRead }) => !isRead);
   const activeGroups = unreadGroups.length > 0 ? unreadGroups : groups;
   const representatives: T[] = [];
   const duplicates = new Map<string, T[]>();
-  for (const group of activeGroups) {
+  for (const { copies: group } of activeGroups) {
     representatives.push(group[0]);
     for (const copy of group) duplicates.set(copy.url, group);
   }

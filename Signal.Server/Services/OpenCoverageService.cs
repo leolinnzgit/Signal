@@ -655,7 +655,7 @@ public sealed class OpenCoverageService(
         return set;
     }
 
-    private static HashSet<string> TokenizeForMatch(string? text)
+    internal static HashSet<string> TokenizeForMatch(string? text)
     {
         var tokens = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var keyword in ExtractKeywords(text))

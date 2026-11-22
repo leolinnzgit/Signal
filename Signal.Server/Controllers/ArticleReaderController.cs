@@ -14,7 +14,8 @@ namespace Signal.Server.Controllers;
 public sealed class ArticleReaderController(
     ArticleReaderService articleReader,
     ILogger<ArticleReaderController> logger,
-    OpenCoverageService? openCoverage = null) : ControllerBase
+    OpenCoverageService? openCoverage = null,
+    ICortexNewsSearch? cortexNews = null) : ControllerBase
 {
     [HttpGet("resolve")]
     public async Task<IActionResult> Resolve([FromQuery] string url, CancellationToken cancellationToken)
@@ -63,6 +64,28 @@ public sealed class ArticleReaderController(
                 reason = "The publisher blocked extraction or the article is temporarily unavailable.",
             });
         }
+    }
+
+    public sealed record MoreCoverageRequest(string? Url, string? Title, string? Summary, DateTimeOffset? PublishedAt);
+
+    [HttpPost("more-coverage")]
+    [RequestSizeLimit(16_384)]
+    public async Task<IActionResult> FindMoreCoverage(
+        [FromBody] MoreCoverageRequest request, CancellationToken cancellationToken)
+    {
+        var url = ArticleIdentity.NormalizeUrl(request.Url);
+        var title = request.Title?.Trim();
+        if (url is null || string.IsNullOrWhiteSpace(title) || title.Length > 500
+            || request.Summary is { Length: > 800 })
+            return BadRequest(new { error = "A valid article URL and headline are required." });
+
+        var hits = cortexNews is null ? null : await cortexNews.FindCoverageAsync(
+            title, request.Summary?.Trim() ?? "", request.PublishedAt, cancellationToken);
+        var storyKey = ArticleIdentity.GetStoryUrlKey(url);
+        return Ok(new
+        {
+            articles = hits?.Where(hit => ArticleIdentity.GetStoryUrlKey(hit.Url) != storyKey).ToArray() ?? [],
+        });
     }
 
     [HttpPost("open-coverage")]

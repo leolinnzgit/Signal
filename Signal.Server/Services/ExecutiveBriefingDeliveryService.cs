@@ -348,7 +348,6 @@ public sealed class ExecutiveBriefingDeliveryService(
             .OrderBy(item => (item.Article.IsRead ? 2 : 0) + (item.PriorityRank.HasValue ? 0 : 1))
             .ThenBy(item => item.PriorityRank ?? int.MaxValue)
             .ThenBy(item => item.Index)
-            .Take(4)
             .ToArray();
 
         // 2. Optionally resolve watched market movers (bounded timeout)
@@ -370,7 +369,9 @@ public sealed class ExecutiveBriefingDeliveryService(
             }
         }
 
-        var leadStoryItems = rankedStories
+        var leadStoryItems = NarratedNews.DistinctStories(rankedStories,
+                story => story.Article.Title, story => story.Article.Url, story => story.Article.PublishedAtUtc)
+            .Take(4)
             .Select(r => new ExecutiveBriefingEmailStory(
                 r.Article.Title,
                 r.Article.Url,

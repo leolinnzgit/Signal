@@ -58,15 +58,16 @@ internal sealed class AzureCortexNewsIndex(
             create.EnsureSuccessStatusCode();
     }
 
-    public Task<CortexPublicNewsHit[]> SearchAsync(string query, float[] vector, DateTimeOffset cutoff, CancellationToken token) =>
+    public Task<CortexPublicNewsHit[]> SearchAsync(string query, float[] vector, DateTimeOffset cutoff, CancellationToken token,
+        DateTimeOffset? latest = null, int count = 5) =>
         SearchAsync<CortexPublicNewsHit>(settings.QueryKey, new
         {
             search = EscapeSearchText(query),
             searchFields = "title,excerpt",
             select = "id,title,publisher,url,publishedAt,excerpt",
-            filter = $"publishedAt ge {cutoff.UtcDateTime.ToString("O", CultureInfo.InvariantCulture)}",
-            vectorQueries = new[] { new { kind = "vector", vector, fields = VectorField, k = 5 } },
-            top = 5,
+            filter = PublicationFilter(cutoff, latest),
+            vectorQueries = new[] { new { kind = "vector", vector, fields = VectorField, k = count } },
+            top = count,
         }, token);
 
     public async Task<List<CortexIndexEntry>> ListAsync(CancellationToken token)
@@ -133,6 +134,14 @@ internal sealed class AzureCortexNewsIndex(
         request.Headers.Add("api-key", key);
         if (body is not null) request.Content = JsonContent.Create(body);
         return await http.SendAsync(request, token);
+    }
+
+    private static string PublicationFilter(DateTimeOffset cutoff, DateTimeOffset? latest)
+    {
+        var filter = $"publishedAt ge {cutoff.UtcDateTime.ToString("O", CultureInfo.InvariantCulture)}";
+        if (latest is { } upper)
+            filter += $" and publishedAt le {upper.UtcDateTime.ToString("O", CultureInfo.InvariantCulture)}";
+        return filter;
     }
 
     private static object ScalarField(string name, string type = "Edm.String", bool key = false,

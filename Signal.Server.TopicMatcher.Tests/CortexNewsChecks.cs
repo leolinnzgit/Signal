@@ -42,6 +42,24 @@ internal static class CortexNewsChecks
             Require(root.GetProperty("filter").GetString()!.StartsWith("publishedAt ge "), "Search should filter expired news.");
         }
 
+
+        await search.FindCoverageAsync("Chip supply", "New capacity", DateTimeOffset.UtcNow, default);
+        using (var coverageBody = JsonDocument.Parse(transport.Body!))
+        {
+            var root = coverageBody.RootElement;
+            Require(root.GetProperty("search").GetString() == "Chip supply", "Coverage keeps the headline as its keyword query.");
+            Require(root.GetProperty("top").GetInt32() == 15, "Coverage should fetch extra candidates before excluding publishers.");
+            Require(root.GetProperty("filter").GetString()!.Contains("and publishedAt le "), "Coverage should have an upper publication bound.");
+        }
+        var reader = new ArticleReaderController(null!, NullLogger<ArticleReaderController>.Instance, cortexNews: search);
+        var coverage = (OkObjectResult)await reader.FindMoreCoverage(
+            new("https://example.com/news?utm_source=copy", "Chip supply", null, DateTimeOffset.UtcNow), default);
+        var coverageResult = JsonSerializer.SerializeToElement(coverage.Value);
+        Require(coverageResult.GetProperty("articles").GetArrayLength() == 0,
+            "Coverage should exclude the anchor URL and unsafe results.");
+        Require(await reader.FindMoreCoverage(new("javascript:alert(1)", "Chip supply", null, null), default)
+            is BadRequestObjectResult, "Coverage should reject unsafe article seeds.");
+
         transport.Status = HttpStatusCode.ServiceUnavailable;
         var fallbackRequest = new SignalCortexController.CortexSearchRequest("NVDA",
             [new("NVDA breaks ground", "Local feed", "https://local.example/news")]);
@@ -85,6 +103,20 @@ internal static class CortexNewsChecks
             throw new Exception("Partial index failures should be retried by the worker.");
         }
         catch (InvalidOperationException) { }
+
+
+        var day = now.UtcDateTime;
+        (string Title, string Url, DateTime PublishedAt)[] leads =
+        [
+            ("Reserve Bank raises official cash rate to 4.25% after Wellington policy meeting", "https://example.com/lead", day),
+            ("Wellington policy meeting: Reserve Bank lifts official cash rate to 4.25%", "https://example.com/copy", day),
+            ("Reserve Bank raises official cash rate to 4.50% after Wellington policy meeting", "https://example.com/new", day),
+            ("Reserve Bank holds official cash rate at 4.25% after Wellington policy meeting", "https://example.com/hold", day),
+            ("Reserve Bank lifts official cash rate to 4.25% at new Wellington policy meeting", "https://example.com/later", day.AddDays(2)),
+        ];
+        var distinct = NarratedNews.DistinctStories(leads, story => story.Title, story => story.Url, story => story.PublishedAt);
+        Require(distinct.Select(story => story.Url).SequenceEqual(new[] { leads[0].Url, leads[2].Url, leads[3].Url, leads[4].Url }),
+            "Scheduled audio should skip repeated stories and retain changed facts and separate events.");
 
         if (modelRoot is not null)
         {
