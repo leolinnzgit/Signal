@@ -82,6 +82,7 @@ async function recordedPlayerHarness({ lifecycle = false, announcement = false, 
     module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX,
   } }).outputText;
   const articles = Array.from({ length: articleCount }, (_, index) => ({ title: `News ${index}`, url: `https://example.com/${index}`, source: "News" }));
+  const narrationKey = JSON.stringify(articles.map(article => article.title));
   const heard = [];
   const controls = { current: null };
   const refs = [];
@@ -95,6 +96,7 @@ async function recordedPlayerHarness({ lifecycle = false, announcement = false, 
   let gesture;
   let reportStatus;
   let streamedTitles;
+  let streamRequests = 0;
   let recordings = 0;
   const handlers = new Map();
   const mediaSession = { setActionHandler(action, handler) { handlers.set(action, handler); }, playbackState: "none" };
@@ -113,10 +115,11 @@ async function recordedPlayerHarness({ lifecycle = false, announcement = false, 
       return [states[slot], (value) => { states[slot] = typeof value === "function" ? value(states[slot]) : value; }];
     },
     useRef(initial) { const slot = refIndex++; return refs[slot] ??= { current: initial }; },
+    useMemo(create) { return create(); },
     useEffect(callback, dependencies) {
       const slot = effectIndex++;
       // Supply an existing recording; run the remaining playback effects normally.
-      if (!lifecycle || (!streaming && dependencies?.[0] === articles)) return;
+      if (!lifecycle || (!streaming && dependencies?.[0] === narrationKey)) return;
       const previous = effects[slot];
       if (!dependencies || !previous || dependencies.some((value, index) => !Object.is(value, previous.dependencies[index]))) {
         effects[slot] = { dependencies, callback, cleanup: previous?.cleanup, pending: true };
@@ -133,6 +136,7 @@ async function recordedPlayerHarness({ lifecycle = false, announcement = false, 
       key: (...args) => preparedAudioCache.key(...args), get: () => undefined, position: () => undefined, savePosition() {},
     }, prepareHeadlineAudio: async () => { recordings++; return { blob: new Blob(), starts: [0, 6, 12, 18, 24] }; } },
     "./article-audio-stream": { openArticleAudioStream: async (parts, _language, _voices, _signal, onStatus) => {
+      streamRequests++;
       streamedTitles = parts; reportStatus = onStatus; return "/api/article-audio-stream/briefing";
     } },
     "./ReadingVoiceSelector": { default: () => null, useReadingVoices: () => ({ loading: false, streaming, preferences: { en: "", zh: "" } }) },
@@ -154,6 +158,7 @@ async function recordedPlayerHarness({ lifecycle = false, announcement = false, 
   }
   let props = { ref: controls, articles, initialIndex: 0, seconds: 6, rate: 1, suspended,
     onArticleRead: (article) => heard.push(article.url), onIndexChange() {},
+    renderBookmarkAction: () => null,
   };
   let tree;
   function render(nextProps = {}) {
@@ -175,10 +180,34 @@ async function recordedPlayerHarness({ lifecycle = false, announcement = false, 
     get events() { return findAudio(tree); }, render, handlers, mediaSession,
     get playCalls() { return playCalls; }, blockPlayback() { rejectPlay = true; },
     get streamedTitles() { return streamedTitles; }, get recordings() { return recordings; },
+    get streamRequests() { return streamRequests; },
     report(status) { reportStatus(status); return render(); },
     bufferUntil(time) { bufferedEnd = time; findAudio(tree).onProgress(); return render(); },
   };
 }
+
+test("bookmarking the current headline keeps the audio playing at its current position", async () => {
+  const player = await recordedPlayerHarness({ lifecycle: true, streaming: true });
+  const src = player.events.src;
+  player.report({ starts: [0, 6, 12, 18, 24], complete: true });
+  player.element.currentTime = 8;
+  player.events.onTimeUpdate();
+
+  let shownStory;
+  player.render({
+    articles: player.articles.map((article, index) => index === 1 ? { ...article, isBookmarked: true } : article),
+    renderBookmarkAction: (article) => { shownStory = article; return null; },
+  });
+  await Promise.resolve();
+  player.render();
+
+  assert.equal(shownStory.url, player.articles[1].url);
+  assert.equal(shownStory.isBookmarked, true);
+  assert.equal(player.events.src, src);
+  assert.equal(player.streamRequests, 1);
+  assert.equal(player.element.currentTime, 8);
+  assert.equal(player.element.paused, false);
+});
 
 test("briefing streaming exposes Play before generation and timing updates keep the same audio request playing", async () => {
   const player = await recordedPlayerHarness({ lifecycle: true, streaming: true });

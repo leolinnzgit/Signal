@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import MinimizedAudioPlayer from "./MinimizedAudioPlayer";
 import SmartFocalImage from "./SmartFocalImage";
+import StoryBookmarkButton from "./StoryBookmarkButton";
 import { useHandGestureTarget } from "./hand-gesture-actions";
 import type { FollowedArticle } from "./NewsDashboard";
 import ScreenOffAudioPlayer, { type ScreenOffAudioControls } from "./ScreenOffAudioPlayer";
@@ -38,10 +39,12 @@ type HeadlinePlayerProps = {
   onOpenArticle: (article: FollowedArticle) => void;
   onListenArticle: (article: FollowedArticle) => void;
   onClose: () => void;
+  onToggleBookmark?: (article: FollowedArticle) => Promise<boolean>;
+  bookmarkingUrls?: ReadonlySet<string>;
   onHandBookmark?: (article: FollowedArticle) => Promise<string>;
 };
 
-export default function HeadlinePlayer({ articles, marketTopic, tickerOverrides = {}, startWithScreenOffAudio = false, randomized = false, suspended = false, minimized = false, onMinimize, onRestore, onArticleRead, onOpenArticle, onListenArticle, onClose, onHandBookmark }: HeadlinePlayerProps) {
+export default function HeadlinePlayer({ articles, marketTopic, tickerOverrides = {}, startWithScreenOffAudio = false, randomized = false, suspended = false, minimized = false, onMinimize, onRestore, onArticleRead, onOpenArticle, onListenArticle, onClose, onToggleBookmark, bookmarkingUrls, onHandBookmark }: HeadlinePlayerProps) {
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const [seconds, setSeconds] = useState(6);
@@ -52,6 +55,7 @@ export default function HeadlinePlayer({ articles, marketTopic, tickerOverrides 
   const [screenOffAudio, setScreenOffAudio] = useState(startWithScreenOffAudio);
   const [fullscreen, setFullscreen] = useState(() => !!document.fullscreenElement);
   const [expanded, setExpanded] = useState(false);
+  const [failedBookmarkUrl, setFailedBookmarkUrl] = useState("");
   const mounted = useRef(true);
   const screenOffControls = useRef<ScreenOffAudioControls>(null);
   const [speechPreferences, setSpeechPreferences] = useState(() => {
@@ -84,6 +88,17 @@ export default function HeadlinePlayer({ articles, marketTopic, tickerOverrides 
     screenOffControls.current?.pause();
     playback.current?.setPaused(true);
     setPaused(true);
+  }
+
+  function renderBookmarkAction(story: FollowedArticle): ReactNode {
+    if (!onToggleBookmark) return null;
+    return <>
+      <StoryBookmarkButton article={story} busy={bookmarkingUrls?.has(story.url) === true} onToggle={async () => {
+        setFailedBookmarkUrl("");
+        if (!await onToggleBookmark(story)) setFailedBookmarkUrl(story.url);
+      }} />
+      {failedBookmarkUrl === story.url && <span className="headline-player-bookmark-error" role="status">Couldn’t update bookmark. Try again.</span>}
+    </>;
   }
 
   useHandGestureTarget(20, !suspended, (action) => {
@@ -287,6 +302,7 @@ export default function HeadlinePlayer({ articles, marketTopic, tickerOverrides 
         onRateChange={(rate) => setSpeechPreferences((current) => ({ ...current, rate }))}
         onArticleRead={(item) => { if (!readUrls.current.has(item.url)) { readUrls.current.add(item.url); onArticleRead(item); } }}
         onIndexChange={setIndex} onOpenArticle={onOpenArticle} onListenArticle={onListenArticle} onClose={onClose}
+        renderBookmarkAction={renderBookmarkAction}
         onExit={() => { pausePlayback(); setScreenOffAudio(false); }} />
     </section></>, document.body,
   );
@@ -326,6 +342,7 @@ export default function HeadlinePlayer({ articles, marketTopic, tickerOverrides 
               <button type="button" onClick={() => onOpenArticle(article)}>Read article</button>
               <button type="button" onClick={() => onListenArticle(article)}>Read full news aloud</button>
               <a href={article.url} target="_blank" rel="noreferrer" onClick={pausePlayback}>Open original <span aria-hidden="true">&#8599;</span></a>
+              {renderBookmarkAction(article)}
             </div>
           </div>
         )}

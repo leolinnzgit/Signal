@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, type Ref, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { type ReactNode, type Ref, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { useHandGestureTarget } from "./hand-gesture-actions";
 import type { FollowedArticle } from "./NewsDashboard";
 import { audioHeadlineIndex, briefingNarrationTitles, preparedAudioCache, prepareHeadlineAudio, type PreparedHeadlineAudio, type ReadingVoicePreferences } from "./headline-audio";
@@ -25,11 +25,12 @@ type Props = {
   onIndexChange: (index: number) => void;
   onOpenArticle: (article: FollowedArticle) => void;
   onListenArticle: (article: FollowedArticle) => void;
+  renderBookmarkAction: (article: FollowedArticle) => ReactNode;
   onClose: () => void;
   onExit: () => void;
 };
 
-export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenControl, articles, marketQuote, initialIndex, suspended = false, seconds, rate, onRateChange, onArticleRead, onIndexChange, onOpenArticle, onListenArticle, onClose, onExit }: Props) {
+export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenControl, articles, marketQuote, initialIndex, suspended = false, seconds, rate, onRateChange, onArticleRead, onIndexChange, onOpenArticle, onListenArticle, renderBookmarkAction, onClose, onExit }: Props) {
   const [track, setTrack] = useState<{ url: string; streaming: boolean } | null>(null);
   const [starts, setStarts] = useState<number[]>([]);
   const [streamComplete, setStreamComplete] = useState(false);
@@ -53,13 +54,16 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
   const completed = index >= articles.length;
   const article = articles[index];
   const readingVoices = useReadingVoices();
+  // Bookmark updates change article metadata without changing the narration.
+  const narrationKey = useMemo(() => JSON.stringify(articles.map((item) => item.title)), [articles]);
 
   useEffect(() => {
     if (readingVoices.loading) return;
     const abort = new AbortController();
     let url = "";
     // Include the closing announcement in the same track for screen-off playback.
-    const titles = briefingNarrationTitles(articles.map((item) => item.title));
+    const headlineTitles: string[] = JSON.parse(narrationKey);
+    const titles = briefingNarrationTitles(headlineTitles);
     recordingKey.current = preparedAudioCache.key(titles, seconds, navigator.language, readingVoices.preferences);
     const ready = preparedAudioCache.get(titles, seconds, navigator.language, readingVoices.preferences);
     setError("");
@@ -87,7 +91,7 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
       void openArticleAudioStream(titles, navigator.language, readingVoices.preferences, abort.signal, (status) => {
         if (abort.signal.aborted) return;
         setStarts(status.starts);
-        setPreparedCount(Math.min(status.starts.length, articles.length));
+        setPreparedCount(Math.min(status.starts.length, headlineTitles.length));
         setStreamComplete(status.complete);
         if (status.error) {
           audio.current?.pause();
@@ -101,13 +105,13 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
       });
     }
     else void prepareHeadlineAudio(titles, seconds, navigator.language, abort.signal, undefined,
-      (prepared) => { if (!abort.signal.aborted) setPreparedCount(Math.min(prepared, articles.length)); }, 15_000, readingVoices.preferences)
+      (prepared) => { if (!abort.signal.aborted) setPreparedCount(Math.min(prepared, headlineTitles.length)); }, 15_000, readingVoices.preferences)
       .then(useRecording)
       .catch((reason: unknown) => {
         if (!abort.signal.aborted) setError(reason instanceof Error ? reason.message : "Audio could not be prepared.");
       });
     return () => { abort.abort(); if (url) URL.revokeObjectURL(url); };
-  }, [articles, seconds, preparationAttempt, readingVoices.loading, readingVoices.preferences.en, readingVoices.preferences.zh, readingVoices.streaming, useStream]);
+  }, [narrationKey, seconds, preparationAttempt, readingVoices.loading, readingVoices.preferences.en, readingVoices.preferences.zh, readingVoices.streaming, useStream]);
 
   function selectVoice(language: keyof ReadingVoicePreferences, id: string) {
     if (readingVoices.preferences[language] === id) return;
@@ -299,6 +303,7 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
           <button type="button" onClick={() => onOpenArticle(article)}>Read article</button>
           <button type="button" onClick={() => onListenArticle(article)}>Read full news aloud</button>
           <a href={article.url} target="_blank" rel="noreferrer" onClick={pause}>Open original &#8599;</a>
+          {renderBookmarkAction(article)}
         </div>
       </div>}
     </div>

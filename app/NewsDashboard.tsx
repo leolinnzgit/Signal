@@ -14,6 +14,7 @@ import { updateInstalledAppBadge } from "./app-badge";
 import { createHostedArticleShare, shareArticle } from "./article-share";
 import type { SignalArticleLink } from "./article-link";
 import HeadlinePlayer from "./HeadlinePlayer";
+import StoryBookmarkButton from "./StoryBookmarkButton";
 import MinimizedAudioPlayer from "./MinimizedAudioPlayer";
 import { usePlayerBackNavigation } from "./usePlayerBackNavigation";
 import { createRandomHeadlineQueue, createUnreadHeadlineQueue } from "./headline-queue";
@@ -826,18 +827,7 @@ const StoryFeedItem = memo(function StoryFeedItem({
       </a>
       <div className="story-actions">
         {canBookmark && (
-          <button
-            type="button"
-            className="bookmark-button"
-            onClick={() => onToggleBookmark(article)}
-            disabled={isBookmarking}
-            aria-pressed={article.isBookmarked === true}
-            aria-label={`Bookmark ${article.title}`}
-            title={article.isBookmarked ? "Remove bookmark" : "Bookmark story"}
-          >
-            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 4h12v16l-6-4-6 4V4Z" /></svg>
-            Bookmark
-          </button>
+          <StoryBookmarkButton article={article} busy={isBookmarking} onToggle={() => onToggleBookmark(article)} />
         )}
         <button
           type="button"
@@ -7262,6 +7252,8 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
             openArticleReader(article, document.activeElement instanceof HTMLElement ? document.activeElement : document.body, true);
           }}
           onClose={closeHeadlinePlayer}
+          onToggleBookmark={articleStore ? toggleBookmark : undefined}
+          bookmarkingUrls={bookmarkingUrls}
           onHandBookmark={bookmarkWithHand}
         />
       )}

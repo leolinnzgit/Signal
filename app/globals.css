@@ -3423,7 +3423,7 @@ button.local-weather {
 
 .open-story-button,
 .listen-story-button,
-.bookmark-button,
+.story-actions > .bookmark-button,
 .share-button,
 .comment-button,
 .interrogate-story-button,
@@ -3943,6 +3943,9 @@ button.local-weather {
 .headline-player-story-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.65rem; font-size: 0.85rem; }
 .headline-player-story-actions button { background: var(--page-text); border-color: var(--page-text); color: var(--page-background); font-weight: 700; }
 .headline-player-story-actions button:hover { background: var(--red); border-color: var(--red); color: white; }
+.headline-player-story-actions .bookmark-button { display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; }
+.headline-player-story-actions .bookmark-button[aria-pressed="true"] { background: var(--page-background); border-color: var(--red); color: var(--red); }
+.headline-player-bookmark-error { flex-basis: 100%; color: var(--red); }
 .headline-player-picker { display: flex; flex-shrink: 0; align-items: center; gap: 0.8rem; padding-bottom: 1.25rem; color: var(--text-faint); font-size: 0.75rem; }
 .headline-player-picker select { flex: 1; min-width: 0; width: 0; text-overflow: ellipsis; }
 .headline-player-title,
