@@ -171,12 +171,25 @@ test("Article reader More coverage pill, toolbar, story actions, and sibling mod
   assert.ok(metaMatch, "Article reader should render .article-reader-meta");
   assert.match(metaMatch[1], /\{readerArticle\.source\}[\s\S]*?formatAge\(readerArticle\.publishedAt\)[\s\S]*?className="article-reader-meta-coverage-btn"/);
 
+  assert.match(globalsCss, /\.article-reader\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);/);
+  assert.match(globalsCss, /\.article-reader-state\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);/);
+  assert.match(globalsCss, /\.article-reader-state\s+\.article-narration\s*\{[^}]*width:\s*min\(100%,\s*34rem\);[^}]*text-align:\s*left;/);
+  assert.match(globalsCss, /\.article-ai-summary\s*>\s*button\s*\{[^}]*border-radius:\s*999px;/);
   assert.match(globalsCss, /\.article-reader-meta\s*\{[^}]*align-items:\s*center;/);
   assert.match(globalsCss, /\.article-reader-meta-coverage-btn\s*\{[^}]*border-radius:\s*999px;/);
   assert.match(globalsCss, /\.account-close\s*\{[^}]*color:\s*var\(--page-text\);/);
   assert.match(globalsCss, /@media\s*\(max-width:\s*560px\)\s*\{[\s\S]*?\.story-actions\s*>\s*button:not\(\.bookmark-button\)[\s\S]*?width:\s*2rem;\s*height:\s*2rem;[\s\S]*?\.story-actions\s*>\s*\.bookmark-button\s*\{[\s\S]*?height:\s*2rem;/);
-  assert.match(globalsCss, /@media\s*\(max-width:\s*640px\)\s*\{[\s\S]*?\.article-reader-toolbar\s*\{[^}]*flex-direction:\s*column;/);
+  const mobileReaderBlock = Array.from(globalsCss.matchAll(/@media\s*\(max-width:\s*640px\)\s*\{([\s\S]*?\r?\n\})/g))
+    .map((m) => m[1])
+    .find((block) => block.includes(".article-reader-header"));
+  assert.ok(mobileReaderBlock, "globals.css should define a @media (max-width: 640px) reader block");
+  assert.match(mobileReaderBlock, /\.article-reader\s*\{[^}]*width:\s*100%;/);
+  assert.match(mobileReaderBlock, /\.article-reader-toolbar\s*\{[^}]*flex-direction:\s*column;/);
+  assert.match(mobileReaderBlock, /\.article-reader-actions\s*\{[^}]*flex-wrap:\s*wrap;/);
+  assert.doesNotMatch(mobileReaderBlock, /\.article-reader-actions\s*\{[^}]*flex-wrap:\s*nowrap;/);
   assert.match(globalsCss, /@media\s*\(max-width:\s*640px\)\s*\{[\s\S]*?\.dossier-floating-dock\s*\{/);
+  assert.match(globalsCss, /@media\s*\(min-width:\s*901px\)\s+and\s+\(max-width:\s*1480px\)\s*\{[\s\S]*?\.site-header\s*\{/);
+  assert.match(globalsCss, /\.site-header\s+\.header-actions\s+\.settings-toggle\s*\{/);
 
   assert.match(relatedCss, /\.related-stories-body\s*\{[^}]*overscroll-behavior:\s*contain;/);
   assert.match(relatedCss, /\.related-stories-action-btn:last-child\s*\{\s*margin-left:\s*auto;\s*\}/);
