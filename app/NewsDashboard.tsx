@@ -825,6 +825,20 @@ const StoryFeedItem = memo(function StoryFeedItem({
         )}
       </a>
       <div className="story-actions">
+        {canBookmark && (
+          <button
+            type="button"
+            className="bookmark-button"
+            onClick={() => onToggleBookmark(article)}
+            disabled={isBookmarking}
+            aria-pressed={article.isBookmarked === true}
+            aria-label={`Bookmark ${article.title}`}
+            title={article.isBookmarked ? "Remove bookmark" : "Bookmark story"}
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 4h12v16l-6-4-6 4V4Z" /></svg>
+            Bookmark
+          </button>
+        )}
         <button
           type="button"
           className="open-story-button"
@@ -904,19 +918,6 @@ const StoryFeedItem = memo(function StoryFeedItem({
           </button>
         )}
         <ListenLaterButton compact url={article.url} title={article.title} source={article.source} imageUrl={article.imageUrl} />
-        {canBookmark && (
-          <button
-            type="button"
-            className={article.isBookmarked ? "bookmark-button active" : "bookmark-button"}
-            onClick={() => onToggleBookmark(article)}
-            disabled={isBookmarking}
-            aria-pressed={article.isBookmarked === true}
-            aria-label={article.isBookmarked ? `Remove bookmark from ${article.title}` : `Bookmark ${article.title}`}
-            title={article.isBookmarked ? "Remove bookmark" : "Keep forever"}
-          >
-            <span aria-hidden="true">{article.isBookmarked ? "\u2605" : "\u2606"}</span>
-          </button>
-        )}
       </div>
     </li>
   );
