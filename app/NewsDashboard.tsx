@@ -4336,8 +4336,10 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
       topics: readerArticle?.topics ?? [],
       providers: ["Open coverage"],
     };
+    const knownBookmarked = articles.some((item) => item.url === replacement.url && item.isBookmarked)
+      || historyArticles.some((item) => item.url === replacement.url && item.isBookmarked);
     setReaderMinimized(false);
-    setReaderArticle(replacement);
+    setReaderArticle({ ...replacement, isBookmarked: knownBookmarked });
     setReaderTranslation(null);
     setReaderAudioRequested(listen);
     setReaderReading({ section: null, playing: false });
@@ -4362,7 +4364,10 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     setReaderMinimized(false);
     readerTrigger.current = trigger;
     if (!stayInSignal || articles.some((item) => item.url === article.url) || historyArticles.some((item) => item.url === article.url)) markArticleRead(article);
-    setReaderArticle(article);
+    const knownBookmarked = article.isBookmarked === true
+      || articles.some((item) => item.url === article.url && item.isBookmarked)
+      || historyArticles.some((item) => item.url === article.url && item.isBookmarked);
+    setReaderArticle({ ...article, isBookmarked: knownBookmarked });
     setReaderTranslation(null);
     setReaderAudioRequested(listen);
     setReaderReading({ section: null, playing: false });
@@ -4563,6 +4568,21 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     const bookmarked = !article.isBookmarked;
     setBookmarkingUrls((current) => new Set(current).add(article.url));
     try {
+      const inKnownList = articles.some((item) => item.url === article.url)
+        || historyArticles.some((item) => item.url === article.url);
+      if (!inKnownList) {
+        const parsedPublishedAt = article.publishedAt && !Number.isNaN(Date.parse(article.publishedAt))
+          ? article.publishedAt
+          : new Date().toISOString();
+        await articleStore.sync([{
+          ...article,
+          source: article.source?.trim() || "Signal",
+          publishedAt: parsedPublishedAt,
+          summary: article.summary ?? "",
+          topics: Array.isArray(article.topics) ? article.topics : [],
+          providers: article.providers?.length ? article.providers : ["Signal reader"],
+        }]);
+      }
       await articleStore.setBookmark(article.url, bookmarked);
       setArticles((current) => current.map((item) => item.url === article.url
         ? { ...item, isBookmarked: bookmarked }
@@ -6857,6 +6877,13 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                     if (headlineQueue) { headlineFullscreenRequested.current = false; setHeadlinesMinimized(true); }
                     setReaderMinimized(true);
                   }}>Minimize</button>
+                  {articleStore && (
+                    <StoryBookmarkButton
+                      article={readerArticle}
+                      busy={bookmarkingUrls.has(readerArticle.url)}
+                      onToggle={() => void toggleBookmark(readerArticle)}
+                    />
+                  )}
                   <button type="button" className="article-reader-share" disabled={readerContent.status === "loading" || sharingUrls.has(readerArticle.url)}
                     onClick={(event) => void openStoryShare(readerArticle, event.currentTarget)}>
                     <ShareIcon /> Share

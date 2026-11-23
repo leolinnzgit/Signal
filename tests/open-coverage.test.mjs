@@ -167,6 +167,7 @@ test("Article reader More coverage pill, toolbar, story actions, and sibling mod
   const supportCss = readFileSync(new URL("../public/signalwatch/support.css", import.meta.url), "utf8");
 
   assert.match(dashboardSource, /className="article-reader-toolbar-top"[\s\S]*?className="article-reader-close"/);
+  assert.match(dashboardSource, /className="article-reader-actions"[\s\S]*?<StoryBookmarkButton[\s\S]*?article=\{readerArticle\}/);
   const metaMatch = dashboardSource.match(/<div className="article-reader-meta">([\s\S]*?)<\/div>/);
   assert.ok(metaMatch, "Article reader should render .article-reader-meta");
   assert.match(metaMatch[1], /\{readerArticle\.source\}[\s\S]*?formatAge\(readerArticle\.publishedAt\)[\s\S]*?className="article-reader-meta-coverage-btn"/);
@@ -175,6 +176,8 @@ test("Article reader More coverage pill, toolbar, story actions, and sibling mod
   assert.match(globalsCss, /\.article-reader-state\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);/);
   assert.match(globalsCss, /\.article-reader-state\s+\.article-narration\s*\{[^}]*width:\s*min\(100%,\s*34rem\);[^}]*text-align:\s*left;/);
   assert.match(globalsCss, /\.article-ai-summary\s*>\s*button\s*\{[^}]*border-radius:\s*999px;/);
+  assert.match(globalsCss, /\.article-reader-actions\s+\.bookmark-button[\s\S]*?min-height:\s*2\.1rem;/);
+  assert.match(globalsCss, /\.article-reader-actions\s+\.bookmark-button\[aria-pressed="true"\][\s\S]*?border-color:\s*var\(--red\);/);
   assert.match(globalsCss, /\.article-reader-meta\s*\{[^}]*align-items:\s*center;/);
   assert.match(globalsCss, /\.article-reader-meta-coverage-btn\s*\{[^}]*border-radius:\s*999px;/);
   assert.match(globalsCss, /\.account-close\s*\{[^}]*color:\s*var\(--page-text\);/);

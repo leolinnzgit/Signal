@@ -4577,6 +4577,7 @@ button.local-weather {
 }
 
 .article-reader-actions a,
+.article-reader-actions .bookmark-button,
 .article-reader-actions .article-reader-share,
 .article-reader-actions .article-reader-follow {
   display: inline-flex;
@@ -4618,16 +4619,18 @@ button.local-weather {
   color: var(--red);
 }
 
-.article-reader-actions .article-reader-share svg {
+.article-reader-actions .article-reader-share svg,
+.article-reader-actions .bookmark-button svg {
   width: 0.95rem;
   height: 0.95rem;
 }
 
 .article-reader-share:disabled { opacity: 0.5; cursor: wait; }
 
+.article-reader-actions .bookmark-button[aria-pressed="true"],
 .article-reader-actions .article-reader-follow[aria-pressed="true"] {
   border-color: var(--red);
-  background: color-mix(in srgb, var(--red) 10%, var(--content-background));
+  background: color-mix(in srgb, var(--red) 12%, var(--content-background));
   color: var(--red);
 }
 
@@ -6178,6 +6181,7 @@ footer a { color: var(--paper); text-decoration: none; }
   }
   .article-reader-actions > * { flex: 0 1 auto; max-width: 100%; }
   .article-reader-actions a,
+  .article-reader-actions .bookmark-button,
   .article-reader-actions .article-reader-share,
   .article-reader-actions .article-reader-follow {
     min-height: 1.88rem;
