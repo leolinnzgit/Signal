@@ -153,3 +153,46 @@ test("More coverage submits the article seed with CSRF protection and maps Azure
   assert.deepEqual(result, [{ title: hit.title, source: hit.publisher, url: hit.url,
     publishedAt: hit.publishedAt, summary: hit.excerpt }]);
 });
+
+test("Article reader More coverage pill, toolbar, story actions, and sibling modal CSS are tidy on mobile", async () => {
+  const { readFileSync } = await import("node:fs");
+  const dashboardSource = readFileSync(new URL("../app/NewsDashboard.tsx", import.meta.url), "utf8");
+  const globalsCss = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  const relatedCss = readFileSync(new URL("../app/related-stories.css", import.meta.url), "utf8");
+  const compareCss = readFileSync(new URL("../app/compare-coverage.css", import.meta.url), "utf8");
+  const pulseCss = readFileSync(new URL("../app/entity-pulse.css", import.meta.url), "utf8");
+  const captionCss = readFileSync(new URL("../app/article-image-caption.css", import.meta.url), "utf8");
+  const voiceCss = readFileSync(new URL("../app/voice-input.css", import.meta.url), "utf8");
+  const graphCss = readFileSync(new URL("../app/stock-news-graph.css", import.meta.url), "utf8");
+  const supportCss = readFileSync(new URL("../public/signalwatch/support.css", import.meta.url), "utf8");
+
+  assert.match(dashboardSource, /className="article-reader-toolbar-top"[\s\S]*?className="article-reader-close"/);
+  const metaMatch = dashboardSource.match(/<div className="article-reader-meta">([\s\S]*?)<\/div>/);
+  assert.ok(metaMatch, "Article reader should render .article-reader-meta");
+  assert.match(metaMatch[1], /\{readerArticle\.source\}[\s\S]*?formatAge\(readerArticle\.publishedAt\)[\s\S]*?className="article-reader-meta-coverage-btn"/);
+
+  assert.match(globalsCss, /\.article-reader-meta\s*\{[^}]*align-items:\s*center;/);
+  assert.match(globalsCss, /\.article-reader-meta-coverage-btn\s*\{[^}]*border-radius:\s*999px;/);
+  assert.match(globalsCss, /\.account-close\s*\{[^}]*color:\s*var\(--page-text\);/);
+  assert.match(globalsCss, /@media\s*\(max-width:\s*560px\)\s*\{[\s\S]*?\.story-actions\s*>\s*button:not\(\.bookmark-button\)[\s\S]*?width:\s*2rem;\s*height:\s*2rem;[\s\S]*?\.story-actions\s*>\s*\.bookmark-button\s*\{[\s\S]*?height:\s*2rem;/);
+  assert.match(globalsCss, /@media\s*\(max-width:\s*640px\)\s*\{[\s\S]*?\.article-reader-toolbar\s*\{[^}]*flex-direction:\s*column;/);
+  assert.match(globalsCss, /@media\s*\(max-width:\s*640px\)\s*\{[\s\S]*?\.dossier-floating-dock\s*\{/);
+
+  assert.match(relatedCss, /\.related-stories-body\s*\{[^}]*overscroll-behavior:\s*contain;/);
+  assert.match(relatedCss, /\.related-stories-action-btn:last-child\s*\{\s*margin-left:\s*auto;\s*\}/);
+  assert.match(relatedCss, /@media\s*\(max-width:\s*600px\)/);
+
+  for (const css of [compareCss, pulseCss, captionCss]) {
+    assert.doesNotMatch(css, /--text-heading|--text-primary/);
+  }
+  assert.doesNotMatch(pulseCss, /background:\s*var\(--paper,/);
+  assert.doesNotMatch(captionCss, /background:\s*var\(--paper,/);
+  assert.doesNotMatch(voiceCss, /^\.voice-mic-btn\s*\{[^}]*background:\s*var\(--paper,/m);
+  assert.match(compareCss, /overscroll-behavior:\s*contain;/);
+  assert.match(compareCss, /@media\s*\(max-width:\s*600px\)/);
+  assert.match(pulseCss, /overscroll-behavior:\s*contain;/);
+  assert.match(pulseCss, /minmax\(min\(260px,\s*100%\),\s*1fr\)/);
+  assert.match(graphCss, /\.stock-news-graph-overlay\s*\{[^}]*overscroll-behavior:\s*contain;/);
+  assert.match(graphCss, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.stock-news-graph-overlay\s*\{\s*padding:\s*0\.45rem;\s*\}/);
+  assert.match(supportCss, /@media\(max-width:540px\)/);
+});

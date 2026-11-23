@@ -99,9 +99,10 @@ public static class SharedArticlePage
         .shared-comments label{display:block;font-weight:600;margin:1rem 0 .5rem}.shared-comments input,.shared-comments textarea{display:block;width:100%;resize:vertical;min-height:7rem;padding:.8rem;font:inherit;border:1px solid var(--line);border-radius:.3rem;background:var(--paper);color:var(--ink)}
         .shared-comments input{min-height:0;resize:none}
         .shared-comments button{font:inherit;font-size:.85rem;padding:.65rem .9rem;border:1px solid var(--line);border-radius:.3rem;background:var(--paper);color:var(--ink);cursor:pointer}.shared-comments button:disabled{opacity:.6;cursor:wait}.shared-comments [hidden]{display:none}
-        #comment-submit{background:var(--ink);color:var(--paper)}.shared-comments :focus-visible{outline:2px solid var(--accent);outline-offset:3px}.comments-toolbar{display:flex;align-items:center;justify-content:space-between;gap:1rem;margin:1.5rem 0 1rem;font-size:.85rem}
+        #comment-submit{background:var(--ink);color:var(--paper)}.shared-comments :focus-visible{outline:2px solid var(--accent);outline-offset:3px}.comments-toolbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:1rem;margin:1.5rem 0 1rem;font-size:.85rem}
         #comment-list{list-style:none;padding:0;margin:1rem 0}#comment-list li{border-top:1px solid var(--line);padding:1rem 0}#comment-list p{white-space:pre-wrap;line-height:1.65;margin:.6rem 0 0}.comment-meta{display:flex;flex-wrap:wrap;gap:.5rem 1rem;align-items:baseline;font-size:.85rem}.comment-meta time{color:var(--muted);font-size:.75rem}
         .comment-story-link{display:inline-block;margin-top:.7rem;font-size:.8rem}
+        @media(max-width:600px){header{padding:1rem}main{padding:1.5rem 1rem 2.5rem}h1{font-size:clamp(1.65rem,6vw,2.6rem)}}
         @media print{#comment-form,.comments-toolbar,#comments-older,#comment-status{display:none}}
         :root{--highlight:#f5e2af}
         @media(prefers-color-scheme:dark){:root{--paper:#191a18;--ink:#edeae2;--muted:#aaa79f;--line:#3b3c36;--accent:#ef8176;--highlight:#51422a}}

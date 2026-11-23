@@ -5,12 +5,14 @@
   position: fixed;
   inset: 0;
   z-index: 10020;
+  box-sizing: border-box;
   background: var(--overlay);
   backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 1.25rem;
+  overscroll-behavior: contain;
 }
 
 .stock-news-graph-card {
@@ -21,6 +23,7 @@
   max-width: 1060px;
   max-height: 92vh;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 1.5rem 1.75rem;
   box-shadow: 0 24px 64px var(--shadow);
   color: var(--page-text);
@@ -92,6 +95,7 @@
   flex-wrap: wrap;
   gap: 0.5rem;
   flex: 1 1 28rem;
+  min-width: 0;
 }
 
 .stock-news-series-pill {
@@ -629,7 +633,13 @@
 }
 
 @media (max-width: 720px) {
+  .stock-news-graph-overlay {
+    padding: 0.45rem;
+  }
+
   .stock-news-graph-card {
+    max-height: calc(100dvh - 0.9rem);
+    border-radius: 12px;
     padding: 1rem;
   }
 

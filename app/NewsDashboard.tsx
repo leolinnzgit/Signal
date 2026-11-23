@@ -6810,7 +6810,18 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           >
             <header className="article-reader-header">
               <div className="article-reader-toolbar">
-                <span className="article-reader-kicker"><span className="pulse" /> Signal reader</span>
+                <div className="article-reader-toolbar-top">
+                  <span className="article-reader-kicker"><span className="pulse" /> Signal reader</span>
+                  <button
+                    ref={readerCloseButton}
+                    type="button"
+                    className="article-reader-close"
+                    onClick={closeArticleReader}
+                    aria-label="Close article reader"
+                  >
+                    &#215;
+                  </button>
+                </div>
                 <div className="article-reader-actions">
                   <button type="button" className="article-reader-share" aria-label="Minimize audio player" onClick={() => {
                     if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
@@ -6856,27 +6867,19 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                   <a href={readerOriginalUrl} target="_blank" rel="noreferrer">
                     Open original <span aria-hidden="true">&#8599;</span>
                   </a>
-                  <button
-                    ref={readerCloseButton}
-                    type="button"
-                    onClick={closeArticleReader}
-                    aria-label="Close article reader"
-                  >
-                    &#215;
-                  </button>
                 </div>
               </div>
               <div className="article-reader-meta">
                 <span>{readerArticle.source}</span>
+                {readerArticle.publishedAt && <span>{formatAge(readerArticle.publishedAt)}</span>}
                 <button
                   type="button"
-                  className="article-reader-open-coverage-btn"
+                  className="article-reader-meta-coverage-btn"
                   aria-haspopup="dialog"
                   onClick={() => setMoreCoverageOpen(true)}
                 >
                   More coverage
                 </button>
-                {readerArticle.publishedAt && <span>{formatAge(readerArticle.publishedAt)}</span>}
                 {readerArticle.marketQuotes && readerArticle.marketQuotes.slice(0, 2).map((q) => {
                   const dir = q.percentChange > 0 ? "positive" : q.percentChange < 0 ? "negative" : "neutral";
                   return (

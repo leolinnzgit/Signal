@@ -163,7 +163,7 @@ public static partial class SharedAiAnalysisPage
   .btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}
   .btn[hidden]{display:none}
   .btn:disabled{opacity:.65;cursor:wait}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:28px 26px;box-shadow:0 8px 24px rgba(2,6,23,.06)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:28px 26px;box-shadow:0 8px 24px rgba(2,6,23,.06);overflow-wrap:anywhere}
   .meta-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px}
   .pill{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:999px;background:var(--pill);color:var(--pill-ink);font-size:12px;font-weight:600}
   .sent-bullish{background:rgba(22,163,74,.16);color:#15803d}

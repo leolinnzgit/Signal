@@ -46,7 +46,7 @@
   font-style: italic;
   flex-wrap: wrap;
   flex: 1;
-  min-width: 180px;
+  min-width: 0;
 }
 
 .ai-caption-tools-label {
@@ -72,7 +72,7 @@
 }
 
 .ai-caption-text {
-  color: var(--text-primary, #ffffff);
+  color: var(--page-text, #f1f5f9);
 }
 
 .ai-caption-confidence {
@@ -105,7 +105,7 @@
   padding: 0.2rem 0.55rem;
   border-radius: 999px;
   border: 1px solid var(--line, rgba(148, 163, 184, 0.3));
-  background: var(--paper, rgba(255, 255, 255, 0.05));
+  background: var(--card-background);
   color: var(--page-text, #f1f5f9);
   font-size: 0.72rem;
   font-weight: 600;
@@ -155,7 +155,7 @@
   padding: 0.18rem 0.5rem;
   border-radius: 5px;
   border: 1px solid var(--line, rgba(148, 163, 184, 0.3));
-  background: var(--paper, rgba(255, 255, 255, 0.05));
+  background: var(--card-background);
   color: var(--page-text, #f1f5f9);
   font-size: 0.72rem;
   font-weight: 600;
