@@ -53,6 +53,7 @@ export default function HeadlinePlayer({ articles, marketTopic, tickerOverrides 
   const [readAloud, setReadAloud] = useState(speechSupported);
   const [speechError, setSpeechError] = useState(false);
   const [screenOffAudio, setScreenOffAudio] = useState(startWithScreenOffAudio);
+  const [screenOffPaused, setScreenOffPaused] = useState(true);
   const [fullscreen, setFullscreen] = useState(() => !!document.fullscreenElement);
   const [expanded, setExpanded] = useState(false);
   const [failedBookmarkUrl, setFailedBookmarkUrl] = useState("");
@@ -289,7 +290,18 @@ export default function HeadlinePlayer({ articles, marketTopic, tickerOverrides 
   </button></>;
   const playerClass = `headline-player${fullscreen || expanded ? " headline-player-expanded" : ""}`;
   const hiddenStyle = suspended || minimized ? { display: "none" } : undefined;
-  const miniPlayer = minimized && !suspended ? <MinimizedAudioPlayer title={title ?? "Headline briefing"} onRestore={onRestore} onClose={onClose} /> : null;
+  const miniPlaying = screenOffAudio ? !screenOffPaused : !paused;
+  const miniPlayer = minimized && !suspended ? <MinimizedAudioPlayer
+    title={title ?? "Headline briefing"}
+    statusLabel={miniPlaying ? "Playing" : "Paused"}
+    playing={miniPlaying}
+    onTogglePlayback={() => {
+      if (screenOffAudio) screenOffControls.current?.toggle();
+      else setPaused((current) => !current);
+    }}
+    onRestore={onRestore}
+    onClose={onClose}
+  /> : null;
 
   if (screenOffAudio) return createPortal(
     <>{miniPlayer}<div className="headline-player-backdrop" aria-hidden="true" style={hiddenStyle} />
@@ -300,6 +312,7 @@ export default function HeadlinePlayer({ articles, marketTopic, tickerOverrides 
         fullscreenControl={fullscreenControl}
         initialIndex={Math.min(index, articles.length - 1)} seconds={seconds} rate={speechPreferences.rate}
         onRateChange={(rate) => setSpeechPreferences((current) => ({ ...current, rate }))}
+        onPausedChange={setScreenOffPaused}
         onArticleRead={(item) => { if (!readUrls.current.has(item.url)) { readUrls.current.add(item.url); onArticleRead(item); } }}
         onIndexChange={setIndex} onOpenArticle={onOpenArticle} onListenArticle={onListenArticle} onClose={onClose}
         renderBookmarkAction={renderBookmarkAction}

@@ -9,16 +9,41 @@ import { openArticleAudioStream } from "./article-audio-stream";
 import ContinueOnWatch, { type QueueTransferSource } from "./ContinueOnWatch";
 import { useSharedListeningReporter } from "./SharedListening";
 
-export type ArticleAudioPlayerProps = { downloadedAudio?: PreparedHeadlineAudio; queueTransfer?: QueueTransferSource; onPlaybackComplete?: () => void; title: string; source: string; paragraphs: string[]; storyUrl?: string; storyImageUrl?: string; progressParts?: string[]; progressOffset?: number; onTransferLockChange?: (locked: boolean) => void; autoPrepare?: boolean; summaryOnly?: boolean; defaultMode?: "browser" | "recorded"; narrationSections?: ArticleNarrationSection[]; restoreCachedPosition?: boolean; onReadingSectionChange?: (section: ArticleNarrationSection | null, playing: boolean) => void };
+export type ArticleAudioPlaybackState = {
+  active: boolean;
+  playing: boolean;
+  preparing: boolean;
+  disabled?: boolean;
+  label: string;
+  timeLabel?: string;
+  progress?: number;
+  canSeek?: boolean;
+  onSeek?: (ratio: number) => void;
+  toggle: () => void;
+};
+
+function formatAudioClock(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return "";
+  const total = Math.floor(seconds);
+  const mins = Math.floor(total / 60);
+  const secs = total % 60;
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
+}
+
+export type ArticleAudioPlayerProps = { downloadedAudio?: PreparedHeadlineAudio; queueTransfer?: QueueTransferSource; onPlaybackComplete?: () => void; title: string; source: string; paragraphs: string[]; storyUrl?: string; storyImageUrl?: string; progressParts?: string[]; progressOffset?: number; onTransferLockChange?: (locked: boolean) => void; autoPrepare?: boolean; summaryOnly?: boolean; defaultMode?: "browser" | "recorded"; narrationSections?: ArticleNarrationSection[]; restoreCachedPosition?: boolean; onReadingSectionChange?: (section: ArticleNarrationSection | null, playing: boolean) => void; onPlaybackStateChange?: (state: ArticleAudioPlaybackState | null) => void };
 
 export default function ArticleAudioPlayer(props: ArticleAudioPlayerProps) {
   const [speechSupported] = useState(() => typeof window !== "undefined" && "speechSynthesis" in window && "SpeechSynthesisUtterance" in window);
   const [mode, setMode] = useState(() => props.defaultMode ?? "recorded");
   const [transferLocked, setTransferLocked] = useState(false);
-  useEffect(() => () => props.onReadingSectionChange?.(null, false), [props.onReadingSectionChange]);
+  useEffect(() => () => {
+    props.onReadingSectionChange?.(null, false);
+    props.onPlaybackStateChange?.(null);
+  }, [props.onReadingSectionChange, props.onPlaybackStateChange]);
   function changeMode(nextMode: "browser" | "recorded") {
     if (nextMode === mode) return;
     props.onReadingSectionChange?.(null, false);
+    props.onPlaybackStateChange?.(null);
     setMode(nextMode);
   }
   function lockChange(locked: boolean) { setTransferLocked(locked); props.onTransferLockChange?.(locked); }
@@ -32,7 +57,7 @@ export default function ArticleAudioPlayer(props: ArticleAudioPlayerProps) {
   </div>;
 }
 
-function RecordedArticleAudioPlayer({ downloadedAudio, queueTransfer, onPlaybackComplete, title, source, paragraphs, storyUrl, storyImageUrl, progressParts, progressOffset, onTransferLockChange, autoPrepare = false, summaryOnly = false, onReadingSectionChange, narrationSections, restoreCachedPosition = true }: ArticleAudioPlayerProps) {
+function RecordedArticleAudioPlayer({ downloadedAudio, queueTransfer, onPlaybackComplete, title, source, paragraphs, storyUrl, storyImageUrl, progressParts, progressOffset, onTransferLockChange, autoPrepare = false, summaryOnly = false, onReadingSectionChange, onPlaybackStateChange, narrationSections, restoreCachedPosition = true }: ArticleAudioPlayerProps) {
   const readingVoices = useReadingVoices(!downloadedAudio);
   const narrationTitle = summaryOnly && paragraphs.length === 1 && paragraphs[0] === title ? "" : title;
   const sections = useMemo(() => { try { return narrationSections ?? recordedArticleNarrationSections(narrationTitle, paragraphs); } catch { return []; } }, [narrationTitle, paragraphs, readingVoices.loading, narrationSections]);
@@ -47,6 +72,7 @@ function RecordedArticleAudioPlayer({ downloadedAudio, queueTransfer, onPlayback
   const [message, setMessage] = useState("");
   const [rate, setRate] = useState(1);
   const [playing, setPlaying] = useState(false);
+  const [clock, setClock] = useState({ currentSec: 0, durationSec: 0 });
   const [readingSection, setReadingSection] = useState<ArticleNarrationSection | null>(null);
   const [useStream, setUseStream] = useState(true);
   const [streaming, setStreaming] = useState(false);
@@ -61,6 +87,8 @@ function RecordedArticleAudioPlayer({ downloadedAudio, queueTransfer, onPlayback
   const restoredStreamPosition = useRef(false);
   const transferLock = useRef(false);
   const [transferLocked, setTransferLocked] = useState(false);
+  const toggleRef = useRef<() => void>(() => {});
+  const seekRef = useRef<(ratio: number) => void>(() => {});
 
   useHandGestureTarget(30, true, async (action) => {
     if (transferLock.current) return "Finish or cancel the watch transfer first.";
@@ -81,6 +109,7 @@ function RecordedArticleAudioPlayer({ downloadedAudio, queueTransfer, onPlayback
     recordingKey.current = (streamThisArticle ? "stream:" : "") + preparedAudioCache.key(parts ?? [], 3, navigator.language, readingVoices.preferences);
     setUrl("");
     setPlaying(false);
+    setClock({ currentSec: 0, durationSec: 0 });
     setReadingSection(null);
     setError("");
     setMessage("");
@@ -205,6 +234,12 @@ function RecordedArticleAudioPlayer({ downloadedAudio, queueTransfer, onPlayback
     onReadingSectionChange?.(readingSection, playing);
   }, [readingSection, playing, onReadingSectionChange]);
 
+  function syncClock(element: HTMLAudioElement) {
+    const currentSec = element.ended ? 0 : Math.max(0, Math.floor(element.currentTime || 0));
+    const durationSec = Number.isFinite(element.duration) && element.duration > 0 ? Math.floor(element.duration) : 0;
+    setClock((current) => current.currentSec === currentSec && current.durationSec === durationSec ? current : { currentSec, durationSec });
+  }
+
   function updatePlayback(playing: boolean) {
     if (audio.current && starts.length) shared.track(audioHeadlineIndex(starts, audio.current.currentTime), playing);
     setPlaying(playing);
@@ -214,6 +249,7 @@ function RecordedArticleAudioPlayer({ downloadedAudio, queueTransfer, onPlayback
 
   function updatePosition() {
     const element = audio.current;
+    if (element) syncClock(element);
     if (element && starts.length) shared.track(audioHeadlineIndex(starts, element.currentTime), !element.paused && !element.ended);
     if (element) preparedAudioCache.savePosition(recordingKey.current, element.ended ? 0 : element.currentTime);
     if (element?.ended) setReadingSection(null);
@@ -231,7 +267,69 @@ function RecordedArticleAudioPlayer({ downloadedAudio, queueTransfer, onPlayback
     setPreparing(false);
     setMessage("");
     setUrl("");
+    setClock({ currentSec: 0, durationSec: 0 });
   }
+
+  toggleRef.current = () => {
+    if (transferLock.current || !audio.current) return;
+    const element = audio.current;
+    if (element.paused || element.ended) {
+      if (element.ended) element.currentTime = 0;
+      resumePlayback.current = true;
+      void element.play()
+        .then(() => {
+          updatePlayback(true);
+          updatePosition();
+        })
+        .catch(() => setMessage("Tap Play to resume reading."));
+    } else {
+      resumePlayback.current = false;
+      element.pause();
+      updatePlayback(false);
+    }
+  };
+
+  seekRef.current = (ratio: number) => {
+    if (transferLock.current || !audio.current) return;
+    const element = audio.current;
+    if (!Number.isFinite(element.duration) || element.duration <= 0) return;
+    element.currentTime = Math.max(0, Math.min(element.duration, ratio * element.duration));
+    updatePosition();
+  };
+
+  useEffect(() => {
+    if (!preparing && !url) {
+      onPlaybackStateChange?.(null);
+      return;
+    }
+    const label = preparing && !url
+      ? (streaming ? "Opening audio…" : `Preparing audio… ${progress}%`)
+      : playing
+        ? (summaryOnly ? "Reading summary" : "Reading article")
+        : "Paused";
+    const timeLabel = clock.durationSec > 0
+      ? `${formatAudioClock(clock.currentSec)} / ${formatAudioClock(clock.durationSec)}`
+      : clock.currentSec > 0
+        ? formatAudioClock(clock.currentSec)
+        : preparing ? `${progress}%` : undefined;
+    const barProgress = clock.durationSec > 0
+      ? Math.max(0, Math.min(1, clock.currentSec / clock.durationSec))
+      : preparing ? progress / 100 : 0;
+    onPlaybackStateChange?.({
+      active: true,
+      playing,
+      preparing: preparing && !url,
+      disabled: transferLocked || (preparing && !url),
+      label,
+      timeLabel,
+      progress: barProgress,
+      canSeek: Boolean(url) && !transferLocked && clock.durationSec > 0 && (!streaming || streamComplete),
+      onSeek: (ratio) => seekRef.current(ratio),
+      toggle: () => toggleRef.current(),
+    });
+  }, [preparing, url, playing, streaming, streamComplete, progress, transferLocked, summaryOnly, clock.currentSec, clock.durationSec, onPlaybackStateChange]);
+
+  useEffect(() => () => onPlaybackStateChange?.(null), [onPlaybackStateChange]);
 
   function selectVoice(language: keyof ReadingVoicePreferences, id: string) {
     if (readingVoices.preferences[language] === id) return;
@@ -265,12 +363,13 @@ function RecordedArticleAudioPlayer({ downloadedAudio, queueTransfer, onPlayback
           const element = audio.current;
           const position = resumeTime.current ?? starts[resumePart.current] ?? 0;
           if (element && (!streaming || streamComplete || position === 0)) element.currentTime = Math.min(position, element.duration);
+          if (element) syncClock(element);
         }}
         onCanPlay={restoreStreamPosition} onProgress={restoreStreamPosition}
         onPlay={() => { updatePlayback(true); updatePosition(); }} onPause={() => updatePlayback(false)}
         onTimeUpdate={updatePosition} onSeeking={updatePosition}
-        onEnded={() => { shared.complete(); onPlaybackComplete?.(); updatePlayback(false); setReadingSection(null); setMessage(summaryOnly ? "Finished reading the summary." : "Finished reading this article."); }}
-        onError={() => { setError("The recording could not be played. Try preparing the audio again."); setPlaying(false); setReadingSection(null); setUrl(""); }} />
+        onEnded={() => { shared.complete(); onPlaybackComplete?.(); updatePlayback(false); setReadingSection(null); if (audio.current) syncClock(audio.current); setMessage(summaryOnly ? "Finished reading the summary." : "Finished reading this article."); }}
+        onError={() => { setError("The recording could not be played. Try preparing the audio again."); setPlaying(false); setReadingSection(null); setUrl(""); setClock({ currentSec: 0, durationSec: 0 }); }} />
       <div className="article-audio-meta">
         <label>Speaking speed <select value={rate} onChange={(event) => setRate(Number(event.target.value))}>{[0.8, 1, 1.1, 1.2].map((value) => <option key={value} value={value}>{value}×</option>)}</select></label>
         <p role="status">{message}</p>

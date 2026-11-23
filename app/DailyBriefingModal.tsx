@@ -945,6 +945,13 @@ export default function DailyBriefingModal({
     return (
       <MinimizedAudioPlayer
         title={`Executive Briefing (${briefing.edition})${chapterSuffix}`}
+        statusLabel={speech.isSpeaking && !speech.isPaused ? "Playing" : speech.isPaused ? "Paused" : undefined}
+        playing={speech.isSpeaking && !speech.isPaused}
+        onTogglePlayback={() => {
+          if (speech.isSpeaking && !speech.isPaused) speech.pause();
+          else if (speech.isPaused) speech.resume();
+          else void playBriefingFromChapter();
+        }}
         onRestore={() => setMinimized(false)}
         onClose={() => {
           setMinimized(false);

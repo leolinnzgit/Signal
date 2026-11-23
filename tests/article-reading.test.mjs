@@ -189,7 +189,8 @@ async function narrationHarness(mode, { streaming = false } = {}) {
     AbortController, performance: { now: () => 0 },
   });
   const component = mode === "browser" ? exports.default : exports.recorded;
-  const props = { title, source: "News", paragraphs, autoPrepare: streaming, onReadingSectionChange: (section, playing) => reports.push({ section, playing }) };
+  const playbackStates = [];
+  const props = { title, source: "News", paragraphs, autoPrepare: streaming, onReadingSectionChange: (section, playing) => reports.push({ section, playing }), onPlaybackStateChange: (state) => playbackStates.push(state) };
   function render() {
     let passes = 0;
     do {
@@ -207,7 +208,7 @@ async function narrationHarness(mode, { streaming = false } = {}) {
   }
   render();
   if (streaming) { await new Promise(setImmediate); render(); }
-  return { sections, reports, element, controllers, render,
+  return { sections, reports, playbackStates, element, controllers, render,
     async gesture(action) { const result = await gesture(action); render(); return result; },
     reportStream(status) { streamReport(status); render(); },
     get events() { return find(tree, (node) => node.type === "audio")?.props; },
@@ -285,4 +286,45 @@ test("palm and fist gestures pause and resume both article narration modes witho
     if (mode === "recorded") assert.equal(player.element.paused, false);
     assert.equal(await player.gesture("next"), undefined, "Article navigation belongs to the reader");
   }
+});
+
+test("always-visible article playback controls track play/pause and toggle synchronously", async () => {
+  const recorded = await narrationHarness("recorded", { streaming: true });
+  recorded.events.onPlay();
+  recorded.render();
+  let state = recorded.playbackStates.at(-1);
+  assert.equal(state.active, true);
+  assert.equal(state.playing, true);
+  assert.equal(state.label, "Reading article");
+  state.toggle();
+  recorded.render();
+  assert.equal(recorded.element.paused, true);
+  state = recorded.playbackStates.at(-1);
+  assert.equal(state.playing, false);
+  assert.equal(state.label, "Paused");
+  state.toggle();
+  await new Promise(setImmediate);
+  recorded.render();
+  assert.equal(recorded.element.paused, false);
+  assert.equal(recorded.playbackStates.at(-1).playing, true);
+
+  const browser = await narrationHarness("browser");
+  assert.equal(browser.playbackStates.at(-1), null);
+  browser.click("Play");
+  browser.controllers.at(-1).options.onSpeechStart();
+  browser.render();
+  state = browser.playbackStates.at(-1);
+  assert.equal(state.active, true);
+  assert.equal(state.playing, true);
+  assert.equal(state.label, "Reading article");
+  state.toggle();
+  browser.render();
+  state = browser.playbackStates.at(-1);
+  assert.equal(state.playing, false);
+  assert.equal(state.label, "Paused");
+  state.toggle();
+  browser.render();
+  assert.equal(browser.playbackStates.at(-1).playing, true);
+  browser.click("Stop");
+  assert.equal(browser.playbackStates.at(-1), null);
 });

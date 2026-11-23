@@ -21,7 +21,7 @@ import { createRandomHeadlineQueue, createUnreadHeadlineQueue } from "./headline
 import HandGestureControls from "./HandGestureControls";
 import { useHandGestureTarget } from "./hand-gesture-actions";
 import { handGestureTopic } from "./hand-gestures";
-import ArticleAudioPlayer from "./ArticleAudioPlayer";
+import ArticleAudioPlayer, { type ArticleAudioPlaybackState } from "./ArticleAudioPlayer";
 import ArticleSummaryPlayer from "./ArticleSummaryPlayer";
 import ArticleTranslationControls from "./ArticleTranslationControls";
 import type { ArticleTranslation } from "./article-translation";
@@ -1562,6 +1562,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [readerAudioRequested, setReaderAudioRequested] = useState(false);
   const [readerTranslation, setReaderTranslation] = useState<ArticleTranslation | null>(null);
   const [readerReading, setReaderReading] = useState<{ section: ArticleNarrationSection | null; playing: boolean }>({ section: null, playing: false });
+  const [readerAudioControl, setReaderAudioControl] = useState<ArticleAudioPlaybackState | null>(null);
   const [followReading, setFollowReading] = useState(true);
   const readerScrollBody = useRef<HTMLDivElement>(null);
   const readerCommentsSection = useRef<HTMLElement>(null);
@@ -1570,9 +1571,13 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const updateReaderReading = useCallback((section: ArticleNarrationSection | null, playing: boolean) => {
     setReaderReading((current) => current.section === section && current.playing === playing ? current : { section, playing });
   }, []);
+  const updateReaderAudioControl = useCallback((state: ArticleAudioPlaybackState | null) => {
+    setReaderAudioControl(state);
+  }, []);
   const updateReaderTranslation = useCallback((translation: ArticleTranslation | null) => {
     setReaderTranslation(translation);
     setReaderReading({ section: null, playing: false });
+    setReaderAudioControl(null);
   }, []);
   const readerArticleUrl = readerArticle?.url;
   useEffect(() => {
@@ -4336,6 +4341,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     setReaderTranslation(null);
     setReaderAudioRequested(listen);
     setReaderReading({ section: null, playing: false });
+    setReaderAudioControl(null);
     setFollowReading(true);
     setReaderContent({ status: "ready", article: candidate.readerArticle });
     saveOfflineArticleContent(replacement.url, {
@@ -4360,6 +4366,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     setReaderTranslation(null);
     setReaderAudioRequested(listen);
     setReaderReading({ section: null, playing: false });
+    setReaderAudioControl(null);
     setFollowReading(true);
     const cached = getCachedOfflineArticle(article.url);
     if (cached && cached.paragraphs && cached.paragraphs.length > 0) {
@@ -4534,6 +4541,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     readerRequestSequence.current += 1;
     setReaderArticle(null);
     setReaderContent({ status: "idle" });
+    setReaderAudioControl(null);
     if (!opened) window.location.assign(url);
   }
 
@@ -4546,6 +4554,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     setReaderTranslation(null);
     setReaderContent({ status: "idle" });
     setReaderReading({ section: null, playing: false });
+    setReaderAudioControl(null);
     window.requestAnimationFrame(() => readerTrigger.current?.focus());
   }
 
@@ -6668,7 +6677,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
               <label><input type="checkbox" checked={weatherAudio.enabled} onChange={(event) => weatherAudio.changeEnabled(event.target.checked)} />Read weather on opening</label>
               <div className="topic-confirmation-actions">
                 <button type="button" disabled={!weatherAudio.available} onClick={weatherAudio.read}>Read weather now</button>
-                <button type="button" disabled={weatherAudio.status !== "playing" && weatherAudio.status !== "starting"} onClick={weatherAudio.stop}>Stop reading</button>
+                <button type="button" disabled={weatherAudio.status !== "playing" && weatherAudio.status !== "starting" && weatherAudio.status !== "paused"} onClick={weatherAudio.stop}>Stop reading</button>
               </div>
               {weatherAudio.status === "blocked" && <p role="status">Tap Read weather now to allow audio playback.</p>}
               {weatherAudio.status === "unavailable" && <p role="status">Weather audio is unavailable. Try Read weather now again.</p>}
@@ -6792,8 +6801,28 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         </div>
       )}
 
-      {readerArticle && readerMinimized && <MinimizedAudioPlayer title={readerTranslation?.title ?? readerArticle.title}
-        onRestore={() => setReaderMinimized(false)} onClose={closeArticleReader} />}
+      {!(readerArticle && readerMinimized) && !(headlineQueue && headlinesMinimized) && !dailyBriefingMinimized
+        && (weatherAudio.status === "playing" || weatherAudio.status === "starting" || weatherAudio.status === "paused") && (
+          <MinimizedAudioPlayer
+            title="Local weather briefing"
+            statusLabel={weatherAudio.status === "starting" ? "Starting audio…" : weatherAudio.status === "paused" ? "Paused" : "Playing"}
+            playing={weatherAudio.status === "playing"}
+            playbackDisabled={weatherAudio.status === "starting"}
+            onTogglePlayback={weatherAudio.togglePause}
+            onClose={weatherAudio.stop}
+          />
+        )}
+      {readerArticle && readerMinimized && (
+        <MinimizedAudioPlayer
+          title={readerTranslation?.title ?? readerArticle.title}
+          statusLabel={readerAudioControl?.active ? readerAudioControl.label : undefined}
+          playing={readerAudioControl?.playing}
+          playbackDisabled={readerAudioControl?.disabled}
+          onTogglePlayback={readerAudioControl?.active ? readerAudioControl.toggle : undefined}
+          onRestore={() => setReaderMinimized(false)}
+          onClose={closeArticleReader}
+        />
+      )}
       {readerArticle && (
         <div
           className="article-reader-backdrop"
@@ -6803,7 +6832,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           }}
         >
           <section
-            className="article-reader"
+            className={`article-reader${readerAudioControl?.active ? " has-audio-bar" : ""}`}
             role="dialog"
             aria-modal={!readerMinimized}
             aria-labelledby="article-reader-title"
@@ -6910,13 +6939,57 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                     : "Reader view prepared from the publisher’s public article."}
               </p>
             </header>
+            {readerAudioControl?.active && (
+              <div className="article-reader-audio-bar" role="region" aria-label="Article audio controls">
+                <button
+                  type="button"
+                  className="article-reader-audio-toggle"
+                  disabled={readerAudioControl.disabled}
+                  aria-pressed={readerAudioControl.playing}
+                  aria-label={readerAudioControl.playing ? "Pause article reading" : "Play article reading"}
+                  onClick={readerAudioControl.toggle}
+                >
+                  <span className="article-reader-audio-icon" aria-hidden="true">
+                    {readerAudioControl.playing ? "❚❚" : "▶"}
+                  </span>
+                  <span>{readerAudioControl.playing ? "Pause" : "Play"}</span>
+                </button>
+                <div className="article-reader-audio-status">
+                  <div className="article-reader-audio-status-row">
+                    <span className="article-reader-audio-label">
+                      {readerAudioControl.playing && <span className="pulse" aria-hidden="true" />}
+                      <span>{readerAudioControl.label}</span>
+                    </span>
+                    {readerAudioControl.timeLabel && (
+                      <span className="article-reader-audio-time">{readerAudioControl.timeLabel}</span>
+                    )}
+                  </div>
+                  {readerAudioControl.canSeek && readerAudioControl.onSeek ? (
+                    <input
+                      type="range"
+                      className="article-reader-audio-scrub"
+                      min={0}
+                      max={1000}
+                      step={1}
+                      value={Math.round((readerAudioControl.progress ?? 0) * 1000)}
+                      aria-label="Seek article reading position"
+                      onChange={(event) => readerAudioControl.onSeek?.(Number(event.target.value) / 1000)}
+                    />
+                  ) : (
+                    <div className="article-reader-audio-meter" aria-hidden="true">
+                      <span style={{ width: `${Math.round((readerAudioControl.progress ?? 0) * 100)}%` }} />
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
             <div ref={readerScrollBody} className="article-reader-body">
               {readerContent.status === "unavailable" && <div className="article-reader-state" role="status">
                 <strong>Full article text unavailable</strong>
                 <p>{readerContent.reason}</p>
                 <p>{readerArticle.summary ? "You can still listen to the headline and feed summary." : "You can still listen to the headline."}</p>
                 <ArticleAudioPlayer key={readerArticle.url} title={readerArticle.title} source={readerArticle.source}
-                  paragraphs={readerSummaryParagraphs} autoPrepare={readerAudioRequested} summaryOnly onReadingSectionChange={updateReaderReading} />
+                  paragraphs={readerSummaryParagraphs} autoPrepare={readerAudioRequested} summaryOnly onReadingSectionChange={updateReaderReading} onPlaybackStateChange={updateReaderAudioControl} />
                 {readerSummaryParagraphs.map((paragraph, index) => <p key={index} className="article-reader-summary">
                   <ArticleReadingText text={paragraph} paragraphIndex={index} section={readerReading.section} />
                 </p>)}
@@ -7023,9 +7096,9 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                     translated={readerTranslation !== null} onChange={updateReaderTranslation} />
                   {readerTranslation ? <ArticleAudioPlayer key={`${readerArticle.url}-${readerTranslation.language}`}
                     title={readerTranslation.title} source={readerArticle.source} paragraphs={readerTranslation.paragraphs} storyUrl={readerArticle.url} storyImageUrl={readerArticle.imageUrl}
-                    onReadingSectionChange={updateReaderReading} />
+                    onReadingSectionChange={updateReaderReading} onPlaybackStateChange={updateReaderAudioControl} />
                     : <ArticleSummaryPlayer key={readerArticle.url} url={readerArticle.url} title={readerArticle.title} source={readerArticle.source}
-                      paragraphs={readerContent.article.paragraphs} storyImageUrl={readerArticle.imageUrl} autoPrepare={readerAudioRequested} onReadingSectionChange={updateReaderReading} />}
+                      paragraphs={readerContent.article.paragraphs} storyImageUrl={readerArticle.imageUrl} autoPrepare={readerAudioRequested} onReadingSectionChange={updateReaderReading} onPlaybackStateChange={updateReaderAudioControl} />}
                   {readerArticle.imageUrl && (
                     <figure className="article-reader-figure">
                       <SmartFocalImage

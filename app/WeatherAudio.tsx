@@ -7,7 +7,7 @@ import { canStartListening, createListeningAudio, listeningSpeech } from "./list
 import { browserSpeechRequiresTap, createHeadlinePlayback, HEADLINE_SPEECH_PREFERENCES_KEY, normalizeHeadlineSpeechPreferences } from "./headline-playback";
 
 const storageKey = "signal.weather-audio-on-open.v1";
-type Status = "idle" | "starting" | "playing" | "finished" | "blocked" | "unavailable";
+type Status = "idle" | "starting" | "playing" | "paused" | "finished" | "blocked" | "unavailable";
 
 export function useWeatherAudio(text: string, suspended = false) {
   const [enabled, setEnabled] = useState(true);
@@ -20,6 +20,7 @@ export function useWeatherAudio(text: string, suspended = false) {
   const browserFallback = useRef(false);
   const openingPending = useRef(true);
   const gesturePending = useRef(false);
+  const pausedRef = useRef(false);
   const sequence = useRef(0);
   const latest = useRef({ text, suspended, enabled });
   latest.current = { text, suspended, enabled };
@@ -39,15 +40,42 @@ export function useWeatherAudio(text: string, suspended = false) {
   const release = useCallback(() => {
     sequence.current++;
     gesturePending.current = false;
+    pausedRef.current = false;
     releaseCloud();
     playback.current?.dispose();
     playback.current = null;
   }, [releaseCloud]);
 
   const stop = useCallback(() => {
-    openingPending.current = gesturePending.current = false;
+    openingPending.current = gesturePending.current = pausedRef.current = false;
     release();
     setStatus("idle");
+  }, [release]);
+
+  const togglePause = useCallback(() => {
+    const element = audio.current;
+    if (element) {
+      if (!element.paused) {
+        element.pause();
+        pausedRef.current = true;
+        setStatus("paused");
+      } else {
+        pausedRef.current = false;
+        setStatus("starting");
+        void element.play().then(() => setStatus("playing")).catch((reason: unknown) => {
+          gesturePending.current = reason instanceof DOMException && reason.name === "NotAllowedError";
+          if (!gesturePending.current) release();
+          setStatus(gesturePending.current ? "blocked" : "unavailable");
+        });
+      }
+      return;
+    }
+    if (playback.current) {
+      const nextPaused = !pausedRef.current;
+      pausedRef.current = nextPaused;
+      playback.current.setPaused(nextPaused);
+      setStatus(nextPaused ? "paused" : "playing");
+    }
   }, [release]);
 
   const read = useCallback(() => {
@@ -108,6 +136,7 @@ export function useWeatherAudio(text: string, suspended = false) {
           createUtterance: (value) => new SpeechSynthesisUtterance(value),
           language: navigator.language.startsWith("en") ? navigator.language : "en-NZ",
           preferDeviceVoice: true,
+          restartOnResume: /Android/i.test(navigator.userAgent),
           now: () => performance.now(),
           schedule: (callback, milliseconds) => window.setTimeout(callback, milliseconds),
           clear: (timer) => window.clearTimeout(timer),
@@ -195,5 +224,5 @@ export function useWeatherAudio(text: string, suspended = false) {
     if (!value) stop();
   }
 
-  return { enabled, changeEnabled, read, stop, status, available: supported && !!text && !suspended };
+  return { enabled, changeEnabled, read, stop, togglePause, status, available: supported && !!text && !suspended };
 }

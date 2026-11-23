@@ -28,9 +28,10 @@ type Props = {
   renderBookmarkAction: (article: FollowedArticle) => ReactNode;
   onClose: () => void;
   onExit: () => void;
+  onPausedChange?: (paused: boolean) => void;
 };
 
-export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenControl, articles, marketQuote, initialIndex, suspended = false, seconds, rate, onRateChange, onArticleRead, onIndexChange, onOpenArticle, onListenArticle, renderBookmarkAction, onClose, onExit }: Props) {
+export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenControl, articles, marketQuote, initialIndex, suspended = false, seconds, rate, onRateChange, onArticleRead, onIndexChange, onOpenArticle, onListenArticle, renderBookmarkAction, onClose, onExit, onPausedChange }: Props) {
   const [track, setTrack] = useState<{ url: string; streaming: boolean } | null>(null);
   const [starts, setStarts] = useState<number[]>([]);
   const [streamComplete, setStreamComplete] = useState(false);
@@ -171,6 +172,8 @@ export default function ScreenOffAudioPlayer({ ref, closeButton, fullscreenContr
   }
   function updateBuffer() { restorePlaybackPosition(); setBufferVersion((version) => version + 1); }
   useEffect(restorePlaybackPosition, [starts, streamComplete]);
+  useEffect(() => { onPausedChange?.(paused); }, [paused, onPausedChange]);
+  useEffect(() => () => onPausedChange?.(true), [onPausedChange]);
 
   function pause() { autoPlayPending.current = false; audio.current?.pause(); setPaused(true); }
   function retry() { autoPlayPending.current = true; setPreparationAttempt((attempt) => attempt + 1); }

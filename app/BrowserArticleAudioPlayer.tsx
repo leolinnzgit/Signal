@@ -13,7 +13,7 @@ import {
   rankHeadlineVoices, selectHeadlineVoice, browserSpeechRequiresTap, browserSpeechErrorMessage, DEVICE_DEFAULT_SPEECH_VOICE,
 } from "./headline-playback";
 
-export default function BrowserArticleAudioPlayer({ queueTransfer, onPlaybackComplete, title, source, paragraphs, storyUrl, storyImageUrl, progressParts, progressOffset, onTransferLockChange, autoPrepare = false, summaryOnly = false, onRecordedAudio, onReadingSectionChange, narrationSections }: ArticleAudioPlayerProps & { onRecordedAudio?: () => void }) {
+export default function BrowserArticleAudioPlayer({ queueTransfer, onPlaybackComplete, title, source, paragraphs, storyUrl, storyImageUrl, progressParts, progressOffset, onTransferLockChange, autoPrepare = false, summaryOnly = false, onRecordedAudio, onReadingSectionChange, onPlaybackStateChange, narrationSections }: ArticleAudioPlayerProps & { onRecordedAudio?: () => void }) {
   const sections = useMemo(() => {
     try { return narrationSections ?? articleNarrationSections(summaryOnly && paragraphs.length === 1 && paragraphs[0] === title ? "" : title, paragraphs, 240); }
     catch { return []; }
@@ -22,6 +22,7 @@ export default function BrowserArticleAudioPlayer({ queueTransfer, onPlaybackCom
   const shared = useSharedListeningReporter(summaryOnly || queueTransfer ? undefined : storyUrl, title, source, storyImageUrl, progressParts ?? parts, progressOffset);
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(() => !autoPrepare || browserSpeechRequiresTap(navigator.userAgent, navigator.maxTouchPoints));
+  const [hasActivated, setHasActivated] = useState(() => autoPrepare && !browserSpeechRequiresTap(navigator.userAgent, navigator.maxTouchPoints));
   const [started, setStarted] = useState(false);
   const [readingSection, setReadingSection] = useState<ArticleNarrationSection | null>(null);
   const [error, setError] = useState("");
@@ -37,6 +38,7 @@ export default function BrowserArticleAudioPlayer({ queueTransfer, onPlaybackCom
   const playback = useRef<ReturnType<typeof createHeadlinePlayback> | null>(null);
   const transferLock = useRef(false);
   const [transferLocked, setTransferLocked] = useState(false);
+  const toggleRef = useRef<() => void>(() => {});
   const playbackKey = useRef<{ parts: string[]; index: number; rate: number; voice: string } | null>(null);
   const completed = index >= parts.length;
   const text = parts[index] ?? title;
@@ -76,7 +78,7 @@ export default function BrowserArticleAudioPlayer({ queueTransfer, onPlaybackCom
       title: parts[part], seconds: 0, readAloud: true,
       rate: settings.rate, preferredVoiceId: voice,
       onAdvance: () => setIndex(part + 1),
-      onSpeechStart: () => { setStarted(true); setReadingSection(sections[part]); },
+      onSpeechStart: () => { setStarted(true); setHasActivated(true); setReadingSection(sections[part]); },
       onSpeechError: (reason) => {
         current.setPaused(true);
         disposePlayback();
@@ -118,6 +120,7 @@ export default function BrowserArticleAudioPlayer({ queueTransfer, onPlaybackCom
   }, [parts, index, completed, preferences.rate, preferredId, voicesReady, paused]);
 
   useEffect(() => () => disposePlayback(), []);
+  useEffect(() => () => onPlaybackStateChange?.(null), [onPlaybackStateChange]);
   useEffect(() => { if (completed) { shared.complete(); onPlaybackComplete?.(); } else shared.track(index, !paused && started); }, [index, completed, paused, started, parts]);
 
   useEffect(() => {
@@ -139,12 +142,40 @@ export default function BrowserArticleAudioPlayer({ queueTransfer, onPlaybackCom
     setError("");
     setErrorCode("");
     setCopiedDetails(false);
+    setHasActivated(true);
     setIndex(part);
     setPaused(false);
     // Do not wait for voiceschanged or a React effect: phones require speak in the tap handler.
     setVoicesReady(true);
     ensurePlayback(part)?.setPaused(false);
   }
+
+  toggleRef.current = togglePlayback;
+
+  useEffect(() => {
+    if (!hasActivated || !parts.length) {
+      onPlaybackStateChange?.(null);
+      return;
+    }
+    const label = completed
+      ? "Finished reading"
+      : paused
+        ? "Paused"
+        : !started
+          ? "Starting voice…"
+          : summaryOnly ? "Reading summary" : "Reading article";
+    onPlaybackStateChange?.({
+      active: true,
+      playing: !paused && !completed,
+      preparing: !paused && !started && !completed,
+      disabled: transferLocked || !parts.length,
+      label,
+      timeLabel: `${Math.min(index + 1, parts.length)} / ${parts.length}`,
+      progress: parts.length > 0 ? Math.min(1, (completed ? parts.length : index) / parts.length) : 0,
+      canSeek: false,
+      toggle: () => toggleRef.current(),
+    });
+  }, [hasActivated, paused, started, completed, index, parts.length, transferLocked, summaryOnly, onPlaybackStateChange]);
 
   useHandGestureTarget(30, true, (action) => {
     if (action === "toggle-playback") {
@@ -165,6 +196,7 @@ export default function BrowserArticleAudioPlayer({ queueTransfer, onPlaybackCom
     setError("");
     setErrorCode("");
     setCopiedDetails(false);
+    setHasActivated(true);
     setIndex(part);
     ensurePlayback(part)?.setPaused(paused);
   }
@@ -180,6 +212,7 @@ export default function BrowserArticleAudioPlayer({ queueTransfer, onPlaybackCom
   function stop() {
     disposePlayback();
     setPaused(true);
+    setHasActivated(false);
     setStarted(false);
     setReadingSection(null);
     setIndex(0);
@@ -197,6 +230,7 @@ export default function BrowserArticleAudioPlayer({ queueTransfer, onPlaybackCom
     setError("");
     setErrorCode("");
     setCopiedDetails(false);
+    setHasActivated(true);
     setPaused(false);
     setVoicesReady(true);
     ensurePlayback(part, settings)?.setPaused(false);
