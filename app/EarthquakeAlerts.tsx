@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useEarthquakeAudio } from "./EarthquakeAudio";
 import EarthquakeAlert, { type EarthquakeReport } from "./EarthquakeAlert";
 import EarthquakeMap from "./EarthquakeMap";
-import { hazardKinds, hazardLabels } from "./disaster-map";
+import { hazardKinds, hazardLabels, type MapNewsEvent } from "./disaster-map";
 import { normalizeDisasterSettings, normalizeDisasterNotification, defaultDisasterSettings, disasterAnnouncement, appendDisasterAlerts, matchesDisasterSettings, previewDisaster, type DisasterSettings, type DisasterNotification } from "./disaster-alerts";
 import "./earthquake-alerts.css";
 
@@ -32,7 +32,11 @@ async function request<T>(path: string, method: string, body: unknown, signal?: 
   return data as T;
 }
 
-export function useEarthquakeAlerts(account: string, available: boolean) {
+export function useEarthquakeAlerts(
+  account: string,
+  available: boolean,
+  options?: { onOpenArticle?: (article: MapNewsEvent) => void },
+) {
   const storageKey = `signal.earthquakes.v1:${account}`;
   const [settings, setSettings] = useState(defaults);
   const [ready, setReady] = useState(false);
@@ -56,7 +60,7 @@ export function useEarthquakeAlerts(account: string, available: boolean) {
 
   useEffect(() => {
     const handleHash = () => {
-      if (["#earthquake-map", "#disaster-map"].includes(window.location.hash)) {
+      if (["#earthquake-map", "#disaster-map", "#news-map"].includes(window.location.hash)) {
         setShowMap(true);
       }
     };
@@ -224,17 +228,19 @@ export function useEarthquakeAlerts(account: string, available: boolean) {
       {!alert && audioStatus && <p role="status">{audioStatus}</p>}
       <small>Checks every minute. Earthquakes must be new within 15 minutes; other disasters must have a GDACS report updated within 24 hours. A new episode or changed alert level can alert again. GDACS data is cached for six minutes. Distance is to the reported point, not the affected boundary. Azure voice needs Signal open and may require a tap. Closed-app pushes use your phone’s normal notification sound and your last known location for up to 24 hours; reopen Signal to refresh it. Location is removed when disabled and expires from storage after seven days. Reports can be delayed or revised. Coverage is incomplete. Follow local authorities for instructions; this is not an early-warning or evacuation service.</small>
     </section> : null,
+    openMap: () => { setMapTargetQuake(null); setShowMap(true); },
     map: <EarthquakeMap
       isOpen={showMap}
       onClose={() => {
         setShowMap(false);
         setMapTargetQuake(null);
-        if (["#earthquake-map", "#disaster-map"].includes(window.location.hash)) {
+        if (["#earthquake-map", "#disaster-map", "#news-map"].includes(window.location.hash)) {
           window.history.replaceState(null, "", window.location.pathname + window.location.search);
         }
       }}
       targetQuake={mapTargetQuake}
       userCoordinates={userCoords}
+      onOpenArticle={options?.onOpenArticle}
     />,
   };
 }

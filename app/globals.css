@@ -5803,10 +5803,11 @@ footer a { color: var(--paper); text-decoration: none; }
   .site-header > .brand { margin-right: auto; }
   .header-actions { display: contents; }
   .header-actions .live-status { display: none; }
-  .site-header .header-actions > button:not(.daily-briefing-trigger):not(.signal-bot-trigger):not(.product-watch-trigger) { min-width: 1.85rem; min-height: 1.85rem; justify-content: center; padding: 0.28rem; margin-right: 0; }
+  .site-header .header-actions > button:not(.daily-briefing-trigger):not(.signal-bot-trigger):not(.product-watch-trigger):not(.news-map-trigger) { min-width: 1.85rem; min-height: 1.85rem; justify-content: center; padding: 0.28rem; margin-right: 0; }
   .site-header .header-actions > .daily-briefing-trigger,
   .site-header .header-actions > .signal-bot-trigger,
   .site-header .header-actions > .product-watch-trigger,
+  .site-header .header-actions > .news-map-trigger,
   .site-header .command-center-header-trigger {
     min-height: 1.9rem;
     padding: 0.26rem 0.48rem;
@@ -5901,13 +5902,14 @@ footer a { color: var(--paper); text-decoration: none; }
   .site-header .header-actions > .daily-briefing-trigger,
   .site-header .header-actions > .signal-bot-trigger,
   .site-header .header-actions > .product-watch-trigger,
+  .site-header .header-actions > .news-map-trigger,
   .site-header .command-center-header-trigger {
     min-height: 1.78rem;
     padding: 0.22rem 0.42rem;
     font-size: 0.64rem;
     gap: 0.2rem;
   }
-  .site-header .header-actions > button:not(.daily-briefing-trigger):not(.signal-bot-trigger):not(.product-watch-trigger):not(.command-center-header-trigger),
+  .site-header .header-actions > button:not(.daily-briefing-trigger):not(.signal-bot-trigger):not(.product-watch-trigger):not(.news-map-trigger):not(.command-center-header-trigger),
   .site-header .header-actions .listening-library-toggle,
   .site-header .header-actions .settings-toggle {
     width: 1.68rem;
@@ -6356,11 +6358,12 @@ html:has(.listening-library-dialog[open]) { overflow: hidden; }
   .site-header:has(.listening-library-toggle) { column-gap: .125rem; }
   .site-header:has(.listening-library-toggle) > .brand { letter-spacing: .18em; gap: .45rem; }
   .site-header .header-actions > .product-watch-trigger,
+  .site-header .header-actions > .news-map-trigger,
   .site-header .command-center-header-trigger {
     padding: 0.2rem 0.36rem;
     font-size: 0.62rem;
   }
-  .site-header .header-actions > button:not(.daily-briefing-trigger):not(.signal-bot-trigger):not(.product-watch-trigger):not(.command-center-header-trigger),
+  .site-header .header-actions > button:not(.daily-briefing-trigger):not(.signal-bot-trigger):not(.product-watch-trigger):not(.news-map-trigger):not(.command-center-header-trigger),
   .site-header .header-actions .listening-library-toggle,
   .site-header .header-actions .settings-toggle {
     width: 1.56rem;
@@ -6566,7 +6569,8 @@ html[data-theme="dark"] .daily-briefing-trigger.wake-up-ready {
 }
 
 .signal-bot-trigger,
-.product-watch-trigger {
+.product-watch-trigger,
+.news-map-trigger {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
@@ -6588,7 +6592,8 @@ html[data-theme="dark"] .daily-briefing-trigger.wake-up-ready {
 }
 
 .signal-bot-trigger:hover,
-.product-watch-trigger:hover {
+.product-watch-trigger:hover,
+.news-map-trigger:hover {
   border-color: #2563eb;
   background: linear-gradient(135deg, rgba(15, 118, 110, 0.22), rgba(37, 99, 235, 0.22));
   transform: translateY(-1px);
@@ -6616,7 +6621,8 @@ html[data-theme="dark"] .daily-briefing-trigger.wake-up-ready {
   .user-identity { max-width: 7.25rem; }
   .daily-briefing-trigger,
   .signal-bot-trigger,
-  .product-watch-trigger {
+  .product-watch-trigger,
+  .news-map-trigger {
     min-height: 2rem;
     padding: 0.3rem 0.58rem;
     font-size: 0.72rem;
@@ -6719,7 +6725,8 @@ html[data-theme="dark"] .daily-briefing-trigger.wake-up-ready {
   .header-actions { gap: 0.32rem; }
   .daily-briefing-trigger,
   .signal-bot-trigger,
-  .product-watch-trigger { padding: 0.28rem 0.48rem; font-size: 0.69rem; }
+  .product-watch-trigger,
+  .news-map-trigger { padding: 0.28rem 0.48rem; font-size: 0.69rem; }
   .hero-context { min-width: min(22rem, 44vw); }
 }
 

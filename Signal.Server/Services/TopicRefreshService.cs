@@ -15,7 +15,8 @@ public sealed class TopicRefreshService(
     IArticleAudioPrewarmer? audioPrewarmer = null,
     TripwireEvaluatorService? tripwireEvaluator = null,
     MarketDataService? marketData = null,
-    AudioTopicThreadService? audioThreads = null)
+    AudioTopicThreadService? audioThreads = null,
+    NewsLocationService? newsLocations = null)
 {
     private const int ProviderConcurrency = 8;
     private const int TopicsPerProviderBatch = 8;
@@ -173,6 +174,28 @@ public sealed class TopicRefreshService(
                     logger.LogDebug(
                         exception,
                         "Skipped audio thread embedding warmup for user {UserId}.",
+                        userId);
+                }
+            }
+            if (newsLocations is not null && newArticles.Count > 0)
+            {
+                try
+                {
+                    await newsLocations.ExtractAndSaveAsync(
+                        database,
+                        newArticles.Take(20).ToArray(),
+                        TimeSpan.FromSeconds(5),
+                        cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    logger.LogDebug(
+                        exception,
+                        "Skipped background news location extraction for user {UserId}.",
                         userId);
                 }
             }

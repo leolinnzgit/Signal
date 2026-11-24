@@ -51,6 +51,15 @@ public sealed class StoredNewsArticle
     public bool IsRead { get; set; }
 
     public DateTime? ReadAtUtc { get; set; }
+
+    [Required]
+    public string LocationName { get; set; } = "";
+
+    public double? LocationLatitude { get; set; }
+
+    public double? LocationLongitude { get; set; }
+
+    public DateTime? LocationExtractedAtUtc { get; set; }
 }
 
 public sealed record ArticleMarketQuote(

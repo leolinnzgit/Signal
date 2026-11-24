@@ -509,14 +509,112 @@ html:has(.earthquake-alert[open]) { overflow: hidden; }
 .earthquake-map-drawer { flex-shrink: 0; color: #f3f4f6; }
 .drawer-quake-item { color: #f3f4f6; }
 .earthquake-map-status-badges { flex-wrap: wrap; }
-.earthquake-map-dialog :is(button, a, [role="button"]):focus-visible { outline: 3px solid #38bdf8; outline-offset: 2px; }
+.earthquake-map-dialog :is(button, a, [role="button"], select):focus-visible { outline: 3px solid #38bdf8; outline-offset: 2px; }
+.earthquake-map-pin.news-pin {
+  background: #10b981;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.55), 0 0 0 2px rgba(255, 255, 255, 0.92);
+}
+.earthquake-map-pin.selected {
+  transform: scale(1.2);
+  z-index: 25;
+  box-shadow: 0 0 14px rgba(56, 189, 248, 0.8), 0 0 0 3px #ffffff;
+}
+.news-map-quick-toggle {
+  border-color: rgba(16, 185, 129, 0.5) !important;
+  color: #6ee7b7 !important;
+}
+.news-map-quick-toggle[aria-pressed="true"] {
+  background: rgba(16, 185, 129, 0.22) !important;
+  color: #ffffff !important;
+  border-color: #10b981 !important;
+}
+.news-map-topic-select {
+  padding: 0.45rem 0.65rem;
+  border: 1px solid #475569;
+  border-radius: 0.4rem;
+  background: #111317;
+  color: #f3f4f6;
+  font: inherit;
+  font-size: 0.8rem;
+  max-width: 13rem;
+}
+.news-card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.25rem;
+}
+.news-card-location {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.18);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  color: #6ee7b7;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+.news-card-topic {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.42rem;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.15);
+  color: #cbd5e1;
+  font-size: 0.7rem;
+}
+.news-cluster-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.45rem;
+  font-size: 0.75rem;
+  color: #cbd5e1;
+}
+.news-cluster-nav button {
+  padding: 0.22rem 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 0.35rem;
+  background: rgba(255, 255, 255, 0.08);
+  color: #f3f4f6;
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+.news-cluster-nav button:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+.card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+.card-action-btn {
+  padding: 0.4rem 0.75rem;
+  border: 1px solid rgba(16, 185, 129, 0.6);
+  border-radius: 0.45rem;
+  background: rgba(16, 185, 129, 0.2);
+  color: #ecfdf5;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.card-action-btn:hover {
+  background: rgba(16, 185, 129, 0.34);
+}
 @media (max-width: 600px) {
   .earthquake-map-header { padding: .65rem .75rem; }
   .earthquake-map-filters { gap: .4rem; }
   .earthquake-map-filters .filter-btn { padding: .5rem; }
   .disaster-map-toolbar { padding: .5rem .75rem; }
   .hazard-filters { flex-wrap: nowrap; overflow-x: auto; padding: .2rem; }
-  .hazard-filters button { white-space: nowrap; flex-shrink: 0; }
+  .hazard-filters button, .hazard-filters select { white-space: nowrap; flex-shrink: 0; }
   .earthquake-active-card { padding: .65rem .75rem; gap: .6rem; }
 }
 

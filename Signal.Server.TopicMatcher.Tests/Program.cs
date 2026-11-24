@@ -46,6 +46,8 @@ if (args.Contains("--earthquakes-live")) { await EarthquakeChecks.RunLiveAsync()
 if (args.Contains("--earthquakes-only")) return;
 await WeatherAlertChecks.RunAsync();
 if (args.Contains("--weather-alerts-only")) return;
+await NewsLocationChecks.RunAsync();
+if (args.Contains("--news-location-only")) return;
 await ArticleEntityChecks.RunAsync();
 if (args.Contains("--article-entities-only")) return;
 await ContentSafetyChecks.RunAsync();

@@ -18,12 +18,57 @@ public sealed class ArticlesController(
     SignalDbContext database,
     UserManager<ApplicationUser> userManager,
     IArticleAudioPrewarmer? audioPrewarmer = null,
-    MarketDataService? marketData = null) : ControllerBase
+    MarketDataService? marketData = null,
+    NewsLocationService? newsLocations = null) : ControllerBase
 {
     private const int DefaultRetentionDays = 30;
     private const int MaximumSyncItems = 500;
     private const int DefaultPageSize = 50;
     private const int MaximumPageSize = 100;
+
+    [HttpGet("map")]
+    public async Task<IActionResult> Map(
+        [FromQuery] double? latitude = null,
+        [FromQuery] double? longitude = null,
+        [FromQuery] string? topic = null,
+        [FromQuery] int limit = 60,
+        CancellationToken cancellationToken = default)
+    {
+        var userId = userManager.GetUserId(User);
+        if (userId is null) return Unauthorized();
+        if (newsLocations is null)
+            return Ok(new NewsMapResponse([], 0, 0, DateTime.UtcNow));
+
+        double? userLat = null;
+        double? userLon = null;
+        if (latitude.HasValue && longitude.HasValue && EarthquakeFeed.ValidLocation(latitude.Value, longitude.Value))
+        {
+            userLat = latitude.Value;
+            userLon = longitude.Value;
+        }
+        else
+        {
+            var device = await database.EarthquakeDevices.AsNoTracking()
+                .Where(d => d.UserId == userId)
+                .OrderByDescending(d => d.LocationUpdatedAtUtc)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (device is not null && EarthquakeFeed.ValidLocation(device.Latitude, device.Longitude))
+            {
+                userLat = device.Latitude;
+                userLon = device.Longitude;
+            }
+        }
+
+        var response = await newsLocations.GetMappedNewsAsync(
+            database,
+            userId,
+            userLat,
+            userLon,
+            NormalizeText(topic ?? "", 80),
+            limit,
+            cancellationToken);
+        return Ok(response);
+    }
 
     [HttpGet]
     public async Task<IActionResult> Get(

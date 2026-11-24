@@ -1701,7 +1701,26 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     weatherConditionKey(weatherStatus === "ready" ? localWeather : null),
   );
   foregroundHeadlinePlayback.current = Boolean(headlineQueue && !headlinesMinimized && !readerArticle && !watchHandoffId);
-  const earthquakes = useEarthquakeAlerts(user.email, !!pushNotificationStore);
+  const earthquakes = useEarthquakeAlerts(user.email, !!pushNotificationStore, {
+    onOpenArticle: (mapArticle) => {
+      const existing =
+        articles.find((item) => item.url === mapArticle.url) ??
+        historyArticles.find((item) => item.url === mapArticle.url);
+      const target: FollowedArticle = existing ?? {
+        title: mapArticle.place,
+        url: mapArticle.url,
+        source: mapArticle.source,
+        publishedAt: mapArticle.timeUtc,
+        summary: mapArticle.description ?? "",
+        imageUrl: mapArticle.imageUrl,
+        topics: mapArticle.topics ?? [],
+        providers: ["News map"],
+        isRead: mapArticle.isRead,
+        isBookmarked: mapArticle.isBookmarked,
+      };
+      openArticleReader(target, document.body, false, true);
+    },
+  });
   const watchlistCatalysts = useMemo(
     () =>
       attributeMarketMoversToStories(
@@ -4923,6 +4942,15 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           >
             🏷️ Product Watch
             {productWatchCount > 0 && <span className="product-watch-count-badge">{productWatchCount}</span>}
+          </button>
+          <button
+            type="button"
+            className="news-map-trigger"
+            onClick={earthquakes.openMap}
+            title="View news stories and disaster reports on the map"
+            aria-label="Open News & Disaster Map"
+          >
+            🗺️ Map
           </button>
           <ExecutiveCommandCenter
             onOpenRadar={() => openSuiteById("radar")}

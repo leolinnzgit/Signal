@@ -128,6 +128,8 @@ public sealed class SignalDbContext(DbContextOptions<SignalDbContext> options)
             article.Property(item => item.TopicsJson).IsRequired();
             article.Property(item => item.ProvidersJson).IsRequired();
             article.Property(item => item.MarketQuotesJson).IsRequired();
+            article.Property(item => item.LocationName).HasMaxLength(160).IsRequired();
+            article.HasIndex(item => new { item.UserId, item.LocationExtractedAtUtc });
             article.HasIndex(item => new { item.UserId, item.Url }).IsUnique();
             article.HasIndex(item => new { item.UserId, item.IsBookmarked, item.LastSeenAtUtc });
             article.HasOne(item => item.User)

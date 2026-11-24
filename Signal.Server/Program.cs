@@ -241,6 +241,17 @@ builder.Services.AddHttpClient(WeatherLocationService.HttpClientName, client =>
     AllowAutoRedirect = false,
     UseCookies = false
 });
+builder.Services.AddSingleton<NewsLocationService>();
+builder.Services.AddHttpClient(NewsLocationService.GeocodeHttpClientName, client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(4);
+    client.MaxResponseContentBufferSize = 256_000;
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("Signal-News-Monitor/2.0");
+}).RemoveAllLoggers().ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+{
+    AllowAutoRedirect = false,
+    UseCookies = false
+});
 builder.Services.AddHttpClient(AzureLanguageSummaryService.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(20))
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
 builder.Services.AddHttpClient(ArticlePageRenderer.HttpClientName, client =>
@@ -438,6 +449,10 @@ await using (var scope = app.Services.CreateAsyncScope())
             "BookmarkedAtUtc" TEXT NULL,
             "IsRead" INTEGER NOT NULL DEFAULT 0,
             "ReadAtUtc" TEXT NULL,
+            "LocationName" TEXT NOT NULL DEFAULT '',
+            "LocationLatitude" REAL NULL,
+            "LocationLongitude" REAL NULL,
+            "LocationExtractedAtUtc" TEXT NULL,
             CONSTRAINT "FK_StoredNewsArticles_AspNetUsers_UserId"
                 FOREIGN KEY ("UserId") REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE
         );
@@ -446,6 +461,7 @@ await using (var scope = app.Services.CreateAsyncScope())
         "CREATE UNIQUE INDEX IF NOT EXISTS \"IX_StoredNewsArticles_UserId_Url\" ON \"StoredNewsArticles\" (\"UserId\", \"Url\");");
     await database.Database.ExecuteSqlRawAsync(
         "CREATE INDEX IF NOT EXISTS \"IX_StoredNewsArticles_UserId_IsBookmarked_LastSeenAtUtc\" ON \"StoredNewsArticles\" (\"UserId\", \"IsBookmarked\", \"LastSeenAtUtc\");");
+    await ArticleLocationSchema.UpgradeAsync(database);
     await database.Database.ExecuteSqlRawAsync("""
         CREATE TABLE IF NOT EXISTS "TopicRefreshStates" (
             "UserId" TEXT NOT NULL,
