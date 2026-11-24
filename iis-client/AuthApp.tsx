@@ -302,6 +302,9 @@ const sqliteArticleStore: ArticleStore = {
   async setRead(url) {
     await postJson("/api/articles/read", { url });
   },
+  async setReadBatch(urls) {
+    await postJson("/api/articles/read-batch", { urls: urls.slice(0, 100) });
+  },
 };
 
 const sqliteTopicRefreshStore: TopicRefreshStore = {

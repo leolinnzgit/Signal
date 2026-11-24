@@ -63,7 +63,8 @@ public sealed class ExecutiveBriefingDeliveryService(
     MarketDataService marketData,
     AzureTranslatorService translator,
     IConfiguration configuration,
-    ILogger<ExecutiveBriefingDeliveryService> logger)
+    ILogger<ExecutiveBriefingDeliveryService> logger,
+    AudioTopicThreadService? audioThreads = null)
 {
     private static readonly Regex TimeRegex = new(
         @"^([01]?\d|2[0-3]):([0-5]\d)$",
@@ -369,8 +370,20 @@ public sealed class ExecutiveBriefingDeliveryService(
             }
         }
 
+        var threadIds = audioThreads is null
+            ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            : await audioThreads.AssignThreadIdsAsync(
+                rankedStories,
+                story => story.Article.Url,
+                story => story.Article.Title,
+                story => story.Article.Summary,
+                story => story.Article.PublishedAtUtc,
+                TimeSpan.FromSeconds(3),
+                cancellationToken);
+
         var leadStoryItems = NarratedNews.DistinctStories(rankedStories,
-                story => story.Article.Title, story => story.Article.Url, story => story.Article.PublishedAtUtc)
+                story => story.Article.Title, story => story.Article.Url, story => story.Article.PublishedAtUtc,
+                story => story.Article.Summary, story => threadIds.GetValueOrDefault(story.Article.Url))
             .Take(4)
             .Select(r => new ExecutiveBriefingEmailStory(
                 r.Article.Title,

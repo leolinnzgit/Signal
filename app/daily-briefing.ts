@@ -30,6 +30,7 @@ export type DailyBriefingStory = {
   isBookmarked?: boolean;
   isRead?: boolean;
   priorityTopic?: string;
+  audioThreadId?: string | null;
 };
 
 export type DailyBriefingParams = {

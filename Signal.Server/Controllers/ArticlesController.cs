@@ -271,6 +271,87 @@ public sealed class ArticlesController(
         return Ok(new ReadResponse(url, article.IsRead, article.ReadAtUtc));
     }
 
+    [HttpPost("read-batch")]
+    public async Task<IActionResult> MarkReadBatch(ReadBatchRequest request, CancellationToken cancellationToken)
+    {
+        var userId = userManager.GetUserId(User);
+        if (userId is null) return Unauthorized();
+        if (request.Urls is null || request.Urls.Length == 0)
+            return BadRequest(new { error = "Choose at least one article link." });
+
+        var normalizedUrls = request.Urls
+            .Take(100)
+            .Select(NormalizeUrl)
+            .Where(url => url is not null)
+            .Cast<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (normalizedUrls.Length == 0)
+            return BadRequest(new { error = "Choose at least one valid article link." });
+
+        var lookupCandidates = normalizedUrls
+            .SelectMany(ArticleIdentity.GetUrlLookupCandidates)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var directMatches = await database.StoredNewsArticles
+            .Where(item => item.UserId == userId && lookupCandidates.Contains(item.Url))
+            .ToListAsync(cancellationToken);
+        var recent = await database.StoredNewsArticles
+            .Where(item => item.UserId == userId)
+            .OrderByDescending(item => item.LastSeenAtUtc)
+            .Take(2000)
+            .ToListAsync(cancellationToken);
+
+        var storyKeys = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var url in normalizedUrls)
+        {
+            var key = ArticleIdentity.GetStoryUrlKey(url);
+            if (key.Length > 0) storyKeys.Add(key);
+        }
+
+        var matched = new List<StoredNewsArticle>(directMatches);
+        foreach (var item in recent)
+        {
+            var itemStoryKey = ArticleIdentity.GetStoryUrlKey(item.Url);
+            if (itemStoryKey.Length > 0 && storyKeys.Contains(itemStoryKey))
+                matched.Add(item);
+        }
+
+        var headlineKeys = matched
+            .Select(item => ArticleIdentity.GetHeadlineKey(item.Title))
+            .Where(key => key.Length > 0)
+            .ToHashSet(StringComparer.Ordinal);
+        var effectiveStoryKeys = matched
+            .Select(item => ArticleIdentity.GetStoryUrlKey(item.Url))
+            .Where(key => key.Length > 0)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var toMark = matched
+            .Concat(recent.Where(item =>
+                effectiveStoryKeys.Contains(ArticleIdentity.GetStoryUrlKey(item.Url))
+                || headlineKeys.Contains(ArticleIdentity.GetHeadlineKey(item.Title))))
+            .GroupBy(item => item.Id)
+            .Select(group => group.First())
+            .ToArray();
+
+        var now = DateTime.UtcNow;
+        var changed = false;
+        foreach (var copy in toMark)
+        {
+            if (!copy.IsRead)
+            {
+                copy.IsRead = true;
+                copy.ReadAtUtc = now;
+                changed = true;
+            }
+        }
+        if (changed) await database.SaveChangesAsync(cancellationToken);
+
+        return Ok(new ReadBatchResponse(
+            toMark.Select(item => item.Url).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+            now));
+    }
+
     private async Task<ArticleHistoryResponse> LoadHistoryAsync(
         string userId,
         string search,
@@ -455,6 +536,10 @@ public sealed record BookmarkResponse(string Url, bool Bookmarked, DateTime? Boo
 public sealed record ReadRequest([Required] string Url);
 
 public sealed record ReadResponse(string Url, bool IsRead, DateTime? ReadAt);
+
+public sealed record ReadBatchRequest([Required] string[] Urls);
+
+public sealed record ReadBatchResponse(string[] MarkedUrls, DateTime ReadAt);
 
 public sealed record ArticleHistoryResponse(
     ArticleHistoryItem[] Articles,

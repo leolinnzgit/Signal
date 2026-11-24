@@ -1,12 +1,19 @@
 using System.Net;
+using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Signal.Server.Controllers;
+using Signal.Server.Data;
 using Signal.Server.Models;
 using Signal.Server.Services;
 
@@ -106,17 +113,37 @@ internal static class CortexNewsChecks
 
 
         var day = now.UtcDateTime;
-        (string Title, string Url, DateTime PublishedAt)[] leads =
+        (string Title, string Url, DateTime PublishedAt, string Summary, string? ThreadId)[] leads =
         [
-            ("Reserve Bank raises official cash rate to 4.25% after Wellington policy meeting", "https://example.com/lead", day),
-            ("Wellington policy meeting: Reserve Bank lifts official cash rate to 4.25%", "https://example.com/copy", day),
-            ("Reserve Bank raises official cash rate to 4.50% after Wellington policy meeting", "https://example.com/new", day),
-            ("Reserve Bank holds official cash rate at 4.25% after Wellington policy meeting", "https://example.com/hold", day),
-            ("Reserve Bank lifts official cash rate to 4.25% at new Wellington policy meeting", "https://example.com/later", day.AddDays(2)),
+            ("Reserve Bank cuts OCR to 4.25% after Wellington policy meeting", "https://example.com/lead", day, "Reserve Bank Governor Adrian Orr warned mortgage borrowers about wholesale costs.", null),
+            ("Wellington policy meeting: RBNZ lowers official cash rate to 4.25%", "https://example.com/copy", day, "Central bank officials lowered rates on Wednesday.", null),
+            ("Mortgage borrowers face longer wait for relief", "https://example.com/summary-followup", day.AddHours(6), "Reserve Bank Governor Adrian Orr signaled wholesale costs remain high for mortgage borrowers.", null),
+            ("Brussels prepares countermeasures on US vehicles", "https://example.com/semantic-a", day, "Trade ministers met to plan retaliatory tariffs.", "t:auto"),
+            ("White House announces sweeping auto import levies", "https://example.com/semantic-b", day.AddHours(4), "New 25% duties hit European automakers.", "t:auto"),
+            ("台積電擴建美國晶片廠進度曝光", "https://example.com/zh-a", day, "", null),
+            ("美晶片廠關稅影響 台積電最新回應", "https://example.com/zh-b", day, "", null),
+            ("台北捷運新線週末通車測試", "https://example.com/zh-c", day, "", null),
+            ("Reserve Bank signals caution on inflation at later review", "https://example.com/later", day.AddDays(4), "Fresh quarterly outlook from Wellington.", null),
         ];
-        var distinct = NarratedNews.DistinctStories(leads, story => story.Title, story => story.Url, story => story.PublishedAt);
-        Require(distinct.Select(story => story.Url).SequenceEqual(new[] { leads[0].Url, leads[2].Url, leads[3].Url, leads[4].Url }),
-            "Scheduled audio should skip repeated stories and retain changed facts and separate events.");
+        var distinct = NarratedNews.DistinctStories(
+            leads,
+            story => story.Title,
+            story => story.Url,
+            story => story.PublishedAt,
+            story => story.Summary,
+            story => story.ThreadId);
+        Require(distinct.Select(story => story.Url).SequenceEqual(new[]
+            {
+                leads[0].Url,
+                leads[3].Url,
+                leads[5].Url,
+                leads[7].Url,
+                leads[8].Url,
+            }),
+            "Scheduled audio should filter broader ongoing threads across lexical, summary, CJK and semantic thread signals.");
+
+        await RunAudioThreadServiceChecksAsync(day);
+        await RunReadBatchChecksAsync(day);
 
         if (modelRoot is not null)
         {
@@ -127,10 +154,225 @@ internal static class CortexNewsChecks
             Require(question.Length == CortexNewsEmbeddings.Dimensions && Math.Abs(Dot(question, question) - 1) < 0.001f,
                 "The real ONNX model should return a normalized vector.");
             Require(Dot(question, related) > Dot(question, unrelated), "The real model should rank related news higher.");
+            await RunRealModelThreadCalibrationAsync(model, day);
             Console.WriteLine("Cortex ONNX model verified on CPU with a semantic relevance example.");
         }
 
         Console.WriteLine("Cortex Azure Search checks passed for hybrid requests, key scope, retention, indexing and fallback.");
+    }
+
+    private static async Task RunAudioThreadServiceChecksAsync(DateTime day)
+    {
+        var mockEmbeddings = new ThreadTestEmbeddings();
+        var service = new AudioTopicThreadService(mockEmbeddings, NullLogger<AudioTopicThreadService>.Instance);
+
+        var items = new (string Url, string Title, string Summary, DateTime Date)[]
+        {
+            ("https://example.com/tariffs-1", "White House announces sweeping tariffs on European cars", "25% duties hit EU automakers.", day),
+            ("https://example.com/tariffs-2", "Brussels prepares retaliatory levies after US auto duties", "Trade ministers met to draft countermeasures.", day.AddHours(5)),
+            ("https://example.com/bridge-only", "EU ministers debate broader trade pact beyond autos", "Follow-up discussions on industrial subsidies.", day.AddHours(8)),
+            ("https://example.com/rugby", "All Blacks announce squad for weekend test match", "Three uncapped players named.", day.AddHours(2)),
+            ("https://example.com/zh", "台積電擴建美國晶片廠進度曝光", "相關供應鏈持續推進。", day.AddHours(1)),
+            ("https://example.com/tariffs-old", "White House announces sweeping tariffs on European cars", "25% duties hit EU automakers.", day.AddDays(4)),
+        };
+
+        var threads = await service.AssignThreadIdsAsync(
+            items,
+            item => item.Url,
+            item => item.Title,
+            item => item.Summary,
+            item => item.Date,
+            TimeSpan.FromSeconds(5),
+            default);
+
+        Require(threads.ContainsKey(items[0].Url) && threads.TryGetValue(items[1].Url, out var t1) && threads[items[0].Url] == t1,
+            "Semantic matches within 60h should share an audio thread ID.");
+        Require(!threads.ContainsKey(items[2].Url),
+            "Anchor-only matching should prevent transitive chaining across distinct follow-up angles.");
+        Require(!threads.ContainsKey(items[3].Url),
+            "Unrelated stories should not be assigned to an audio thread.");
+        Require(!threads.ContainsKey(items[4].Url),
+            "Non-Latin headlines should skip the English embedding model.");
+        Require(!threads.ContainsKey(items[5].Url),
+            "Stories more than 60 hours apart should not join the same audio thread.");
+
+        var cachedCallsBefore = mockEmbeddings.CallCount;
+        var cachedThreads = await service.AssignThreadIdsAsync(
+            items,
+            item => item.Url,
+            item => item.Title,
+            item => item.Summary,
+            item => item.Date,
+            TimeSpan.FromSeconds(5),
+            default);
+        Require(mockEmbeddings.CallCount == cachedCallsBefore && cachedThreads.Count == threads.Count,
+            "AudioTopicThreadService should reuse cached embeddings across calls.");
+
+        var unavailable = new AudioTopicThreadService(
+            new UnavailableEmbeddings(),
+            NullLogger<AudioTopicThreadService>.Instance);
+        var fallback = await unavailable.AssignThreadIdsAsync(
+            items,
+            item => item.Url,
+            item => item.Title,
+            item => item.Summary,
+            item => item.Date,
+            TimeSpan.FromSeconds(5),
+            default);
+        Require(fallback.Count == 0, "Missing ONNX model should fall back cleanly with empty thread IDs.");
+    }
+
+    private static async Task RunRealModelThreadCalibrationAsync(CortexNewsEmbeddings model, DateTime day)
+    {
+        var positives = new ((string Title, string Summary) Anchor, (string Title, string Summary) FollowUp, string Label)[]
+        {
+            (
+                ("Trump unveils sweeping tariffs on European auto imports", "The White House announced 25% duties on EU vehicles starting next month."),
+                ("Brussels prepares retaliatory levies after US car import duties", "European trade ministers met urgently to draft countermeasures on American goods."),
+                "US/EU auto tariffs"
+            ),
+            (
+                ("Auckland port workers strike blocks freight shipments", "Unionized dockworkers walked off the job at Waitemata terminals."),
+                ("Exporters scramble to reroute cargo amid waterfront industrial dispute", "Shipping delays hit Auckland businesses as port picket enters second day."),
+                "Auckland port strike"
+            ),
+            (
+                ("Reserve Bank cuts OCR to 4.25% as inflation slows", "Monetary policy committee lowers the official cash rate by 50 basis points."),
+                ("Major retail banks trim floating mortgage rates after central bank move", "Homeowners get immediate relief following Wednesday's rate decision."),
+                "RBNZ OCR / mortgages"
+            ),
+        };
+
+        var negatives = new ((string Title, string Summary) Left, (string Title, string Summary) Right, string Label)[]
+        {
+            (
+                ("Reserve Bank cuts OCR to 4.25% as inflation slows", "Monetary policy committee lowers the official cash rate by 50 basis points."),
+                ("ANZ reports higher annual profit despite commercial property provisioning", "Bank chief executive cited steady lending growth across business units."),
+                "OCR vs ANZ earnings"
+            ),
+            (
+                ("Apple unveils new MacBook Pro with M5 chip", "Faster unified memory and longer battery life arrive next week."),
+                ("Microsoft expands Azure data centres in Auckland", "New cloud regions aim to serve public sector and enterprise workloads."),
+                "Apple MacBook vs Microsoft Azure"
+            ),
+            (
+                ("Auckland port workers strike blocks freight shipments", "Unionized dockworkers walked off the job at Waitemata terminals."),
+                ("Auckland Council approves annual rates increase for transport", "Mayor says infrastructure budget prioritizes road maintenance and rail."),
+                "Port strike vs Auckland Council rates"
+            ),
+        };
+
+        var minPos = 1f;
+        foreach (var (anchor, followUp, label) in positives)
+        {
+            var va = await model.EmbedAsync($"passage: {anchor.Title}. {anchor.Summary}", default);
+            var vb = await model.EmbedAsync($"passage: {followUp.Title}. {followUp.Summary}", default);
+            var sim = Dot(va, vb);
+            if (sim < minPos) minPos = sim;
+            Console.WriteLine($"[ONNX Thread +] {label}: {sim:F4}");
+        }
+
+        var maxNeg = -1f;
+        foreach (var (left, right, label) in negatives)
+        {
+            var va = await model.EmbedAsync($"passage: {left.Title}. {left.Summary}", default);
+            var vb = await model.EmbedAsync($"passage: {right.Title}. {right.Summary}", default);
+            var sim = Dot(va, vb);
+            if (sim > maxNeg) maxNeg = sim;
+            Console.WriteLine($"[ONNX Thread -] {label}: {sim:F4}");
+        }
+
+        Require(minPos > maxNeg, $"Real ONNX model positive thread scores (min {minPos:F4}) must exceed unrelated pairs (max {maxNeg:F4}).");
+
+        var threadService = new AudioTopicThreadService(model, NullLogger<AudioTopicThreadService>.Instance);
+        var feed = new (string Url, string Title, string Summary, DateTime Date)[]
+        {
+            ("https://example.com/pos-1", positives[0].Anchor.Title, positives[0].Anchor.Summary, day),
+            ("https://example.com/pos-2", positives[0].FollowUp.Title, positives[0].FollowUp.Summary, day.AddHours(3)),
+            ("https://example.com/neg-1", negatives[1].Left.Title, negatives[1].Left.Summary, day.AddHours(1)),
+            ("https://example.com/neg-2", negatives[1].Right.Title, negatives[1].Right.Summary, day.AddHours(2)),
+        };
+        var assigned = await threadService.AssignThreadIdsAsync(
+            feed, x => x.Url, x => x.Title, x => x.Summary, x => x.Date, TimeSpan.FromSeconds(10), default);
+        Require(assigned.ContainsKey(feed[0].Url) && assigned.TryGetValue(feed[1].Url, out var p2) && assigned[feed[0].Url] == p2,
+            "Real ONNX AudioTopicThreadService should group paraphrased same-thread stories.");
+        Require(!assigned.ContainsKey(feed[2].Url) && !assigned.ContainsKey(feed[3].Url),
+            "Real ONNX AudioTopicThreadService should keep unrelated same-domain stories separate.");
+    }
+
+    private static async Task RunReadBatchChecksAsync(DateTime day)
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var dbOptions = new DbContextOptionsBuilder<SignalDbContext>().UseSqlite(connection).Options;
+        await using var db = new SignalDbContext(dbOptions);
+        await db.Database.EnsureCreatedAsync();
+
+        db.Users.Add(new ApplicationUser
+        {
+            Id = "batch-user",
+            UserName = "batch@example.com",
+            NormalizedUserName = "BATCH@EXAMPLE.COM",
+            Email = "batch@example.com",
+            NormalizedEmail = "BATCH@EXAMPLE.COM",
+        });
+        db.StoredNewsArticles.AddRange(
+            new StoredNewsArticle
+            {
+                UserId = "batch-user",
+                Url = "https://example.com/thread-a",
+                Title = "Auckland port workers strike blocks freight shipments",
+                Source = "RNZ",
+                PublishedAtUtc = day,
+                FirstSeenAtUtc = day,
+                LastSeenAtUtc = day,
+            },
+            new StoredNewsArticle
+            {
+                UserId = "batch-user",
+                Url = "https://example.com/thread-b",
+                Title = "Auckland port strike freight rerouting affects exporters",
+                Source = "Stuff",
+                PublishedAtUtc = day.AddHours(2),
+                FirstSeenAtUtc = day.AddHours(2),
+                LastSeenAtUtc = day.AddHours(2),
+            },
+            new StoredNewsArticle
+            {
+                UserId = "batch-user",
+                Url = "https://example.com/unrelated",
+                Title = "Wellington approves new airport terminal",
+                Source = "RNZ",
+                PublishedAtUtc = day,
+                FirstSeenAtUtc = day,
+                LastSeenAtUtc = day,
+            });
+        await db.SaveChangesAsync();
+
+        var services = new ServiceCollection().AddLogging().AddSingleton(db);
+        services.AddIdentityCore<ApplicationUser>().AddEntityFrameworkStores<SignalDbContext>();
+        using var provider = services.BuildServiceProvider();
+        var controller = new ArticlesController(db, provider.GetRequiredService<UserManager<ApplicationUser>>())
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "batch-user")], "test")),
+                },
+            },
+        };
+
+        var response = (OkObjectResult)await controller.MarkReadBatch(
+            new ReadBatchRequest(["https://example.com/thread-a", "https://example.com/thread-b"]),
+            default);
+        var payload = (ReadBatchResponse)response.Value!;
+        Require(payload.MarkedUrls.Length == 2, "Batch read should mark every URL in the played thread.");
+        var rows = await db.StoredNewsArticles.AsNoTracking().OrderBy(x => x.Url).ToListAsync();
+        Require(rows.Single(x => x.Url == "https://example.com/thread-a").IsRead
+            && rows.Single(x => x.Url == "https://example.com/thread-b").IsRead
+            && !rows.Single(x => x.Url == "https://example.com/unrelated").IsRead,
+            "Batch read should mark only the played thread stories read.");
     }
 
     private static float Dot(float[] left, float[] right) => left.Zip(right, (a, b) => a * b).Sum();
@@ -146,6 +388,42 @@ internal static class CortexNewsChecks
         {
             Require(text.StartsWith("query: "), "Cortex queries should use E5's query prefix.");
             return ValueTask.FromResult(new float[CortexNewsEmbeddings.Dimensions]);
+        }
+    }
+
+    private sealed class UnavailableEmbeddings : ICortexNewsEmbeddings
+    {
+        public bool IsAvailable => false;
+        public ValueTask<float[]> EmbedAsync(string text, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("Model is unavailable.");
+    }
+
+    private sealed class ThreadTestEmbeddings : ICortexNewsEmbeddings
+    {
+        public int CallCount { get; private set; }
+
+        public ValueTask<float[]> EmbedAsync(string text, CancellationToken cancellationToken)
+        {
+            CallCount++;
+            var vector = new float[CortexNewsEmbeddings.Dimensions];
+            if (text.Contains("tariffs", StringComparison.OrdinalIgnoreCase)
+                || text.Contains("retaliatory levies", StringComparison.OrdinalIgnoreCase))
+            {
+                vector[0] = 0.99f;
+                vector[1] = text.Contains("tariffs", StringComparison.OrdinalIgnoreCase) ? 0.14f : -0.14f;
+            }
+            else if (text.Contains("trade pact", StringComparison.OrdinalIgnoreCase))
+            {
+                vector[0] = 0.70f;
+                vector[1] = 0.714f;
+            }
+            else
+            {
+                vector[2] = 1f;
+            }
+            var norm = MathF.Sqrt(vector.Sum(v => v * v));
+            for (var i = 0; i < vector.Length; i++) vector[i] /= norm;
+            return ValueTask.FromResult(vector);
         }
     }
 

@@ -294,6 +294,7 @@ builder.Services.AddHostedService<ExecutiveBriefingBackgroundService>();
 builder.Services.AddHostedService<ProductWatchBackgroundService>();
 builder.Services.Configure<CortexNewsOptions>(builder.Configuration.GetSection(CortexNewsOptions.SectionName));
 builder.Services.AddSingleton<ICortexNewsEmbeddings, CortexNewsEmbeddings>();
+builder.Services.AddSingleton<AudioTopicThreadService>();
 builder.Services.AddSingleton<ICortexNewsSearch, CortexNewsSearch>();
 builder.Services.AddHttpClient(CortexNewsSearch.QueryClient, client => client.Timeout = TimeSpan.FromSeconds(2))
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });

@@ -1,6 +1,11 @@
-import { extractContentTokens } from "./story-clustering.ts";
-
-type HeadlineArticle = { title: string; url: string; publishedAt?: string; isRead?: boolean };
+type HeadlineArticle = {
+  title: string;
+  url: string;
+  summary?: string;
+  publishedAt?: string;
+  isRead?: boolean;
+  audioThreadId?: string | null;
+};
 
 function headlineKey(title: string) {
   return title.normalize("NFKC").toLowerCase()
@@ -81,65 +86,242 @@ function groupHeadlineArticles<T extends HeadlineArticle>(articles: readonly T[]
   return Array.from(groups.values());
 }
 
-const MAX_REPEAT_GAP_MS = 36 * 60 * 60 * 1000;
-const CHANGE_TERMS = [
-  /\b(?:ris(?:e[sn]?|ing)|rose|rais(?:e[sd]?|ing)|hik(?:e[sd]?|ing)|lift(?:s|ed|ing)?|increas(?:e[sd]?|ing)|gain(?:s|ed)?|up)\b/i,
-  /\b(?:falls?|fell|fallen|cut(?:s|ting)?|lower(?:s|ed|ing)?|decreas(?:e[sd]?|ing)|drop(?:s|ped|ping)?|down)\b/i,
-  /\b(?:holds?|held|unchanged|steady|paus(?:e[sd]?|ing))\b/i,
-  /\b(?:approv(?:e[sd]?|ing)|accept(?:s|ed|ing)?|pass(?:es|ed|ing)?)\b/i,
-  /\b(?:reject(?:s|ed|ing)?|den(?:y|ies|ied|ying)|fail(?:s|ed|ing)?)\b/i,
-  /\b(?:no|not|never|without)\b|n['’]t\b/i,
-];
+const MAX_REPEAT_GAP_MS = 60 * 60 * 60 * 1000;
+const SUMMARY_SNIPPET_LENGTH = 280;
 
-function audioHeadlineSignature(article: HeadlineArticle) {
-  const date = Date.parse(article.publishedAt ?? "");
-  const tokens = extractContentTokens(article.title);
-  // The visual clusterer retains stems and plurals. Count a word only once
-  // here so a single shared phrase cannot look like several shared facts.
-  const words = new Set([...tokens].filter((token) =>
-    !/\d/.test(token) && !(token.endsWith("s") && tokens.has(token.slice(0, -1)))));
-  const figures = [...new Set((article.title.normalize("NFKC").replace(/[−–]/g, "-")
-        .match(/[+\-]?(?:[$€£¥]\s*)?\d+(?:[.,]\d+)*%?/g) ?? [])
-    .map((figure) => figure.replace(/[,\s]/g, "")))].sort().join("|");
-  const changes = CHANGE_TERMS.map((pattern) => pattern.test(article.title)).join("|");
-  return { date, words, figures, changes };
+const STOP_AND_BOILERPLATE_WORDS = new Set([
+  "a", "about", "above", "after", "again", "against", "all", "also", "am", "an", "and", "any", "are",
+  "as", "at", "be", "because", "been", "before", "being", "below", "between", "both", "but", "by",
+  "can", "could", "did", "do", "does", "doing", "down", "during", "each", "few", "for", "from",
+  "further", "had", "has", "have", "having", "he", "her", "here", "hers", "herself", "him", "himself",
+  "his", "how", "i", "if", "in", "into", "is", "it", "its", "itself", "just", "me", "more", "most",
+  "my", "myself", "new", "no", "nor", "not", "now", "of", "off", "on", "once", "only", "or", "other",
+  "our", "ours", "ourselves", "out", "over", "own", "said", "same", "say", "says", "she", "should",
+  "so", "some", "such", "than", "that", "the", "their", "theirs", "them", "themselves", "then",
+  "there", "these", "they", "this", "those", "through", "to", "too", "under", "until", "up", "very",
+  "was", "we", "were", "what", "when", "where", "which", "while", "who", "whom", "why", "will",
+  "with", "would", "you", "your", "yours", "yourself", "yourselves", "amid", "amidst", "first",
+  "united", "state", "states", "government", "minister", "official", "officials", "people",
+  "million", "billion", "percent", "world", "global", "local", "today", "week", "month", "year",
+  "years", "day", "days", "time", "news", "report", "reports", "latest", "update", "updates",
+  "live", "video", "watch", "breaking", "exclusive", "opinion", "analysis", "explained",
+]);
+
+const CJK_FILLER_BIGRAMS = new Set([
+  "表示", "指出", "報導", "报道", "最新", "新聞", "新闻", "消息", "今日", "今天", "目前", "持續", "持续", "相關", "相关",
+]);
+
+function stripPublisherSuffix(title: string): string {
+  const cleaned = title.trim().replace(/\s+/g, " ");
+  for (const separator of [" - ", " | "]) {
+    const index = cleaned.lastIndexOf(separator);
+    if (index >= 12 && cleaned.length - index <= 35) {
+      return cleaned.slice(0, index).trim();
+    }
+  }
+  return cleaned;
 }
 
-function isAudioRepeat(a: ReturnType<typeof audioHeadlineSignature>, b: ReturnType<typeof audioHeadlineSignature>) {
-  if (!Number.isFinite(a.date) || !Number.isFinite(b.date) || Math.abs(a.date - b.date) > MAX_REPEAT_GAP_MS
-    || a.figures !== b.figures || a.changes !== b.changes) return false;
-  const shared = [...a.words].filter((word) => b.words.has(word)).length;
-  return shared >= 4 && shared / (a.words.size + b.words.size - shared) >= 0.55;
+function extractThreadTokens(text: string): Set<string> {
+  const tokens = new Set<string>();
+  if (!text) return tokens;
+
+  let normalized = text
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[−–]/g, "-")
+    .replace(/['’]s\b/g, "")
+    .replace(/['’]/g, "")
+    .replace(/\brbnz\b/g, "reserve bank rbnz")
+    .replace(/\bfed\b/g, "federal reserve fed")
+    .replace(/\bocr\b/g, "official cash rate ocr");
+
+  normalized = normalized.replace(/(?<!\d)\.|\.(?!\d)/g, " ");
+  normalized = normalized.replace(/[^a-z0-9.%$€£¥-]+/g, " ");
+
+  for (const rawPart of normalized.split(/\s+/)) {
+    const trimmed = rawPart.replace(/^[-.]+|[-.]+$/g, "");
+    if (trimmed.length < 2 || STOP_AND_BOILERPLATE_WORDS.has(trimmed)) continue;
+
+    let canonical = trimmed;
+    if (
+      canonical.length > 3
+      && canonical.endsWith("s")
+      && !canonical.endsWith("ss")
+      && !canonical.endsWith("bps")
+      && /[a-z]/.test(canonical)
+    ) {
+      canonical = canonical.slice(0, -1);
+    }
+
+    if (canonical.length < 2 || STOP_AND_BOILERPLATE_WORDS.has(canonical)) continue;
+    tokens.add(canonical);
+  }
+
+  return tokens;
 }
 
-function groupNarrationStories<T extends HeadlineArticle>(articles: readonly T[]) {
-  const groups: { copies: T[]; isRead: boolean; signature: ReturnType<typeof audioHeadlineSignature> }[] = [];
-  const wordToGroup = new Map<string, number[]>();
-  for (const copies of groupHeadlineArticles(articles)) {
-    const signature = audioHeadlineSignature(copies[0]);
-    const isRead = copies.some((copy) => copy.isRead);
-    const candidates = new Set<number>();
-    if (Number.isFinite(signature.date) && signature.words.size >= 4) {
-      for (const word of signature.words) {
-        for (const group of wordToGroup.get(word) ?? []) candidates.add(group);
+function extractCjkBigrams(text: string): Set<string> {
+  const bigrams = new Set<string>();
+  if (!text) return bigrams;
+
+  for (const match of text.matchAll(/[\u4E00-\u9FFF]{2,}/g)) {
+    const run = match[0];
+    for (let i = 0; i <= run.length - 2; i++) {
+      const bigram = run.slice(i, i + 2);
+      if (!CJK_FILLER_BIGRAMS.has(bigram)) {
+        bigrams.add(bigram);
       }
     }
+  }
+
+  return bigrams;
+}
+
+function buildCombinedText(cleanTitle: string, summary?: string): string {
+  const trimmed = (summary ?? "").trim().replace(/\s+/g, " ");
+  if (!trimmed) return cleanTitle;
+  const snippet = trimmed.length > SUMMARY_SNIPPET_LENGTH ? trimmed.slice(0, SUMMARY_SNIPPET_LENGTH) : trimmed;
+  return `${cleanTitle} ${snippet}`;
+}
+
+type AudioThreadSignature = {
+  date: number;
+  titleTokens: Set<string>;
+  fullTokens: Set<string>;
+  cjkTitleBigrams: Set<string>;
+  cjkFullBigrams: Set<string>;
+  threadId: string | null;
+};
+
+function audioHeadlineSignature(article: HeadlineArticle, summaryOverride?: string, threadIdOverride?: string | null): AudioThreadSignature {
+  const date = Date.parse(article.publishedAt ?? "");
+  const cleanTitle = stripPublisherSuffix(article.title);
+  const combined = buildCombinedText(cleanTitle, summaryOverride ?? article.summary);
+  const threadId = (threadIdOverride ?? article.audioThreadId ?? "").trim() || null;
+  return {
+    date,
+    titleTokens: extractThreadTokens(cleanTitle),
+    fullTokens: extractThreadTokens(combined),
+    cjkTitleBigrams: extractCjkBigrams(cleanTitle),
+    cjkFullBigrams: extractCjkBigrams(combined),
+    threadId,
+  };
+}
+
+function measureOverlap(left: ReadonlySet<string>, right: ReadonlySet<string>) {
+  if (left.size === 0 || right.size === 0) return { shared: 0, overlap: 0, jaccard: 0 };
+  const [smaller, larger] = left.size <= right.size ? [left, right] : [right, left];
+  let shared = 0;
+  for (const token of smaller) {
+    if (larger.has(token)) shared++;
+  }
+  if (shared === 0) return { shared: 0, overlap: 0, jaccard: 0 };
+  const overlap = shared / smaller.size;
+  const union = left.size + right.size - shared;
+  const jaccard = union > 0 ? shared / union : 0;
+  return { shared, overlap, jaccard };
+}
+
+function isAudioRepeat(a: AudioThreadSignature, b: AudioThreadSignature) {
+  if (!Number.isFinite(a.date) || !Number.isFinite(b.date) || Math.abs(a.date - b.date) > MAX_REPEAT_GAP_MS) {
+    return false;
+  }
+
+  if (a.threadId && b.threadId && a.threadId === b.threadId) {
+    return true;
+  }
+
+  const title = measureOverlap(a.titleTokens, b.titleTokens);
+  if (title.shared >= 3 && (title.overlap >= 0.40 || title.jaccard >= 0.25)) {
+    return true;
+  }
+
+  const full = measureOverlap(a.fullTokens, b.fullTokens);
+  if ((full.shared >= 5 && (full.overlap >= 0.35 || full.jaccard >= 0.22) && title.shared >= 1)
+    || (full.shared >= 6 && full.overlap >= 0.42)) {
+    return true;
+  }
+
+  const cjkTitle = measureOverlap(a.cjkTitleBigrams, b.cjkTitleBigrams);
+  if ((cjkTitle.shared >= 3 && cjkTitle.overlap >= 0.33)
+    || (cjkTitle.shared >= 2 && cjkTitle.overlap >= 0.50)) {
+    return true;
+  }
+
+  const cjkFull = measureOverlap(a.cjkFullBigrams, b.cjkFullBigrams);
+  return cjkFull.shared >= 5 && cjkFull.overlap >= 0.38 && cjkTitle.shared >= 1;
+}
+
+function addIndexBuckets(index: Map<string, number[]>, keys: Iterable<string>, groupIndex: number) {
+  for (const key of keys) {
+    const bucket = index.get(key) ?? [];
+    if (bucket[bucket.length - 1] !== groupIndex) {
+      bucket.push(groupIndex);
+      index.set(key, bucket);
+    }
+  }
+}
+
+function groupNarrationStories<T extends HeadlineArticle>(
+  articles: readonly T[],
+  recentlyRead: readonly HeadlineArticle[] = [],
+) {
+  const recentKeys = new Set<string>();
+  const recentSignatures: AudioThreadSignature[] = [];
+  for (const item of recentlyRead) {
+    if (item.isRead === false) continue;
+    const title = headlineKey(item.title);
+    const url = storyUrlKey(item.url);
+    if (title) recentKeys.add(`title:${title}`);
+    if (url) recentKeys.add(`url:${url}`);
+    recentSignatures.push(audioHeadlineSignature(item));
+  }
+
+  const groups: { copies: T[]; isRead: boolean; signature: AudioThreadSignature }[] = [];
+  const tokenToGroup = new Map<string, number[]>();
+  const cjkToGroup = new Map<string, number[]>();
+  const threadToGroup = new Map<string, number[]>();
+
+  for (const copies of groupHeadlineArticles(articles)) {
+    const leadSummary = copies.find((copy) => copy.summary?.trim())?.summary;
+    const leadThreadId = copies.find((copy) => copy.audioThreadId?.trim())?.audioThreadId;
+    const signature = audioHeadlineSignature(copies[0], leadSummary, leadThreadId);
+
+    let isRead = copies.some((copy) => copy.isRead)
+      || copies.some((copy) => {
+        const title = headlineKey(copy.title);
+        const url = storyUrlKey(copy.url);
+        return (title && recentKeys.has(`title:${title}`)) || (url && recentKeys.has(`url:${url}`));
+      })
+      || recentSignatures.some((recentSig) => isAudioRepeat(recentSig, signature));
+
+    const candidates = new Set<number>();
+    if (Number.isFinite(signature.date)) {
+      if (signature.threadId) {
+        for (const group of threadToGroup.get(signature.threadId) ?? []) candidates.add(group);
+      }
+      for (const word of signature.fullTokens) {
+        for (const group of tokenToGroup.get(word) ?? []) candidates.add(group);
+      }
+      for (const bigram of signature.cjkFullBigrams) {
+        for (const group of cjkToGroup.get(bigram) ?? []) candidates.add(group);
+      }
+    }
+
     const match = [...candidates].sort((a, b) => a - b)
       .find((index) => isAudioRepeat(groups[index].signature, signature));
     if (match !== undefined) {
+      groups[match].copies.push(...copies);
       groups[match].isRead ||= isRead;
       continue;
     }
 
-    // Approximate matches affect playback only. The lead and its exact
-    // aliases keep their normal read tracking, and cannot bridge two events.
-    const index = groups.push({ copies, isRead, signature }) - 1;
-    if (!Number.isFinite(signature.date) || signature.words.size < 4) continue;
-    for (const word of signature.words) {
-      const bucket = wordToGroup.get(word) ?? [];
-      bucket.push(index);
-      wordToGroup.set(word, bucket);
-    }
+    const index = groups.push({ copies: [...copies], isRead, signature }) - 1;
+    if (!Number.isFinite(signature.date)) continue;
+    if (signature.threadId) addIndexBuckets(threadToGroup, [signature.threadId], index);
+    addIndexBuckets(tokenToGroup, signature.fullTokens, index);
+    addIndexBuckets(cjkToGroup, signature.cjkFullBigrams, index);
   }
   return groups;
 }
@@ -148,10 +330,13 @@ export function uniqueNarrationStories<T extends HeadlineArticle>(articles: read
   return groupNarrationStories(articles).map(({ copies }) => copies[0]);
 }
 
-export function createUnreadHeadlineQueue<T extends HeadlineArticle>(articles: T[]) {
+export function createUnreadHeadlineQueue<T extends HeadlineArticle>(
+  articles: T[],
+  recentlyRead: readonly HeadlineArticle[] = [],
+) {
   const queue: T[] = [];
   const duplicates = new Map<string, T[]>();
-  for (const { copies: group, isRead } of groupNarrationStories(articles)) {
+  for (const { copies: group, isRead } of groupNarrationStories(articles, recentlyRead)) {
     if (isRead) continue;
     queue.push(group[0]);
     for (const copy of group) duplicates.set(copy.url, group);
@@ -176,8 +361,9 @@ export function shuffleHeadlineArticles<T>(articles: readonly T[], random: () =>
 export function createRandomHeadlineQueue<T extends HeadlineArticle>(
   articles: T[],
   random: () => number = Math.random,
+  recentlyRead: readonly HeadlineArticle[] = [],
 ) {
-  const groups = groupNarrationStories(articles);
+  const groups = groupNarrationStories(articles, recentlyRead);
   const unreadGroups = groups.filter(({ isRead }) => !isRead);
   const activeGroups = unreadGroups.length > 0 ? unreadGroups : groups;
   const representatives: T[] = [];

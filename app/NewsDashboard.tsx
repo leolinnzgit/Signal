@@ -145,6 +145,7 @@ export type FollowedArticle = Article & {
   isBookmarked?: boolean;
   isRead?: boolean;
   marketQuotes?: ArticleMarketQuote[];
+  audioThreadId?: string | null;
 };
 
 type ExtractedReaderArticle = {
@@ -373,6 +374,7 @@ export type ArticleStore = {
   sync: (articles: FollowedArticle[]) => Promise<ArticleHistoryPage>;
   setBookmark: (url: string, bookmarked: boolean) => Promise<void>;
   setRead: (url: string) => Promise<void>;
+  setReadBatch?: (urls: string[]) => Promise<void>;
 };
 
 export type TopicRefreshStore = {
@@ -564,6 +566,7 @@ function areArticlesSnapshotEqual(a: readonly FollowedArticle[], b: readonly Fol
       || left.providers.length !== right.providers.length
       || left.topics.length !== right.topics.length
       || (left.marketQuotes?.length ?? 0) !== (right.marketQuotes?.length ?? 0)
+      || (left.audioThreadId ?? null) !== (right.audioThreadId ?? null)
     ) {
       return false;
     }
@@ -1015,6 +1018,7 @@ function mergeTopicBriefingArticles(
           isRead: article.isRead ?? existing.isRead,
           imageUrl: article.imageUrl || existing.imageUrl,
           marketQuotes: article.marketQuotes?.length ? article.marketQuotes : existing.marketQuotes,
+          audioThreadId: article.audioThreadId ?? existing.audioThreadId,
         }
       : article);
   });
@@ -2873,15 +2877,20 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     [activeDateRange, articles, currentDateResult, feedView, historyArticles, liveMarketQuotes],
   );
 
+  const recentlyReadArticles = useMemo(
+    () => historyArticles.filter((article) => article.isRead),
+    [historyArticles],
+  );
+
   const unreadHeadlineQueue = useMemo(
-    () => createUnreadHeadlineQueue(articles),
-    [articles],
+    () => createUnreadHeadlineQueue(articles, recentlyReadArticles),
+    [articles, recentlyReadArticles],
   );
   const unreadArticles = unreadHeadlineQueue.articles;
 
   const randomHeadlinePool = useMemo(
-    () => createRandomHeadlineQueue(articles),
-    [articles],
+    () => createRandomHeadlineQueue(articles, undefined, recentlyReadArticles),
+    [articles, recentlyReadArticles],
   );
   const randomArticles = randomHeadlinePool.articles;
 
@@ -2936,7 +2945,11 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   function startRandomHeadlinePlayback() {
     if (readerArticle) closeArticleReader();
     setHeadlinesMinimized(false);
-    const queue = createRandomHeadlineQueue(articles);
+    const queue = createRandomHeadlineQueue(
+      articles,
+      undefined,
+      typeof recentlyReadArticles !== "undefined" ? recentlyReadArticles : [],
+    );
     if (queue.articles.length === 0) return;
     weatherAudio.stop();
     headlineDuplicates.current = queue.duplicates;
@@ -4471,7 +4484,15 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
 
   function persistArticleReads(urls: Iterable<string>) {
     if (!articleStore) return;
-    for (const url of urls) {
+    const list = Array.from(urls);
+    if (list.length === 0) return;
+    if (list.length > 1 && articleStore.setReadBatch) {
+      void articleStore.setReadBatch(list).catch(() => {
+        setNotice("The story opened, but its read status could not be saved.");
+      });
+      return;
+    }
+    for (const url of list) {
       void articleStore.setRead(url).catch(() => {
         setNotice("The story opened, but its read status could not be saved.");
       });

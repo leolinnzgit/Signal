@@ -156,9 +156,9 @@ test("dashboard saves all heard copies and catches up their topics without consu
   const viewed = [];
   const context = {
     articles, feedView: "latest",
-    readerArticle: null,
+    recentlyReadArticles: [], readerArticle: null,
     setHeadlinesMinimized: () => {},
-    createRandomHeadlineQueue: (items) => createRandomHeadlineQueue(items, () => 0),
+    createRandomHeadlineQueue: (items, _rand, recent) => createRandomHeadlineQueue(items, () => 0, recent),
     weatherAudio: { stop() { weatherStopped++; } },
     headlineDuplicates,
     headlineFullscreenRequested,
@@ -194,29 +194,102 @@ test("dashboard saves all heard copies and catches up their topics without consu
 });
 
 
-test("automatic headline queues skip near-identical coverage without marking other publishers read", () => {
+test("automatic headline queues collapse broader ongoing threads and mark all thread stories read", () => {
   const publishedAt = "2026-11-21T12:00:00Z";
   const lead = story("Auckland port workers strike blocks freight shipments", "lead", { publishedAt });
   const alternate = story("Port workers strike blocks Auckland freight shipments", "alternative", { publishedAt });
-  const differentEvent = story("Auckland port strike freight rerouting affects exporters", "follow-up", { publishedAt });
-  const input = [lead, alternate, differentEvent];
+  const followUp = story("Auckland port strike freight rerouting affects exporters", "follow-up", {
+    publishedAt: "2026-11-22T06:00:00Z",
+  });
+  const unrelated = story("Wellington approves plans for new airport terminal", "airport", { publishedAt });
+  const input = [lead, alternate, followUp, unrelated];
   const queue = createUnreadHeadlineQueue(input);
-  assert.deepEqual(queue.articles, [lead, differentEvent]);
-  assert.deepEqual(queue.duplicates.get(lead.url), [lead]);
-  assert.equal(queue.duplicates.has(alternate.url), false);
-  const afterHearing = [{ ...lead, isRead: true }, alternate, differentEvent];
-  assert.deepEqual(createUnreadHeadlineQueue(afterHearing).articles, [differentEvent]);
-  assert.deepEqual(createRandomHeadlineQueue(afterHearing, () => 0).articles, [differentEvent]);
+  assert.deepEqual(queue.articles, [lead, unrelated]);
+  assert.deepEqual(queue.duplicates.get(lead.url), [lead, alternate, followUp]);
+  assert.deepEqual(queue.duplicates.get(followUp.url), [lead, alternate, followUp]);
+
+  const afterHearingLead = [{ ...lead, isRead: true }, alternate, followUp, unrelated];
+  assert.deepEqual(createUnreadHeadlineQueue(afterHearingLead).articles, [unrelated]);
+  assert.deepEqual(createRandomHeadlineQueue(afterHearingLead, () => 0).articles, [unrelated]);
 });
 
-test("headlines with changed figures, opposite decisions or separate publication dates stay in audio", () => {
+test("broader thread matching uses summaries, semantic thread IDs, CJK bigrams and recently-read history", () => {
   const publishedAt = "2026-11-21T12:00:00Z";
-  const lead = story("Reserve Bank raises official cash rate to 4.25% after Wellington policy meeting", "lead", { publishedAt });
-  const copy = story("Wellington policy meeting: Reserve Bank lifts official cash rate to 4.25%", "copy", { publishedAt });
-  const changed = story("Reserve Bank raises official cash rate to 4.50% after Wellington policy meeting", "revision", { publishedAt });
-  const held = story("Reserve Bank holds official cash rate at 4.25% after Wellington policy meeting", "hold", { publishedAt });
-  const later = story("Reserve Bank lifts official cash rate to 4.25% at new Wellington policy meeting", "later", {
-    publishedAt: "2026-11-23T12:00:00Z",
+  const lead = story("Central bank signals caution on inflation - RNZ", "ocr-1", {
+    publishedAt,
+    summary: "Reserve Bank Governor Adrian Orr warned mortgage borrowers that wholesale funding pressures remain elevated.",
   });
-  assert.deepEqual(createUnreadHeadlineQueue([lead, copy, changed, held, later]).articles, [lead, changed, held, later]);
+  const summaryFollowUp = story("Mortgage borrowers face longer wait for relief | Stuff", "ocr-2", {
+    publishedAt: "2026-11-21T18:00:00Z",
+    summary: "Reserve Bank Governor Adrian Orr signaled rates may stay elevated for mortgage borrowers despite slowing inflation.",
+  });
+  const semanticFollowUp = story("Exporters scramble as European auto duties take effect", "tariffs-2", {
+    publishedAt,
+    audioThreadId: "t:auto-tariffs",
+  });
+  const semanticLead = story("White House announces sweeping levies on imported vehicles", "tariffs-1", {
+    publishedAt,
+    audioThreadId: "t:auto-tariffs",
+  });
+  const zhLead = story("台積電擴建美國晶片廠進度曝光", "zh-1", { publishedAt });
+  const zhFollowUp = story("美晶片廠關稅影響 台積電最新回應", "zh-2", { publishedAt });
+  const zhOther = story("台北捷運新線週末通車測試", "zh-3", { publishedAt });
+  const genericA = story("United States government official reports budget surplus today", "gen-1", { publishedAt });
+  const genericB = story("United States government official announces rugby stadium today", "gen-2", { publishedAt });
+  const later = story("Reserve Bank signals caution on inflation in new quarterly update", "later", {
+    publishedAt: "2026-11-25T12:00:00Z",
+  });
+
+  const queue = createUnreadHeadlineQueue([
+    lead, summaryFollowUp, semanticLead, semanticFollowUp, zhLead, zhFollowUp, zhOther, genericA, genericB, later,
+  ]);
+  assert.deepEqual(
+    queue.articles.map((item) => item.url),
+    [lead.url, semanticLead.url, zhLead.url, zhOther.url, genericA.url, genericB.url, later.url],
+  );
+  assert.deepEqual(queue.duplicates.get(semanticLead.url), [semanticLead, semanticFollowUp]);
+  assert.deepEqual(queue.duplicates.get(zhLead.url), [zhLead, zhFollowUp]);
+
+  // History suppressions keep already-heard threads out of unread playback.
+  const newAngleOnly = [summaryFollowUp, genericB];
+  const filteredByHistory = createUnreadHeadlineQueue(newAngleOnly, [{ ...lead, isRead: true }]);
+  assert.deepEqual(filteredByHistory.articles, [genericB]);
+});
+
+test("dashboard markHeadlineRead uses batch persistence when hearing a multi-story thread", async () => {
+  const source = await readFile(new URL("../app/NewsDashboard.tsx", import.meta.url), "utf8");
+  const ast = ts.createSourceFile("NewsDashboard.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let markDeclaration;
+  let persistDeclaration;
+  function visit(node) {
+    if (ts.isFunctionDeclaration(node) && node.name?.text === "markHeadlineRead") markDeclaration = node;
+    if (ts.isFunctionDeclaration(node) && node.name?.text === "persistArticleReads") persistDeclaration = node;
+    ts.forEachChild(node, visit);
+  }
+  visit(ast);
+  assert.ok(markDeclaration && persistDeclaration);
+  const code = ts.transpileModule([markDeclaration, persistDeclaration].map((n) => n.getText(ast)).join("\n"), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+
+  const publishedAt = "2026-11-21T12:00:00Z";
+  const a = story("White House announces sweeping levies on imported vehicles", "t1", { publishedAt, audioThreadId: "t:1" });
+  const b = story("Brussels prepares countermeasures over US auto tariffs", "t2", { publishedAt, audioThreadId: "t:1" });
+  const queue = createUnreadHeadlineQueue([a, b]);
+  const batchCalls = [];
+  const context = {
+    headlineDuplicates: { current: queue.duplicates },
+    pendingHeadlineReads: { current: new Map() },
+    headlinesMinimized: false,
+    recentlyReadArticles: [], readerArticle: null,
+    watchHandoffId: null,
+    articleStore: {
+      async setRead() { assert.fail("Expected batch endpoint for multi-article thread"); },
+      async setReadBatch(urls) { batchCalls.push(urls); },
+    },
+    setNotice: (msg) => assert.fail(msg),
+  };
+  runInNewContext(`${code}\nthis.markHeadlineRead = markHeadlineRead;`, context);
+  context.markHeadlineRead(queue.articles[0]);
+  assert.deepEqual(Array.from(batchCalls, (urls) => Array.from(urls)), [[a.url, b.url]]);
 });

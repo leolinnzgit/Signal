@@ -4,8 +4,9 @@ using Microsoft.ML.Tokenizers;
 
 namespace Signal.Server.Services;
 
-internal interface ICortexNewsEmbeddings
+public interface ICortexNewsEmbeddings
 {
+    bool IsAvailable => true;
     ValueTask<float[]> EmbedAsync(string text, CancellationToken cancellationToken);
 }
 
@@ -14,19 +15,25 @@ internal sealed class CortexNewsEmbeddings : ICortexNewsEmbeddings, IDisposable
     internal const int Dimensions = 384;
     private const int MaxTokens = 256;
     private readonly SemaphoreSlim _inference = new(1);
+    private readonly string _modelPath;
+    private readonly string _vocabPath;
     private readonly Lazy<(BertTokenizer Tokenizer, InferenceSession Session)> _model;
 
     public CortexNewsEmbeddings(IWebHostEnvironment environment)
     {
+        var modelDirectory = Path.Combine(environment.ContentRootPath, "App_Data", "cortex-news-model");
+        _modelPath = Path.Combine(modelDirectory, "model.onnx");
+        _vocabPath = Path.Combine(modelDirectory, "vocab.txt");
         _model = new(() =>
         {
-            var modelDirectory = Path.Combine(environment.ContentRootPath, "App_Data", "cortex-news-model");
-            var tokenizer = BertTokenizer.Create(Path.Combine(modelDirectory, "vocab.txt"),
+            var tokenizer = BertTokenizer.Create(_vocabPath,
                 new BertOptions { LowerCaseBeforeTokenization = true });
             using var options = new Microsoft.ML.OnnxRuntime.SessionOptions { IntraOpNumThreads = 1, InterOpNumThreads = 1 };
-            return (tokenizer, new InferenceSession(Path.Combine(modelDirectory, "model.onnx"), options));
+            return (tokenizer, new InferenceSession(_modelPath, options));
         });
     }
+
+    public bool IsAvailable => File.Exists(_modelPath) && File.Exists(_vocabPath);
 
     public async ValueTask<float[]> EmbedAsync(string text, CancellationToken cancellationToken)
     {

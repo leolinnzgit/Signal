@@ -14,7 +14,8 @@ public sealed class TopicRefreshService(
     ILogger<TopicRefreshService> logger,
     IArticleAudioPrewarmer? audioPrewarmer = null,
     TripwireEvaluatorService? tripwireEvaluator = null,
-    MarketDataService? marketData = null)
+    MarketDataService? marketData = null,
+    AudioTopicThreadService? audioThreads = null)
 {
     private const int ProviderConcurrency = 8;
     private const int TopicsPerProviderBatch = 8;
@@ -149,6 +150,29 @@ public sealed class TopicRefreshService(
                     logger.LogWarning(
                         exception,
                         "Tripwire evaluation failed during topic refresh for user {UserId}.",
+                        userId);
+                }
+            }
+            if (audioThreads is not null && newArticles.Count > 0)
+            {
+                try
+                {
+                    await audioThreads.WarmCacheAsync(
+                        newArticles,
+                        article => article.Title,
+                        article => article.Summary,
+                        TimeSpan.FromSeconds(4),
+                        cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    logger.LogDebug(
+                        exception,
+                        "Skipped audio thread embedding warmup for user {UserId}.",
                         userId);
                 }
             }
@@ -803,7 +827,32 @@ public sealed class TopicRefreshService(
                 included.Add(candidate.Id);
             }
         }
-        return candidates
+        var selected = candidates
+            .Where(candidate => included.Contains(candidate.Id))
+            .ToArray();
+
+        Dictionary<string, string> threadIds = new(StringComparer.OrdinalIgnoreCase);
+        if (audioThreads is not null && selected.Length > 0)
+        {
+            var cutoff = DateTime.UtcNow - NarratedNews.RepeatWindow;
+            var recentReadExtras = candidates
+                .Where(candidate => candidate.IsRead && candidate.PublishedAtUtc >= cutoff && !included.Contains(candidate.Id))
+                .Take(Math.Max(0, 150 - selected.Length));
+            var threadInputs = selected.Concat(recentReadExtras).ToArray();
+            if (threadInputs.Length >= 2)
+            {
+                threadIds = await audioThreads.AssignThreadIdsAsync(
+                    threadInputs,
+                    candidate => candidate.Url,
+                    candidate => candidate.Title,
+                    candidate => candidate.Summary,
+                    candidate => candidate.PublishedAtUtc,
+                    TimeSpan.FromMilliseconds(2500),
+                    cancellationToken);
+            }
+        }
+
+        return selected
             .Where(candidate => included.Contains(candidate.Id))
             .Select(candidate => new TopicBriefingArticle(
                 candidate.Title,
@@ -816,7 +865,8 @@ public sealed class TopicRefreshService(
                 candidate.Providers,
                 candidate.IsBookmarked,
                 candidate.IsRead,
-                candidate.MarketQuotes))
+                candidate.MarketQuotes,
+                threadIds.GetValueOrDefault(candidate.Url)))
             .ToArray();
     }
 
@@ -991,7 +1041,8 @@ public sealed record TopicBriefingArticle(
     string[] Providers,
     bool IsBookmarked,
     bool IsRead,
-    ArticleMarketQuote[]? MarketQuotes = null);
+    ArticleMarketQuote[]? MarketQuotes = null,
+    string? AudioThreadId = null);
 
 public sealed record TopicRefreshStatus(
     string Topic,
