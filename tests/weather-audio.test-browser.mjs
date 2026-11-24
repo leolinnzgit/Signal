@@ -10,7 +10,7 @@ const server = await createServer({ configFile: false, root: process.cwd(), plug
       res.end(await server.transformIndexHtml("/weather-test", '<!doctype html><html><body><div id="root"></div><script type="module" src="/tests/weather-audio.fixture.tsx"></script></body></html>'));
     });
   },
-}], optimizeDeps: { entries: ["tests/weather-audio.fixture.tsx"] },
+}], css: { postcss: { plugins: [] } }, optimizeDeps: { entries: ["tests/weather-audio.fixture.tsx"] },
 server: { host: "127.0.0.1", port: 3015, strictPort: true, watch: { ignored: ["**/work/**", "**/Signal.Server/wwwroot/**", "**/iis-publish/**"] } } });
 
 async function mockSpeech(page, scenario = "automatic") {
@@ -131,6 +131,7 @@ try {
     } else {
       if (scenario === "blocked") {
         await page.waitForFunction(() => document.querySelector('[data-testid="status"]').textContent === "blocked");
+        assert.equal(await page.evaluate(() => localStorage.getItem("signal.weather-audio-reported-condition.v1")), null, "Blocked playback does not mark condition as reported");
         await page.evaluate(() => { window.failAzurePlay = false; });
         await read.click();
         assert.equal(await page.evaluate(() => window.azurePlays.at(-1).gesture), true, "Blocked native playback retries synchronously on tap");
@@ -140,6 +141,9 @@ try {
         await page.waitForFunction(() => document.querySelector('[data-testid="status"]').textContent === "unavailable");
         assert.equal(await page.evaluate(() => window.azureAudio.at(-1).src), "", "Failed synthesis unloads its native request");
       } else {
+        if (scenario === "blocked") {
+          assert.equal(await page.evaluate(() => localStorage.getItem("signal.weather-audio-reported-condition.v1")), "2026-10-13|Clear");
+        }
         assert.equal(await status.textContent(), "playing");
         assert.equal(requests.length, 1, "One Azure session per opening, even with StrictMode or blocked autoplay");
         assert.equal(requests[0].csrf, "weather-csrf");
@@ -147,12 +151,30 @@ try {
         assert.match(requests[0].body.titles.join(" "), /for Auckland.*Today, expect rain.*chance of rain is 75 percent/);
         assert.equal(await page.evaluate(() => window.azurePlays.at(-1).rate), 1.1);
         if (scenario === "automatic") {
+          assert.equal(await page.evaluate(() => localStorage.getItem("signal.weather-audio-reported-condition.v1")), "2026-10-13|Clear");
           await page.evaluate(() => window.azureAudio.at(-1).onended());
           assert.equal(await status.textContent(), "finished");
           await page.getByRole("button", { name: "Refresh weather" }).click();
-          assert.equal(requests.length, 1, "Weather refresh does not repeat automatically");
-          await read.click();
+          await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 30)));
+          assert.equal(requests.length, 1, "Weather refresh with same condition does not repeat automatically");
+          await page.getByRole("button", { name: "Toggle dashboard" }).click();
+          await page.getByRole("button", { name: "Toggle dashboard" }).click();
+          await read.waitFor();
+          await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 30)));
+          await page.getByRole("button", { name: "Normal interaction" }).click();
+          assert.equal(requests.length, 1, "Reopening on the same day with the same condition stays silent");
+          await page.getByRole("button", { name: "Change condition" }).click();
           await page.waitForFunction(() => window.azurePlays.length === 2);
+          assert.equal(requests.length, 2, "Condition change during the same day triggers automatic reading");
+          assert.equal(await page.evaluate(() => localStorage.getItem("signal.weather-audio-reported-condition.v1")), "2026-10-13|Rain");
+          await page.evaluate(() => window.azureAudio.at(-1).onended());
+          await page.getByRole("button", { name: "Next day" }).click();
+          await page.waitForFunction(() => window.azurePlays.length === 3);
+          assert.equal(requests.length, 3, "New day triggers automatic reading even when condition matches yesterday");
+          assert.equal(await page.evaluate(() => localStorage.getItem("signal.weather-audio-reported-condition.v1")), "2026-10-14|Rain");
+          await page.evaluate(() => window.azureAudio.at(-1).onended());
+          await read.click();
+          await page.waitForFunction(() => window.azurePlays.length === 4);
           await page.getByRole("button", { name: "Toggle other audio" }).click();
           assert.equal(await status.textContent(), "idle");
           assert.equal(await page.evaluate(() => window.azureAudio.at(-1).src), "", "Other players disconnect weather audio");
@@ -212,21 +234,39 @@ try {
         assert.equal(parts.join(" "), "A weather update. ".repeat(50).trim(), "Every word is spoken through the end of a longer briefing");
       }
       if (scenario === "automatic") {
+        assert.equal(await page.evaluate(() => localStorage.getItem("signal.weather-audio-reported-condition.v1")), "2026-10-13|Clear");
         await page.evaluate(() => window.finishWeatherPart());
         await page.waitForFunction(() => document.querySelector('[data-testid="status"]').textContent === "finished");
         await page.getByRole("button", { name: "Refresh weather" }).click();
-        assert.equal(await page.evaluate(() => window.weatherCalls.length), 1, "A refresh never repeats weather automatically");
+        await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 30)));
+        assert.equal(await page.evaluate(() => window.weatherCalls.length), 1, "A refresh with same condition never repeats weather automatically");
+        await page.getByRole("button", { name: "Toggle dashboard" }).click();
+        await page.getByRole("button", { name: "Toggle dashboard" }).click();
+        await read.waitFor();
+        await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 30)));
+        assert.equal(await page.evaluate(() => window.weatherCalls.length), 1, "Reopening with same condition stays silent");
+        await page.getByRole("button", { name: "Change condition" }).click();
+        await page.waitForFunction(() => window.weatherCalls.length === 2);
+        assert.equal(await page.evaluate(() => localStorage.getItem("signal.weather-audio-reported-condition.v1")), "2026-10-13|Rain");
+        await page.evaluate(() => window.finishWeatherPart());
+        await page.waitForFunction(() => document.querySelector('[data-testid="status"]').textContent === "finished");
+        await page.getByRole("button", { name: "Next day" }).click();
+        await page.waitForFunction(() => window.weatherCalls.length === 3);
+        assert.equal(await page.evaluate(() => localStorage.getItem("signal.weather-audio-reported-condition.v1")), "2026-10-14|Rain");
+        await page.evaluate(() => window.finishWeatherPart());
+        await page.waitForFunction(() => document.querySelector('[data-testid="status"]').textContent === "finished");
         await read.click();
+        await page.waitForFunction(() => window.weatherCalls.length === 4);
         await page.getByRole("button", { name: "Toggle other audio" }).click();
         await page.waitForFunction(() => document.querySelector('[data-testid="status"]').textContent === "idle");
         assert.ok(await page.evaluate(() => window.weatherCancels > 0));
         await page.getByRole("button", { name: "Toggle other audio" }).click();
-        assert.equal(await page.evaluate(() => window.weatherCalls.length), 2);
+        assert.equal(await page.evaluate(() => window.weatherCalls.length), 4);
         await page.getByRole("checkbox", { name: "Read weather on opening" }).uncheck();
         await page.getByRole("button", { name: "Toggle dashboard" }).click();
         await page.getByRole("button", { name: "Toggle dashboard" }).click();
         assert.equal(await page.getByRole("checkbox", { name: "Read weather on opening" }).isChecked(), false);
-        assert.equal(await page.evaluate(() => window.weatherCalls.length), 2);
+        assert.equal(await page.evaluate(() => window.weatherCalls.length), 4);
       }
       await page.getByRole("button", { name: "Stop reading" }).click();
     }
@@ -240,6 +280,8 @@ try {
     page.setDefaultNavigationTimeout(90_000);
     const errors = [];
     let audioRequests = 0;
+    let currentCode = 3;
+    let currentTemp = 17;
     page.on("pageerror", error => errors.push(error.message));
     await mockSpeech(page);
     await page.addInitScript(() => {
@@ -248,7 +290,7 @@ try {
     await page.route(url => url.hostname !== "127.0.0.1" || url.pathname.startsWith("/api/"), async route => {
       const url = new URL(route.request().url());
       if (url.hostname === "api.open-meteo.com") return route.fulfill({ json: {
-        timezone: "Pacific/Auckland", current: { time: "2026-10-13T10:00", temperature_2m: 17, apparent_temperature: 15, relative_humidity_2m: 65, weather_code: 3, wind_speed_10m: 12, is_day: 1 },
+        timezone: "Pacific/Auckland", current: { time: "2026-10-13T10:00", temperature_2m: currentTemp, apparent_temperature: 15, relative_humidity_2m: 65, weather_code: currentCode, wind_speed_10m: 12, is_day: 1 },
         daily: { time: ["2026-10-13"], weather_code: [61], temperature_2m_max: [21], temperature_2m_min: [12], precipitation_probability_max: [75], wind_speed_10m_max: [20] },
       } });
       if (url.hostname !== "127.0.0.1") return route.abort();
@@ -260,8 +302,23 @@ try {
     await page.waitForFunction(() => window.weatherCalls.length === 1);
     assert.match(await page.evaluate(() => window.weatherCalls[0].text), /for Auckland.*Currently, overcast/);
     assert.match(await page.evaluate(() => window.weatherCalls.map(call => call.text).join(" ")), /Today, expect rain.*chance of rain is 75 percent/);
+    assert.equal(await page.evaluate(() => localStorage.getItem("signal.weather-audio-reported-condition.v1")), "2026-10-13|Overcast");
     assert.equal(await page.locator(".weather-audio, .hero audio").count(), 0);
     assert.equal(await page.getByRole("checkbox", { name: "Read weather on opening" }).count(), 0, "No weather speech settings in dashboard");
+
+    currentTemp = 19;
+    await page.reload();
+    await page.locator(".weather-summary-button").filter({ hasText: "19°C" }).waitFor();
+    await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 50)));
+    assert.equal(await page.evaluate(() => window.weatherCalls.length), 0, "Reopening on the same day with unchanged condition stays silent");
+
+    currentCode = 61;
+    currentTemp = 16;
+    await page.reload();
+    await page.waitForFunction(() => window.weatherCalls.length === 1);
+    assert.match(await page.evaluate(() => window.weatherCalls[0].text), /Currently, rain/);
+    assert.equal(await page.evaluate(() => localStorage.getItem("signal.weather-audio-reported-condition.v1")), "2026-10-13|Rain");
+
     await page.screenshot({ path: `work/browser-weather-${viewport.width}.png` });
     await page.locator(".weather-summary-button").click();
     await page.getByRole("button", { name: "Change location" }).click();

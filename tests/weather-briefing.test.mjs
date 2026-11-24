@@ -7,7 +7,7 @@ const source = await readFile(new URL("../app/weather-briefing.ts", import.meta.
 const compiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 },
 }).outputText;
-const { weatherBriefing, describeWeather } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
+const { weatherBriefing, describeWeather, weatherConditionKey, shouldAutoReadWeather } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
 const weather = { temperature: 16.8, apparentTemperature: 15.2, weatherCode: 3, windSpeed: 12.3,
   locationName: "Auckland", observedAt: "2026-10-13T09:00", timezone: "Pacific/Auckland" };
 const today = { date: "2026-10-13", weatherCode: 61, temperatureMax: 20.6, temperatureMin: 11.8, precipitationProbability: 75 };
@@ -71,4 +71,55 @@ test("weather briefing includes high UV and poor air quality warnings when prese
   const safeBriefing = weatherBriefing(weather, [today], [], lowUvConditions);
   assert.ok(!safeBriefing.includes("UV index"));
   assert.ok(!safeBriefing.includes("Air quality"));
+});
+test("weatherConditionKey tracks local calendar day and grouped condition while ignoring temperature and wind", () => {
+  assert.equal(weatherConditionKey(null), "");
+  assert.equal(shouldAutoReadWeather("", ""), false);
+
+  const initialKey = weatherConditionKey(weather);
+  assert.equal(initialKey, "2026-10-13|Overcast");
+  assert.equal(shouldAutoReadWeather(initialKey, ""), true);
+  assert.equal(shouldAutoReadWeather(initialKey, initialKey), false);
+
+  const warmerLaterSameCondition = weatherConditionKey({
+    ...weather,
+    temperature: 22.4,
+    apparentTemperature: 21,
+    windSpeed: 30,
+    humidity: 45,
+    isDay: false,
+    observedAt: "2026-10-13T15:00",
+    locationName: "Wellington",
+  });
+  assert.equal(warmerLaterSameCondition, initialKey);
+  assert.equal(shouldAutoReadWeather(warmerLaterSameCondition, initialKey), false);
+
+  // Equivalent WMO codes within the same grouped label do not re-trigger.
+  const partlyCloudy1 = weatherConditionKey({ ...weather, weatherCode: 1 });
+  const partlyCloudy2 = weatherConditionKey({ ...weather, weatherCode: 2 });
+  assert.equal(partlyCloudy1, "2026-10-13|Partly cloudy");
+  assert.equal(partlyCloudy2, partlyCloudy1);
+  assert.equal(shouldAutoReadWeather(partlyCloudy2, partlyCloudy1), false);
+
+  const lightRain = weatherConditionKey({ ...weather, weatherCode: 61 });
+  const moderateRain = weatherConditionKey({ ...weather, weatherCode: 63 });
+  assert.equal(lightRain, "2026-10-13|Rain");
+  assert.equal(moderateRain, lightRain);
+  assert.equal(shouldAutoReadWeather(lightRain, initialKey), true);
+  assert.equal(shouldAutoReadWeather(moderateRain, lightRain), false);
+
+  const clearedLater = weatherConditionKey({ ...weather, weatherCode: 0, observedAt: "2026-10-13T17:00" });
+  assert.equal(clearedLater, "2026-10-13|Clear");
+  assert.equal(shouldAutoReadWeather(clearedLater, lightRain), true);
+
+  const nextDaySameCondition = weatherConditionKey({ ...weather, weatherCode: 0, observedAt: "2026-10-14T08:00" });
+  assert.equal(nextDaySameCondition, "2026-10-14|Clear");
+  assert.equal(shouldAutoReadWeather(nextDaySameCondition, clearedLater), true);
+
+  // Missing observedAt falls back to now formatted in the weather location's timezone.
+  const fallbackKey = weatherConditionKey(
+    { ...weather, weatherCode: 0, observedAt: "" },
+    new Date("2026-10-13T20:00:00Z"),
+  );
+  assert.equal(fallbackKey, "2026-10-14|Clear");
 });

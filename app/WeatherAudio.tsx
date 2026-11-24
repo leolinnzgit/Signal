@@ -5,11 +5,30 @@ import { articleNarrationParts, normalizeReadingVoices, resolveUserReadingVoice,
 import { openArticleAudioStream } from "./article-audio-stream";
 import { canStartListening, createListeningAudio, listeningSpeech } from "./listening-break";
 import { browserSpeechRequiresTap, createHeadlinePlayback, HEADLINE_SPEECH_PREFERENCES_KEY, normalizeHeadlineSpeechPreferences } from "./headline-playback";
+import { shouldAutoReadWeather } from "./weather-briefing";
 
 const storageKey = "signal.weather-audio-on-open.v1";
+export const WEATHER_AUDIO_REPORTED_CONDITION_STORAGE_KEY = "signal.weather-audio-reported-condition.v1";
 type Status = "idle" | "starting" | "playing" | "paused" | "finished" | "blocked" | "unavailable";
 
-export function useWeatherAudio(text: string, suspended = false) {
+function readReportedCondition(): string {
+  try {
+    return localStorage.getItem(WEATHER_AUDIO_REPORTED_CONDITION_STORAGE_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function writeReportedCondition(key: string): void {
+  if (!key) return;
+  try {
+    localStorage.setItem(WEATHER_AUDIO_REPORTED_CONDITION_STORAGE_KEY, key);
+  } catch {
+    /* Persistence is optional; the in-memory ref still deduplicates this session. */
+  }
+}
+
+export function useWeatherAudio(text: string, suspended = false, conditionKey?: string) {
   const [enabled, setEnabled] = useState(true);
   const [ready, setReady] = useState(false);
   const [supported, setSupported] = useState(false);
@@ -21,9 +40,21 @@ export function useWeatherAudio(text: string, suspended = false) {
   const openingPending = useRef(true);
   const gesturePending = useRef(false);
   const pausedRef = useRef(false);
+  const lastReportedCondition = useRef("");
   const sequence = useRef(0);
-  const latest = useRef({ text, suspended, enabled });
-  latest.current = { text, suspended, enabled };
+  const latest = useRef({ text, suspended, enabled, conditionKey });
+  latest.current = { text, suspended, enabled, conditionKey };
+
+  const getLastReportedCondition = useCallback(
+    () => readReportedCondition() || lastReportedCondition.current,
+    [],
+  );
+
+  const markConditionReported = useCallback((key: string) => {
+    if (!key) return;
+    lastReportedCondition.current = key;
+    writeReportedCondition(key);
+  }, []);
 
   const releaseCloud = useCallback(() => {
     request.current?.abort();
@@ -79,12 +110,18 @@ export function useWeatherAudio(text: string, suspended = false) {
   }, [release]);
 
   const read = useCallback(() => {
-    const { text, suspended } = latest.current;
+    const { text, suspended, conditionKey: readConditionKey = "" } = latest.current;
     if (!text || suspended) return;
     if (!canStartListening()) {
       openingPending.current = gesturePending.current = false;
       return;
     }
+    let reported = false;
+    const recordReported = () => {
+      if (reported || !readConditionKey) return;
+      reported = true;
+      markConditionReported(readConditionKey);
+    };
     const play = (element: HTMLAudioElement, run: number) => {
       gesturePending.current = false;
       setStatus("starting");
@@ -122,7 +159,7 @@ export function useWeatherAudio(text: string, suspended = false) {
         const current = createHeadlinePlayback({
           title: parts[index], seconds: 0, readAloud: true,
           rate: preferences.rate, preferredVoiceId: preferences.voices.en,
-          onSpeechStart: () => { if (run === sequence.current) setStatus("playing"); },
+          onSpeechStart: () => { if (run === sequence.current) { recordReported(); setStatus("playing"); } },
           onAdvance: () => { current.dispose(); speakPart(index + 1); },
           onSpeechError: (reason) => {
             if (run !== sequence.current) return;
@@ -153,7 +190,7 @@ export function useWeatherAudio(text: string, suspended = false) {
     audio.current = element;
     element.playbackRate = preferences.rate;
     let started = false;
-    element.onplaying = () => { if (run === sequence.current) { started = true; setStatus("playing"); } };
+    element.onplaying = () => { if (run === sequence.current) { started = true; recordReported(); setStatus("playing"); } };
     element.onended = () => { if (run === sequence.current) { release(); setStatus("finished"); } };
     const failed = () => {
       if (run !== sequence.current || abort.signal.aborted) return;
@@ -177,7 +214,7 @@ export function useWeatherAudio(text: string, suspended = false) {
         play(element, run);
       })
       .catch(failed);
-  }, [stop, release, releaseCloud]);
+  }, [stop, release, releaseCloud, markConditionReported]);
 
   useEffect(() => {
     try { setEnabled(localStorage.getItem(storageKey) !== "false"); }
@@ -190,18 +227,49 @@ export function useWeatherAudio(text: string, suspended = false) {
     if (suspended || !enabled) stop();
   }, [suspended, enabled, stop]);
 
+  const hasText = Boolean(text);
+  const hasConditionKey = conditionKey !== undefined;
+  const effectiveKey = hasConditionKey ? conditionKey : (hasText ? "__opening__" : "");
+
   useEffect(() => {
-    if (!ready || !supported || !text) return;
+    if (!ready || !supported) return;
+    if (!hasText || !effectiveKey) {
+      openingPending.current = false;
+      setStatus("idle");
+      return;
+    }
     setStatus("idle");
+    const needsReport = !hasConditionKey
+      ? openingPending.current
+      : shouldAutoReadWeather(effectiveKey, getLastReportedCondition());
+    openingPending.current = needsReport && latest.current.enabled && !latest.current.suspended;
     const canRead = () => latest.current.enabled && !latest.current.suspended
       && !!latest.current.text && document.visibilityState !== "hidden";
+    const isStillUnreported = () => !hasConditionKey
+      || shouldAutoReadWeather(latest.current.conditionKey ?? "", getLastReportedCondition());
     const onInteraction = (event: Event) => {
       if (event.target instanceof Element && event.target.closest(".weather-speech-settings")) return;
       if (event instanceof KeyboardEvent && (event.ctrlKey || event.altKey || event.metaKey || ["Shift", "Control", "Alt", "Meta"].includes(event.key))) return;
-      if (canRead() && (openingPending.current || gesturePending.current)) read();
+      if (!canRead()) return;
+      if (gesturePending.current) {
+        read();
+        return;
+      }
+      if (openingPending.current) {
+        if (!isStillUnreported()) {
+          openingPending.current = false;
+          return;
+        }
+        read();
+      }
     };
     const tryAutomatic = () => {
-      if (canRead() && openingPending.current && !browserSpeechRequiresTap(navigator.userAgent, navigator.maxTouchPoints)) read();
+      if (!canRead() || !openingPending.current || browserSpeechRequiresTap(navigator.userAgent, navigator.maxTouchPoints)) return;
+      if (!isStillUnreported()) {
+        openingPending.current = false;
+        return;
+      }
+      read();
     };
     // Defer one task so StrictMode's setup/cleanup cannot cancel the only opening reading.
     const timer = window.setTimeout(tryAutomatic, 0);
@@ -215,7 +283,7 @@ export function useWeatherAudio(text: string, suspended = false) {
       document.removeEventListener("visibilitychange", tryAutomatic);
       release();
     };
-  }, [ready, supported, text, read, release]);
+  }, [ready, supported, hasText, effectiveKey, hasConditionKey, read, release, getLastReportedCondition]);
 
   function changeEnabled(value: boolean) {
     setEnabled(value);

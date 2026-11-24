@@ -41,7 +41,7 @@ import {
 import { MarketSparkline } from "./MarketSparkline";
 import { enrichArticlesWithMarketQuotes, type ArticleMarketQuote } from "./stock-news-graph";
 const StockNewsGraphModal = lazy(() => import("./StockNewsGraphModal"));
-import { describeWeather, weatherBriefing, type ClientWeatherAlert, type ClientWeatherConditions, type LocalWeather, type WeatherForecastDay } from "./weather-briefing";
+import { describeWeather, weatherBriefing, weatherConditionKey, type ClientWeatherAlert, type ClientWeatherConditions, type LocalWeather, type WeatherForecastDay } from "./weather-briefing";
 import WeatherAlertBanner from "./WeatherAlertBanner";
 import ArticleEntities from "./ArticleEntities";
 import ArticleKeyPhrases from "./ArticleKeyPhrases";
@@ -1691,7 +1691,11 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     return weatherAlerts.filter((alert) => !dismissedWeatherAlertIds.has(alert.id));
   }, [weatherAlerts, dismissedWeatherAlertIds]);
 
-  const weatherAudio = useWeatherAudio(weatherBriefing(weatherStatus === "ready" ? localWeather : null, weatherForecast, activeWeatherAlerts, weatherConditions), !!headlineQueue || !!readerArticle || !!watchHandoffId);
+  const weatherAudio = useWeatherAudio(
+    weatherBriefing(weatherStatus === "ready" ? localWeather : null, weatherForecast, activeWeatherAlerts, weatherConditions),
+    !!headlineQueue || !!readerArticle || !!watchHandoffId,
+    weatherConditionKey(weatherStatus === "ready" ? localWeather : null),
+  );
   foregroundHeadlinePlayback.current = Boolean(headlineQueue && !headlinesMinimized && !readerArticle && !watchHandoffId);
   const earthquakes = useEarthquakeAlerts(user.email, !!pushNotificationStore);
   const watchlistCatalysts = useMemo(
@@ -6695,6 +6699,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
             )}
             <div className="weather-speech-settings">
               <label><input type="checkbox" checked={weatherAudio.enabled} onChange={(event) => weatherAudio.changeEnabled(event.target.checked)} />Read weather on opening</label>
+              <p>Reads once per day and again when the weather condition changes.</p>
               <div className="topic-confirmation-actions">
                 <button type="button" disabled={!weatherAudio.available} onClick={weatherAudio.read}>Read weather now</button>
                 <button type="button" disabled={weatherAudio.status !== "playing" && weatherAudio.status !== "starting" && weatherAudio.status !== "paused"} onClick={weatherAudio.stop}>Stop reading</button>
