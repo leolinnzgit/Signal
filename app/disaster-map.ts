@@ -2,6 +2,13 @@ export const hazardKinds = ["earthquake", "flood", "storm", "wildfire", "volcano
 export type HazardKind = typeof hazardKinds[number];
 export type MapLayerKind = HazardKind | "news";
 export const mapLayerKinds: readonly MapLayerKind[] = ["news", ...hazardKinds];
+export const weatherTileOverlays = ["radar", "infrared"] as const;
+export type WeatherTileOverlay = typeof weatherTileOverlays[number];
+export const weatherTileOverlayLabels: Record<WeatherTileOverlay, string> = {
+  radar: "Rain radar",
+  infrared: "Clouds (IR)",
+};
+export const radarTimeOffsets = [-60, -30, -15, 0, 15, 30, 60] as const;
 export const hazardLabels: Record<HazardKind, string> = {
   earthquake: "Earthquakes", flood: "Floods", storm: "Cyclones", wildfire: "Wildfires", volcano: "Volcanoes", drought: "Droughts", weather: "Severe weather",
 };
@@ -173,4 +180,28 @@ export function groupMapPins(events: readonly AnyMapEvent[]): MapPinGroup[] {
 // An unconfigured map still plots real coordinates rather than invented bearings or distances.
 export function overviewPosition(latitude: number, longitude: number) {
   return { cx: longitude / 180 * 220, cy: -latitude / 90 * 110 };
+}
+
+export function buildAzureWeatherTileUrl(
+  overlay: WeatherTileOverlay,
+  offsetMinutes = 0,
+  now: Date = new Date(),
+): string {
+  const tilesetId = overlay === "radar" ? "microsoft.weather.radar.main" : "microsoft.weather.infrared.main";
+  const clampedOffset = overlay === "radar"
+    ? Math.max(-90, Math.min(120, Math.round(offsetMinutes)))
+    : Math.max(-180, Math.min(0, Math.round(offsetMinutes)));
+  let url = `https://{azMapsDomain}/map/tile?api-version=2024-04-01&tilesetId=${tilesetId}&zoom={z}&x={x}&y={y}&tileSize=256`;
+  if (clampedOffset !== 0) {
+    const targetMs = now.getTime() + clampedOffset * 60_000;
+    const roundedMs = Math.round(targetMs / 300_000) * 300_000;
+    const iso = new Date(roundedMs).toISOString().replace(/\.\d{3}Z$/, "Z");
+    url += `&timeStamp=${encodeURIComponent(iso)}`;
+  }
+  return url;
+}
+
+export function formatRadarOffsetLabel(offsetMinutes: number): string {
+  if (offsetMinutes === 0) return "Now";
+  return offsetMinutes > 0 ? `+${offsetMinutes}m` : `${offsetMinutes}m`;
 }

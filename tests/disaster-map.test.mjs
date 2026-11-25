@@ -10,6 +10,8 @@ import {
   eventDetails,
   eventSymbol,
   overviewPosition,
+  buildAzureWeatherTileUrl,
+  formatRadarOffsetLabel,
 } from "../app/disaster-map.ts";
 
 const quake = { id: "q", magnitude: 4.5, depthKm: 12, place: "Cook Strait", distanceKm: 35 };
@@ -133,4 +135,31 @@ test("groupMapPins clusters co-located news stories while keeping disasters ungr
   const tokyoGroup = groups.find(g => g.kind === "news" && g.items.length === 1);
   assert(tokyoGroup);
   assert.equal(tokyoGroup.label, "NW");
+});
+
+test("buildAzureWeatherTileUrl builds live and 5-minute rounded timestamped weather tile URLs", () => {
+  const fixed = new Date("2026-11-25T19:07:20.000Z");
+  const liveRadar = buildAzureWeatherTileUrl("radar", 0, fixed);
+  assert.equal(
+    liveRadar,
+    "https://{azMapsDomain}/map/tile?api-version=2024-04-01&tilesetId=microsoft.weather.radar.main&zoom={z}&x={x}&y={y}&tileSize=256",
+  );
+
+  const futureRadar = buildAzureWeatherTileUrl("radar", 30, fixed);
+  assert.ok(futureRadar.includes("tilesetId=microsoft.weather.radar.main"));
+  assert.ok(futureRadar.includes("timeStamp=2026-11-25T19%3A35%3A00Z"), `Expected 5-min rounded UTC timestamp, got ${futureRadar}`);
+
+  const clampedPastInfrared = buildAzureWeatherTileUrl("infrared", 45, fixed);
+  assert.equal(
+    clampedPastInfrared,
+    "https://{azMapsDomain}/map/tile?api-version=2024-04-01&tilesetId=microsoft.weather.infrared.main&zoom={z}&x={x}&y={y}&tileSize=256",
+    "Infrared clouds are historical/live only and clamp positive offsets to 0.",
+  );
+
+  const pastInfrared = buildAzureWeatherTileUrl("infrared", -30, fixed);
+  assert.ok(pastInfrared.includes("timeStamp=2026-11-25T18%3A35%3A00Z"));
+
+  assert.equal(formatRadarOffsetLabel(0), "Now");
+  assert.equal(formatRadarOffsetLabel(15), "+15m");
+  assert.equal(formatRadarOffsetLabel(-60), "-60m");
 });

@@ -48,6 +48,22 @@ public sealed class WeatherAlertsController(
         return Ok(result);
     }
 
+    [HttpGet("/api/weather/minute-forecast")]
+    public async Task<IActionResult> GetMinuteForecast(
+        [FromQuery] double? latitude,
+        [FromQuery] double? longitude,
+        CancellationToken ct)
+    {
+        var coords = await ResolveCoordinatesAsync(latitude, longitude, ct);
+        if (!coords.HasValue)
+        {
+            return Ok(AzureMapsWeatherService.EmptyMinuteForecast("No valid weather location configured."));
+        }
+
+        var result = await weatherService.GetMinuteForecastAsync(coords.Value.Latitude, coords.Value.Longitude, ct);
+        return Ok(result);
+    }
+
     private async Task<(double Latitude, double Longitude)?> ResolveCoordinatesAsync(double? latitude, double? longitude, CancellationToken ct)
     {
         double? targetLat = latitude;

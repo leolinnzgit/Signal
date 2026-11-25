@@ -66,6 +66,81 @@ internal static class WeatherAlertChecks
         var conditionsResult = await disabledService.GetConditionsAsync(-41.28, 174.77, CancellationToken.None);
         Assert(!conditionsResult.Available, "Disabled Azure Maps must report conditions unavailable.");
 
+        var minuteDisabled = await disabledService.GetMinuteForecastAsync(-41.28, 174.77, CancellationToken.None);
+        Assert(!minuteDisabled.Available, "Disabled Azure Maps must report minute forecast unavailable.");
+        Assert(minuteDisabled.Intervals.Length == 0, "Disabled minute forecast must return no intervals.");
+
+        // Check Minute Forecast parsing: imminent rain starting in 15 min for 20 min
+        var startingSoonJson = """
+        {
+          "summary": {
+            "shortPhrase": "Rain in 15 min",
+            "briefPhrase60": "Rain starting in 15 min",
+            "longPhrase": "Rain starting in 15 min, lasting for 20 min."
+          },
+          "intervals": [
+            { "minute": 0, "dbz": 0.0, "shortPhrase": "No precip" },
+            { "minute": 5, "dbz": 0.0, "shortPhrase": "No precip" },
+            { "minute": 10, "dbz": 0.0, "shortPhrase": "No precip" },
+            { "minute": 15, "dbz": 24.5, "shortPhrase": "Light rain", "precipitationType": "rain", "color": { "hex": "#38BDF8" } },
+            { "minute": 20, "dbz": 31.2, "shortPhrase": "Rain", "precipitationType": "rain", "color": { "hex": "#22C55E" } },
+            { "minute": 25, "dbz": 28.0, "shortPhrase": "Rain", "precipitationType": "rain", "color": { "hex": "#22C55E" } },
+            { "minute": 30, "dbz": 18.0, "shortPhrase": "Light rain", "precipitationType": "rain", "color": { "hex": "#38BDF8" } },
+            { "minute": 35, "dbz": 0.0, "shortPhrase": "No precip" }
+          ]
+        }
+        """;
+        using var startingSoonDoc = JsonDocument.Parse(startingSoonJson);
+        var startingSoon = AzureMapsWeatherService.ParseMinuteForecast(startingSoonDoc.RootElement);
+        Assert(startingSoon.Available, "Starting-soon minute forecast should be available.");
+        Assert(startingSoon.HasPrecipitation, "Starting-soon forecast must report precipitation.");
+        Assert(!startingSoon.IsRainingNow, "Starting-soon forecast is dry at minute 0.");
+        Assert(startingSoon.StartsInMinutes == 15, $"Expected StartsInMinutes 15, got {startingSoon.StartsInMinutes}.");
+        Assert(startingSoon.EndsInMinutes == 35, $"Expected EndsInMinutes 35, got {startingSoon.EndsInMinutes}.");
+        Assert(startingSoon.DurationMinutes == 20, $"Expected DurationMinutes 20, got {startingSoon.DurationMinutes}.");
+        Assert(startingSoon.PrecipitationType == "rain", "Expected precipitation type 'rain'.");
+        Assert(startingSoon.AlertState == "starting-soon", $"Expected AlertState 'starting-soon', got '{startingSoon.AlertState}'.");
+        Assert(Math.Abs(startingSoon.MaxDbz - 31.2) < 0.05, $"Expected MaxDbz 31.2, got {startingSoon.MaxDbz}.");
+        Assert(startingSoon.Intervals[3].ColorHex == "#38BDF8", "Expected interval color hex to be preserved.");
+
+        // Check ongoing rain ending soon
+        var ongoingEndingJson = """
+        {
+          "summary": {
+            "briefPhrase60": "Rain ending in 25 min"
+          },
+          "intervals": [
+            { "minute": 0, "dbz": 27.0, "precipitationType": "rain" },
+            { "minute": 5, "dbz": 22.0, "precipitationType": "rain" },
+            { "minute": 25, "dbz": 0.0, "shortPhrase": "No precip" }
+          ]
+        }
+        """;
+        using var ongoingEndingDoc = JsonDocument.Parse(ongoingEndingJson);
+        var ongoingEnding = AzureMapsWeatherService.ParseMinuteForecast(ongoingEndingDoc.RootElement);
+        Assert(ongoingEnding.Available && ongoingEnding.HasPrecipitation && ongoingEnding.IsRainingNow, "Ongoing rain must report IsRainingNow.");
+        Assert(ongoingEnding.EndsInMinutes == 25, $"Expected EndsInMinutes 25, got {ongoingEnding.EndsInMinutes}.");
+        Assert(ongoingEnding.AlertState == "ongoing-ending", $"Expected 'ongoing-ending', got '{ongoingEnding.AlertState}'.");
+
+        // Check dry 2-hour window
+        var dryJson = """
+        {
+          "summary": { "shortPhrase": "No precipitation for at least 120 minutes" },
+          "intervals": [
+            { "minute": 0, "dbz": 0.0, "shortPhrase": "No precip" },
+            { "minute": 5, "dbz": 0.0, "shortPhrase": "No precip" }
+          ]
+        }
+        """;
+        using var dryDoc = JsonDocument.Parse(dryJson);
+        var dryResult = AzureMapsWeatherService.ParseMinuteForecast(dryDoc.RootElement);
+        Assert(dryResult.Available && !dryResult.HasPrecipitation && dryResult.AlertState == "none", "Dry window must report available with no precipitation.");
+
+        // Check empty unsupported region payload
+        using var emptyMinuteDoc = JsonDocument.Parse("{}");
+        var emptyMinute = AzureMapsWeatherService.ParseMinuteForecast(emptyMinuteDoc.RootElement);
+        Assert(!emptyMinute.Available, "Empty minute forecast payload must report unavailable.");
+
         // Check UV parsing
         var sampleUvJson = """
         {

@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 
@@ -36,6 +37,33 @@ public sealed record WeatherConditions(
     DateTime CheckedAtUtc
 );
 
+public sealed record MinuteForecastInterval(
+    int Minute,
+    DateTimeOffset? StartTime,
+    double Dbz,
+    string ShortPhrase,
+    string PrecipitationType,
+    string ColorHex
+);
+
+public sealed record MinuteForecastResult(
+    bool Available,
+    string Message,
+    string Summary,
+    string BriefPhrase60,
+    string LongPhrase,
+    bool HasPrecipitation,
+    bool IsRainingNow,
+    int? StartsInMinutes,
+    int? EndsInMinutes,
+    int? DurationMinutes,
+    double MaxDbz,
+    string PrecipitationType,
+    string AlertState,
+    MinuteForecastInterval[] Intervals,
+    DateTime CheckedAtUtc
+);
+
 public sealed class AzureMapsWeatherService(
     IOptions<AzureMapsOptions> options,
     IHttpClientFactory clients,
@@ -47,9 +75,12 @@ public sealed class AzureMapsWeatherService(
     // alerts ≈ 48 calls/day, conditions ≈ 2 calls/hour of active use.
     public static readonly TimeSpan AlertCacheDuration = TimeSpan.FromMinutes(30);
     public static readonly TimeSpan ConditionsCacheDuration = TimeSpan.FromMinutes(60);
+    public static readonly TimeSpan MinuteForecastCacheDuration = TimeSpan.FromMinutes(10);
     public static readonly TimeSpan FailureCacheDuration = TimeSpan.FromMinutes(5);
+    private static readonly Regex HexColorRegex = new(@"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$", RegexOptions.Compiled);
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly SemaphoreSlim conditionsGate = new(1, 1);
+    private readonly SemaphoreSlim minuteGate = new(1, 1);
 
     public bool Enabled => options.Value.Enabled;
 
@@ -166,6 +197,229 @@ public sealed class AzureMapsWeatherService(
         {
             return null;
         }
+    }
+
+    public async Task<MinuteForecastResult> GetMinuteForecastAsync(double latitude, double longitude, CancellationToken token)
+    {
+        if (!Enabled)
+            return EmptyMinuteForecast("Azure Maps has not been configured yet.");
+        if (!EarthquakeFeed.ValidLocation(latitude, longitude))
+            return EmptyMinuteForecast("Invalid location coordinates.");
+
+        var cacheKey = FormattableString.Invariant($"azure-weather-minute:{Math.Round(latitude, 2):F2}:{Math.Round(longitude, 2):F2}");
+        if (cache.TryGetValue(cacheKey, out MinuteForecastResult? cached) && cached is not null)
+            return cached;
+
+        await minuteGate.WaitAsync(token);
+        try
+        {
+            if (cache.TryGetValue(cacheKey, out cached) && cached is not null)
+                return cached;
+
+            var client = clients.CreateClient(HttpClientName);
+            var key = Uri.EscapeDataString(options.Value.SubscriptionKey.Trim());
+            var query = FormattableString.Invariant($"{latitude:F4},{longitude:F4}");
+            var url = $"https://atlas.microsoft.com/weather/forecast/minute/json?api-version=1.1&query={query}&interval=5&subscription-key={key}";
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Accept.ParseAdd("application/json");
+
+            using var response = await client.SendAsync(request, token);
+            if (!response.IsSuccessStatusCode)
+            {
+                var failed = EmptyMinuteForecast($"Azure Maps returned status {(int)response.StatusCode}.");
+                cache.Set(cacheKey, failed, FailureCacheDuration);
+                return failed;
+            }
+
+            using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(token));
+            var result = ParseMinuteForecast(json.RootElement);
+            cache.Set(cacheKey, result, result.Available ? MinuteForecastCacheDuration : FailureCacheDuration);
+            return result;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException && !token.IsCancellationRequested)
+        {
+            return EmptyMinuteForecast("Azure Maps minute-by-minute precipitation is temporarily unavailable.");
+        }
+        finally
+        {
+            minuteGate.Release();
+        }
+    }
+
+    public static MinuteForecastResult EmptyMinuteForecast(string message) =>
+        new(false, message, "", "", "", false, false, null, null, null, 0, "", "none", [], DateTime.UtcNow);
+
+    public static MinuteForecastResult ParseMinuteForecast(JsonElement root, DateTime? checkedAtUtc = null)
+    {
+        var timestamp = checkedAtUtc ?? DateTime.UtcNow;
+        if (root.ValueKind != JsonValueKind.Object)
+            return EmptyMinuteForecast("Minute-by-minute precipitation is not available for this location.") with { CheckedAtUtc = timestamp };
+
+        static string ReadString(JsonElement obj, string name) =>
+            obj.TryGetProperty(name, out var prop) && prop.ValueKind == JsonValueKind.String
+                ? prop.GetString()?.Trim() ?? ""
+                : "";
+
+        var shortSummary = "";
+        var briefPhrase60 = "";
+        var briefPhrase = "";
+        var longPhrase = "";
+        if (root.TryGetProperty("summary", out var summaryObj) && summaryObj.ValueKind == JsonValueKind.Object)
+        {
+            shortSummary = ReadString(summaryObj, "shortPhrase");
+            briefPhrase60 = ReadString(summaryObj, "briefPhrase60");
+            briefPhrase = ReadString(summaryObj, "briefPhrase");
+            longPhrase = ReadString(summaryObj, "longPhrase");
+        }
+
+        var intervals = new List<MinuteForecastInterval>();
+        if (root.TryGetProperty("intervals", out var intervalsProp) && intervalsProp.ValueKind == JsonValueKind.Array)
+        {
+            var index = 0;
+            foreach (var item in intervalsProp.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object)
+                {
+                    index++;
+                    continue;
+                }
+
+                var minute = item.TryGetProperty("minute", out var minProp) && minProp.TryGetInt32(out var parsedMin)
+                    ? Math.Max(0, parsedMin)
+                    : index * 5;
+                DateTimeOffset? startTime = null;
+                var startStr = ReadString(item, "startTime");
+                if (startStr.Length > 0 && DateTimeOffset.TryParse(startStr, out var parsedStart))
+                    startTime = parsedStart;
+
+                var dbz = item.TryGetProperty("dbz", out var dbzProp) && dbzProp.TryGetDouble(out var parsedDbz) && double.IsFinite(parsedDbz)
+                    ? Math.Max(0, parsedDbz)
+                    : 0.0;
+                var intervalPhrase = ReadString(item, "shortPhrase");
+                var precipType = ReadString(item, "precipitationType").ToLowerInvariant();
+                var colorHex = "";
+                if (item.TryGetProperty("color", out var colorObj) && colorObj.ValueKind == JsonValueKind.Object)
+                {
+                    var candidateHex = ReadString(colorObj, "hex");
+                    if (HexColorRegex.IsMatch(candidateHex))
+                        colorHex = candidateHex;
+                }
+
+                intervals.Add(new MinuteForecastInterval(minute, startTime, Math.Round(dbz, 1), intervalPhrase, precipType, colorHex));
+                index++;
+            }
+        }
+
+        var hasAnySummary = shortSummary.Length > 0 || briefPhrase60.Length > 0 || briefPhrase.Length > 0 || longPhrase.Length > 0;
+        if (intervals.Count == 0 && !hasAnySummary)
+            return EmptyMinuteForecast("Minute-by-minute precipitation is not available for this location.") with { CheckedAtUtc = timestamp };
+
+        static bool IsWet(MinuteForecastInterval interval) =>
+            interval.Dbz > 0 && (!string.IsNullOrWhiteSpace(interval.PrecipitationType) || interval.Dbz >= 5.0);
+
+        var stepMinutes = intervals.Count >= 2 && intervals[1].Minute > intervals[0].Minute
+            ? intervals[1].Minute - intervals[0].Minute
+            : 5;
+
+        var firstWetIndex = intervals.FindIndex(IsWet);
+        var hasPrecipitation = firstWetIndex >= 0;
+        var isRainingNow = firstWetIndex == 0;
+        int? startsInMinutes = null;
+        int? endsInMinutes = null;
+        int? durationMinutes = null;
+        var precipitationType = "";
+
+        if (hasPrecipitation)
+        {
+            startsInMinutes = isRainingNow ? 0 : intervals[firstWetIndex].Minute;
+
+            var firstDryAfterWet = -1;
+            for (var i = firstWetIndex + 1; i < intervals.Count; i++)
+            {
+                if (!IsWet(intervals[i]))
+                {
+                    firstDryAfterWet = i;
+                    break;
+                }
+            }
+
+            if (firstDryAfterWet >= 0)
+            {
+                endsInMinutes = intervals[firstDryAfterWet].Minute;
+                durationMinutes = Math.Max(stepMinutes, endsInMinutes.Value - startsInMinutes.Value);
+            }
+            else
+            {
+                var lastMinute = intervals[^1].Minute + stepMinutes;
+                durationMinutes = Math.Max(stepMinutes, lastMinute - startsInMinutes.Value);
+            }
+
+            for (var i = firstWetIndex; i < (firstDryAfterWet >= 0 ? firstDryAfterWet : intervals.Count); i++)
+            {
+                if (!string.IsNullOrWhiteSpace(intervals[i].PrecipitationType))
+                {
+                    precipitationType = intervals[i].PrecipitationType;
+                    break;
+                }
+            }
+            if (precipitationType.Length == 0)
+                precipitationType = "rain";
+        }
+
+        var maxDbz = intervals.Count > 0 ? Math.Round(intervals.Max(i => i.Dbz), 1) : 0.0;
+        var alertState = !hasPrecipitation
+            ? "none"
+            : isRainingNow
+                ? (endsInMinutes.HasValue ? "ongoing-ending" : "ongoing")
+                : (startsInMinutes <= 60 ? "starting-soon" : "starting-later");
+
+        var precipLabel = precipitationType switch
+        {
+            "snow" => "Snow",
+            "ice" => "Ice",
+            "mix" => "Wintry mix",
+            _ => "Rain",
+        };
+
+        var primarySummary = !string.IsNullOrWhiteSpace(shortSummary)
+            ? shortSummary
+            : !string.IsNullOrWhiteSpace(briefPhrase60)
+                ? briefPhrase60
+                : !string.IsNullOrWhiteSpace(briefPhrase)
+                    ? briefPhrase
+                    : alertState switch
+                    {
+                        "starting-soon" or "starting-later" when startsInMinutes.HasValue => $"{precipLabel} starting in {startsInMinutes.Value} min",
+                        "ongoing-ending" when endsInMinutes.HasValue => $"{precipLabel} ending in {endsInMinutes.Value} min",
+                        "ongoing" => $"{precipLabel} continuing",
+                        _ => "No precipitation expected for 2 hours",
+                    };
+
+        var effectiveBrief60 = !string.IsNullOrWhiteSpace(briefPhrase60)
+            ? briefPhrase60
+            : !string.IsNullOrWhiteSpace(briefPhrase)
+                ? briefPhrase
+                : primarySummary;
+
+        var effectiveLong = !string.IsNullOrWhiteSpace(longPhrase) ? longPhrase : effectiveBrief60;
+
+        return new MinuteForecastResult(
+            Available: true,
+            Message: "",
+            Summary: primarySummary,
+            BriefPhrase60: effectiveBrief60,
+            LongPhrase: effectiveLong,
+            HasPrecipitation: hasPrecipitation,
+            IsRainingNow: isRainingNow,
+            StartsInMinutes: startsInMinutes,
+            EndsInMinutes: endsInMinutes,
+            DurationMinutes: durationMinutes,
+            MaxDbz: maxDbz,
+            PrecipitationType: precipitationType,
+            AlertState: alertState,
+            Intervals: intervals.ToArray(),
+            CheckedAtUtc: timestamp);
     }
 
     private static WeatherConditions EmptyConditions(string message) =>

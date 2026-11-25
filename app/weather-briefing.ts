@@ -42,6 +42,61 @@ export type ClientWeatherConditions = {
   airQualityDescription?: string;
 };
 
+export type ClientMinuteForecastInterval = {
+  minute: number;
+  startTime?: string | null;
+  dbz: number;
+  shortPhrase?: string;
+  precipitationType?: string;
+  colorHex?: string;
+};
+
+export type ClientMinuteForecast = {
+  available: boolean;
+  message?: string;
+  summary?: string;
+  briefPhrase60?: string;
+  longPhrase?: string;
+  hasPrecipitation: boolean;
+  isRainingNow: boolean;
+  startsInMinutes?: number | null;
+  endsInMinutes?: number | null;
+  durationMinutes?: number | null;
+  maxDbz?: number;
+  precipitationType?: string;
+  alertState?: "none" | "starting-soon" | "starting-later" | "ongoing-ending" | "ongoing" | string;
+  intervals?: ClientMinuteForecastInterval[];
+  checkedAtUtc?: string;
+};
+
+function precipitationNoun(precipitationType?: string): string {
+  switch ((precipitationType ?? "").toLowerCase()) {
+    case "snow":
+      return "Snow";
+    case "ice":
+      return "Ice";
+    case "mix":
+      return "Wintry mix";
+    default:
+      return "Rain";
+  }
+}
+
+export function formatMinuteRainHeadline(minuteForecast: ClientMinuteForecast | null | undefined): string {
+  if (!minuteForecast?.available || !minuteForecast.hasPrecipitation) return "";
+  const noun = precipitationNoun(minuteForecast.precipitationType);
+  if ((minuteForecast.alertState === "starting-soon" || minuteForecast.alertState === "starting-later") && minuteForecast.startsInMinutes != null) {
+    return `${noun} in ${minuteForecast.startsInMinutes} min`;
+  }
+  if (minuteForecast.alertState === "ongoing-ending" && minuteForecast.endsInMinutes != null) {
+    return `${noun} ending in ${minuteForecast.endsInMinutes} min`;
+  }
+  if (minuteForecast.alertState === "ongoing") {
+    return `${noun} continuing`;
+  }
+  return (minuteForecast.briefPhrase60 || minuteForecast.summary || "").trim();
+}
+
 export function describeWeather(code: number) {
   if (code === 0) return "Clear";
   if (code === 1 || code === 2) return "Partly cloudy";
@@ -61,6 +116,7 @@ export function weatherBriefing(
   forecast: WeatherForecastDay[],
   alerts: ClientWeatherAlert[] = [],
   conditions?: ClientWeatherConditions | null,
+  minuteForecast?: ClientMinuteForecast | null,
 ) {
   if (!weather) return "";
   const place = weather.locationName ? ` for ${weather.locationName}` : "";
@@ -78,6 +134,25 @@ export function weatherBriefing(
         ? ` Attention: ${alerts[0].headline}.`
         : ` Attention: ${alerts.length} severe weather alerts in effect, including ${alerts[0].headline}.`;
     briefing += warning;
+  }
+
+  if (minuteForecast?.available && minuteForecast.hasPrecipitation) {
+    const noun = precipitationNoun(minuteForecast.precipitationType);
+    const rawPhrase = (minuteForecast.briefPhrase60 || minuteForecast.summary || "").trim().replace(/[.!?\s]+$/, "");
+    if (minuteForecast.alertState === "starting-soon") {
+      const phrase = rawPhrase || (minuteForecast.startsInMinutes != null
+        ? `${noun} starting in ${minuteForecast.startsInMinutes} minutes`
+        : `${noun} starting soon`);
+      briefing += ` Rain alert: ${phrase}.`;
+    } else if (minuteForecast.alertState === "ongoing-ending") {
+      if (minuteForecast.endsInMinutes != null) {
+        briefing += ` ${noun} is expected to ease in about ${minuteForecast.endsInMinutes} minutes.`;
+      } else if (rawPhrase) {
+        briefing += ` ${rawPhrase}.`;
+      }
+    } else if (minuteForecast.alertState === "ongoing" && rawPhrase) {
+      briefing += ` ${rawPhrase}.`;
+    }
   }
 
   if (conditions?.uvIndex !== undefined && conditions?.uvIndex !== null && conditions.uvIndex >= 6) {
@@ -117,12 +192,20 @@ function formatCalendarDay(date: Date, timeZone?: string): string {
 export function weatherConditionKey(
   weather: Pick<LocalWeather, "weatherCode" | "observedAt" | "timezone"> | null,
   now: Date = new Date(),
+  minuteForecast?: ClientMinuteForecast | null,
 ): string {
   if (!weather) return "";
   const day = /^\d{4}-\d{2}-\d{2}/.test(weather.observedAt)
     ? weather.observedAt.slice(0, 10)
     : formatCalendarDay(now, weather.timezone);
-  return `${day}|${describeWeather(weather.weatherCode)}`;
+  const base = `${day}|${describeWeather(weather.weatherCode)}`;
+  if (
+    minuteForecast?.available
+    && (minuteForecast.alertState === "starting-soon" || minuteForecast.alertState === "ongoing-ending")
+  ) {
+    return `${base}|${minuteForecast.alertState}:${(minuteForecast.precipitationType || "rain").toLowerCase()}`;
+  }
+  return base;
 }
 
 export function shouldAutoReadWeather(

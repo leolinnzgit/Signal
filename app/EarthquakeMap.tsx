@@ -16,8 +16,14 @@ import {
   eventDetails,
   groupMapPins,
   overviewPosition,
+  weatherTileOverlays,
+  weatherTileOverlayLabels,
+  radarTimeOffsets,
+  buildAzureWeatherTileUrl,
+  formatRadarOffsetLabel,
   type MapEvent,
   type MapLayerKind,
+  type WeatherTileOverlay,
   type DisasterReport,
   type NewsMapArticle,
   type MapNewsEvent,
@@ -33,6 +39,9 @@ declare global {
       Map: new (container: HTMLElement, options: Record<string, any>) => any;
       Popup: new (options?: Record<string, any>) => any;
       HtmlMarker: new (options?: Record<string, any>) => any;
+      layer?: {
+        TileLayer: new (options: Record<string, any>) => any;
+      };
       control: {
         ZoomControl: new (options?: Record<string, any>) => any;
         PitchControl: new (options?: Record<string, any>) => any;
@@ -73,12 +82,16 @@ export default function EarthquakeMap({
   targetQuake,
   userCoordinates,
   onOpenArticle,
+  initialWeatherOverlays,
+  initialCenter,
 }: {
   isOpen: boolean;
   onClose: () => void;
   targetQuake?: EarthquakeReport | MapEvent | null;
   userCoordinates?: { latitude: number; longitude: number; radiusKm?: number } | null;
   onOpenArticle?: (article: MapNewsEvent) => void;
+  initialWeatherOverlays?: WeatherTileOverlay[];
+  initialCenter?: { latitude: number; longitude: number; zoom?: number } | null;
 }) {
   const userLatitude = userCoordinates?.latitude;
   const userLongitude = userCoordinates?.longitude;
@@ -90,6 +103,8 @@ export default function EarthquakeMap({
   const markersRef = useRef<any[]>([]);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const userMarkerRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const weatherTileLayersRef = useRef<Partial<Record<WeatherTileOverlay, any>>>({});
   const cameraRef = useRef<{ center: number[]; zoom: number } | null>(null);
   const followUpPolledRef = useRef(false);
 
@@ -102,6 +117,9 @@ export default function EarthquakeMap({
   const [minMagnitude, setMinMagnitude] = useState<number>(0);
   const [activeQuake, setActiveQuake] = useState<AnyMapEvent | null>(null);
   const [kinds, setKinds] = useState<MapLayerKind[]>([...mapLayerKinds]);
+  const [weatherOverlays, setWeatherOverlays] = useState<WeatherTileOverlay[]>(() => initialWeatherOverlays ?? []);
+  const [radarOffsetMinutes, setRadarOffsetMinutes] = useState<number>(0);
+  const [radarPlaying, setRadarPlaying] = useState<boolean>(false);
   const [selectedNewsTopic, setSelectedNewsTopic] = useState<string>("");
   const [refresh, setRefresh] = useState(0);
   const [mapReady, setMapReady] = useState(false);
@@ -352,7 +370,34 @@ export default function EarthquakeMap({
   }, [selectPinGroup]);
 
   // Reset stored camera when opening with a new target
-  useEffect(() => { cameraRef.current = null; }, [targetQuake, isOpen]);
+  useEffect(() => { cameraRef.current = null; }, [targetQuake, initialCenter?.latitude, initialCenter?.longitude, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setRadarPlaying(false);
+      return;
+    }
+    setWeatherOverlays(initialWeatherOverlays ?? []);
+    setRadarOffsetMinutes(0);
+    setRadarPlaying(false);
+  }, [isOpen, initialWeatherOverlays]);
+
+  useEffect(() => {
+    if (!weatherOverlays.includes("radar")) {
+      setRadarPlaying(false);
+    }
+  }, [weatherOverlays]);
+
+  useEffect(() => {
+    if (!isOpen || !radarPlaying || !weatherOverlays.includes("radar")) return;
+    const timer = window.setInterval(() => {
+      setRadarOffsetMinutes((current) => {
+        const index = radarTimeOffsets.indexOf(current as (typeof radarTimeOffsets)[number]);
+        return radarTimeOffsets[(index + 1) % radarTimeOffsets.length];
+      });
+    }, 1400);
+    return () => window.clearInterval(timer);
+  }, [isOpen, radarPlaying, weatherOverlays]);
 
   // Initialize or dispose Azure Map instance once per open session / configuration
   useEffect(() => {
@@ -367,11 +412,13 @@ export default function EarthquakeMap({
     const firstLocated = allEvents.find(e => e.latitude !== undefined && e.longitude !== undefined);
     const defaultCenter = targetQuake
       ? [targetQuake.longitude ?? 174.77, targetQuake.latitude ?? -41.28]
-      : data.userLocation
-        ? [data.userLocation.longitude, data.userLocation.latitude]
-        : firstLocated
-          ? [firstLocated.longitude ?? 174.77, firstLocated.latitude ?? -41.28]
-          : [174.77, -41.28];
+      : initialCenter
+        ? [initialCenter.longitude, initialCenter.latitude]
+        : data.userLocation
+          ? [data.userLocation.longitude, data.userLocation.latitude]
+          : firstLocated
+            ? [firstLocated.longitude ?? 174.77, firstLocated.latitude ?? -41.28]
+            : [174.77, -41.28];
 
     if (mapInstanceRef.current) {
       mapInstanceRef.current.dispose();
@@ -379,6 +426,7 @@ export default function EarthquakeMap({
     }
     markersRef.current = [];
     userMarkerRef.current = null;
+    weatherTileLayersRef.current = {};
 
     try {
       const map = new window.atlas.Map(container, {
@@ -387,7 +435,7 @@ export default function EarthquakeMap({
           subscriptionKey: data.subscriptionKey,
         },
         center: cameraRef.current?.center ?? defaultCenter,
-        zoom: cameraRef.current?.zoom ?? (targetQuake ? 7 : 2),
+        zoom: cameraRef.current?.zoom ?? (targetQuake ? 7 : initialCenter?.zoom ?? (initialCenter ? 7 : 2)),
         style: theme,
         view: "Auto",
       });
@@ -418,6 +466,7 @@ export default function EarthquakeMap({
     return () => {
       markersRef.current = [];
       userMarkerRef.current = null;
+      weatherTileLayersRef.current = {};
       if (mapInstanceRef.current) {
         const camera = mapInstanceRef.current.getCamera?.();
         if (camera?.center && Number.isFinite(camera.zoom)) cameraRef.current = { center: camera.center, zoom: camera.zoom };
@@ -428,7 +477,39 @@ export default function EarthquakeMap({
     };
     // Intentionally excludes `events` and `allEvents` so filter toggles update markers without recreating the map.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, data?.azureMapsConfigured, data?.subscriptionKey, sdkLoaded, targetQuake, host]);
+  }, [isOpen, data?.azureMapsConfigured, data?.subscriptionKey, sdkLoaded, targetQuake, initialCenter?.latitude, initialCenter?.longitude, host]);
+
+  // Synchronize live Azure Maps weather radar and infrared cloud tile layers
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!mapReady || !map || !window.atlas?.layer?.TileLayer || !map.layers) return;
+
+    const existing = weatherTileLayersRef.current;
+    for (const key of weatherTileOverlays) {
+      const prev = existing[key];
+      if (prev) {
+        try { map.layers.remove(prev); } catch { /* ignore */ }
+        delete existing[key];
+      }
+    }
+
+    for (const overlay of weatherOverlays) {
+      const offset = overlay === "radar" ? radarOffsetMinutes : Math.min(0, radarOffsetMinutes);
+      const tileLayer = new window.atlas.layer.TileLayer({
+        tileUrl: buildAzureWeatherTileUrl(overlay, offset),
+        opacity: overlay === "radar" ? 0.72 : 0.48,
+        tileSize: 256,
+        minSourceZoom: 0,
+        maxSourceZoom: 15,
+      });
+      try {
+        map.layers.add(tileLayer, "labels");
+      } catch {
+        map.layers.add(tileLayer);
+      }
+      existing[overlay] = tileLayer;
+    }
+  }, [mapReady, weatherOverlays, radarOffsetMinutes]);
 
   // Synchronize user location pin on the active Azure Map
   useEffect(() => {
@@ -652,7 +733,57 @@ export default function EarthquakeMap({
                 ))}
               </select>
             )}
+            {data?.azureMapsConfigured && weatherTileOverlays.map(overlay => {
+              const active = weatherOverlays.includes(overlay);
+              return (
+                <button
+                  key={overlay}
+                  type="button"
+                  className={`weather-overlay-btn weather-overlay-${overlay}`}
+                  aria-pressed={active}
+                  onClick={() => setWeatherOverlays(current =>
+                    current.includes(overlay) ? current.filter(item => item !== overlay) : [...current, overlay])}
+                >
+                  <span className={`weather-overlay-dot ${overlay}`} aria-hidden="true" />
+                  {weatherTileOverlayLabels[overlay]}
+                </button>
+              );
+            })}
           </div>
+          {data?.azureMapsConfigured && weatherOverlays.includes("radar") && (
+            <div className="weather-radar-bar" role="group" aria-label="Weather radar timeline">
+              <button
+                type="button"
+                className="radar-play-btn"
+                aria-pressed={radarPlaying}
+                onClick={() => setRadarPlaying(current => !current)}
+              >
+                {radarPlaying ? "⏸ Pause" : "▶ Loop"}
+              </button>
+              <div className="radar-frames">
+                {radarTimeOffsets.map(offset => (
+                  <button
+                    key={offset}
+                    type="button"
+                    className="radar-frame-btn"
+                    aria-pressed={radarOffsetMinutes === offset}
+                    onClick={() => {
+                      setRadarPlaying(false);
+                      setRadarOffsetMinutes(offset);
+                    }}
+                  >
+                    {formatRadarOffsetLabel(offset)}
+                  </button>
+                ))}
+              </div>
+              <div className="radar-legend" aria-label="Precipitation intensity legend">
+                <span className="radar-legend-item"><i style={{ background: "#38bdf8" }} />Light</span>
+                <span className="radar-legend-item"><i style={{ background: "#22c55e" }} />Mod</span>
+                <span className="radar-legend-item"><i style={{ background: "#facc15" }} />Heavy</span>
+                <span className="radar-legend-item"><i style={{ background: "#ef4444" }} />Intense</span>
+              </div>
+            </div>
+          )}
           <p>News pins show the main extracted location when a story names a clear place. GDACS global reports updated in the past week. Pins show reported locations, not affected boundaries or evacuation zones.</p>
           <p className="disaster-map-updated">{data ? `Checked ${new Date(data.checkedAtUtc).toLocaleString()}. Refreshes every minute.` : "Checking feeds…"}</p>
           {data?.warnings?.map(warning => <p role="alert" key={warning}>{warning}</p>)}

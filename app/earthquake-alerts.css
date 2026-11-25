@@ -608,6 +608,78 @@ html:has(.earthquake-alert[open]) { overflow: hidden; }
 .card-action-btn:hover {
   background: rgba(16, 185, 129, 0.34);
 }
+.weather-overlay-btn {
+  border-color: rgba(56, 189, 248, 0.45) !important;
+  color: #bae6fd !important;
+}
+.weather-overlay-btn[aria-pressed="true"] {
+  background: rgba(14, 165, 233, 0.25) !important;
+  color: #ffffff !important;
+  border-color: #38bdf8 !important;
+}
+.weather-overlay-dot.radar {
+  background: #38bdf8;
+}
+.weather-overlay-dot.infrared {
+  background: #94a3b8;
+}
+.weather-radar-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin-top: 0.5rem;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 0.45rem;
+  background: rgba(15, 23, 42, 0.7);
+}
+.radar-play-btn,
+.radar-frame-btn {
+  padding: 0.25rem 0.55rem;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 0.35rem;
+  background: rgba(15, 23, 42, 0.8);
+  color: #cbd5e1;
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.radar-play-btn[aria-pressed="true"],
+.radar-frame-btn[aria-pressed="true"] {
+  background: #0284c7;
+  border-color: #38bdf8;
+  color: #ffffff;
+}
+.radar-frames {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  overflow-x: auto;
+  max-width: 100%;
+}
+.radar-legend {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-left: auto;
+  font-size: 0.7rem;
+  color: #cbd5e1;
+}
+.radar-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+}
+.radar-legend-item i {
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 2px;
+}
 @media (max-width: 600px) {
   .earthquake-map-header { padding: .65rem .75rem; }
   .earthquake-map-filters { gap: .4rem; }
@@ -615,6 +687,8 @@ html:has(.earthquake-alert[open]) { overflow: hidden; }
   .disaster-map-toolbar { padding: .5rem .75rem; }
   .hazard-filters { flex-wrap: nowrap; overflow-x: auto; padding: .2rem; }
   .hazard-filters button, .hazard-filters select { white-space: nowrap; flex-shrink: 0; }
+  .weather-radar-bar { gap: 0.4rem; padding: 0.4rem 0.5rem; }
+  .radar-legend { margin-left: 0; width: 100%; justify-content: flex-start; flex-wrap: wrap; }
   .earthquake-active-card { padding: .65rem .75rem; gap: .6rem; }
 }
 

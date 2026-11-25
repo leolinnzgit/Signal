@@ -148,6 +148,10 @@ IIS for a persistent personal deployment.
   In the phone/web app, device coordinates resolve to a town such as Hamilton
   through the configured Azure Maps service; unavailable town lookups retain
   **Current location** while the forecast still loads. See [weather location](docs/weather-location.md).
+  When Azure Maps is configured, Signal also shows UV index, air quality,
+  minute-by-minute two-hour precipitation alerts and timeline bars, and a
+  **Live radar** shortcut that opens the map with precipitation radar and
+  infrared cloud overlays.
 - Open the **Settings** gear at the top right for separate **Briefing**, **Display**,
   and **Notifications** preferences. Topic and source management stay in the main controls.
 - Enable **Disaster alerts** under **Settings → Notifications** for this device (or `#disaster-alerts`).
@@ -182,7 +186,7 @@ IIS for a persistent personal deployment.
   Feeds refresh every minute while the map is open; GDACS requests share a six-minute
   server cache. Each source can fail independently, with an explicit warning and retry.
   Configure Azure Maps with `Configure Signal Maps.cmd` for street, night, and satellite
-  maps. If mapping is unavailable, a global coordinate overview plots actual locations.
+  maps, plus live precipitation radar and infrared cloud overlays. If mapping is unavailable, a global coordinate overview plots actual locations.
   Pins indicate reported locations, not flood extents, affected boundaries, or evacuation
   zones. Coverage is incomplete and reports can be delayed; follow local authorities.
   Voice uses the existing server-side Azure Speech integration and your saved

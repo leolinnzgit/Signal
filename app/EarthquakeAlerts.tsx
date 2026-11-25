@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useEarthquakeAudio } from "./EarthquakeAudio";
 import EarthquakeAlert, { type EarthquakeReport } from "./EarthquakeAlert";
 import EarthquakeMap from "./EarthquakeMap";
-import { hazardKinds, hazardLabels, type MapNewsEvent } from "./disaster-map";
+import { hazardKinds, hazardLabels, type MapNewsEvent, type WeatherTileOverlay } from "./disaster-map";
 import { normalizeDisasterSettings, normalizeDisasterNotification, defaultDisasterSettings, disasterAnnouncement, appendDisasterAlerts, matchesDisasterSettings, previewDisaster, type DisasterSettings, type DisasterNotification } from "./disaster-alerts";
 import "./earthquake-alerts.css";
 
@@ -49,6 +49,8 @@ export function useEarthquakeAlerts(
   const [previewKind, setPreviewKind] = useState<DisasterNotification["kind"]>("earthquake");
   const [showMap, setShowMap] = useState(false);
   const [mapTargetQuake, setMapTargetQuake] = useState<DisasterNotification | null>(null);
+  const [mapInitialOverlays, setMapInitialOverlays] = useState<WeatherTileOverlay[]>([]);
+  const [mapInitialCenter, setMapInitialCenter] = useState<{ latitude: number; longitude: number; zoom?: number } | null>(null);
   const [userCoords, setUserCoords] = useState<{ latitude: number; longitude: number; radiusKm?: number } | null>(null);
   const { audioStatus, speak, stop } = useEarthquakeAudio();
   const [retry, setRetry] = useState(0);
@@ -60,7 +62,13 @@ export function useEarthquakeAlerts(
 
   useEffect(() => {
     const handleHash = () => {
-      if (["#earthquake-map", "#disaster-map", "#news-map"].includes(window.location.hash)) {
+      if (window.location.hash === "#weather-radar") {
+        setMapInitialOverlays(["radar"]);
+        setMapInitialCenter(null);
+        setShowMap(true);
+      } else if (["#earthquake-map", "#disaster-map", "#news-map"].includes(window.location.hash)) {
+        setMapInitialOverlays([]);
+        setMapInitialCenter(null);
         setShowMap(true);
       }
     };
@@ -228,19 +236,31 @@ export function useEarthquakeAlerts(
       {!alert && audioStatus && <p role="status">{audioStatus}</p>}
       <small>Checks every minute. Earthquakes must be new within 15 minutes; other disasters must have a GDACS report updated within 24 hours. A new episode or changed alert level can alert again. GDACS data is cached for six minutes. Distance is to the reported point, not the affected boundary. Azure voice needs Signal open and may require a tap. Closed-app pushes use your phone’s normal notification sound and your last known location for up to 24 hours; reopen Signal to refresh it. Location is removed when disabled and expires from storage after seven days. Reports can be delayed or revised. Coverage is incomplete. Follow local authorities for instructions; this is not an early-warning or evacuation service.</small>
     </section> : null,
-    openMap: () => { setMapTargetQuake(null); setShowMap(true); },
+    openMap: (openOptions?: {
+      weatherOverlays?: WeatherTileOverlay[];
+      center?: { latitude: number; longitude: number; zoom?: number };
+    }) => {
+      setMapTargetQuake(null);
+      setMapInitialOverlays(openOptions?.weatherOverlays ?? []);
+      setMapInitialCenter(openOptions?.center ?? null);
+      setShowMap(true);
+    },
     map: <EarthquakeMap
       isOpen={showMap}
       onClose={() => {
         setShowMap(false);
         setMapTargetQuake(null);
-        if (["#earthquake-map", "#disaster-map", "#news-map"].includes(window.location.hash)) {
+        setMapInitialOverlays([]);
+        setMapInitialCenter(null);
+        if (["#earthquake-map", "#disaster-map", "#news-map", "#weather-radar"].includes(window.location.hash)) {
           window.history.replaceState(null, "", window.location.pathname + window.location.search);
         }
       }}
       targetQuake={mapTargetQuake}
       userCoordinates={userCoords}
       onOpenArticle={options?.onOpenArticle}
+      initialWeatherOverlays={mapInitialOverlays}
+      initialCenter={mapInitialCenter}
     />,
   };
 }

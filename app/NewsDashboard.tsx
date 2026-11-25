@@ -42,7 +42,7 @@ import {
 import { MarketSparkline } from "./MarketSparkline";
 import { enrichArticlesWithMarketQuotes, type ArticleMarketQuote } from "./stock-news-graph";
 const StockNewsGraphModal = lazy(() => import("./StockNewsGraphModal"));
-import { describeWeather, weatherBriefing, weatherConditionKey, type ClientWeatherAlert, type ClientWeatherConditions, type LocalWeather, type WeatherForecastDay } from "./weather-briefing";
+import { describeWeather, formatMinuteRainHeadline, weatherBriefing, weatherConditionKey, type ClientMinuteForecast, type ClientWeatherAlert, type ClientWeatherConditions, type LocalWeather, type WeatherForecastDay } from "./weather-briefing";
 import WeatherAlertBanner from "./WeatherAlertBanner";
 import ArticleEntities from "./ArticleEntities";
 import ArticleKeyPhrases from "./ArticleKeyPhrases";
@@ -1499,6 +1499,8 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   const [localWeather, setLocalWeather] = useState<LocalWeather | null>(null);
   const [weatherAlerts, setWeatherAlerts] = useState<ClientWeatherAlert[]>([]);
   const [weatherConditions, setWeatherConditions] = useState<ClientWeatherConditions | null>(null);
+  const [minuteForecast, setMinuteForecast] = useState<ClientMinuteForecast | null>(null);
+  const [weatherCoords, setWeatherCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [relatedStoriesEntity, setRelatedStoriesEntity] = useState<string | null>(null);
   const [moreCoverageOpen, setMoreCoverageOpen] = useState(false);
   const [entityPulseOpen, setEntityPulseOpen] = useState(false);
@@ -1701,9 +1703,9 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   }, [weatherAlerts, dismissedWeatherAlertIds]);
 
   const weatherAudio = useWeatherAudio(
-    weatherBriefing(weatherStatus === "ready" ? localWeather : null, weatherForecast, activeWeatherAlerts, weatherConditions),
+    weatherBriefing(weatherStatus === "ready" ? localWeather : null, weatherForecast, activeWeatherAlerts, weatherConditions, minuteForecast),
     !!headlineQueue || !!readerArticle || !!watchHandoffId,
-    weatherConditionKey(weatherStatus === "ready" ? localWeather : null),
+    weatherConditionKey(weatherStatus === "ready" ? localWeather : null, undefined, minuteForecast),
   );
   foregroundHeadlinePlayback.current = Boolean(headlineQueue && !headlinesMinimized && !readerArticle && !watchHandoffId);
   const earthquakes = useEarthquakeAlerts(user.email, !!pushNotificationStore, {
@@ -2328,6 +2330,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
     setWeatherForecast([]);
     setWeatherAlerts([]);
     setWeatherConditions(null);
+    setMinuteForecast(null);
     const fetchWeatherAlerts = async (lat: number, lon: number) => {
       try {
         const res = await fetch(`/api/weather/alerts?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}`, {
@@ -2358,6 +2361,22 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         }
       } catch {
         if (!cancelled) setWeatherConditions(null);
+      }
+    };
+    const fetchMinuteForecast = async (lat: number, lon: number) => {
+      try {
+        const res = await fetch(`/api/weather/minute-forecast?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}`, {
+          credentials: "same-origin",
+          cache: "no-store",
+          signal: request.signal,
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as ClientMinuteForecast;
+        if (!cancelled) {
+          setMinuteForecast(data?.available ? data : null);
+        }
+      } catch {
+        if (!cancelled) setMinuteForecast(null);
       }
     };
     const fetchWeather = async (latitude: number, longitude: number, locationName: string) => {
@@ -2391,8 +2410,10 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           throw new Error("Weather unavailable");
         }
         const resolvedLocationName = await nameRequest;
+        if (!cancelled) setWeatherCoords({ latitude, longitude });
         void fetchWeatherAlerts(latitude, longitude);
         void fetchWeatherConditions(latitude, longitude);
+        void fetchMinuteForecast(latitude, longitude);
         if (cancelled) return;
         const daily = data.daily;
         const forecast = (daily?.time ?? []).slice(0, 7).flatMap((date, index) => {
@@ -2429,9 +2450,10 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
       } catch {
         if (!cancelled) {
           setWeatherForecast([]);
-    setWeatherAlerts([]);
-    setWeatherConditions(null);
-    setWeatherStatus("error");
+          setWeatherAlerts([]);
+          setWeatherConditions(null);
+          setMinuteForecast(null);
+          setWeatherStatus("error");
         }
       }
     };
@@ -4951,7 +4973,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
           <button
             type="button"
             className="news-map-trigger"
-            onClick={earthquakes.openMap}
+            onClick={() => earthquakes.openMap()}
             title="View news stories and disaster reports on the map"
             aria-label="Open News & Disaster Map"
           >
@@ -5361,6 +5383,17 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                         </span>
                       </>
                     )}
+                    {minuteForecast?.available && minuteForecast.hasPrecipitation && (
+                      <>
+                        <span aria-hidden="true"> · </span>
+                        <span
+                          className={`weather-rain-pill ${minuteForecast.alertState || ""}`}
+                          title={minuteForecast.longPhrase || minuteForecast.summary}
+                        >
+                          {formatMinuteRainHeadline(minuteForecast)}
+                        </span>
+                      </>
+                    )}
                   </span>
                 </small>
               </div>
@@ -5412,6 +5445,19 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                 )}
               </div>
               <div className="weather-forecast-heading-actions">
+                <button
+                  type="button"
+                  className="weather-change-location"
+                  onClick={() => {
+                    setForecastOpen(false);
+                    earthquakes.openMap({
+                      weatherOverlays: ["radar"],
+                      center: weatherCoords ? { ...weatherCoords, zoom: 7 } : undefined,
+                    });
+                  }}
+                >
+                  Live radar
+                </button>
                 <button type="button" className="weather-change-location" onClick={() => setWeatherRetryKey(current => current + 1)}>
                   Refresh weather
                 </button>
@@ -5423,6 +5469,48 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
                 </button>
               </div>
             </div>
+            {minuteForecast?.available && (
+              <div className="weather-minute-panel" aria-label="Next two hours precipitation forecast">
+                <div className="weather-minute-header">
+                  <div>
+                    <span className="weather-minute-eyebrow">Next 2 hours</span>
+                    <strong>{minuteForecast.briefPhrase60 || minuteForecast.summary}</strong>
+                  </div>
+                  {minuteForecast.hasPrecipitation && (
+                    <span className="weather-minute-intensity">
+                      {(minuteForecast.maxDbz ?? 0) >= 40 ? "Heavy" : (minuteForecast.maxDbz ?? 0) >= 25 ? "Moderate" : "Light"}
+                    </span>
+                  )}
+                </div>
+                {minuteForecast.intervals && minuteForecast.intervals.length > 0 && (
+                  <>
+                    <div className="weather-minute-bars" role="img" aria-label={minuteForecast.longPhrase || minuteForecast.summary || "Minute-by-minute precipitation timeline"}>
+                      {minuteForecast.intervals.map((interval) => {
+                        const heightPct = interval.dbz > 0 ? Math.max(14, Math.min(100, Math.round((interval.dbz / 60) * 100))) : 6;
+                        const color = interval.dbz <= 0
+                          ? "var(--line)"
+                          : interval.colorHex || (interval.dbz >= 40 ? "#ef4444" : interval.dbz >= 25 ? "#facc15" : "#38bdf8");
+                        return (
+                          <span
+                            key={interval.minute}
+                            className="weather-minute-bar"
+                            title={`+${interval.minute} min: ${interval.shortPhrase || (interval.dbz > 0 ? `${interval.dbz} dBZ` : "Dry")}`}
+                            style={{ height: `${heightPct}%`, backgroundColor: color }}
+                          />
+                        );
+                      })}
+                    </div>
+                    <div className="weather-minute-axis" aria-hidden="true">
+                      <span>Now</span>
+                      <span>+30m</span>
+                      <span>+60m</span>
+                      <span>+90m</span>
+                      <span>+2h</span>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
             <div className="weather-forecast-days">
               {weatherForecast.map((day, index) => (
                 <article className="weather-forecast-day" key={day.date}>

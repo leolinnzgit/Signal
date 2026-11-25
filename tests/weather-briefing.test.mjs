@@ -7,7 +7,7 @@ const source = await readFile(new URL("../app/weather-briefing.ts", import.meta.
 const compiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 },
 }).outputText;
-const { weatherBriefing, describeWeather, weatherConditionKey, shouldAutoReadWeather } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
+const { weatherBriefing, describeWeather, weatherConditionKey, shouldAutoReadWeather, formatMinuteRainHeadline } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
 const weather = { temperature: 16.8, apparentTemperature: 15.2, weatherCode: 3, windSpeed: 12.3,
   locationName: "Auckland", observedAt: "2026-10-13T09:00", timezone: "Pacific/Auckland" };
 const today = { date: "2026-10-13", weatherCode: 61, temperatureMax: 20.6, temperatureMin: 11.8, precipitationProbability: 75 };
@@ -122,4 +122,53 @@ test("weatherConditionKey tracks local calendar day and grouped condition while 
     new Date("2026-10-13T20:00:00Z"),
   );
   assert.equal(fallbackKey, "2026-10-14|Clear");
+});
+
+test("minute-by-minute rain headlines, briefing narration, and condition key transitions", () => {
+  assert.equal(formatMinuteRainHeadline(null), "");
+  assert.equal(formatMinuteRainHeadline({ available: true, hasPrecipitation: false, isRainingNow: false, alertState: "none" }), "");
+
+  const startingSoon = {
+    available: true,
+    hasPrecipitation: true,
+    isRainingNow: false,
+    startsInMinutes: 15,
+    endsInMinutes: 35,
+    precipitationType: "rain",
+    alertState: "starting-soon",
+    briefPhrase60: "Rain starting in 15 min",
+    summary: "Rain in 15 min",
+  };
+  assert.equal(formatMinuteRainHeadline(startingSoon), "Rain in 15 min");
+
+  const dry = { available: true, hasPrecipitation: false, isRainingNow: false, alertState: "none", summary: "No precipitation" };
+  const baseBriefing = weatherBriefing(weather, [today]);
+  assert.equal(weatherBriefing(weather, [today], [], null, dry), baseBriefing);
+
+  const rainBriefing = weatherBriefing(weather, [today], [], null, startingSoon);
+  assert.ok(rainBriefing.includes("Rain alert: Rain starting in 15 min."));
+
+  const easingSoon = {
+    available: true,
+    hasPrecipitation: true,
+    isRainingNow: true,
+    endsInMinutes: 20,
+    precipitationType: "rain",
+    alertState: "ongoing-ending",
+  };
+  assert.equal(formatMinuteRainHeadline(easingSoon), "Rain ending in 20 min");
+  assert.ok(weatherBriefing(weather, [today], [], null, easingSoon).includes("Rain is expected to ease in about 20 minutes."));
+
+  // Condition key stays unchanged when dry or starting later, transitions once for starting-soon/ongoing-ending,
+  // and does not include numeric minute countdowns so ticking down does not repeat auto-read.
+  const baseKey = weatherConditionKey(weather, new Date("2026-10-13T09:00:00Z"));
+  assert.equal(weatherConditionKey(weather, new Date("2026-10-13T09:00:00Z"), dry), baseKey);
+  assert.equal(weatherConditionKey(weather, new Date("2026-10-13T09:00:00Z"), { ...startingSoon, startsInMinutes: 75, alertState: "starting-later" }), baseKey);
+
+  const rainAlertKey15 = weatherConditionKey(weather, new Date("2026-10-13T09:00:00Z"), startingSoon);
+  const rainAlertKey10 = weatherConditionKey(weather, new Date("2026-10-13T09:05:00Z"), { ...startingSoon, startsInMinutes: 10 });
+  assert.equal(rainAlertKey15, "2026-10-13|Overcast|starting-soon:rain");
+  assert.equal(rainAlertKey10, rainAlertKey15);
+  assert.equal(shouldAutoReadWeather(rainAlertKey15, baseKey), true);
+  assert.equal(shouldAutoReadWeather(rainAlertKey10, rainAlertKey15), false);
 });

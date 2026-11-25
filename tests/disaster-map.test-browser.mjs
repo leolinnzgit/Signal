@@ -10,7 +10,7 @@ const server = await createServer({ configFile: false, plugins: [react(), {
       res.end(await server.transformIndexHtml("/disaster-test", '<html><head></head><body><div id="root"></div><script type="module" src="/tests/disaster-map.fixture.tsx"></script></body></html>'));
     });
   },
-}], optimizeDeps: { entries: ["tests/disaster-map.fixture.tsx"] }, server: { host: "127.0.0.1", port: 0, watch: { ignored: ["**/Signal.Server/**", "**/iis-publish/**", "**/work/**"] } } });
+}], css: { postcss: { plugins: [] } }, optimizeDeps: { entries: ["tests/disaster-map.fixture.tsx"] }, server: { host: "127.0.0.1", port: 0, watch: { ignored: ["**/Signal.Server/**", "**/iis-publish/**", "**/work/**"] } } });
 await server.listen();
 let browser;
 try {
@@ -234,5 +234,87 @@ try {
     await page.close();
   }
 
-  console.log("Disaster & news map browser checks passed: mobile/desktop, Atlas markers, grouped pins, topic filter, News only, retry and partial feed failure.");
+  // Live Weather Radar & Clouds (IR) overlay checks
+  {
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    page.setDefaultNavigationTimeout(90_000);
+    page.setDefaultTimeout(60_000);
+    const errors = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await page.addInitScript(() => {
+      class Control {}
+      window.addedTileLayers = [];
+      window.removedTileLayers = [];
+      window.atlas = {
+        Map: class {
+          constructor(container) {
+            this.container = container;
+            this.controls = { add() {} };
+            this.markers = { add: marker => container.appendChild(marker.htmlContent) };
+            this.layers = {
+              add(layer) { window.addedTileLayers.push(layer.options); },
+              remove(layer) { window.removedTileLayers.push(layer.options); },
+            };
+            this.events = { add: (name, marker, callback) => {
+              if (name === "ready") setTimeout(marker, 0);
+              if (name === "click") marker.htmlContent.addEventListener("click", callback);
+            } };
+          }
+          setCamera(camera) { window.lastCamera = camera; }
+          getCamera() { return { zoom: 2 }; }
+          dispose() { this.container.replaceChildren(); }
+        },
+        HtmlMarker: class { constructor(options) { Object.assign(this, options); } },
+        layer: {
+          TileLayer: class { constructor(options) { this.options = options; } },
+        },
+        control: { ZoomControl: Control, PitchControl: Control, CompassControl: Control, StyleControl: Control },
+      };
+    });
+
+    await page.route("**/api/earthquakes/map-feed?*", route => route.fulfill({
+      json: {
+        azureMapsConfigured: true,
+        subscriptionKey: "test-key",
+        source: "GeoNet",
+        userLocation: { latitude: -36.85, longitude: 174.76, radiusKm: 300 },
+        checkedAtUtc: new Date().toISOString(),
+        warnings: [],
+        events: [],
+        disasters: [],
+      },
+    }));
+    await page.route("**/api/articles/map?*", route => route.fulfill({
+      json: { articles: [], pendingCount: 0, totalChecked: 0, checkedAtUtc: new Date().toISOString() },
+    }));
+
+    await page.goto(`${server.resolvedUrls.local[0]}disaster-test`);
+    await page.getByRole("button", { name: "Open disaster map" }).click();
+    const radarBtn = page.getByRole("button", { name: "Rain radar", exact: true });
+    const irBtn = page.getByRole("button", { name: "Clouds (IR)", exact: true });
+    await radarBtn.waitFor();
+
+    await radarBtn.click();
+    await page.getByRole("group", { name: "Weather radar timeline" }).waitFor();
+    await page.waitForFunction(() => window.addedTileLayers.some(l => l.tileUrl.includes("microsoft.weather.radar.main")));
+
+    await page.getByRole("button", { name: "+30m", exact: true }).click();
+    await page.waitForFunction(() => window.addedTileLayers.some(l => l.tileUrl.includes("microsoft.weather.radar.main") && l.tileUrl.includes("timeStamp=")));
+
+    await irBtn.click();
+    await page.waitForFunction(() => window.addedTileLayers.some(l => l.tileUrl.includes("microsoft.weather.infrared.main")));
+
+    await radarBtn.click();
+    await irBtn.click();
+    assert.equal(await page.getByRole("group", { name: "Weather radar timeline" }).count(), 0);
+    assert(await page.evaluate(() => window.removedTileLayers.length >= 2), "Disabling overlays must remove TileLayers.");
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "Mobile radar map must not overflow horizontally.");
+
+    await page.setViewportSize({ width: 1366, height: 900 });
+    await page.getByRole("button", { name: "Close disaster map" }).click();
+    assert.deepEqual(errors, []);
+    await page.close();
+  }
+
+  console.log("Disaster & news map browser checks passed: mobile/desktop, Atlas markers, grouped pins, topic filter, News only, weather radar/IR overlays, retry and partial feed failure.");
 } finally { await browser?.close(); await server.close(); }
