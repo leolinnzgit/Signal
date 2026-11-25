@@ -76,6 +76,8 @@ if (args.Contains("--article-shares-browser")) { await ArticleShareChecks.RunBro
 if (args.Contains("--article-shares-only")) return;
 await AzureTranslatorChecks.RunAsync();
 if (args.Contains("--azure-translator-only")) return;
+await WordLookupChecks.RunAsync();
+if (args.Contains("--word-lookup-only")) return;
 await AzureLanguageSummaryChecks.RunAsync();
 if (args.Contains("--azure-summary-only")) return;
 if (args.Contains("--azure-speech-live")) { await AzureSpeechChecks.RunLiveAsync(); return; }

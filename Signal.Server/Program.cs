@@ -286,6 +286,17 @@ builder.Services.AddHttpClient(MicrosoftFoundryService.HttpClientName, client =>
     client.Timeout = TimeSpan.FromSeconds(65);
 }).ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
 builder.Services.AddSingleton<MicrosoftFoundryService>();
+builder.Services.AddHttpClient(WordLookupService.DictionaryHttpClientName, client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(5);
+    client.MaxResponseContentBufferSize = 262_144;
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("Signal-News-Monitor/2.0");
+}).ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+{
+    AllowAutoRedirect = false,
+    UseCookies = false,
+});
+builder.Services.AddSingleton<WordLookupService>();
 builder.Services.AddScoped<SignalBotService>();
 builder.Services.AddScoped<ProductWatchService>();
 builder.Services.AddScoped<ExecutiveBriefingDeliveryService>();

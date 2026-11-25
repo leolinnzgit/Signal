@@ -25,6 +25,7 @@ import ArticleAudioPlayer, { type ArticleAudioPlaybackState } from "./ArticleAud
 import ArticleSummaryPlayer from "./ArticleSummaryPlayer";
 import ArticleTranslationControls from "./ArticleTranslationControls";
 import type { ArticleTranslation } from "./article-translation";
+import WordLookupPopover from "./WordLookupPopover";
 import { useWeatherAudio } from "./WeatherAudio";
 import { useEarthquakeAlerts } from "./EarthquakeAlerts";
 import AppSettings from "./AppSettings";
@@ -742,9 +743,12 @@ const StoryFeedItem = memo(function StoryFeedItem({
     <li>
       <a
         href={article.url}
+        draggable={false}
         className={article.imageUrl ? "story-link has-image" : "story-link"}
         onClick={(event) => {
           event.preventDefault();
+          const selected = window.getSelection()?.toString().trim() ?? "";
+          if (selected.length > 0) return;
           onOpenReader(article, event.currentTarget, false);
         }}
       >
@@ -1329,6 +1333,7 @@ type NewsDashboardProps = {
 type PushNotificationStatus = "checking" | "unsupported" | "off" | "enabling" | "on" | "disabling" | "denied" | "error";
 
 export default function NewsDashboard({ user, articleToOpen, renderArticleComments, signOutPath, onSignOut, onManageAccount, onOpenCommunity, onOpenLatestComments, onOpenDiscussion, communityUnreadCount = 0, latestCommentUnreadCount = 0, preferencesStore, articleStore, summarySender, refreshStore, pushNotificationStore, friendShareStore }: NewsDashboardProps) {
+  const newsDashboardRoot = useRef<HTMLElement | null>(null);
   const [preferences, setPreferences] = useState<NewsPreferences>(DEFAULTS);
   const [topicInput, setTopicInput] = useState("");
   const [rssInput, setRssInput] = useState("");
@@ -4844,7 +4849,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
   });
 
   return (
-    <main className="signal-dashboard" id="top">
+    <main ref={newsDashboardRoot} className="signal-dashboard" id="top">
       {watchHandoffId && <WatchListeningHandoff key={`${user.email}:${watchHandoffId}`} id={watchHandoffId} onClose={() => {
         clearPendingWatchHandoff(watchHandoffId);
         setWatchHandoffId(null);
@@ -7862,6 +7867,7 @@ export default function NewsDashboard({ user, articleToOpen, renderArticleCommen
         tripwiresOpen={tripwiresOpen}
         onCloseTripwires={() => setTripwiresOpen(false)}
       />
+      <WordLookupPopover containerRef={newsDashboardRoot} />
       <footer><p><span className="footer-dot" /> SIGNAL gathers public reporting and sends you to the original publisher.</p></footer>
     </main>
   );

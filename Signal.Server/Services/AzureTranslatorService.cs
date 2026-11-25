@@ -35,6 +35,8 @@ public sealed class AzureTranslatorOptions
 
 public sealed class ArticleTranslationException(string message) : Exception(message);
 public sealed record ArticleTranslationResult(bool Available, string Reason, string Title, string[] Paragraphs, string Language);
+public sealed record AzureWordChineseSense(string PartOfSpeech, string Translation, string[] BackTranslations);
+public sealed record AzureWordChineseTranslation(string Simplified, string Traditional, AzureWordChineseSense[] Senses);
 
 public sealed class AzureTranslatorService(
     IOptions<AzureTranslatorOptions> options, IHttpClientFactory clients, IMemoryCache cache)
@@ -196,6 +198,234 @@ public sealed class AzureTranslatorService(
         catch
         {
             return texts.ToArray();
+        }
+        finally
+        {
+            if (acquired) gate.Release();
+        }
+    }
+
+    public async Task<AzureWordChineseTranslation?> TranslateWordToChineseAsync(
+        string text,
+        bool includeDictionaryLookup,
+        CancellationToken token)
+    {
+        var trimmed = (text ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(trimmed) || trimmed.Length > 80 || !Enabled)
+            return null;
+
+        var endpoint = options.Value.Validate();
+        var cacheKey = "azure-word-zh:" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+            $"{endpoint}\n{includeDictionaryLookup}\n{trimmed.ToLowerInvariant()}")));
+
+        if (cache.TryGetValue(cacheKey, out AzureWordChineseTranslation? ready) && ready is not null)
+            return ready;
+
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(15));
+        var acquired = false;
+        try
+        {
+            await gate.WaitAsync(deadline.Token);
+            acquired = true;
+            if (cache.TryGetValue(cacheKey, out ready) && ready is not null)
+                return ready;
+
+            var isCognitive = endpoint.Host.EndsWith(".cognitiveservices.azure.com", StringComparison.OrdinalIgnoreCase);
+            var translatePath = isCognitive ? "translator/text/v3.0/translate" : "translate";
+            var client = clients.CreateClient(HttpClientName);
+
+            using var translateRequest = new HttpRequestMessage(HttpMethod.Post,
+                new Uri(endpoint, translatePath + "?api-version=3.0&textType=plain&to=zh-Hans&to=zh-Hant"));
+            translateRequest.Headers.Add("Ocp-Apim-Subscription-Key", options.Value.Key);
+            if (!string.IsNullOrEmpty(options.Value.Region))
+                translateRequest.Headers.Add("Ocp-Apim-Subscription-Region", options.Value.Region);
+            translateRequest.Content = JsonContent.Create(new[] { new { text = trimmed } });
+
+            using var translateResponse = await client.SendAsync(translateRequest, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
+            if (!translateResponse.IsSuccessStatusCode)
+                return null;
+
+            await translateResponse.Content.LoadIntoBufferAsync(262_144, deadline.Token);
+            using var translateDoc = JsonDocument.Parse(await translateResponse.Content.ReadAsStringAsync(deadline.Token));
+            if (translateDoc.RootElement.ValueKind != JsonValueKind.Array || translateDoc.RootElement.GetArrayLength() == 0)
+                return null;
+
+            var translations = translateDoc.RootElement[0].GetProperty("translations").EnumerateArray().ToArray();
+            var simplified = translations.FirstOrDefault(t => t.GetProperty("to").GetString() == "zh-Hans")
+                .TryGetProperty("text", out var simpProp) ? (simpProp.GetString() ?? "").Trim() : "";
+            var traditional = translations.FirstOrDefault(t => t.GetProperty("to").GetString() == "zh-Hant")
+                .TryGetProperty("text", out var tradProp) ? (tradProp.GetString() ?? "").Trim() : "";
+
+            if (string.IsNullOrWhiteSpace(simplified) && string.IsNullOrWhiteSpace(traditional))
+                return null;
+
+            if (string.IsNullOrWhiteSpace(simplified)) simplified = traditional;
+            if (string.IsNullOrWhiteSpace(traditional)) traditional = simplified;
+
+            var senses = Array.Empty<AzureWordChineseSense>();
+            if (includeDictionaryLookup)
+            {
+                senses = await TryLookupChineseDictionarySensesAsync(client, endpoint, isCognitive, trimmed, deadline.Token);
+            }
+
+            var result = new AzureWordChineseTranslation(simplified, traditional, senses);
+            cache.Set(cacheKey, result, TimeSpan.FromHours(24));
+            return result;
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            return null;
+        }
+        finally
+        {
+            if (acquired) gate.Release();
+        }
+    }
+
+    private async Task<AzureWordChineseSense[]> TryLookupChineseDictionarySensesAsync(
+        HttpClient client,
+        Uri endpoint,
+        bool isCognitive,
+        string word,
+        CancellationToken token)
+    {
+        try
+        {
+            using var dictDeadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+            dictDeadline.CancelAfter(TimeSpan.FromSeconds(5));
+
+            var lookupPath = isCognitive ? "translator/text/v3.0/dictionary/lookup" : "dictionary/lookup";
+            using var request = new HttpRequestMessage(HttpMethod.Post,
+                new Uri(endpoint, lookupPath + "?api-version=3.0&from=en&to=zh-Hans"));
+            request.Headers.Add("Ocp-Apim-Subscription-Key", options.Value.Key);
+            if (!string.IsNullOrEmpty(options.Value.Region))
+                request.Headers.Add("Ocp-Apim-Subscription-Region", options.Value.Region);
+            request.Content = JsonContent.Create(new[] { new { text = word } });
+
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, dictDeadline.Token);
+            if (!response.IsSuccessStatusCode)
+                return [];
+
+            await response.Content.LoadIntoBufferAsync(262_144, dictDeadline.Token);
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(dictDeadline.Token));
+            if (doc.RootElement.ValueKind != JsonValueKind.Array || doc.RootElement.GetArrayLength() == 0)
+                return [];
+
+            if (!doc.RootElement[0].TryGetProperty("translations", out var translationsEl) || translationsEl.ValueKind != JsonValueKind.Array)
+                return [];
+
+            var list = new List<AzureWordChineseSense>();
+            foreach (var entry in translationsEl.EnumerateArray())
+            {
+                if (list.Count >= 5) break;
+                var displayTarget = entry.TryGetProperty("displayTarget", out var dt) ? (dt.GetString() ?? "").Trim() : "";
+                if (string.IsNullOrWhiteSpace(displayTarget)) continue;
+
+                var posTag = entry.TryGetProperty("posTag", out var pt) ? (pt.GetString() ?? "").Trim() : "";
+                var pos = MapDictionaryPosTag(posTag);
+
+                var backList = new List<string>();
+                if (entry.TryGetProperty("backTranslations", out var btEl) && btEl.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var bt in btEl.EnumerateArray())
+                    {
+                        if (backList.Count >= 3) break;
+                        var text = bt.TryGetProperty("displayText", out var dtext) ? (dtext.GetString() ?? "").Trim() : "";
+                        if (!string.IsNullOrWhiteSpace(text) && !backList.Contains(text, StringComparer.OrdinalIgnoreCase))
+                        {
+                            backList.Add(text);
+                        }
+                    }
+                }
+
+                list.Add(new AzureWordChineseSense(pos, displayTarget, backList.ToArray()));
+            }
+            return list.ToArray();
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    private static string MapDictionaryPosTag(string posTag) => posTag.ToUpperInvariant() switch
+    {
+        "NOUN" => "noun",
+        "VERB" => "verb",
+        "ADJ" => "adj",
+        "ADV" => "adv",
+        "PREP" => "prep",
+        "PRON" => "pron",
+        "CONJ" => "conj",
+        "DET" => "det",
+        "MODAL" => "modal",
+        "OTHER" or "" => "other",
+        _ => posTag.ToLowerInvariant(),
+    };
+
+    public async Task<string?> TranslateSingleToEnglishAsync(string text, CancellationToken token)
+    {
+        var trimmed = (text ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(trimmed) || trimmed.Length > 80 || !Enabled)
+            return null;
+
+        var endpoint = options.Value.Validate();
+        var cacheKey = "azure-word-en:" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+            $"{endpoint}\n{trimmed.ToLowerInvariant()}")));
+
+        if (cache.TryGetValue(cacheKey, out string? ready) && !string.IsNullOrWhiteSpace(ready))
+            return ready;
+
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(15));
+        var acquired = false;
+        try
+        {
+            await gate.WaitAsync(deadline.Token);
+            acquired = true;
+            if (cache.TryGetValue(cacheKey, out ready) && !string.IsNullOrWhiteSpace(ready))
+                return ready;
+
+            var path = endpoint.Host.EndsWith(".cognitiveservices.azure.com", StringComparison.OrdinalIgnoreCase)
+                ? "translator/text/v3.0/translate" : "translate";
+            using var request = new HttpRequestMessage(HttpMethod.Post,
+                new Uri(endpoint, path + "?api-version=3.0&textType=plain&to=en"));
+            request.Headers.Add("Ocp-Apim-Subscription-Key", options.Value.Key);
+            if (!string.IsNullOrEmpty(options.Value.Region))
+                request.Headers.Add("Ocp-Apim-Subscription-Region", options.Value.Region);
+            request.Content = JsonContent.Create(new[] { new { text = trimmed } });
+
+            using var response = await clients.CreateClient(HttpClientName).SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
+            if (!response.IsSuccessStatusCode)
+                return null;
+
+            await response.Content.LoadIntoBufferAsync(262_144, deadline.Token);
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(deadline.Token));
+            if (doc.RootElement.ValueKind != JsonValueKind.Array || doc.RootElement.GetArrayLength() == 0)
+                return null;
+
+            var translated = doc.RootElement[0].GetProperty("translations").EnumerateArray()
+                .FirstOrDefault(t => t.GetProperty("to").GetString() == "en")
+                .TryGetProperty("text", out var textProp) ? (textProp.GetString() ?? "").Trim() : "";
+
+            if (string.IsNullOrWhiteSpace(translated))
+                return null;
+
+            cache.Set(cacheKey, translated, TimeSpan.FromHours(24));
+            return translated;
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            return null;
         }
         finally
         {
